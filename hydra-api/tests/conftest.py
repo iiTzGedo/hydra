@@ -9,7 +9,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from hydra_api.core.config import Settings
+from hydra_api.core.config import Settings, get_settings
 from hydra_api.core.security import create_access_token
 from hydra_api.db.mongodb import MongoDB, get_mongodb
 from hydra_api.db.redis import RedisClient, get_redis
@@ -67,6 +67,7 @@ def mock_mongodb():
     mock.topologies = create_mock_collection()
     mock.users = create_mock_collection()
     mock.tokens = create_mock_collection()
+    mock.api_keys = create_mock_collection()
     mock.commands = create_mock_collection()
     mock.audit_log = create_mock_collection()
 
@@ -105,6 +106,7 @@ async def client(mock_mongodb, mock_redis) -> AsyncGenerator[AsyncClient, None]:
 @pytest.fixture
 def admin_token(test_settings) -> str:
     """Create an admin JWT token."""
+    settings = get_settings()
     return create_access_token(
         subject="user_admin123",
         token_type="access",
@@ -113,26 +115,28 @@ def admin_token(test_settings) -> str:
             "role": "admin",
             "permissions": ["*:*"],
         },
-        settings=test_settings,
+        settings=settings,
     )
 
 
 @pytest.fixture
 def agent_token(test_settings) -> str:
     """Create an agent JWT token."""
+    settings = get_settings()
     return create_access_token(
         subject="test-node-01",
         token_type="access",
         additional_claims={
             "sub_type": "agent",
         },
-        settings=test_settings,
+        settings=settings,
     )
 
 
 @pytest.fixture
 def viewer_token(test_settings) -> str:
     """Create a viewer JWT token."""
+    settings = get_settings()
     return create_access_token(
         subject="user_viewer123",
         token_type="access",
@@ -145,7 +149,7 @@ def viewer_token(test_settings) -> str:
                 "services:read",
             ],
         },
-        settings=test_settings,
+        settings=settings,
     )
 
 
@@ -263,6 +267,8 @@ def sample_registration_token():
         "token": "reg_test_token_abc123",
         "type": "registration",
         "description": "Test token",
+        "scope": "node",
+        "createdBy": "user_admin123",
         "expiresAt": datetime(2099, 12, 31, tzinfo=timezone.utc),
         "maxUses": 10,
         "usedCount": 0,

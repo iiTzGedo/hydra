@@ -21,7 +21,7 @@ async def test_register_node_success(
     mock_mongodb.tokens.update_one = AsyncMock()
 
     response = await client.post(
-        "/auth/register",
+        "/node/register",
         json={
             "nodeId": "new-test-node",
             "class": "compute",
@@ -32,12 +32,12 @@ async def test_register_node_success(
         headers={"X-Registration-Token": sample_registration_token["token"]},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     data = response.json()
     assert data["nodeId"] == "new-test-node"
-    assert "accessToken" in data
-    assert "refreshToken" in data
-    assert data["tokenType"] == "Bearer"
+    assert "apiKey" in data
+    assert "apiKeyId" in data
+    assert data["status"] == "active"
 
 
 @pytest.mark.asyncio
@@ -52,7 +52,7 @@ async def test_register_node_duplicate(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.post(
-        "/auth/register",
+        "/node/register",
         json={
             "nodeId": sample_node["nodeId"],
             "class": "compute",
@@ -64,7 +64,7 @@ async def test_register_node_duplicate(
 
     assert response.status_code == 409
     data = response.json()
-    assert data["error"]["code"] == "NODE_ALREADY_EXISTS"
+    assert data["error"]["code"] == "NODE_ALREADY_REGISTERED"
 
 
 @pytest.mark.asyncio
@@ -76,7 +76,7 @@ async def test_register_node_invalid_token(
     mock_mongodb.tokens.find_one = AsyncMock(return_value=None)
 
     response = await client.post(
-        "/auth/register",
+        "/node/register",
         json={
             "nodeId": "test-node",
             "class": "compute",
@@ -88,7 +88,7 @@ async def test_register_node_invalid_token(
 
     assert response.status_code == 401
     data = response.json()
-    assert "invalid" in data["error"]["message"].lower()
+    assert "invalid" in data["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -103,7 +103,7 @@ async def test_register_node_expired_token(
     mock_mongodb.tokens.find_one = AsyncMock(return_value=expired_token)
 
     response = await client.post(
-        "/auth/register",
+        "/node/register",
         json={
             "nodeId": "test-node",
             "class": "compute",
@@ -115,7 +115,7 @@ async def test_register_node_expired_token(
 
     assert response.status_code == 401
     data = response.json()
-    assert "expired" in data["error"]["message"].lower()
+    assert "expired" in data["detail"].lower()
 
 
 @pytest.mark.asyncio
