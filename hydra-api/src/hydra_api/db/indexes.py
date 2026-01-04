@@ -1,0 +1,152 @@
+"""MongoDB index definitions and setup."""
+
+import structlog
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import ASCENDING, DESCENDING, TEXT, IndexModel
+
+logger = structlog.get_logger(__name__)
+
+# Index definitions for each collection
+INDEXES: dict[str, list[IndexModel]] = {
+    "nodes": [
+        IndexModel([("nodeId", ASCENDING)], unique=True),
+        IndexModel([("class", ASCENDING), ("type", ASCENDING), ("status", ASCENDING)]),
+        IndexModel([("tags", ASCENDING)]),
+        IndexModel([("parentNodeId", ASCENDING)]),
+        IndexModel([("networkIds", ASCENDING)]),
+        IndexModel([("lastProfileAt", DESCENDING)]),
+        IndexModel(
+            [("displayName", TEXT), ("description", TEXT)],
+            default_language="english",
+        ),
+    ],
+    "profiles": [
+        IndexModel([("profileId", ASCENDING)], unique=True),
+        IndexModel([("nodeId", ASCENDING), ("submittedAt", DESCENDING)]),
+        IndexModel([("nodeId", ASCENDING), ("version", ASCENDING)], unique=True),
+        IndexModel([("submittedAt", DESCENDING)]),
+        IndexModel([("serviceIds", ASCENDING)]),
+    ],
+    "profile_meta": [
+        IndexModel([("profileId", ASCENDING)], unique=True),
+        IndexModel([("nodeId", ASCENDING), ("version", ASCENDING)]),
+        IndexModel([("profileHash", ASCENDING)]),
+    ],
+    "services": [
+        IndexModel([("serviceId", ASCENDING)], unique=True),
+        IndexModel([("nodeId", ASCENDING)]),
+        IndexModel([("runtime", ASCENDING), ("status", ASCENDING)]),
+        IndexModel([("tags", ASCENDING)]),
+        IndexModel([("lastSeen", DESCENDING)]),
+        IndexModel(
+            [("name", TEXT), ("displayName", TEXT), ("description", TEXT)],
+            default_language="english",
+        ),
+    ],
+    "groups": [
+        IndexModel([("groupId", ASCENDING)], unique=True),
+        IndexModel([("parentGroupIds", ASCENDING)]),
+        IndexModel([("tags", ASCENDING)]),
+        IndexModel([("types", ASCENDING)]),
+    ],
+    "networks": [
+        IndexModel([("networkId", ASCENDING)], unique=True),
+        IndexModel([("type", ASCENDING)]),
+        IndexModel([("cidr", ASCENDING)]),
+        IndexModel([("parentNetworkId", ASCENDING)]),
+        IndexModel([("routerNodeId", ASCENDING)]),
+        IndexModel([("tags", ASCENDING)]),
+    ],
+    "topologies": [
+        IndexModel([("topologyId", ASCENDING)], unique=True),
+        IndexModel([("mode", ASCENDING), ("generatedAt", DESCENDING)]),
+        IndexModel([("mode", ASCENDING), ("validFrom", ASCENDING), ("validUntil", ASCENDING)]),
+    ],
+    "users": [
+        IndexModel([("userId", ASCENDING)], unique=True),
+        IndexModel([("username", ASCENDING)], unique=True),
+        IndexModel([("email", ASCENDING)], unique=True),
+        IndexModel([("role", ASCENDING)]),
+        IndexModel([("status", ASCENDING)]),
+        IndexModel([("temporaryRoles.expiresAt", ASCENDING)], sparse=True),
+    ],
+    "users_pending": [
+        IndexModel([("userId", ASCENDING)], unique=True),
+        IndexModel([("username", ASCENDING)], unique=True),
+        IndexModel([("email", ASCENDING)], unique=True),
+        IndexModel([("role", ASCENDING)]),
+        # Auto-expire pending users after 7 days
+        IndexModel([("requestedAt", ASCENDING)], expireAfterSeconds=604800),
+    ],
+    "tokens": [
+        IndexModel([("token", ASCENDING)], unique=True),
+        IndexModel([("type", ASCENDING)]),
+        IndexModel([("expiresAt", ASCENDING)], expireAfterSeconds=0),
+        IndexModel([("createdBy", ASCENDING)]),
+    ],
+    "api_keys": [
+        IndexModel([("keyId", ASCENDING)], unique=True),
+        IndexModel([("ownerId", ASCENDING)]),
+        IndexModel([("type", ASCENDING)]),
+        IndexModel([("nodeId", ASCENDING)], sparse=True),
+        IndexModel([("expiresAt", ASCENDING)], expireAfterSeconds=0, sparse=True),
+        IndexModel([("revokedAt", ASCENDING)], sparse=True),
+    ],
+    "commands": [
+        IndexModel([("commandId", ASCENDING)], unique=True),
+        IndexModel([("nodeId", ASCENDING), ("status", ASCENDING)]),
+        IndexModel([("status", ASCENDING), ("createdAt", ASCENDING)]),
+        IndexModel([("createdAt", DESCENDING)]),
+    ],
+    "audit_log": [
+        IndexModel([("timestamp", DESCENDING)]),
+        IndexModel([("action", ASCENDING), ("timestamp", DESCENDING)]),
+        IndexModel([("resource.type", ASCENDING), ("resource.id", ASCENDING)]),
+        IndexModel([("actor.id", ASCENDING)]),
+    ],
+}
+
+
+async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
+    """Create all indexes for all collections."""
+    logger.info("ensuring_indexes")
+
+    for collection_name, indexes in INDEXES.items():
+        collection = db[collection_name]
+        try:
+            await collection.create_indexes(indexes)
+            logger.info("indexes_created", collection=collection_name, count=len(indexes))
+        except Exception as e:
+            logger.error(
+                "index_creation_failed",
+                collection=collection_name,
+                error=str(e),
+            )
+            raise
+
+    logger.info("all_indexes_created")
+
+
+async def drop_indexes(db: AsyncIOMotorDatabase, exclude_id: bool = True) -> None:
+    """Drop all indexes (for testing/reset). Optionally keeps _id index."""
+    logger.warning("dropping_indexes")
+
+    for collection_name in INDEXES.keys():
+        collection = db[collection_name]
+        try:
+            if exclude_id:
+                # Get all indexes and drop non-_id ones
+                async for index in collection.list_indexes():
+                    if index["name"] != "_id_":
+                        await collection.drop_index(index["name"])
+            else:
+                await collection.drop_indexes()
+            logger.info("indexes_dropped", collection=collection_name)
+        except Exception as e:
+            logger.error(
+                "index_drop_failed",
+                collection=collection_name,
+                error=str(e),
+            )
+
+    logger.info("all_indexes_dropped")

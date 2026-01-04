@@ -1,0 +1,116 @@
+version: "3.8"
+
+services:
+  hydra-api:
+    build:
+      context: ./hydra-api
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - HYDRA_ENV=development
+      - HYDRA_DEBUG=true
+      - HYDRA_MONGODB_URI=mongodb://hydra_app:Gedo8420.@mongo-dev.db.nimi.labs:27017?authSource=hydra
+      - HYDRA_MONGODB_DATABASE=hydra
+      - HYDRA_REDIS_URL=redis://:Gedo8420.@redis-dev.db.nimi.labs:6379/0
+      - HYDRA_JWT_SECRET=a1b2c3d4e5
+      - HYDRA_JWT_ALGORITHM=HS256
+      - HYDRA_JWT_EXPIRE_MINUTES=60
+      # Object storage (optional - for agent binary distribution)
+      - HYDRA_OBJECT_STORAGE_ENABLED=${HYDRA_OBJECT_STORAGE_ENABLED:-true}
+      - HYDRA_OBJECT_STORAGE_ENDPOINT=${HYDRA_OBJECT_STORAGE_ENDPOINT:-http://obs-dev.db.nimi.labs:3900}
+      - HYDRA_OBJECT_STORAGE_BUCKET=${HYDRA_OBJECT_STORAGE_BUCKET:-hydra-bucket}
+      - HYDRA_OBJECT_STORAGE_ACCESS_KEY=${HYDRA_OBJECT_STORAGE_ACCESS_KEY:-}
+      - HYDRA_OBJECT_STORAGE_SECRET_KEY=${HYDRA_OBJECT_STORAGE_SECRET_KEY:-}
+      # SMTP (optional - for password reset emails)
+      - HYDRA_SMTP_ENABLED=${HYDRA_SMTP_ENABLED:-false}
+      - HYDRA_SMTP_HOST=${HYDRA_SMTP_HOST:-}
+      - HYDRA_SMTP_PORT=${HYDRA_SMTP_PORT:-587}
+    volumes:
+      - ./hydra-api/src:/app/src:ro
+    networks:
+      - hydra-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  hydra-mcp:
+    build:
+      context: ./hydra-mcp
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - HYDRA_ENV=development
+      - HYDRA_API_URL=http://hydra-api:8080
+    volumes:
+      - ./hydra-mcp/src:/app/src:ro
+    depends_on:
+      - hydra-api
+    networks:
+      - hydra-network
+
+  hydra-web:
+    build:
+      context: ./hydra-web
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+    volumes:
+      - ./hydra-web/src:/app/src:ro
+      - ./hydra-web/public:/app/public:ro
+    depends_on:
+      - hydra-api
+    networks:
+      - hydra-network
+
+  # Local development databases (optional - can use external)
+  mongodb:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - hydra-network
+    profiles:
+      - local-db
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - hydra-network
+    profiles:
+      - local-db
+
+  garage:
+    image: dxflrs/garage:v1.0.0
+    ports:
+      - "3900:3900"   # S3 API
+      - "3903:3903"   # Admin API
+    volumes:
+      - garage_data:/var/lib/garage
+      - ./garage.toml:/etc/garage.toml:ro
+    command: ["/garage", "server", "-c", "/etc/garage.toml"]
+    networks:
+      - hydra-network
+    profiles:
+      - local-db
+
+volumes:
+  mongodb_data:
+  redis_data:
+  garage_data:
+
+networks:
+  hydra-network:
+    driver: bridge
