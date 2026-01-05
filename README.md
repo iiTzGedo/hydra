@@ -52,7 +52,7 @@ docker-compose -f docker-compose.dev.yml up -d
 4. Access the services:
    - API: http://localhost:8080/api/v1
    - Web UI: http://localhost:5173
-   - API Docs: http://localhost:8080/docs
+   - API Docs: http://localhost:8080/api/v1/docs
 
 ### Manual Development
 
@@ -62,7 +62,7 @@ cd hydra-api
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-uvicorn hydra_api.main:app --reload
+uvicorn hydra.main:app --reload
 ```
 
 **hydra-agent:**

@@ -51,16 +51,16 @@ HYDRA_JWT_EXPIRE_MINUTES=60
 
 ```bash
 # Development mode with auto-reload
-uvicorn hydra_api.main:app --reload --host 0.0.0.0 --port 8080
+uvicorn hydra.main:app --reload --host 0.0.0.0 --port 8080
 
 # Production mode
-uvicorn hydra_api.main:app --host 0.0.0.0 --port 8080 --workers 4
+uvicorn hydra.main:app --host 0.0.0.0 --port 8080 --workers 4
 ```
 
 The API will be available at `http://localhost:8080/api/v1`. API documentation is at:
-- Swagger UI: `http://localhost:8080/docs`
-- ReDoc: `http://localhost:8080/redoc`
-- OpenAPI JSON: `http://localhost:8080/openapi.json`
+- Swagger UI: `http://localhost:8080/api/v1/docs`
+- ReDoc: `http://localhost:8080/api/v1/redoc`
+- OpenAPI JSON: `http://localhost:8080/api/v1/openapi.json`
 
 ## Testing
 
@@ -71,7 +71,7 @@ The API will be available at `http://localhost:8080/api/v1`. API documentation i
 pytest
 
 # Run with coverage
-pytest --cov=hydra_api --cov-report=html
+pytest --cov=hydra --cov-report=html
 
 # Run specific test file
 pytest tests/test_auth.py
@@ -202,29 +202,17 @@ docker run -p 8080:8080 \
 
 ```
 hydra-api/
-├── src/hydra_api/
-│   ├── api/                 # API route handlers
-│   │   └── v1/
-│   │       ├── auth.py      # Authentication endpoints
-│   │       ├── health.py    # Health check endpoints
-│   │       ├── nodes.py     # Node management
-│   │       └── profiles.py  # Profile management
-│   ├── core/                # Core functionality
-│   │   ├── config.py        # Settings and configuration
-│   │   ├── security.py      # JWT and password handling
-│   │   └── exceptions.py    # Custom exceptions
-│   ├── db/                  # Database clients
-│   │   ├── mongodb.py       # MongoDB connection manager
-│   │   ├── redis.py         # Redis connection manager
-│   │   └── indexes.py       # Database indexes
-│   ├── models/              # Pydantic models
-│   │   ├── node.py          # Node schemas
-│   │   ├── profile.py       # Profile schemas
-│   │   └── auth.py          # Auth schemas
-│   ├── services/            # Business logic
-│   │   ├── nodes.py         # Node operations
-│   │   └── profiles.py      # Profile operations
-│   └── main.py              # Application entry point
+├── src/hydra/
+│   ├── main.py              # Root app (mounts versioned APIs)
+│   ├── __init__.py          # Package metadata
+│   ├── core/                # Shared configuration and logging
+│   ├── db/                  # Shared database clients and indexes
+│   └── v1/                  # API v1 implementation
+│       ├── main.py          # v1 FastAPI app
+│       ├── routers/         # Route handlers
+│       ├── core/            # v1 auth/deps/exceptions
+│       ├── models/          # Pydantic models
+│       └── services/        # Business logic
 ├── tests/                   # Test suite
 ├── Dockerfile               # Production Docker image
 ├── pyproject.toml           # Python project configuration
@@ -247,7 +235,7 @@ ruff format .
 ruff check .
 
 # Type check
-mypy src/hydra_api
+mypy src/hydra
 ```
 
 ### Pre-commit Hooks

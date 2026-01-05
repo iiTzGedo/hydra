@@ -1,19 +1,22 @@
 """Pytest configuration and fixtures."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from hydra_api.core.config import Settings, get_settings
-from hydra_api.core.security import create_access_token
-from hydra_api.db.mongodb import MongoDB, get_mongodb
-from hydra_api.db.redis import RedisClient, get_redis
-from hydra_api.main import app
+from hydra.core.config import Settings, get_settings
+from hydra.v1.core.security import create_access_token
+from hydra.db.mongodb import MongoDB, get_mongodb
+from hydra.db.redis import RedisClient, get_redis
+from hydra.main import app
+from hydra.v1.main import app as v1_app
 from tests.utils import create_mock_cursor
 
 
@@ -91,8 +94,14 @@ def mock_redis():
 @pytest_asyncio.fixture
 async def client(mock_mongodb, mock_redis) -> AsyncGenerator[AsyncClient, None]:
     """Create async test client with mocked dependencies."""
-    app.dependency_overrides[get_mongodb] = lambda: mock_mongodb
-    app.dependency_overrides[get_redis] = lambda: mock_redis
+    v1_app.dependency_overrides[get_mongodb] = lambda: mock_mongodb
+    v1_app.dependency_overrides[get_redis] = lambda: mock_redis
+
+    @asynccontextmanager
+    async def _test_lifespan(_: FastAPI):
+        yield
+
+    app.router.lifespan_context = _test_lifespan
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -100,7 +109,7 @@ async def client(mock_mongodb, mock_redis) -> AsyncGenerator[AsyncClient, None]:
     ) as ac:
         yield ac
 
-    app.dependency_overrides.clear()
+    v1_app.dependency_overrides.clear()
 
 
 @pytest.fixture
