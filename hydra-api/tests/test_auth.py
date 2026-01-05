@@ -21,7 +21,7 @@ async def test_register_node_success(
     mock_mongodb.tokens.update_one = AsyncMock()
 
     response = await client.post(
-        "/node/register",
+        "/api/v1/node/register",
         json={
             "nodeId": "new-test-node",
             "class": "compute",
@@ -52,7 +52,7 @@ async def test_register_node_duplicate(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.post(
-        "/node/register",
+        "/api/v1/node/register",
         json={
             "nodeId": sample_node["nodeId"],
             "class": "compute",
@@ -76,7 +76,7 @@ async def test_register_node_invalid_token(
     mock_mongodb.tokens.find_one = AsyncMock(return_value=None)
 
     response = await client.post(
-        "/node/register",
+        "/api/v1/node/register",
         json={
             "nodeId": "test-node",
             "class": "compute",
@@ -103,7 +103,7 @@ async def test_register_node_expired_token(
     mock_mongodb.tokens.find_one = AsyncMock(return_value=expired_token)
 
     response = await client.post(
-        "/node/register",
+        "/api/v1/node/register",
         json={
             "nodeId": "test-node",
             "class": "compute",
@@ -132,7 +132,7 @@ async def test_get_current_user(
     mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
 
     response = await client.get(
-        "/auth/me",
+        "/api/v1/auth/me",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -153,7 +153,7 @@ async def test_get_current_agent(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.get(
-        "/auth/me",
+        "/api/v1/auth/me",
         headers={"Authorization": f"Bearer {agent_token}"},
     )
 
@@ -166,6 +166,6 @@ async def test_get_current_agent(
 @pytest.mark.asyncio
 async def test_access_without_token(client: AsyncClient):
     """Test accessing protected endpoint without token."""
-    response = await client.get("/auth/me")
+    response = await client.get("/api/v1/auth/me")
 
     assert response.status_code == 401

@@ -12,7 +12,7 @@ async def test_health_check_healthy(client: AsyncClient, mock_mongodb, mock_redi
     mock_mongodb.health_check.return_value = True
     mock_redis.health_check.return_value = True
 
-    response = await client.get("/health")
+    response = await client.get("/api/v1/health")
 
     assert response.status_code == 200
     data = response.json()
@@ -29,7 +29,7 @@ async def test_health_check_degraded(client: AsyncClient, mock_mongodb, mock_red
     mock_mongodb.health_check.return_value = True
     mock_redis.health_check.return_value = False
 
-    response = await client.get("/health")
+    response = await client.get("/api/v1/health")
 
     assert response.status_code == 200
     data = response.json()
@@ -66,7 +66,7 @@ async def test_service_info(client: AsyncClient, mock_mongodb):
     mock_mongodb.profiles.count_documents.return_value = 100
     mock_mongodb.users.count_documents.return_value = 2
 
-    response = await client.get("/info")
+    response = await client.get("/api/v1/info")
 
     assert response.status_code == 200
     data = response.json()

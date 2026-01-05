@@ -315,6 +315,7 @@ class UserInfo(BaseModel):
     username: str
     email: str
     role: Role
+    permissions: list[str] = Field(default_factory=list)
     temporary_roles: list[TemporaryRole] = Field(default_factory=list, alias="temporaryRoles")
 
     model_config = {"populate_by_name": True}

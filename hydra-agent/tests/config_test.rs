@@ -8,7 +8,7 @@ use std::io::Write;
 fn test_load_valid_config() {
     let config_content = r#"
 [api]
-url = "http://localhost:8080"
+url = "http://localhost:8080/api/v1"
 credentials_file = "/etc/hydra/creds.json"
 timeout_seconds = 60
 retries = 5
@@ -42,7 +42,7 @@ on_startup = true
     assert!(config.is_ok(), "Config should load successfully");
 
     let config = config.unwrap();
-    assert_eq!(config.api.url, "http://localhost:8080");
+    assert_eq!(config.api.url, "http://localhost:8080/api/v1");
     assert_eq!(config.api.timeout_seconds, 60);
     assert_eq!(config.api.retries, 5);
     assert_eq!(config.node.node_id, "my-server-01");
@@ -61,7 +61,7 @@ on_startup = true
 fn test_load_minimal_config() {
     let config_content = r#"
 [api]
-url = "http://localhost:8080"
+url = "http://localhost:8080/api/v1"
 
 [node]
 node_id = "minimal-node"
@@ -74,7 +74,7 @@ node_id = "minimal-node"
     assert!(config.is_ok(), "Minimal config should load with defaults");
 
     let config = config.unwrap();
-    assert_eq!(config.api.url, "http://localhost:8080");
+    assert_eq!(config.api.url, "http://localhost:8080/api/v1");
     assert_eq!(config.node.node_id, "minimal-node");
     // Check defaults are applied
     assert_eq!(config.node.class, "compute");
@@ -98,7 +98,7 @@ fn test_invalid_config() {
 fn test_missing_required_fields() {
     let config_content = r#"
 [api]
-url = "http://localhost:8080"
+url = "http://localhost:8080/api/v1"
 # Missing [node] section with node_id
 "#;
 

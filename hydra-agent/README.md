@@ -53,7 +53,7 @@ Create a configuration file at `/etc/hydra/agent.toml` (Linux/macOS/BSD) or `C:\
 
 ```toml
 [api]
-url = "https://hydra-api.example.com"
+url = "https://hydra-api.example.com/api/v1"
 credentials_file = "/etc/hydra/credentials.json"
 timeout_seconds = 30
 retries = 3

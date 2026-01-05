@@ -81,6 +81,7 @@ async def login(
             username=result["user"]["username"],
             email=result["user"]["email"],
             role=result["user"]["role"],
+            permissions=result["user"].get("permissions", []),
             temporary_roles=temp_roles,
         ),
     )

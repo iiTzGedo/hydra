@@ -31,7 +31,7 @@ services:
     networks:
       - hydra-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -45,7 +45,7 @@ services:
       - "8081:8081"
     environment:
       - HYDRA_ENV=development
-      - HYDRA_API_URL=http://hydra-api:8080
+      - HYDRA_API_URL=http://hydra-api:8080/api/v1
     volumes:
       - ./hydra-mcp/src:/app/src:ro
     depends_on:
@@ -60,7 +60,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_URL=http://localhost:8080
+      - VITE_API_URL=http://localhost:8080/api/v1
     volumes:
       - ./hydra-web/src:/app/src:ro
       - ./hydra-web/public:/app/public:ro

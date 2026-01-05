@@ -1,0 +1,118 @@
+import { ListParams } from './api';
+
+// Node class
+export type NodeClass = 'compute' | 'networking' | 'iot';
+
+// Node type
+export type NodeType = 'physical' | 'logical';
+
+// Node kind (specific types within classes)
+export type NodeKind =
+  // Compute kinds
+  | 'bare-metal'
+  | 'vm'
+  | 'lxc'
+  | 'docker'
+  | 'kubernetes-pod'
+  // Networking kinds
+  | 'router'
+  | 'switch'
+  | 'access-point'
+  | 'firewall'
+  | 'load-balancer'
+  // IoT kinds
+  | 'sensor'
+  | 'actuator'
+  | 'controller'
+  | 'hub'
+  | 'bridge'
+  | 'appliance';
+
+// Node status
+export type NodeStatus = 'active' | 'inactive' | 'pending' | 'archived';
+
+// Node location
+export interface NodeLocation {
+  site?: string;
+  building?: string;
+  floor?: string;
+  room?: string;
+  rack?: string;
+  position?: string;
+}
+
+// Network membership
+export interface NetworkMembership {
+  networkId: string;
+  interfaceName: string;
+  ipAddress?: string;
+  macAddress?: string;
+}
+
+// Node summary (for list views)
+export interface NodeSummary {
+  nodeId: string;
+  id?: string; // Alias for nodeId for component convenience
+  displayName: string;
+  class: NodeClass;
+  type: NodeType;
+  kind: NodeKind;
+  status: NodeStatus;
+  tags: string[];
+  parentNodeId?: string;
+  registeredAt: string;
+  lastProfileAt?: string;
+  lastUpdated: string;
+  updatedAt?: string; // Alias for lastUpdated
+  profileVersion?: string; // Latest profile version
+}
+
+// Full node details
+export interface Node extends NodeSummary {
+  description?: string;
+  location?: NodeLocation;
+  networkIds: string[];
+  networks?: NetworkMembership[];
+  registeredBy: string;
+  metadata?: Record<string, unknown>;
+}
+
+// Node list params
+export interface NodeListParams extends ListParams {
+  class?: NodeClass;
+  type?: NodeType;
+  kind?: NodeKind;
+  status?: NodeStatus;
+  tags?: string[];
+  parentNodeId?: string;
+  networkId?: string;
+}
+
+// Update node request
+export interface UpdateNodeRequest {
+  displayName?: string;
+  description?: string;
+  tags?: string[];
+  location?: NodeLocation;
+}
+
+// Node registration
+export interface NodeRegistrationRequest {
+  nodeId: string;
+  class: NodeClass;
+  type: NodeType;
+  kind?: NodeKind;
+  displayName?: string;
+  description?: string;
+  tags?: string[];
+  location?: NodeLocation;
+}
+
+export interface NodeRegistrationResponse {
+  nodeId: string;
+  apiKey: string;
+  apiKeyId: string;
+  registeredBy: string;
+  registeredAt: string;
+  status: NodeStatus;
+}

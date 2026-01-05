@@ -101,6 +101,7 @@ class AuthService:
                 "email": user["email"],
                 "role": user["role"],
                 "temporary_roles": temp_roles,
+                "permissions": user.get("permissions", []),
             },
         }
 

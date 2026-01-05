@@ -1,0 +1,266 @@
+import { lazy } from 'react';
+import { ROUTES } from '@/lib/constants';
+import type { Role } from '@/types/auth';
+
+// Lazy load all pages for code splitting
+const LoginPage = lazy(() => import('@/pages/auth/login'));
+const RegisterPage = lazy(() => import('@/pages/auth/register'));
+const ForgotPasswordPage = lazy(() => import('@/pages/auth/forgot-password'));
+const ResetPasswordPage = lazy(() => import('@/pages/auth/reset-password'));
+
+const DashboardPage = lazy(() => import('@/pages/dashboard'));
+
+const NodesPage = lazy(() => import('@/pages/nodes'));
+const NodeDetailPage = lazy(() => import('@/pages/nodes/[nodeId]'));
+const NodeProfilesPage = lazy(() => import('@/pages/nodes/[nodeId]/profiles'));
+const ProfileDetailPage = lazy(() => import('@/pages/nodes/[nodeId]/profile/[profileId]'));
+
+const ServicesPage = lazy(() => import('@/pages/services'));
+const ServiceDetailPage = lazy(() => import('@/pages/services/[serviceId]'));
+
+const NetworksPage = lazy(() => import('@/pages/networks'));
+const NetworkDetailPage = lazy(() => import('@/pages/networks/[networkId]'));
+
+const GroupsPage = lazy(() => import('@/pages/groups'));
+const GroupDetailPage = lazy(() => import('@/pages/groups/[groupId]'));
+const NewGroupPage = lazy(() => import('@/pages/groups/new'));
+
+const TopologyPage = lazy(() => import('@/pages/topology'));
+const TimeMachinePage = lazy(() => import('@/pages/timemachine'));
+const ChatPage = lazy(() => import('@/pages/chat'));
+
+const AdminPage = lazy(() => import('@/pages/admin'));
+const AdminUsersPage = lazy(() => import('@/pages/admin/users'));
+const AdminApprovalsPage = lazy(() => import('@/pages/admin/approvals'));
+const AdminTokensPage = lazy(() => import('@/pages/admin/tokens'));
+const AdminApiKeysPage = lazy(() => import('@/pages/admin/apikeys'));
+const AdminAuditPage = lazy(() => import('@/pages/admin/audit'));
+
+const NotFoundPage = lazy(() => import('@/pages/error/404'));
+
+export interface RouteConfig {
+  path: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  element: React.LazyExoticComponent<React.ComponentType<any>>;
+  title: string;
+  requiresAuth: boolean;
+  roles?: Role[];
+  permissions?: string[];
+  showInNav?: boolean;
+  navIcon?: string;
+  children?: RouteConfig[];
+}
+
+// Auth routes (no auth required)
+export const authRoutes: RouteConfig[] = [
+  {
+    path: ROUTES.LOGIN,
+    element: LoginPage,
+    title: 'Login',
+    requiresAuth: false,
+  },
+  {
+    path: ROUTES.REGISTER,
+    element: RegisterPage,
+    title: 'Register',
+    requiresAuth: false,
+  },
+  {
+    path: ROUTES.FORGOT_PASSWORD,
+    element: ForgotPasswordPage,
+    title: 'Forgot Password',
+    requiresAuth: false,
+  },
+  {
+    path: ROUTES.RESET_PASSWORD,
+    element: ResetPasswordPage,
+    title: 'Reset Password',
+    requiresAuth: false,
+  },
+];
+
+// Main app routes (auth required)
+export const appRoutes: RouteConfig[] = [
+  {
+    path: ROUTES.DASHBOARD,
+    element: DashboardPage,
+    title: 'Dashboard',
+    requiresAuth: true,
+    showInNav: true,
+    navIcon: 'LayoutDashboard',
+  },
+  {
+    path: ROUTES.NODES,
+    element: NodesPage,
+    title: 'Nodes',
+    requiresAuth: true,
+    permissions: ['nodes:read'],
+    showInNav: true,
+    navIcon: 'Server',
+  },
+  {
+    path: ROUTES.NODE_DETAIL,
+    element: NodeDetailPage,
+    title: 'Node Details',
+    requiresAuth: true,
+    permissions: ['nodes:read'],
+  },
+  {
+    path: ROUTES.NODE_PROFILES,
+    element: NodeProfilesPage,
+    title: 'Profile History',
+    requiresAuth: true,
+    permissions: ['profiles:read'],
+  },
+  {
+    path: ROUTES.NODE_PROFILE,
+    element: ProfileDetailPage,
+    title: 'Profile Details',
+    requiresAuth: true,
+    permissions: ['profiles:read'],
+  },
+  {
+    path: ROUTES.SERVICES,
+    element: ServicesPage,
+    title: 'Services',
+    requiresAuth: true,
+    permissions: ['services:read'],
+    showInNav: true,
+    navIcon: 'Boxes',
+  },
+  {
+    path: ROUTES.SERVICE_DETAIL,
+    element: ServiceDetailPage,
+    title: 'Service Details',
+    requiresAuth: true,
+    permissions: ['services:read'],
+  },
+  {
+    path: ROUTES.NETWORKS,
+    element: NetworksPage,
+    title: 'Networks',
+    requiresAuth: true,
+    permissions: ['networks:read'],
+    showInNav: true,
+    navIcon: 'Network',
+  },
+  {
+    path: ROUTES.NETWORK_DETAIL,
+    element: NetworkDetailPage,
+    title: 'Network Details',
+    requiresAuth: true,
+    permissions: ['networks:read'],
+  },
+  {
+    path: ROUTES.GROUPS,
+    element: GroupsPage,
+    title: 'Groups',
+    requiresAuth: true,
+    permissions: ['groups:read'],
+    showInNav: true,
+    navIcon: 'FolderTree',
+  },
+  {
+    path: ROUTES.GROUP_NEW,
+    element: NewGroupPage,
+    title: 'New Group',
+    requiresAuth: true,
+    permissions: ['groups:create'],
+  },
+  {
+    path: ROUTES.GROUP_DETAIL,
+    element: GroupDetailPage,
+    title: 'Group Details',
+    requiresAuth: true,
+    permissions: ['groups:read'],
+  },
+  {
+    path: ROUTES.TOPOLOGY,
+    element: TopologyPage,
+    title: 'Topology',
+    requiresAuth: true,
+    permissions: ['topologies:read'],
+    showInNav: true,
+    navIcon: 'GitFork',
+  },
+  {
+    path: ROUTES.TIME_MACHINE,
+    element: TimeMachinePage,
+    title: 'Time Machine',
+    requiresAuth: true,
+    permissions: ['topologies:read'],
+    showInNav: true,
+    navIcon: 'History',
+  },
+  {
+    path: ROUTES.CHAT,
+    element: ChatPage,
+    title: 'Chat',
+    requiresAuth: true,
+    showInNav: true,
+    navIcon: 'MessageSquare',
+  },
+];
+
+// Admin routes
+export const adminRoutes: RouteConfig[] = [
+  {
+    path: ROUTES.ADMIN,
+    element: AdminPage,
+    title: 'Admin',
+    requiresAuth: true,
+    roles: ['admin'],
+    showInNav: true,
+    navIcon: 'Settings',
+  },
+  {
+    path: ROUTES.ADMIN_USERS,
+    element: AdminUsersPage,
+    title: 'Users',
+    requiresAuth: true,
+    roles: ['admin'],
+  },
+  {
+    path: ROUTES.ADMIN_APPROVALS,
+    element: AdminApprovalsPage,
+    title: 'Approvals',
+    requiresAuth: true,
+    roles: ['admin'],
+  },
+  {
+    path: ROUTES.ADMIN_TOKENS,
+    element: AdminTokensPage,
+    title: 'Tokens',
+    requiresAuth: true,
+    roles: ['admin', 'operator'],
+    permissions: ['tokens:create'],
+  },
+  {
+    path: ROUTES.ADMIN_APIKEYS,
+    element: AdminApiKeysPage,
+    title: 'API Keys',
+    requiresAuth: true,
+    permissions: ['tokens:create'],
+  },
+  {
+    path: ROUTES.ADMIN_AUDIT,
+    element: AdminAuditPage,
+    title: 'Audit Log',
+    requiresAuth: true,
+    roles: ['admin'],
+    permissions: ['audit:read'],
+  },
+];
+
+// Error routes
+export const errorRoutes: RouteConfig[] = [
+  {
+    path: '*',
+    element: NotFoundPage,
+    title: 'Not Found',
+    requiresAuth: false,
+  },
+];
+
+// All routes combined
+export const allRoutes = [...authRoutes, ...appRoutes, ...adminRoutes, ...errorRoutes];

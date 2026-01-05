@@ -22,7 +22,7 @@ async def test_list_nodes_success(
     mock_mongodb.nodes.find.return_value = create_mock_cursor([sample_node])
 
     response = await client.get(
-        "/nodes",
+        "/api/v1/nodes",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -48,7 +48,7 @@ async def test_list_nodes_with_filters(
     mock_mongodb.nodes.find.return_value = create_mock_cursor([sample_node])
 
     response = await client.get(
-        "/nodes?class=compute&status=active&tags=test",
+        "/api/v1/nodes?class=compute&status=active&tags=test",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -70,7 +70,7 @@ async def test_get_node_success(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.get(
-        f"/nodes/{sample_node['nodeId']}",
+        f"/api/v1/nodes/{sample_node['nodeId']}",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -93,7 +93,7 @@ async def test_get_node_not_found(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=None)
 
     response = await client.get(
-        "/nodes/non-existent-node",
+        "/api/v1/nodes/non-existent-node",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -121,7 +121,7 @@ async def test_update_node_success(
     mock_mongodb.nodes.find_one = AsyncMock(side_effect=[sample_node, updated_node])
 
     response = await client.patch(
-        f"/nodes/{sample_node['nodeId']}",
+        f"/api/v1/nodes/{sample_node['nodeId']}",
         json={
             "displayName": "Updated Name",
             "description": "Updated description",
@@ -151,7 +151,7 @@ async def test_archive_node_success(
     mock_mongodb.nodes.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
 
     response = await client.delete(
-        f"/nodes/{sample_node['nodeId']}",
+        f"/api/v1/nodes/{sample_node['nodeId']}",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -181,7 +181,7 @@ async def test_get_node_children(
     mock_mongodb.nodes.find.return_value = create_mock_cursor([child_node])
 
     response = await client.get(
-        f"/nodes/{sample_node['nodeId']}/children",
+        f"/api/v1/nodes/{sample_node['nodeId']}/children",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -206,7 +206,7 @@ async def test_nodes_forbidden_for_viewer(
     mock_mongodb.users.find_one = AsyncMock(return_value=viewer_user)
 
     response = await client.patch(
-        f"/nodes/{sample_node['nodeId']}",
+        f"/api/v1/nodes/{sample_node['nodeId']}",
         json={"displayName": "Should Fail"},
         headers={"Authorization": f"Bearer {viewer_token}"},
     )

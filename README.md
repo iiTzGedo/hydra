@@ -50,7 +50,7 @@ docker-compose -f docker-compose.dev.yml up -d
 ```
 
 4. Access the services:
-   - API: http://localhost:8080
+   - API: http://localhost:8080/api/v1
    - Web UI: http://localhost:5173
    - API Docs: http://localhost:8080/docs
 

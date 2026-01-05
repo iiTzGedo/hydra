@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 import structlog
-from fastapi import FastAPI, Request, status
+from fastapi import APIRouter, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -163,21 +163,24 @@ def create_app() -> FastAPI:
             },
         )
 
-    # Include routers
-    app.include_router(health.router)
-    app.include_router(auth.router)
-    app.include_router(users.router)
-    app.include_router(nodes.router)
-    app.include_router(nodes.node_router)
-    app.include_router(profiles.router)
-    app.include_router(profiles.nodes_router)
-    app.include_router(services.router)
-    app.include_router(services.nodes_services_router)
-    app.include_router(networks.router)
-    app.include_router(groups.router)
-    app.include_router(topologies.router)
-    app.include_router(timemachine.router)
-    app.include_router(install.router)
+    # Include routers under versioned API prefix
+    api_v1 = APIRouter(prefix="/api/v1")
+    api_v1.include_router(health.router)
+    api_v1.include_router(auth.router)
+    api_v1.include_router(users.router)
+    api_v1.include_router(nodes.router)
+    api_v1.include_router(nodes.node_router)
+    api_v1.include_router(profiles.router)
+    api_v1.include_router(profiles.nodes_router)
+    api_v1.include_router(services.router)
+    api_v1.include_router(services.nodes_services_router)
+    api_v1.include_router(networks.router)
+    api_v1.include_router(groups.router)
+    api_v1.include_router(topologies.router)
+    api_v1.include_router(timemachine.router)
+    api_v1.include_router(install.router)
+
+    app.include_router(api_v1)
 
     return app
 

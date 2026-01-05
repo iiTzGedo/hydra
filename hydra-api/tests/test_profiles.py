@@ -25,7 +25,7 @@ async def test_submit_profile_success(
 
     now = datetime.now(timezone.utc)
     response = await client.post(
-        "/profiles",
+        "/api/v1/profiles",
         json={
             "nodeId": sample_node["nodeId"],
             "collectedAt": now.isoformat(),
@@ -92,7 +92,7 @@ async def test_submit_profile_increments_version(
 
     now = datetime.now(timezone.utc)
     response = await client.post(
-        "/profiles",
+        "/api/v1/profiles",
         json={
             "nodeId": sample_node["nodeId"],
             "collectedAt": now.isoformat(),
@@ -122,7 +122,7 @@ async def test_submit_profile_node_not_found(
 
     now = datetime.now(timezone.utc)
     response = await client.post(
-        "/profiles",
+        "/api/v1/profiles",
         json={
             "nodeId": "non-existent-node",
             "collectedAt": now.isoformat(),
@@ -149,7 +149,7 @@ async def test_get_profile_success(
     mock_mongodb.profiles.find_one = AsyncMock(return_value=sample_profile)
 
     response = await client.get(
-        f"/profiles/{sample_profile['profileId']}",
+        f"/api/v1/profiles/{sample_profile['profileId']}",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -174,7 +174,7 @@ async def test_get_latest_profile(
     mock_mongodb.profiles.find_one = AsyncMock(return_value=sample_profile)
 
     response = await client.get(
-        f"/nodes/{sample_node['nodeId']}/profiles/latest",
+        f"/api/v1/nodes/{sample_node['nodeId']}/profiles/latest",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -206,7 +206,7 @@ async def test_list_node_profiles(
     mock_mongodb.profiles.find.return_value = create_mock_cursor(profiles)
 
     response = await client.get(
-        f"/nodes/{sample_node['nodeId']}/profiles",
+        f"/api/v1/nodes/{sample_node['nodeId']}/profiles",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -249,7 +249,7 @@ async def test_diff_profiles(
     mock_mongodb.profile_meta.find_one = AsyncMock(side_effect=[meta1, meta2])
 
     response = await client.get(
-        f"/nodes/{sample_node['nodeId']}/profiles/diff",
+        f"/api/v1/nodes/{sample_node['nodeId']}/profiles/diff",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 

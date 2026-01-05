@@ -57,7 +57,7 @@ uvicorn hydra_api.main:app --reload --host 0.0.0.0 --port 8080
 uvicorn hydra_api.main:app --host 0.0.0.0 --port 8080 --workers 4
 ```
 
-The API will be available at `http://localhost:8080`. API documentation is at:
+The API will be available at `http://localhost:8080/api/v1`. API documentation is at:
 - Swagger UI: `http://localhost:8080/docs`
 - ReDoc: `http://localhost:8080/redoc`
 - OpenAPI JSON: `http://localhost:8080/openapi.json`
@@ -176,27 +176,27 @@ docker run -p 8080:8080 \
 ## API Endpoints
 
 ### Health & Info
-- `GET /health` - Health check with service status
-- `GET /info` - Service information and statistics
+- `GET /api/v1/health` - Health check with service status
+- `GET /api/v1/info` - Service information and statistics
 
 ### Authentication
-- `POST /auth/register` - Register a new node (requires registration token)
-- `GET /auth/me` - Get current authenticated entity info
-- `POST /auth/refresh` - Refresh access token
+- `POST /api/v1/auth/register` - Register a new node (requires registration token)
+- `GET /api/v1/auth/me` - Get current authenticated entity info
+- `POST /api/v1/auth/refresh` - Refresh access token
 
 ### Nodes
-- `GET /nodes` - List nodes with filtering and pagination
-- `GET /nodes/{nodeId}` - Get node details
-- `PATCH /nodes/{nodeId}` - Update node metadata
-- `DELETE /nodes/{nodeId}` - Archive a node
-- `GET /nodes/{nodeId}/children` - Get child nodes
+- `GET /api/v1/nodes` - List nodes with filtering and pagination
+- `GET /api/v1/nodes/{nodeId}` - Get node details
+- `PATCH /api/v1/nodes/{nodeId}` - Update node metadata
+- `DELETE /api/v1/nodes/{nodeId}` - Archive a node
+- `GET /api/v1/nodes/{nodeId}/children` - Get child nodes
 
 ### Profiles
-- `POST /profiles` - Submit a new profile (agent only)
-- `GET /profiles/{profileId}` - Get profile by ID
-- `GET /nodes/{nodeId}/profiles` - List profiles for a node
-- `GET /nodes/{nodeId}/profiles/latest` - Get latest profile
-- `GET /nodes/{nodeId}/profiles/diff` - Compare two profiles
+- `POST /api/v1/profiles` - Submit a new profile (agent only)
+- `GET /api/v1/profiles/{profileId}` - Get profile by ID
+- `GET /api/v1/nodes/{nodeId}/profiles` - List profiles for a node
+- `GET /api/v1/nodes/{nodeId}/profiles/latest` - Get latest profile
+- `GET /api/v1/nodes/{nodeId}/profiles/diff` - Compare two profiles
 
 ## Project Structure
 
