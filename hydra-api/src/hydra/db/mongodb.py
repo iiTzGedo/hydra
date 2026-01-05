@@ -146,6 +146,11 @@ class MongoDB:
         """Password reset tokens collection."""
         return self.db.password_reset_tokens
 
+    @property
+    def docs(self):
+        """Documentation collection."""
+        return self.db.docs
+
 
 # Global instance
 _mongodb: MongoDB | None = None

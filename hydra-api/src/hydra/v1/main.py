@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from hydra.v1 import __version__
 from hydra.core.config import get_settings
 from hydra.v1.core.exceptions import HydraError
-from hydra.v1.routers import auth, groups, health, install, networks, nodes, profiles, services, timemachine, topologies, users
+from hydra.v1.routers import auth, commands, docs, groups, ha, health, install, networks, nodes, profiles, query, services, timemachine, topologies, users
 
 logger = structlog.get_logger(__name__)
 
@@ -137,6 +137,11 @@ def create_app() -> FastAPI:
     app.include_router(groups.router)
     app.include_router(topologies.router)
     app.include_router(timemachine.router)
+    app.include_router(commands.router)
+    app.include_router(commands.nodes_commands_router)
+    app.include_router(docs.router)
+    app.include_router(query.router)
+    app.include_router(ha.router)
     app.include_router(install.router)
 
     return app

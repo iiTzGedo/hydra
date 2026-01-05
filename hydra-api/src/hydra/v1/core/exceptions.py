@@ -350,3 +350,39 @@ class ServiceUnavailableError(HydraError):
             status_code=503,
             details={"service": service},
         )
+
+
+# Command Errors
+class CommandNotFoundError(NotFoundError):
+    """Command not found."""
+
+    def __init__(self, command_id: str):
+        super().__init__("command", command_id)
+
+
+class CommandNotCancellableError(HydraError):
+    """Command cannot be cancelled."""
+
+    def __init__(self, command_id: str, status: str):
+        super().__init__(
+            "COMMAND_NOT_CANCELLABLE",
+            f"Command '{command_id}' cannot be cancelled (status: {status})",
+            status_code=422,
+            details={"commandId": command_id, "status": status},
+        )
+
+
+# Documentation Errors
+class DocNotFoundError(NotFoundError):
+    """Documentation not found."""
+
+    def __init__(self, doc_id: str):
+        super().__init__("doc", doc_id)
+
+
+# Home Assistant Errors
+class HomeAssistantUnavailableError(ServiceUnavailableError):
+    """Home Assistant is unavailable."""
+
+    def __init__(self, message: str | None = None):
+        super().__init__("HA", message or "Home Assistant is not reachable")

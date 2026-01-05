@@ -10,6 +10,7 @@ Central REST API service for the Hydra infrastructure management platform.
 - MongoDB 6.0+ (or access to development server)
 - Redis 7+ (or access to development server)
 - [uv](https://github.com/astral-sh/uv) (recommended) or pip
+- [Garage](https://garagehq.deuxfleurs.fr/documentation/quick-start/) (or any S3 compatible storage) 
 
 ### Installation
 
