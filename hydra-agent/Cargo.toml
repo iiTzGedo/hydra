@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Hydra Team"]
 description = "Hydra Agent - Lightweight infrastructure profiler"
 license = "Apache-2.0"
-repository = "https://github.com/hydra-project/hydra"
+repository = "https://github.com/iiTzGedo/hydra"
 rust-version = "1.75"
 
 [dependencies]

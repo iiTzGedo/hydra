@@ -5,8 +5,9 @@ from typing import Any
 from uuid import uuid4
 
 import structlog
+from pymongo import ReturnDocument
 
-from hydra.db.mongodb import MongoDBManager
+from hydra.db.mongodb import MongoDB
 from hydra.api.v1.core.exceptions import (
     CommandNotCancellableError,
     CommandNotFoundError,
@@ -27,7 +28,7 @@ logger = structlog.get_logger(__name__)
 class CommandsService:
     """Service for managing command execution queue."""
 
-    def __init__(self, mongodb: MongoDBManager):
+    def __init__(self, mongodb: MongoDB):
         self.mongodb = mongodb
         self.commands = mongodb.commands
         self.nodes = mongodb.nodes
@@ -148,14 +149,26 @@ class CommandsService:
         if not node:
             raise NodeNotFoundError(node_id)
 
-        # Find queued commands for this node
-        cursor = self.commands.find({
-            "target.nodeId": node_id,
-            "status": CommandStatus.QUEUED.value,
-        })
-        cursor = cursor.sort("queuedAt", 1)  # FIFO order
-
-        commands = await cursor.to_list(length=10)  # Max 10 at a time
+        # Atomically claim commands so multiple pollers can't execute the same work.
+        commands: list[dict[str, Any]] = []
+        for _ in range(10):
+            command = await self.commands.find_one_and_update(
+                {
+                    "target.nodeId": node_id,
+                    "status": CommandStatus.QUEUED.value,
+                },
+                {
+                    "$set": {
+                        "status": CommandStatus.EXECUTING.value,
+                        "startedAt": datetime.now(UTC),
+                    }
+                },
+                sort=[("queuedAt", 1)],
+                return_document=ReturnDocument.AFTER,
+            )
+            if not command:
+                break
+            commands.append(command)
 
         # Format for agent consumption
         result = []

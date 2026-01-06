@@ -5,7 +5,7 @@ from typing import Annotated
 import structlog
 from fastapi import APIRouter, Depends, Query
 
-from hydra.api.v1.core.deps import CurrentUserDep, MongoDBDep, require_permission
+from hydra.api.v1.core.deps import CurrentUser, MongoDBDep, require_permission
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.docs import (
     CreateDocRequest,
@@ -102,7 +102,7 @@ async def list_docs(
 async def create_doc(
     request: CreateDocRequest,
     docs_service: DocsServiceDep,
-    current_user: CurrentUserDep,
+    current_user: CurrentUser,
 ) -> SuccessResponse[DocCreatedResponse]:
     """Create new documentation."""
     author = current_user.get("username") if isinstance(current_user, dict) else getattr(current_user, "username", None)
@@ -168,7 +168,7 @@ async def update_doc(
     doc_id: str,
     request: UpdateDocRequest,
     docs_service: DocsServiceDep,
-    current_user: CurrentUserDep,
+    current_user: CurrentUser,
 ) -> SuccessResponse[DocUpdatedResponse]:
     """Update documentation."""
     author = current_user.get("username") if isinstance(current_user, dict) else getattr(current_user, "username", None)

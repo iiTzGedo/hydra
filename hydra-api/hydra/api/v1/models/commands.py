@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 class CommandType(str, Enum):
     """Types of commands that can be executed."""
 
+    METADATA = "metadata"
     SERVICE = "service"
     PACKAGE = "package"
     CONFIG = "config"

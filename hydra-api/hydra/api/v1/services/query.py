@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import structlog
 
-from hydra.db.mongodb import MongoDBManager
+from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.query import (
     AuditAction,
     AuditListParams,
@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 class QueryService:
     """Service for advanced queries and analytics."""
 
-    def __init__(self, mongodb: MongoDBManager):
+    def __init__(self, mongodb: MongoDB):
         self.mongodb = mongodb
 
     def _get_collection(self, name: QueryCollection):
@@ -252,7 +252,7 @@ class QueryService:
 class AuditService:
     """Service for audit log management."""
 
-    def __init__(self, mongodb: MongoDBManager):
+    def __init__(self, mongodb: MongoDB):
         self.mongodb = mongodb
         self.audit_log = mongodb.audit_log
 

@@ -8,7 +8,7 @@ import httpx
 import structlog
 
 from hydra.core.config import Settings, get_settings
-from hydra.db.mongodb import MongoDBManager
+from hydra.db.mongodb import MongoDB
 from hydra.api.v1.core.exceptions import HomeAssistantUnavailableError, HydraError
 from hydra.api.v1.models.ha import HAControlRequest, HADeviceListParams, HASyncRequest
 
@@ -18,7 +18,7 @@ logger = structlog.get_logger(__name__)
 class HomeAssistantService:
     """Service for Home Assistant integration."""
 
-    def __init__(self, mongodb: MongoDBManager, settings: Settings | None = None):
+    def __init__(self, mongodb: MongoDB, settings: Settings | None = None):
         self.mongodb = mongodb
         self.settings = settings or get_settings()
         self._http_client: httpx.AsyncClient | None = None

@@ -5,7 +5,7 @@ from typing import Any
 
 import structlog
 
-from hydra.db.mongodb import MongoDBManager
+from hydra.db.mongodb import MongoDB
 from hydra.api.v1.core.exceptions import ConflictError, DocNotFoundError
 from hydra.api.v1.models.docs import (
     CreateDocRequest,
@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 class DocsService:
     """Service for managing infrastructure documentation."""
 
-    def __init__(self, mongodb: MongoDBManager):
+    def __init__(self, mongodb: MongoDB):
         self.mongodb = mongodb
         self.docs = mongodb.docs
 
