@@ -13,7 +13,7 @@ RUN pip install uv
 # Copy project files
 COPY pyproject.toml .
 COPY README.md .
-COPY src/ ./src/
+COPY hydra/ ./hydra/
 
 # Install dependencies
 RUN uv pip install --system -e .

@@ -5,7 +5,7 @@ description = "Hydra MCP Service - AI interface layer for infrastructure queries
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
-authors = [{ name = "Hydra Team" }]
+authors = [{ name = "iiTzGedo" }]
 dependencies = [
     "mcp>=1.0.0",
     "httpx>=0.26.0",
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-hydra-mcp = "hydra_mcp.server:run"
+hydra-mcp = "hydra.server:run"
 
 [project.optional-dependencies]
 dev = [
@@ -35,7 +35,7 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/hydra_mcp"]
+packages = ["hydra"]
 
 [tool.ruff]
 target-version = "py311"
@@ -44,12 +44,12 @@ select = ["E", "W", "F", "I", "B", "C4", "UP", "ARG", "SIM"]
 ignore = ["E501", "B008", "B904"]
 
 [tool.ruff.isort]
-known-first-party = ["hydra_mcp"]
+known-first-party = ["hydra"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-v --cov=src/hydra_mcp --cov-report=term-missing"
+addopts = "-v --cov=hydra --cov-report=term-missing"
 
 [tool.mypy]
 python_version = "3.11"

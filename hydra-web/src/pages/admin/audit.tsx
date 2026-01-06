@@ -43,7 +43,7 @@ const mockAuditLogs = [
     timestamp: new Date(Date.now() - 30 * 60 * 1000),
     action: 'service.discovered',
     actor: 'system',
-    resource: 'service:svc::docker::nginx',
+    resource: 'service:svc-nginx-e5f6',
     details: { node: 'docker-host-01' },
   },
   {

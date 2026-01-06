@@ -1,4 +1,10 @@
+/**
+ * Chat Page with MCP Integration
+ * Allows users to interact with their infrastructure through AI
+ */
+
 import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare,
@@ -11,26 +17,18 @@ import {
   RefreshCw,
   Copy,
   Check,
+  Settings,
+  Server,
+  Plus,
   AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
-import { PageHeader } from '@/components/layout/page-header';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants, fadeInVariants } from '@/lib/animations';
-
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-  toolCalls?: ToolCall[];
-  error?: boolean;
-}
-
-interface ToolCall {
-  name: string;
-  arguments: Record<string, unknown>;
-  result?: unknown;
-}
+import { useMCPStore } from '@/stores/mcp-store';
+import { useHydraMCPTools, useMCPChat } from '@/api/mcp';
+import { ROUTES } from '@/lib/constants';
+import type { MCPChatMessage, MCPToolCall, LLMProvider } from '@/types/mcp';
 
 // Suggested queries for users
 const suggestedQueries = [
@@ -43,11 +41,51 @@ const suggestedQueries = [
 ];
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const {
+    servers,
+    sessions,
+    currentSessionId,
+    llmProviders,
+    activeLLMProviderId,
+    createSession,
+    addMessage,
+    updateMessage,
+    addToolCall,
+    updateToolCall,
+    getCurrentSession,
+    getActiveServers,
+    getActiveLLMProvider,
+    connectServer,
+  } = useMCPStore();
+
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'connecting'>('disconnected');
+  const [showSettings, setShowSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Get current session or create one
+  const currentSession = getCurrentSession();
+  const messages = currentSession?.messages || [];
+  const activeServers = getActiveServers();
+  const activeLLMProvider = getActiveLLMProvider();
+
+  // MCP hooks
+  const { data: tools } = useHydraMCPTools();
+  const chatMutation = useMCPChat();
+
+  // Auto-create session if none exists
+  useEffect(() => {
+    if (!currentSessionId && sessions.length === 0) {
+      createSession('New Chat');
+    }
+  }, [currentSessionId, sessions.length, createSession]);
+
+  // Auto-connect to Hydra MCP on mount
+  useEffect(() => {
+    const hydraMCP = servers.find((s) => s.id === 'hydra-mcp');
+    if (hydraMCP && hydraMCP.status === 'disconnected') {
+      connectServer('hydra-mcp');
+    }
+  }, [servers, connectServer]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -55,31 +93,68 @@ export default function ChatPage() {
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || chatMutation.isPending || !currentSessionId) return;
 
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: input.trim(),
-      timestamp: new Date(),
-    };
+    // Check if LLM provider is configured
+    if (!activeLLMProvider?.isConfigured) {
+      setShowSettings(true);
+      return;
+    }
 
-    setMessages((prev) => [...prev, userMessage]);
+    const userContent = input.trim();
     setInput('');
-    setIsLoading(true);
 
-    // Simulate AI response (placeholder for MCP integration)
-    setTimeout(() => {
-      const assistantMessage: Message = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: getMockResponse(userMessage.content),
-        timestamp: new Date(),
-        toolCalls: getMockToolCalls(userMessage.content),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-      setIsLoading(false);
-    }, 1500);
+    // Add user message
+    addMessage(currentSessionId, {
+      role: 'user',
+      content: userContent,
+    });
+
+    // Create pending assistant message
+    const pendingMessageId = crypto.randomUUID();
+    addMessage(currentSessionId, {
+      role: 'assistant',
+      content: '',
+      pending: true,
+    });
+
+    try {
+      // Build messages array for API
+      const chatMessages = [
+        ...messages.map((m) => ({
+          role: m.role as 'user' | 'assistant' | 'system',
+          content: m.content,
+        })),
+        { role: 'user' as const, content: userContent },
+      ];
+
+      // Call MCP chat API
+      const response = await chatMutation.mutateAsync({
+        messages: chatMessages,
+        tools: tools || [],
+        model: activeLLMProvider.model,
+      });
+
+      // Update message with response
+      updateMessage(currentSessionId, pendingMessageId, {
+        content: response.content,
+        pending: false,
+        toolCalls: response.toolCalls?.map((tc) => ({
+          ...tc,
+          status: 'success' as const,
+        })),
+      });
+    } catch (error) {
+      // Update message with error
+      updateMessage(currentSessionId, pendingMessageId, {
+        content:
+          error instanceof Error
+            ? `Error: ${error.message}`
+            : 'An error occurred while processing your request.',
+        pending: false,
+        error: true,
+      });
+    }
   };
 
   const handleSuggestedQuery = (query: string) => {
@@ -94,16 +169,18 @@ export default function ChatPage() {
   };
 
   const clearChat = () => {
-    setMessages([]);
+    createSession('New Chat');
   };
+
+  const isLoading = chatMutation.isPending;
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex flex-col">
       {/* Header */}
       <div className="border-b p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-hydra-blue p-2">
-            <MessageSquare className="h-5 w-5 text-white" />
+          <div className="rounded-lg bg-primary p-2">
+            <MessageSquare className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
             <h1 className="text-lg font-semibold flex items-center gap-2">
@@ -120,7 +197,18 @@ export default function ChatPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <ConnectionStatus status={connectionStatus} />
+          <ServerStatusBadges servers={activeServers} />
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm',
+              'hover:bg-muted transition-colors',
+              showSettings && 'bg-muted'
+            )}
+          >
+            <Settings className="h-4 w-4" />
+            Settings
+          </button>
           <button
             onClick={clearChat}
             className={cn(
@@ -133,6 +221,24 @@ export default function ChatPage() {
           </button>
         </div>
       </div>
+
+      {/* Settings Panel */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="border-b overflow-hidden"
+          >
+            <SettingsPanel
+              llmProviders={llmProviders}
+              activeLLMProviderId={activeLLMProviderId}
+              servers={servers}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Messages */}
       <div className="flex-1 overflow-auto p-4">
@@ -148,9 +254,19 @@ export default function ChatPage() {
             </div>
             <h2 className="mt-4 text-xl font-semibold">How can I help you today?</h2>
             <p className="mt-2 text-muted-foreground max-w-md">
-              Ask me about your infrastructure. I can help you find nodes, services,
-              analyze topology, and answer questions about your setup.
+              Ask me about your infrastructure. I can help you find nodes, services, analyze
+              topology, and answer questions about your setup.
             </p>
+
+            {/* LLM Provider Warning */}
+            {!activeLLMProvider?.isConfigured && (
+              <div className="mt-4 flex items-center gap-2 text-warning bg-warning/10 rounded-lg px-4 py-2">
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm">
+                  Configure an LLM provider in settings to start chatting
+                </span>
+              </div>
+            )}
 
             {/* Suggested queries */}
             <div className="mt-8 max-w-2xl">
@@ -170,6 +286,15 @@ export default function ChatPage() {
                 ))}
               </div>
             </div>
+
+            {/* MCP Marketplace Link */}
+            <Link
+              to={ROUTES.MCP_MARKETPLACE}
+              className="mt-6 inline-flex items-center gap-2 text-sm text-primary hover:underline"
+            >
+              <Plus className="h-4 w-4" />
+              Add more MCP servers from the marketplace
+            </Link>
           </motion.div>
         ) : (
           <motion.div
@@ -240,22 +365,21 @@ export default function ChatPage() {
               'disabled:opacity-50 disabled:cursor-not-allowed'
             )}
           >
-            {isLoading ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Send className="h-5 w-5" />
-            )}
+            {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
           </button>
         </div>
         <p className="mt-2 text-center text-xs text-muted-foreground">
-          Powered by MCP (Model Context Protocol). Responses are generated based on your infrastructure data.
+          Connected to {activeServers.length} MCP server{activeServers.length !== 1 ? 's' : ''}.{' '}
+          <Link to={ROUTES.MCP_MARKETPLACE} className="text-primary hover:underline">
+            Add more
+          </Link>
         </p>
       </div>
     </div>
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message }: { message: MCPChatMessage }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -284,29 +408,24 @@ function MessageBubble({ message }: { message: Message }) {
           className={cn(
             'rounded-xl p-4',
             isUser ? 'bg-primary text-primary-foreground' : 'bg-muted',
-            message.error && 'border border-error bg-error/10'
+            message.error && 'border border-destructive bg-destructive/10',
+            message.pending && 'animate-pulse'
           )}
         >
-          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+          {message.pending ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Generating response...</span>
+            </div>
+          ) : (
+            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+          )}
 
           {/* Tool calls display */}
           {message.toolCalls && message.toolCalls.length > 0 && (
             <div className="mt-3 pt-3 border-t border-border/50 space-y-2">
-              {message.toolCalls.map((tool, i) => (
-                <div
-                  key={i}
-                  className="rounded-lg bg-background/50 p-2 text-xs"
-                >
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Zap className="h-3 w-3" />
-                    <span className="font-mono">{tool.name}</span>
-                  </div>
-                  {tool.result && (
-                    <pre className="mt-1 overflow-auto text-xs">
-                      {JSON.stringify(tool.result, null, 2)}
-                    </pre>
-                  )}
-                </div>
+              {message.toolCalls.map((tool) => (
+                <ToolCallDisplay key={tool.id} toolCall={tool} />
               ))}
             </div>
           )}
@@ -314,12 +433,9 @@ function MessageBubble({ message }: { message: Message }) {
 
         <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
           <span>{formatRelativeTime(message.timestamp)}</span>
-          {!isUser && (
-            <button
-              onClick={handleCopy}
-              className="rounded p-1 hover:bg-muted transition-colors"
-            >
-              {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+          {!isUser && !message.pending && (
+            <button onClick={handleCopy} className="rounded p-1 hover:bg-muted transition-colors">
+              {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
             </button>
           )}
         </div>
@@ -328,95 +444,175 @@ function MessageBubble({ message }: { message: Message }) {
   );
 }
 
-function ConnectionStatus({ status }: { status: 'connected' | 'disconnected' | 'connecting' }) {
-  const statusConfig = {
-    connected: {
-      color: 'bg-success',
-      label: 'Connected',
-    },
-    disconnected: {
-      color: 'bg-muted-foreground',
-      label: 'Disconnected',
-    },
-    connecting: {
-      color: 'bg-warning',
-      label: 'Connecting...',
-    },
-  };
-
-  const config = statusConfig[status];
+function ToolCallDisplay({ toolCall }: { toolCall: MCPToolCall }) {
+  const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-      <span className={cn('h-2 w-2 rounded-full', config.color)} />
-      <span>{config.label}</span>
+    <div className="rounded-lg bg-background/50 p-2 text-xs">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors w-full"
+      >
+        <Zap
+          className={cn(
+            'h-3 w-3',
+            toolCall.status === 'success' && 'text-green-500',
+            toolCall.status === 'error' && 'text-red-500',
+            toolCall.status === 'pending' && 'animate-pulse'
+          )}
+        />
+        <span className="font-mono">{toolCall.name}</span>
+        <span className="text-muted-foreground/50">({toolCall.serverName})</span>
+        {toolCall.status === 'pending' && <Loader2 className="h-3 w-3 animate-spin ml-auto" />}
+      </button>
+      {expanded && toolCall.result && (
+        <pre className="mt-2 p-2 bg-muted rounded overflow-auto text-xs max-h-40">
+          {JSON.stringify(toolCall.result, null, 2)}
+        </pre>
+      )}
+      {toolCall.error && (
+        <p className="mt-1 text-red-500 text-xs">{toolCall.error}</p>
+      )}
     </div>
   );
 }
 
-// Mock response generator (placeholder for real MCP integration)
-function getMockResponse(query: string): string {
-  const lowerQuery = query.toLowerCase();
-
-  if (lowerQuery.includes('node') && lowerQuery.includes('list')) {
-    return `I found 12 nodes in your infrastructure:\n\n**Compute (8):**\n- proxmox-01 (bare-metal, active)\n- docker-host-01 (VM, active)\n- docker-host-02 (VM, active)\n- k8s-master (VM, active)\n- k8s-worker-01 (VM, active)\n- k8s-worker-02 (VM, active)\n- nas-01 (bare-metal, active)\n- backup-server (VM, inactive)\n\n**Networking (3):**\n- opnsense.gw (router, active)\n- switch-core (switch, active)\n- ap-office (access-point, active)\n\n**IoT (1):**\n- hass-controller (controller, active)`;
+function ServerStatusBadges({ servers }: { servers: { id: string; name: string }[] }) {
+  if (servers.length === 0) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <span className="h-2 w-2 rounded-full bg-muted-foreground" />
+        <span>No servers connected</span>
+      </div>
+    );
   }
 
-  if (lowerQuery.includes('service') && lowerQuery.includes('docker')) {
-    return `Found 15 Docker services:\n\n| Service | Node | Status | Ports |\n|---------|------|--------|-------|\n| nginx-proxy | docker-host-01 | running | 80, 443 |\n| mongodb | docker-host-01 | running | 27017 |\n| redis | docker-host-01 | running | 6379 |\n| portainer | docker-host-01 | running | 9000 |\n| grafana | docker-host-02 | running | 3000 |\n| prometheus | docker-host-02 | running | 9090 |\n\n*6 more services running...*`;
-  }
-
-  if (lowerQuery.includes('network')) {
-    return `Your infrastructure has 4 networks:\n\n1. **192.168.1.0/24** (L3)\n   - Gateway: 192.168.1.1\n   - 8 nodes connected\n   - Primary network\n\n2. **192.168.10.0/24** (L3)\n   - Gateway: 192.168.10.1\n   - 4 nodes connected\n   - Container network\n\n3. **10.0.0.0/8** (VXLAN)\n   - Kubernetes overlay\n   - 3 nodes connected\n\n4. **172.17.0.0/16** (L2)\n   - Docker bridge\n   - Local to hosts`;
-  }
-
-  if (lowerQuery.includes('topology') || lowerQuery.includes('summarize')) {
-    return `**Infrastructure Summary**\n\nYour infrastructure consists of:\n- **12 nodes** across 3 classes (compute, networking, IoT)\n- **24 services** running on various runtimes\n- **4 networks** connecting your infrastructure\n- **3 groups** for logical organization\n\n**Key Observations:**\n- All networking equipment is healthy\n- 1 compute node is currently inactive (backup-server)\n- Last topology update: 5 minutes ago\n- 98% of services are running normally`;
-  }
-
-  if (lowerQuery.includes('ram') || lowerQuery.includes('memory')) {
-    return `Found 5 nodes with more than 16GB RAM:\n\n| Node | Class | RAM | Usage |\n|------|-------|-----|-------|\n| proxmox-01 | compute | 128 GB | 67% |\n| docker-host-01 | compute | 64 GB | 45% |\n| docker-host-02 | compute | 32 GB | 38% |\n| k8s-master | compute | 32 GB | 52% |\n| nas-01 | compute | 32 GB | 28% |`;
-  }
-
-  if (lowerQuery.includes('port')) {
-    return `Services with exposed ports:\n\n**Web Services:**\n- nginx-proxy: 80, 443\n- grafana: 3000\n- portainer: 9000\n\n**Databases:**\n- mongodb: 27017\n- redis: 6379\n- postgresql: 5432\n\n**Monitoring:**\n- prometheus: 9090\n- node-exporter: 9100\n\n*Total: 12 services with 18 exposed ports*`;
-  }
-
-  return `I understand you're asking about "${query}". \n\nIn the production version, I'll query your infrastructure using MCP tools to provide accurate, real-time information. \n\nHere are some things I can help with:\n- List and filter nodes, services, networks\n- Analyze topology and relationships\n- Find resources by specific criteria\n- Summarize infrastructure status\n\nTry asking something more specific!`;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="h-2 w-2 rounded-full bg-green-500" />
+      <span className="text-sm text-muted-foreground">
+        {servers.length} server{servers.length !== 1 ? 's' : ''}
+      </span>
+    </div>
+  );
 }
 
-function getMockToolCalls(query: string): ToolCall[] | undefined {
-  const lowerQuery = query.toLowerCase();
+interface SettingsPanelProps {
+  llmProviders: LLMProvider[];
+  activeLLMProviderId: string | null;
+  servers: { id: string; name: string; status: string }[];
+}
 
-  if (lowerQuery.includes('node') && lowerQuery.includes('list')) {
-    return [
-      {
-        name: 'list_nodes',
-        arguments: { status: 'active' },
-        result: { count: 12 },
-      },
-    ];
-  }
+function SettingsPanel({ llmProviders, activeLLMProviderId, servers }: SettingsPanelProps) {
+  const { setActiveLLMProvider, updateLLMProvider, connectServer, disconnectServer } =
+    useMCPStore();
 
-  if (lowerQuery.includes('service') && lowerQuery.includes('docker')) {
-    return [
-      {
-        name: 'list_services',
-        arguments: { runtime: 'docker' },
-        result: { count: 15 },
-      },
-    ];
-  }
+  return (
+    <div className="p-4 grid gap-6 md:grid-cols-2">
+      {/* LLM Provider Selection */}
+      <div className="space-y-3">
+        <h3 className="font-medium flex items-center gap-2">
+          <Sparkles className="h-4 w-4" />
+          LLM Provider
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Select and configure your preferred AI model for chat.
+        </p>
+        <div className="space-y-2">
+          {llmProviders.map((provider) => (
+            <div
+              key={provider.id}
+              className={cn(
+                'flex items-center justify-between p-3 rounded-lg border',
+                activeLLMProviderId === provider.id && 'border-primary bg-primary/5'
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <input
+                  type="radio"
+                  name="llm-provider"
+                  checked={activeLLMProviderId === provider.id}
+                  onChange={() => setActiveLLMProvider(provider.id)}
+                  className="accent-primary"
+                />
+                <div>
+                  <p className="font-medium text-sm">{provider.name}</p>
+                  <p className="text-xs text-muted-foreground">{provider.model}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {provider.isConfigured ? (
+                  <span className="text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded">
+                    Configured
+                  </span>
+                ) : (
+                  <input
+                    type="password"
+                    placeholder="API Key"
+                    className="text-xs border rounded px-2 py-1 w-32"
+                    onChange={(e) =>
+                      updateLLMProvider(provider.id, { apiKey: e.target.value })
+                    }
+                  />
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-  if (lowerQuery.includes('network')) {
-    return [
-      {
-        name: 'list_networks',
-        arguments: {},
-        result: { count: 4 },
-      },
-    ];
-  }
-
-  return undefined;
+      {/* MCP Servers */}
+      <div className="space-y-3">
+        <h3 className="font-medium flex items-center gap-2">
+          <Server className="h-4 w-4" />
+          MCP Servers
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Manage connected MCP servers that provide tools and resources.
+        </p>
+        <div className="space-y-2">
+          {servers.map((server) => (
+            <div
+              key={server.id}
+              className="flex items-center justify-between p-3 rounded-lg border"
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className={cn(
+                    'h-2 w-2 rounded-full',
+                    server.status === 'connected' && 'bg-green-500',
+                    server.status === 'disconnected' && 'bg-gray-400',
+                    server.status === 'error' && 'bg-red-500'
+                  )}
+                />
+                <span className="text-sm font-medium">{server.name}</span>
+              </div>
+              <button
+                onClick={() =>
+                  server.status === 'connected'
+                    ? disconnectServer(server.id)
+                    : connectServer(server.id)
+                }
+                className={cn(
+                  'text-xs px-3 py-1 rounded',
+                  server.status === 'connected'
+                    ? 'text-red-600 hover:bg-red-50'
+                    : 'text-primary hover:bg-primary/10'
+                )}
+              >
+                {server.status === 'connected' ? 'Disconnect' : 'Connect'}
+              </button>
+            </div>
+          ))}
+        </div>
+        <Link
+          to={ROUTES.MCP_MARKETPLACE}
+          className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+        >
+          <ExternalLink className="h-3 w-3" />
+          Browse MCP Marketplace
+        </Link>
+      </div>
+    </div>
+  );
 }

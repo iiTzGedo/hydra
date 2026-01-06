@@ -12,11 +12,11 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from hydra.core.config import Settings, get_settings
-from hydra.v1.core.security import create_access_token
+from hydra.api.v1.core.security import create_access_token
 from hydra.db.mongodb import MongoDB, get_mongodb
 from hydra.db.redis import RedisClient, get_redis
 from hydra.main import app
-from hydra.v1.main import app as v1_app
+from hydra.api.v1.main import app as v1_app
 from tests.utils import create_mock_cursor
 
 
@@ -197,7 +197,7 @@ def sample_profile():
         "submittedAt": now,
         "agentVersion": "0.1.0",
         "collectionLevel": "neutral",
-        "serviceIds": ["svc::systemd::nginx"],
+        "serviceIds": ["svc-nginx-a1b2"],
         "hardware": {
             "systemManufacturer": "Dell",
             "systemModel": "PowerEdge R640",

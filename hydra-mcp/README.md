@@ -49,7 +49,7 @@ Environment variables (prefix: `HYDRA_MCP_`):
 hydra-mcp
 
 # Or as a Python module
-python -m hydra_mcp
+python -m hydra
 ```
 
 ### Claude Desktop Integration
@@ -62,7 +62,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
     "hydra": {
       "command": "hydra-mcp",
       "env": {
-        "HYDRA_MCP_API_URL": "http://your-hydra-api:8080/api/v1",
+        "HYDRA_MCP_API_URL": "http://localhost:8080/api/v1",
         "HYDRA_MCP_API_KEY": "your-api-key"
       }
     }
@@ -167,10 +167,10 @@ uv pip install -e ".[dev]"
 pytest
 
 # Type checking
-mypy src/hydra_mcp
+mypy hydra
 
 # Linting
-ruff check src/hydra_mcp
+ruff check hydra
 ```
 
 ## Docker
@@ -189,7 +189,7 @@ docker run -it --rm \
 
 ```
 hydra-mcp/
-├── src/hydra_mcp/
+├── hydra/
 │   ├── __init__.py      # Package exports
 │   ├── __main__.py      # Module entry point
 │   ├── config.py        # Settings via pydantic-settings

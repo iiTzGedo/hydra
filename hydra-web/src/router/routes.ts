@@ -28,6 +28,7 @@ const NewGroupPage = lazy(() => import('@/pages/groups/new'));
 const TopologyPage = lazy(() => import('@/pages/topology'));
 const TimeMachinePage = lazy(() => import('@/pages/timemachine'));
 const ChatPage = lazy(() => import('@/pages/chat'));
+const MCPMarketplacePage = lazy(() => import('@/pages/mcp/marketplace'));
 
 const AdminPage = lazy(() => import('@/pages/admin'));
 const AdminUsersPage = lazy(() => import('@/pages/admin/users'));
@@ -199,6 +200,14 @@ export const appRoutes: RouteConfig[] = [
     requiresAuth: true,
     showInNav: true,
     navIcon: 'MessageSquare',
+  },
+  {
+    path: ROUTES.MCP_MARKETPLACE,
+    element: MCPMarketplacePage,
+    title: 'MCP Marketplace',
+    requiresAuth: true,
+    showInNav: true,
+    navIcon: 'Store',
   },
 ];
 

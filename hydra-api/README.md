@@ -36,7 +36,7 @@ Create a `.env` file or set environment variables:
 ```bash
 # Required
 HYDRA_MONGODB_URI=mongodb://mongo-dev.db.nimi.labs:27017
-HYDRA_MONGODB_DATABASE=hydra_dev
+HYDRA_MONGODB_DATABASE=hydra
 HYDRA_REDIS_URL=redis://redis-dev.db.nimi.labs:6379/0
 HYDRA_JWT_SECRET=your-secret-key
 
@@ -168,7 +168,7 @@ docker build -t hydra-api:dev .
 # Run the container
 docker run -p 8080:8080 \
   -e HYDRA_MONGODB_URI=mongodb://mongo-dev.db.nimi.labs:27017 \
-  -e HYDRA_MONGODB_DATABASE=hydra_dev \
+  -e HYDRA_MONGODB_DATABASE=hydra \
   -e HYDRA_REDIS_URL=redis://redis-dev.db.nimi.labs:6379/0 \
   -e HYDRA_JWT_SECRET=your-secret-key \
   hydra-api:dev
@@ -203,17 +203,18 @@ docker run -p 8080:8080 \
 
 ```
 hydra-api/
-├── src/hydra/
+├── hydra/
 │   ├── main.py              # Root app (mounts versioned APIs)
 │   ├── __init__.py          # Package metadata
 │   ├── core/                # Shared configuration and logging
 │   ├── db/                  # Shared database clients and indexes
-│   └── v1/                  # API v1 implementation
-│       ├── main.py          # v1 FastAPI app
-│       ├── routers/         # Route handlers
-│       ├── core/            # v1 auth/deps/exceptions
-│       ├── models/          # Pydantic models
-│       └── services/        # Business logic
+│   └── api/                 # API surface area
+│       └── v1/              # API v1 implementation
+│           ├── main.py      # v1 FastAPI app
+│           ├── routers/     # Route handlers
+│           ├── core/        # v1 auth/deps/exceptions
+│           ├── models/      # Pydantic models
+│           └── services/    # Business logic
 ├── tests/                   # Test suite
 ├── Dockerfile               # Production Docker image
 ├── pyproject.toml           # Python project configuration
@@ -236,7 +237,7 @@ ruff format .
 ruff check .
 
 # Type check
-mypy src/hydra
+mypy hydra
 ```
 
 ### Pre-commit Hooks

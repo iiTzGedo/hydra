@@ -27,7 +27,7 @@ services:
       - HYDRA_SMTP_HOST=${HYDRA_SMTP_HOST:-}
       - HYDRA_SMTP_PORT=${HYDRA_SMTP_PORT:-587}
     volumes:
-      - ./hydra-api/src:/app/src:ro
+      - ./hydra-api/hydra:/app/hydra:ro
     networks:
       - hydra-network
     healthcheck:
@@ -47,7 +47,7 @@ services:
       - HYDRA_ENV=development
       - HYDRA_API_URL=http://hydra-api:8080/api/v1
     volumes:
-      - ./hydra-mcp/src:/app/src:ro
+      - ./hydra-mcp/hydra:/app/hydra:ro
     depends_on:
       - hydra-api
     networks:

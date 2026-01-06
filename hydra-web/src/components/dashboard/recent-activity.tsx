@@ -38,7 +38,7 @@ const mockActivity: ActivityItem[] = [
     type: 'service',
     action: 'created',
     entityName: 'nginx-proxy',
-    entityId: 'svc::docker::nginx-proxy',
+    entityId: 'svc-nginx-proxy-c3d4',
     timestamp: new Date(Date.now() - 15 * 60 * 1000),
   },
   {
