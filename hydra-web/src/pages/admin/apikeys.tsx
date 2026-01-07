@@ -14,7 +14,7 @@ import {
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '@/api/auth';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES } from '@/lib/constants';
-import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
+import { cn, formatDate, formatDateTime, formatRelativeTime } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 
 export default function ApiKeysPage() {
@@ -268,7 +268,7 @@ export default function ApiKeysPage() {
                   <Clock className="h-4 w-4" />
                   <span>
                     {apiKey.expiresAt
-                      ? `Expires ${formatRelativeTime(new Date(apiKey.expiresAt))}`
+                      ? `Expires ${formatDateTime(apiKey.expiresAt)}`
                       : 'Never expires'}
                   </span>
                 </div>

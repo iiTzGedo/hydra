@@ -86,6 +86,12 @@ class Settings(BaseSettings):
         description="Base URL for password reset links (e.g., https://hydra.local)",
     )
 
+    # MCP Server connection
+    mcp_server_url: str = Field(
+        default="http://hydra-mcp:8081",
+        description="URL for the built-in Hydra MCP server (HTTP transport)",
+    )
+
     @property
     def is_development(self) -> bool:
         """Check if running in development mode."""

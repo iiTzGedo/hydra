@@ -1,186 +1,199 @@
 /**
- * MCP API hooks for interacting with MCP servers
+ * MCP (Model Context Protocol) API hooks
+ * Manages MCP server connections and tool execution
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
 import type { ApiResponse } from '@/types/api';
-import type { MCPTool, MCPResource, MCPToolCall } from '@/types/mcp';
 
-interface MCPServerInfo {
+// Types based on backend models
+export interface MCPServer {
+  serverId: string;
   name: string;
-  version: string;
-  tools: MCPTool[];
-  resources: MCPResource[];
-}
-
-interface MCPToolCallRequest {
-  toolName: string;
-  arguments: Record<string, unknown>;
-}
-
-interface MCPToolCallResponse {
-  result: unknown;
-  error?: string;
-}
-
-interface MCPResourceReadRequest {
-  uri: string;
-}
-
-interface MCPResourceReadResponse {
-  contents: Array<{
-    uri: string;
-    mimeType?: string;
-    text?: string;
-    blob?: string;
-  }>;
-}
-
-interface MCPChatRequest {
-  messages: Array<{
-    role: 'user' | 'assistant' | 'system';
-    content: string;
-  }>;
+  url: string;
+  category: string;
+  enabled: boolean;
+  status?: string;
+  lastConnectedAt?: string;
   tools?: MCPTool[];
-  model?: string;
+  createdAt: string;
+  updatedAt?: string;
 }
 
-interface MCPChatResponse {
-  content: string;
-  toolCalls?: MCPToolCall[];
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-  };
+export interface MCPTool {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
 }
 
-/**
- * Get Hydra MCP server info (tools and resources)
- */
-export function useHydraMCPInfo() {
+export interface MCPServerCreate {
+  name: string;
+  url: string;
+  category: string;
+  enabled?: boolean;
+  config?: Record<string, unknown>;
+}
+
+export interface MCPServerUpdate {
+  name?: string;
+  url?: string;
+  enabled?: boolean;
+  config?: Record<string, unknown>;
+}
+
+export interface MCPHealthResponse {
+  status: 'healthy' | 'unhealthy' | 'unknown';
+  latencyMs?: number;
+  error?: string;
+  checkedAt: string;
+}
+
+export interface MCPToolsResponse {
+  serverId: string;
+  tools: MCPTool[];
+  fetchedAt: string;
+}
+
+export interface MCPServerListResponse {
+  servers: MCPServer[];
+  total: number;
+}
+
+// List MCP servers
+export function useMCPServers(params?: { category?: string; enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.mcp.servers(),
     queryFn: async () => {
-      // Connect to Hydra MCP via the API
-      // The API proxies to the MCP server
-      const response = await apiClient.get<ApiResponse<MCPServerInfo>>('/mcp/info');
-      return response.data.data;
-    },
-    staleTime: 1000 * 60 * 5, // 5 minutes
-  });
-}
-
-/**
- * Get available tools from Hydra MCP
- */
-export function useHydraMCPTools() {
-  return useQuery({
-    queryKey: queryKeys.mcp.tools('hydra-mcp'),
-    queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<MCPTool[]>>('/mcp/tools');
-      return response.data.data;
-    },
-    staleTime: 1000 * 60 * 5,
-  });
-}
-
-/**
- * Get available resources from Hydra MCP
- */
-export function useHydraMCPResources() {
-  return useQuery({
-    queryKey: queryKeys.mcp.resources('hydra-mcp'),
-    queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<MCPResource[]>>('/mcp/resources');
-      return response.data.data;
-    },
-    staleTime: 1000 * 60 * 5,
-  });
-}
-
-/**
- * Call a tool on Hydra MCP
- */
-export function useHydraMCPToolCall() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (request: MCPToolCallRequest) => {
-      const response = await apiClient.post<ApiResponse<MCPToolCallResponse>>(
-        '/mcp/tools/call',
-        request
-      );
-      return response.data.data;
-    },
-    onSuccess: () => {
-      // Invalidate relevant queries based on the tool called
-      queryClient.invalidateQueries({ queryKey: queryKeys.nodes.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.services.all });
-    },
-  });
-}
-
-/**
- * Read a resource from Hydra MCP
- */
-export function useHydraMCPResourceRead() {
-  return useMutation({
-    mutationFn: async (request: MCPResourceReadRequest) => {
-      const response = await apiClient.post<ApiResponse<MCPResourceReadResponse>>(
-        '/mcp/resources/read',
-        request
-      );
+      const response = await apiClient.get<ApiResponse<MCPServerListResponse>>('/mcp/servers', {
+        params: {
+          category: params?.category,
+          enabled: params?.enabled,
+        },
+      });
       return response.data.data;
     },
   });
 }
 
-/**
- * Send a chat message with MCP tool support
- * This uses the backend to:
- * 1. Forward the message to the configured LLM
- * 2. Handle tool calls from the LLM
- * 3. Execute tools via MCP
- * 4. Return the final response
- */
-export function useMCPChat() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (request: MCPChatRequest) => {
-      const response = await apiClient.post<ApiResponse<MCPChatResponse>>('/mcp/chat', request);
-      return response.data.data;
-    },
-    onSuccess: () => {
-      // Invalidate data that might have been modified by tool calls
-      queryClient.invalidateQueries({ queryKey: queryKeys.nodes.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.services.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.networks.all });
-    },
-  });
-}
-
-/**
- * Check MCP server status
- */
-export function useMCPServerStatus(serverId: string) {
+// Get single MCP server
+export function useMCPServer(serverId: string) {
   return useQuery({
     queryKey: queryKeys.mcp.serverStatus(serverId),
     queryFn: async () => {
-      if (serverId === 'hydra-mcp') {
-        // For built-in server, check via API health endpoint
-        try {
-          await apiClient.get('/mcp/health');
-          return { connected: true };
-        } catch {
-          return { connected: false };
-        }
-      }
-      // For external servers, we'd need different logic
-      return { connected: false };
+      const response = await apiClient.get<ApiResponse<MCPServer>>(`/mcp/servers/${serverId}`);
+      return response.data.data;
     },
-    refetchInterval: 30000, // Check every 30 seconds
+    enabled: !!serverId,
+  });
+}
+
+// Create MCP server
+export function useCreateMCPServer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: MCPServerCreate) => {
+      const response = await apiClient.post<ApiResponse<MCPServer>>('/mcp/servers', data);
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcp.servers() });
+    },
+  });
+}
+
+// Update MCP server
+export function useUpdateMCPServer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ serverId, data }: { serverId: string; data: MCPServerUpdate }) => {
+      const response = await apiClient.put<ApiResponse<MCPServer>>(
+        `/mcp/servers/${serverId}`,
+        data
+      );
+      return response.data.data;
+    },
+    onSuccess: (_data, { serverId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcp.serverStatus(serverId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcp.servers() });
+    },
+  });
+}
+
+// Delete MCP server
+export function useDeleteMCPServer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (serverId: string) => {
+      const response = await apiClient.delete(`/mcp/servers/${serverId}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcp.servers() });
+    },
+  });
+}
+
+// Check MCP server health
+export function useMCPServerHealth(serverId: string) {
+  return useQuery({
+    queryKey: [...queryKeys.mcp.serverStatus(serverId), 'health'],
+    queryFn: async () => {
+      const response = await apiClient.get<ApiResponse<MCPHealthResponse>>(
+        `/mcp/servers/${serverId}/health`
+      );
+      return response.data.data;
+    },
+    enabled: !!serverId,
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+}
+
+// Check health mutation (for manual refresh)
+export function useCheckMCPServerHealth() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (serverId: string) => {
+      const response = await apiClient.get<ApiResponse<MCPHealthResponse>>(
+        `/mcp/servers/${serverId}/health`
+      );
+      return response.data.data;
+    },
+    onSuccess: (_data, serverId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcp.serverStatus(serverId) });
+    },
+  });
+}
+
+// List MCP server tools
+export function useMCPServerTools(serverId: string) {
+  return useQuery({
+    queryKey: queryKeys.mcp.tools(serverId),
+    queryFn: async () => {
+      const response = await apiClient.get<ApiResponse<MCPToolsResponse>>(
+        `/mcp/servers/${serverId}/tools`
+      );
+      return response.data.data;
+    },
+    enabled: !!serverId,
+  });
+}
+
+// List MCP server resources
+export function useMCPServerResources(serverId: string) {
+  return useQuery({
+    queryKey: queryKeys.mcp.resources(serverId),
+    queryFn: async () => {
+      const response = await apiClient.get<ApiResponse<{ resources: unknown[] }>>(
+        `/mcp/servers/${serverId}/resources`
+      );
+      return response.data.data;
+    },
+    enabled: !!serverId,
   });
 }

@@ -15,10 +15,16 @@ import {
   Wifi,
   Package,
   Boxes,
+  History,
+  GitBranch,
+  Globe,
+  FolderTree,
 } from 'lucide-react';
 import { useNode } from '@/api/nodes';
 import { useNodeProfiles, useLatestProfile } from '@/api/profiles';
 import { useNodeServices } from '@/api/services';
+import { useSubgraph } from '@/api/topologies';
+import { useGroups } from '@/api/groups';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS, STATUS_COLORS } from '@/lib/constants';
 import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
@@ -35,6 +41,9 @@ export default function NodeDetailPage() {
   const { data: node, isLoading, error } = useNode(nodeId!);
   const { data: latestProfile } = useLatestProfile(nodeId!);
   const { data: services } = useNodeServices(nodeId!);
+  const { data: profiles } = useNodeProfiles(nodeId!, { limit: 5 });
+  const { data: subgraph } = useSubgraph(nodeId!, { depth: 1, includeServices: true, includeNetworks: true });
+  const { data: allGroups } = useGroups({ limit: 100 });
 
   if (isLoading) {
     return (
@@ -341,6 +350,253 @@ export default function NodeDetailPage() {
                   />
                 </Link>
               ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Profile History Timeline */}
+        {profiles?.items && profiles.items.length > 0 && (
+          <motion.div
+            variants={staggerItemVariants}
+            className="rounded-xl border bg-card p-6 shadow-sm"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="flex items-center gap-2 text-lg font-semibold">
+                <History className="h-5 w-5" />
+                Profile History
+              </h3>
+              <Link
+                to={ROUTES.NODES + '/' + node.id + '/profiles'}
+                className="text-sm text-primary hover:underline"
+              >
+                View all profiles
+              </Link>
+            </div>
+
+            <div className="relative">
+              {/* Timeline line */}
+              <div className="absolute left-[11px] top-2 bottom-2 w-0.5 bg-border" />
+
+              <div className="space-y-4">
+                {profiles.items.map((profile, index) => (
+                  <Link
+                    key={profile.id || profile.profileId}
+                    to={ROUTES.NODES + '/' + node.id + '/profiles/' + (profile.id || profile.profileId)}
+                    className="relative flex items-start gap-4 pl-8 group"
+                  >
+                    {/* Timeline dot */}
+                    <div
+                      className={cn(
+                        'absolute left-0 top-1 h-6 w-6 rounded-full border-2 flex items-center justify-center',
+                        index === 0
+                          ? 'border-primary bg-primary/10'
+                          : 'border-muted-foreground/30 bg-background group-hover:border-primary/50'
+                      )}
+                    >
+                      <span className={cn(
+                        'h-2 w-2 rounded-full',
+                        index === 0 ? 'bg-primary' : 'bg-muted-foreground/50'
+                      )} />
+                    </div>
+
+                    <div className="flex-1 min-w-0 rounded-lg border p-3 group-hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-sm font-medium">{profile.version}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatRelativeTime(new Date(profile.submittedAt))}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {profile.sectionsIncluded?.length || 0} sections
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Networks */}
+        {node.networkIds && node.networkIds.length > 0 && (
+          <motion.div
+            variants={staggerItemVariants}
+            className="rounded-xl border bg-card p-6 shadow-sm"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="flex items-center gap-2 text-lg font-semibold">
+                <Globe className="h-5 w-5" />
+                Networks ({node.networkIds.length})
+              </h3>
+              <Link
+                to={ROUTES.NETWORKS}
+                className="text-sm text-primary hover:underline"
+              >
+                View all networks
+              </Link>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {node.networkIds.map((networkId) => {
+                const membership = node.networks?.find(n => n.networkId === networkId);
+                return (
+                  <Link
+                    key={networkId}
+                    to={ROUTES.NETWORKS + '/' + networkId}
+                    className="flex items-center gap-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
+                  >
+                    <Network className="h-5 w-5 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{networkId}</div>
+                      {membership && (
+                        <div className="text-xs text-muted-foreground space-y-0.5">
+                          {membership.ipAddress && <div>IP: {membership.ipAddress}</div>}
+                          {membership.interfaceName && <div>Interface: {membership.interfaceName}</div>}
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Groups containing this node */}
+        {allGroups?.items && allGroups.items.length > 0 && (() => {
+          // Filter groups that might contain this node by checking tags overlap
+          const nodeGroups = allGroups.items.filter(group => {
+            // Check if node tags overlap with group tags
+            if (group.tags && node.tags) {
+              if (node.tags.some(tag => group.tags.includes(tag))) {
+                return true;
+              }
+            }
+            // Groups with 'node' type that have members might contain this node
+            if (group.types?.includes('node') && group.memberCount?.nodes > 0) {
+              return true;
+            }
+            return false;
+          });
+
+          if (nodeGroups.length === 0) return null;
+
+          return (
+            <motion.div
+              variants={staggerItemVariants}
+              className="rounded-xl border bg-card p-6 shadow-sm"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="flex items-center gap-2 text-lg font-semibold">
+                  <FolderTree className="h-5 w-5" />
+                  Related Groups ({nodeGroups.length})
+                </h3>
+                <Link
+                  to={ROUTES.GROUPS}
+                  className="text-sm text-primary hover:underline"
+                >
+                  View all groups
+                </Link>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {nodeGroups.slice(0, 6).map((group) => (
+                  <Link
+                    key={group.id}
+                    to={ROUTES.GROUPS + '/' + group.id}
+                    className="flex items-center gap-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
+                  >
+                    <FolderTree className="h-5 w-5 text-muted-foreground" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{group.name}</div>
+                      <div className="text-xs text-muted-foreground capitalize">
+                        {group.types?.join(', ')}
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {(group.memberCount?.nodes || 0) + (group.memberCount?.services || 0)} members
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </motion.div>
+          );
+        })()}
+
+        {/* Topology Subgraph */}
+        {subgraph?.graph && (
+          <motion.div
+            variants={staggerItemVariants}
+            className="rounded-xl border bg-card p-6 shadow-sm"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="flex items-center gap-2 text-lg font-semibold">
+                <GitBranch className="h-5 w-5" />
+                Node Connections
+              </h3>
+              <Link
+                to={ROUTES.TOPOLOGY}
+                className="text-sm text-primary hover:underline"
+              >
+                View full topology
+              </Link>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Stats */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                  <span className="text-muted-foreground">Connected Nodes</span>
+                  <span className="font-medium">{subgraph.stats.nodeCount}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                  <span className="text-muted-foreground">Connections</span>
+                  <span className="font-medium">{subgraph.stats.edgeCount}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                  <span className="text-muted-foreground">Services</span>
+                  <span className="font-medium">{subgraph.stats.serviceCount}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                  <span className="text-muted-foreground">Networks</span>
+                  <span className="font-medium">{subgraph.stats.networkCount}</span>
+                </div>
+              </div>
+
+              {/* Connected nodes list */}
+              <div>
+                <h4 className="text-sm font-medium text-muted-foreground mb-2">Adjacent Nodes</h4>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {subgraph.graph.nodes
+                    .filter(n => n.id !== nodeId)
+                    .slice(0, 8)
+                    .map((graphNode) => {
+                      const NodeIcon = graphNode.data.class === 'networking'
+                        ? Network
+                        : graphNode.data.class === 'iot'
+                          ? Cpu
+                          : Server;
+                      return (
+                        <Link
+                          key={graphNode.id}
+                          to={ROUTES.NODES + '/' + (graphNode.data.nodeId || graphNode.id)}
+                          className="flex items-center gap-2 rounded-lg border p-2 hover:bg-muted/50 transition-colors"
+                        >
+                          <NodeIcon className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm truncate">{graphNode.label}</span>
+                          {graphNode.data.status && (
+                            <span
+                              className={cn(
+                                'ml-auto h-2 w-2 rounded-full',
+                                graphNode.data.status === 'active' ? 'bg-success' : 'bg-muted-foreground'
+                              )}
+                            />
+                          )}
+                        </Link>
+                      );
+                    })}
+                </div>
+              </div>
             </div>
           </motion.div>
         )}

@@ -1,22 +1,28 @@
 import { ListParams } from './api';
 
 // Network type
-export type NetworkType = 'L2' | 'L3' | 'vlan' | 'vxlan' | 'overlay' | 'physical';
+export type NetworkType =
+  | 'physical'
+  | 'virtual'
+  | 'overlay'
+  | 'vlan'
+  | 'vxlan'
+  | 'bridge'
+  | 'tunnel';
 
 // DHCP configuration
 export interface DhcpConfig {
   enabled: boolean;
   rangeStart?: string;
   rangeEnd?: string;
-  leaseTime?: number;
-  server?: string;
+  serverNodeId?: string;
 }
 
 // DNS configuration
 export interface DnsConfig {
   servers: string[];
   domain?: string;
-  search?: string[];
+  searchDomains?: string[];
 }
 
 // Network summary (for list views)
@@ -25,24 +31,31 @@ export interface NetworkSummary {
   id?: string; // Alias for networkId for component convenience
   name: string;
   type: NetworkType;
-  cidr: string;
-  gateway?: string;
+  cidr?: string | null;
+  gatewayV4?: string;
+  gatewayV6?: string;
   vlanId?: number;
+  routerNodeId?: string;
   nodeCount: number;
   tags: string[];
-  createdAt: string;
-  updatedAt: string;
 }
 
 // Full network details
 export interface Network extends NetworkSummary {
   description?: string;
+  cidrV6?: string | null;
   parentNetworkId?: string;
-  routerNodeId?: string;
+  subnetIds?: string[];
   dhcp?: DhcpConfig;
   dns?: DnsConfig;
-  domain?: string; // Convenience alias for dns.domain
+  origin?: {
+    createdBy: string;
+    sourceNodeId?: string;
+    sourceProfileId?: string;
+  };
   mtu?: number;
+  createdAt?: string;
+  updatedAt?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -57,11 +70,13 @@ export interface NetworkListParams extends ListParams {
 
 // Create network request
 export interface CreateNetworkRequest {
-  networkId?: string;
+  networkId: string;
   name: string;
   type: NetworkType;
-  cidr: string;
-  gateway?: string;
+  cidr?: string;
+  cidrV6?: string;
+  gatewayV4?: string;
+  gatewayV6?: string;
   vlanId?: number;
   description?: string;
   parentNetworkId?: string;
@@ -75,7 +90,9 @@ export interface CreateNetworkRequest {
 export interface UpdateNetworkRequest {
   name?: string;
   description?: string;
-  gateway?: string;
+  gatewayV4?: string;
+  gatewayV6?: string;
+  routerNodeId?: string;
   dhcp?: DhcpConfig;
   dns?: DnsConfig;
   tags?: string[];

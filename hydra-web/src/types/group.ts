@@ -1,155 +1,145 @@
 import { ListParams } from './api';
 
 // Entity types that can be grouped
-export type GroupEntityType = 'nodes' | 'services' | 'both';
+export type GroupEntityType = 'node' | 'service';
 
-// Selector types
-export type SelectorType = 'id' | 'network' | 'tag' | 'status' | 'class' | 'type' | 'kind' | 'runtime';
-
-// Tag selector mode
-export type TagSelectorMode = 'isAny' | 'isAll';
-
-// Base selector
-export interface BaseSelector {
-  type: SelectorType;
+// Selector models (match backend GroupSelectors schema)
+export interface IdSelector {
+  isAll?: string[];
 }
 
-// ID selector - select specific IDs
-export interface IdSelector extends BaseSelector {
-  type: 'id';
-  ids: string[];
+export interface AnySelector {
+  isAny?: string[];
 }
 
-// Network selector - select by network membership
-export interface NetworkSelector extends BaseSelector {
-  type: 'network';
-  networkIds: string[];
+export interface TagsSelector {
+  isAny?: string[];
+  isAll?: string[];
 }
 
-// Tag selector - select by tags
-export interface TagSelector extends BaseSelector {
-  type: 'tag';
-  tags: string[];
-  mode: TagSelectorMode;
+export interface GroupSelectors {
+  id?: IdSelector;
+  network?: AnySelector;
+  status?: AnySelector;
+  kind?: AnySelector;
+  runtime?: AnySelector;
+  tags?: TagsSelector;
 }
-
-// Status selector
-export interface StatusSelector extends BaseSelector {
-  type: 'status';
-  statuses: string[];
-}
-
-// Class selector (nodes)
-export interface ClassSelector extends BaseSelector {
-  type: 'class';
-  classes: string[];
-}
-
-// Type selector (nodes)
-export interface TypeSelector extends BaseSelector {
-  type: 'type';
-  types: string[];
-}
-
-// Kind selector (nodes)
-export interface KindSelector extends BaseSelector {
-  type: 'kind';
-  kinds: string[];
-}
-
-// Runtime selector (services)
-export interface RuntimeSelector extends BaseSelector {
-  type: 'runtime';
-  runtimes: string[];
-}
-
-// Union of all selector types
-export type Selector =
-  | IdSelector
-  | NetworkSelector
-  | TagSelector
-  | StatusSelector
-  | ClassSelector
-  | TypeSelector
-  | KindSelector
-  | RuntimeSelector;
 
 // Member counts
-export interface MemberCounts {
-  nodes?: number;
-  services?: number;
-  total: number;
+export interface MemberCount {
+  nodes: number;
+  services: number;
+  lastComputed?: string;
 }
 
 // Group summary (for list views)
 export interface GroupSummary {
   groupId: string;
   name: string;
-  entityTypes: GroupEntityType;
-  memberCounts: MemberCounts;
+  description?: string;
+  types: GroupEntityType[];
+  memberCount: MemberCount;
   tags: string[];
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // Full group details
 export interface Group extends GroupSummary {
-  description?: string;
-  selectors: Selector[];
-  parentGroupId?: string;
+  selectors: GroupSelectors;
+  parentGroupIds?: string[];
 }
 
-// Group member
+// Group members response
+export interface GroupMemberNode {
+  nodeId: string;
+  displayName: string;
+  matchedSelectors: string[];
+}
+
+export interface GroupMemberService {
+  serviceId: string;
+  name: string;
+  nodeId: string;
+  matchedSelectors: string[];
+}
+
+export interface GroupMembersResponse {
+  nodes: GroupMemberNode[];
+  services: GroupMemberService[];
+}
+
+// Group member (flattened for UI)
 export interface GroupMember {
   id: string;
   type: 'node' | 'service';
   displayName: string;
-  matchedBy: SelectorType[];
-  class?: string; // Node class if type is 'node'
-  kind?: string; // Node kind if type is 'node'
-  status?: string; // Status of the entity
-  runtime?: string; // Service runtime if type is 'service'
+  matchedBy: string[];
+  class?: string;
+  kind?: string;
+  status?: string;
+  runtime?: string;
+  nodeId?: string;
 }
 
-// Helper to get selector display value
-export function getSelectorDisplayValue(selector: Selector): string {
-  switch (selector.type) {
-    case 'id':
-      return selector.ids.join(', ');
-    case 'network':
-      return selector.networkIds.join(', ');
-    case 'tag':
-      return `${selector.mode}: ${selector.tags.join(', ')}`;
-    case 'status':
-      return selector.statuses.join(', ');
-    case 'class':
-      return selector.classes.join(', ');
-    case 'type':
-      return selector.types.join(', ');
-    case 'kind':
-      return selector.kinds.join(', ');
-    case 'runtime':
-      return selector.runtimes.join(', ');
-    default:
-      return '';
+export interface SelectorEntry {
+  type: string;
+  values: string[];
+  mode?: 'isAny' | 'isAll';
+}
+
+export function getSelectorEntries(selectors: GroupSelectors): SelectorEntry[] {
+  const entries: SelectorEntry[] = [];
+
+  if (selectors.id?.isAll?.length) {
+    entries.push({ type: 'id', values: selectors.id.isAll, mode: 'isAll' });
   }
+  if (selectors.network?.isAny?.length) {
+    entries.push({ type: 'network', values: selectors.network.isAny });
+  }
+  if (selectors.status?.isAny?.length) {
+    entries.push({ type: 'status', values: selectors.status.isAny });
+  }
+  if (selectors.kind?.isAny?.length) {
+    entries.push({ type: 'kind', values: selectors.kind.isAny });
+  }
+  if (selectors.runtime?.isAny?.length) {
+    entries.push({ type: 'runtime', values: selectors.runtime.isAny });
+  }
+  if (selectors.tags?.isAny?.length) {
+    entries.push({ type: 'tags', values: selectors.tags.isAny, mode: 'isAny' });
+  }
+  if (selectors.tags?.isAll?.length) {
+    entries.push({ type: 'tags', values: selectors.tags.isAll, mode: 'isAll' });
+  }
+
+  return entries;
+}
+
+export function getSelectorDisplayValue(entry: SelectorEntry): string {
+  const values = entry.values.join(', ');
+  if (entry.type === 'tags' && entry.mode) {
+    return `${entry.mode}: ${values}`;
+  }
+  return values;
 }
 
 // Group list params
 export interface GroupListParams extends ListParams {
-  types?: GroupEntityType;
+  types?: GroupEntityType[];
   parentGroupId?: string;
   tags?: string[];
 }
 
 // Create group request
 export interface CreateGroupRequest {
-  groupId?: string;
+  groupId: string;
   name: string;
   description?: string;
-  entityTypes: GroupEntityType;
-  selectors: Selector[];
-  parentGroupId?: string;
+  types: GroupEntityType[];
+  selectors: GroupSelectors;
+  parentGroupIds?: string[];
   tags?: string[];
 }
 
@@ -157,6 +147,7 @@ export interface CreateGroupRequest {
 export interface UpdateGroupRequest {
   name?: string;
   description?: string;
-  selectors?: Selector[];
+  selectors?: GroupSelectors;
+  parentGroupIds?: string[];
   tags?: string[];
 }

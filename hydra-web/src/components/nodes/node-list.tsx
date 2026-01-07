@@ -12,13 +12,18 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  List,
+  LayoutGrid,
+  Rows3,
 } from 'lucide-react';
 import { useNodes } from '@/api/nodes';
 import { NodeSummary } from '@/types/node';
 import { NodeFilterState } from './node-filters';
+import { NodeCard } from './node-card';
 import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS, STATUS_COLORS } from '@/lib/constants';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
+import { useUiStore, ViewLayout } from '@/stores/ui-store';
 
 // Extended type with id alias (matching what the API returns)
 type NodeListItem = NodeSummary & { id: string; profileVersion?: string };
@@ -33,9 +38,18 @@ const classIcons = {
   iot: Cpu,
 };
 
+const layoutOptions: { value: ViewLayout; label: string; icon: typeof List }[] = [
+  { value: 'list', label: 'List', icon: List },
+  { value: 'grid', label: 'Grid', icon: LayoutGrid },
+  { value: 'compact', label: 'Compact', icon: Rows3 },
+];
+
 export function NodeList({ filters }: NodeListProps) {
   const [page, setPage] = useState(0);
   const limit = 20;
+
+  const { nodesView, setNodesView } = useUiStore();
+  const layout = nodesView.layout;
 
   const queryFilters = useMemo(() => {
     const f: Record<string, unknown> = { limit, offset: page * limit };
@@ -62,60 +76,118 @@ export function NodeList({ filters }: NodeListProps) {
 
   if (isLoading) {
     return (
-      <div className="rounded-xl border bg-card shadow-sm">
-        <div className="divide-y">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="flex items-center gap-4 p-4">
-              <div className="h-10 w-10 animate-pulse rounded-lg bg-muted" />
-              <div className="flex-1 space-y-2">
-                <div className="h-4 w-32 animate-pulse rounded bg-muted" />
-                <div className="h-3 w-48 animate-pulse rounded bg-muted" />
-              </div>
-            </div>
-          ))}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="h-5 w-32 animate-pulse rounded bg-muted" />
+          <LayoutToggle layout={layout} onChange={(l) => setNodesView({ layout: l })} />
         </div>
+        {layout === 'grid' ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="rounded-xl border bg-card p-4 h-48 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-muted" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-24 rounded bg-muted" />
+                    <div className="h-3 w-32 rounded bg-muted" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border bg-card shadow-sm">
+            <div className="divide-y">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="flex items-center gap-4 p-4">
+                  <div className="h-10 w-10 animate-pulse rounded-lg bg-muted" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-48 animate-pulse rounded bg-muted" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   if (!data?.items?.length) {
     return (
-      <div className="rounded-xl border bg-card p-8 text-center">
-        <Server className="mx-auto h-12 w-12 text-muted-foreground" />
-        <h3 className="mt-4 text-lg font-semibold">No nodes found</h3>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {filters.search || filters.class || filters.type || filters.kind || filters.status
-            ? 'Try adjusting your filters'
-            : 'Register your first node to get started'}
-        </p>
+      <div className="space-y-4">
+        <div className="flex items-center justify-end">
+          <LayoutToggle layout={layout} onChange={(l) => setNodesView({ layout: l })} />
+        </div>
+        <div className="rounded-xl border bg-card p-8 text-center">
+          <Server className="mx-auto h-12 w-12 text-muted-foreground" />
+          <h3 className="mt-4 text-lg font-semibold">No nodes found</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {filters.search || filters.class || filters.type || filters.kind || filters.status
+              ? 'Try adjusting your filters'
+              : 'Register your first node to get started'}
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {/* Results count */}
+      {/* Header with results count and layout toggle */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
           Showing {data.items.length} of {data.total} nodes
         </span>
+        <LayoutToggle layout={layout} onChange={(l) => setNodesView({ layout: l })} />
       </div>
 
-      {/* Node list */}
-      <motion.div
-        variants={staggerContainerVariants}
-        initial="hidden"
-        animate="visible"
-        className="rounded-xl border bg-card shadow-sm"
-      >
-        <div className="divide-y">
+      {/* Node list with different layouts */}
+      {layout === 'grid' ? (
+        <motion.div
+          variants={staggerContainerVariants}
+          initial="hidden"
+          animate="visible"
+          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        >
           <AnimatePresence mode="popLayout">
             {data.items.map((node) => (
-              <NodeRow key={node.id} node={node} />
+              <NodeCard key={node.id} node={node} />
             ))}
           </AnimatePresence>
-        </div>
-      </motion.div>
+        </motion.div>
+      ) : layout === 'compact' ? (
+        <motion.div
+          variants={staggerContainerVariants}
+          initial="hidden"
+          animate="visible"
+          className="rounded-xl border bg-card shadow-sm"
+        >
+          <div className="divide-y">
+            <AnimatePresence mode="popLayout">
+              {data.items.map((node) => (
+                <CompactNodeRow key={node.id} node={node} />
+              ))}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      ) : (
+        <motion.div
+          variants={staggerContainerVariants}
+          initial="hidden"
+          animate="visible"
+          className="rounded-xl border bg-card shadow-sm"
+        >
+          <div className="divide-y">
+            <AnimatePresence mode="popLayout">
+              {data.items.map((node) => (
+                <NodeRow key={node.id} node={node} />
+              ))}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      )}
 
       {/* Pagination */}
       {totalPages > 1 && (
@@ -149,6 +221,36 @@ export function NodeList({ filters }: NodeListProps) {
   );
 }
 
+function LayoutToggle({
+  layout,
+  onChange,
+}: {
+  layout: ViewLayout;
+  onChange: (layout: ViewLayout) => void;
+}) {
+  return (
+    <div className="flex rounded-lg border bg-muted/40 p-0.5">
+      {layoutOptions.map((option) => {
+        const Icon = option.icon;
+        return (
+          <button
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              'flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors',
+              layout === option.value ? 'bg-background shadow-sm' : 'hover:bg-background/50'
+            )}
+            title={option.label}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{option.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function NodeRow({ node }: { node: NodeListItem }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -175,7 +277,7 @@ function NodeRow({ node }: { node: NodeListItem }) {
             to={ROUTES.NODES + '/' + node.id}
             className="font-medium hover:text-primary transition-colors truncate"
           >
-            {node.id}
+            {node.displayName || node.id}
           </Link>
           <span
             className={cn(
@@ -189,6 +291,8 @@ function NodeRow({ node }: { node: NodeListItem }) {
           </span>
         </div>
         <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
+          <span className="font-mono text-xs">{node.id}</span>
+          <span>•</span>
           <span className="capitalize">{node.class}</span>
           <span>•</span>
           <span>{kindLabel}</span>
@@ -264,6 +368,53 @@ function NodeRow({ node }: { node: NodeListItem }) {
           </>
         )}
       </div>
+    </motion.div>
+  );
+}
+
+function CompactNodeRow({ node }: { node: NodeListItem }) {
+  const Icon = classIcons[node.class] || Server;
+  const colors = NODE_CLASS_COLORS[node.class];
+  const statusColors = STATUS_COLORS[node.status] || STATUS_COLORS.inactive;
+
+  return (
+    <motion.div variants={staggerItemVariants} layout>
+      <Link
+        to={ROUTES.NODES + '/' + node.id}
+        className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors"
+      >
+        {/* Status dot */}
+        <span className={cn('h-2 w-2 rounded-full shrink-0', statusColors.dot)} />
+
+        {/* Icon */}
+        <div className={cn('rounded p-1.5', colors?.bg || 'bg-muted')}>
+          <Icon className="h-3.5 w-3.5 text-white" />
+        </div>
+
+        {/* Name */}
+        <span className="font-medium truncate flex-1">
+          {node.displayName || node.id}
+        </span>
+
+        {/* Class */}
+        <span className="text-xs text-muted-foreground capitalize hidden sm:inline">
+          {node.class}
+        </span>
+
+        {/* Profile version */}
+        {node.profileVersion && (
+          <span className="text-xs font-mono text-muted-foreground hidden md:inline">
+            {node.profileVersion}
+          </span>
+        )}
+
+        {/* Last update */}
+        {node.lastProfileAt && (
+          <span className="text-xs text-muted-foreground hidden lg:inline">
+            {formatRelativeTime(new Date(node.lastProfileAt))}
+          </span>
+        )}
+      </Link>
     </motion.div>
   );
 }

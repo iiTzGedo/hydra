@@ -22,9 +22,14 @@
 13. [[#Documentations|Documentations]]
 14. [[#Home Assistant|Home Assistant]]
 15. [[#Query & Analytics|Query & Analytics]]
-16. [[#Error Codes|Error Codes]]
-17. [[#Rate Limits|Rate Limits]]
-18. [[#Appendices|Appendices]]
+16. [[#AI Models|AI Models]]
+17. [[#Chat|Chat]]
+18. [[#MCP Servers|MCP Servers]]
+19. [[#Global Search|Global Search]]
+20. [[#Settings|Settings]]
+21. [[#Error Codes|Error Codes]]
+22. [[#Rate Limits|Rate Limits]]
+23. [[#Appendices|Appendices]]
 
 ---
 
@@ -3070,6 +3075,702 @@ Get audit log entries.
 ```
 
 **Required Permission:** `audit:read`
+
+---
+
+## AI Models
+
+Configure LLM providers (Anthropic Claude, OpenAI GPT, Ollama) for AI-powered infrastructure management.
+
+### List LLM Providers
+
+```
+GET /ai/models
+```
+
+**Query Parameters:**
+
+| Parameter | Type    | Default | Description       |
+| --------- | ------- | ------- | ----------------- |
+| `limit`   | integer | 50      | Max results       |
+| `offset`  | integer | 0       | Skip N results    |
+
+**Response:**
+
+```json
+{
+  "providers": [
+    {
+      "provider_id": "llm_abc123",
+      "name": "Claude API",
+      "type": "anthropic",
+      "api_key_last4": "ab12",
+      "api_key_set": true,
+      "base_url": null,
+      "model": "claude-3-5-sonnet-20241022",
+      "is_default": true,
+      "is_valid": true,
+      "last_validated_at": "2025-01-07T10:00:00Z",
+      "created_by": "user_abc123",
+      "created_at": "2025-01-01T10:00:00Z",
+      "updated_at": "2025-01-07T10:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+**Required Permission:** `ai:read`
+
+---
+
+### Create LLM Provider
+
+```
+POST /ai/models
+```
+
+**Request Body:**
+
+```json
+{
+  "name": "Claude API",
+  "type": "anthropic",
+  "api_key": "sk-ant-...",
+  "model": "claude-3-5-sonnet-20241022",
+  "is_default": true
+}
+```
+
+| Field       | Type    | Required | Description                                      |
+| ----------- | ------- | -------- | ------------------------------------------------ |
+| `name`      | string  | Yes      | Display name for the provider                    |
+| `type`      | string  | Yes      | Provider type: `anthropic`, `openai`, `ollama`   |
+| `api_key`   | string  | No       | API key (required for anthropic/openai)          |
+| `base_url`  | string  | No       | Custom base URL (required for ollama)            |
+| `model`     | string  | Yes      | Model identifier                                 |
+| `is_default`| boolean | No       | Set as default provider                          |
+
+**Response:** Returns created provider object.
+
+**Required Permission:** `ai:create`
+
+---
+
+### Get LLM Provider
+
+```
+GET /ai/models/{providerId}
+```
+
+**Required Permission:** `ai:read`
+
+---
+
+### Update LLM Provider
+
+```
+PUT /ai/models/{providerId}
+```
+
+**Request Body:** Partial update with same fields as create.
+
+**Required Permission:** `ai:update`
+
+---
+
+### Delete LLM Provider
+
+```
+DELETE /ai/models/{providerId}
+```
+
+**Required Permission:** `ai:delete`
+
+---
+
+### Validate LLM Provider
+
+```
+POST /ai/models/{providerId}/validate
+```
+
+Tests the API connection to verify credentials.
+
+**Response:**
+
+```json
+{
+  "provider_id": "llm_abc123",
+  "is_valid": true,
+  "message": "API key is valid",
+  "validated_at": "2025-01-07T10:00:00Z",
+  "models": ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229"]
+}
+```
+
+**Required Permission:** `ai:read`
+
+---
+
+## Chat
+
+Persistent chat sessions with MCP tool integration.
+
+### List Chat Projects
+
+```
+GET /chat/projects
+```
+
+Projects organize related chat sessions.
+
+**Response:**
+
+```json
+{
+  "projects": [
+    {
+      "project_id": "proj_abc123",
+      "name": "Infrastructure Analysis",
+      "description": "Ongoing infrastructure review sessions",
+      "session_count": 5,
+      "created_at": "2025-01-01T10:00:00Z",
+      "updated_at": "2025-01-07T10:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### Create Chat Project
+
+```
+POST /chat/projects
+```
+
+**Request Body:**
+
+```json
+{
+  "name": "Infrastructure Analysis",
+  "description": "Ongoing infrastructure review sessions"
+}
+```
+
+---
+
+### Update Chat Project
+
+```
+PUT /chat/projects/{projectId}
+```
+
+---
+
+### Delete Chat Project
+
+```
+DELETE /chat/projects/{projectId}?cascade=true
+```
+
+Use `cascade=true` to delete all sessions within the project.
+
+---
+
+### List Chat Sessions
+
+```
+GET /chat/sessions
+```
+
+**Query Parameters:**
+
+| Parameter   | Type    | Default | Description                    |
+| ----------- | ------- | ------- | ------------------------------ |
+| `projectId` | string  | -       | Filter by project              |
+| `limit`     | integer | 50      | Max results                    |
+| `offset`    | integer | 0       | Skip N results                 |
+
+**Response:**
+
+```json
+{
+  "sessions": [
+    {
+      "session_id": "sess_abc123",
+      "project_id": "proj_abc123",
+      "name": "Network Troubleshooting",
+      "message_count": 12,
+      "created_at": "2025-01-07T10:00:00Z",
+      "updated_at": "2025-01-07T11:30:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### Create Chat Session
+
+```
+POST /chat/sessions
+```
+
+**Request Body:**
+
+```json
+{
+  "project_id": "proj_abc123",
+  "name": "Network Troubleshooting"
+}
+```
+
+---
+
+### Get Chat Session
+
+```
+GET /chat/sessions/{sessionId}
+```
+
+---
+
+### Update Chat Session
+
+```
+PUT /chat/sessions/{sessionId}
+```
+
+---
+
+### Delete Chat Session
+
+```
+DELETE /chat/sessions/{sessionId}
+```
+
+---
+
+### List Session Messages
+
+```
+GET /chat/sessions/{sessionId}/messages
+```
+
+**Query Parameters:**
+
+| Parameter | Type    | Default | Description                    |
+| --------- | ------- | ------- | ------------------------------ |
+| `limit`   | integer | 50      | Max messages                   |
+| `offset`  | integer | 0       | Skip N messages                |
+| `order`   | string  | `asc`   | Sort order: `asc` or `desc`    |
+
+**Response:**
+
+```json
+{
+  "messages": [
+    {
+      "message_id": "msg_abc123",
+      "session_id": "sess_abc123",
+      "role": "user",
+      "content": "List all nodes with status active",
+      "tool_calls": null,
+      "error": false,
+      "created_at": "2025-01-07T10:00:00Z"
+    },
+    {
+      "message_id": "msg_def456",
+      "session_id": "sess_abc123",
+      "role": "assistant",
+      "content": "Found 12 active nodes...",
+      "tool_calls": [
+        {
+          "id": "call_abc123",
+          "name": "list_nodes",
+          "server_name": "hydra-mcp",
+          "arguments": {"status": "active"},
+          "result": {"nodes": [...]},
+          "status": "success"
+        }
+      ],
+      "error": false,
+      "created_at": "2025-01-07T10:00:05Z"
+    }
+  ],
+  "total": 2,
+  "has_more": false
+}
+```
+
+---
+
+### Create Message
+
+```
+POST /chat/sessions/{sessionId}/messages
+```
+
+**Request Body:**
+
+```json
+{
+  "role": "user",
+  "content": "List all nodes with status active"
+}
+```
+
+---
+
+### Bulk Upsert Messages
+
+```
+POST /chat/sessions/{sessionId}/messages/bulk
+```
+
+Efficiently sync multiple messages (for autosave).
+
+**Request Body:**
+
+```json
+{
+  "messages": [
+    {
+      "message_id": "msg_abc123",
+      "role": "user",
+      "content": "..."
+    }
+  ]
+}
+```
+
+**Response:**
+
+```json
+{
+  "created": 5,
+  "updated": 2
+}
+```
+
+---
+
+## MCP Servers
+
+Configure MCP (Model Context Protocol) server connections.
+
+### List MCP Servers
+
+```
+GET /mcp/servers
+```
+
+**Query Parameters:**
+
+| Parameter  | Type    | Default | Description                                         |
+| ---------- | ------- | ------- | --------------------------------------------------- |
+| `category` | string  | -       | Filter by category: `infrastructure`, `monitoring`, etc. |
+| `enabled`  | boolean | -       | Filter by enabled status                            |
+
+**Response:**
+
+```json
+{
+  "servers": [
+    {
+      "server_id": "mcp_abc123",
+      "name": "Hydra MCP",
+      "url": "http://localhost:8081",
+      "category": "infrastructure",
+      "enabled": true,
+      "status": "connected",
+      "last_connected_at": "2025-01-07T10:00:00Z",
+      "tools": [
+        {
+          "name": "list_nodes",
+          "description": "List infrastructure nodes"
+        }
+      ],
+      "created_at": "2025-01-01T10:00:00Z",
+      "updated_at": "2025-01-07T10:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### Create MCP Server
+
+```
+POST /mcp/servers
+```
+
+**Request Body:**
+
+```json
+{
+  "name": "Custom MCP Server",
+  "url": "http://custom-mcp.local:8082",
+  "category": "development",
+  "enabled": true,
+  "config": {}
+}
+```
+
+| Field      | Type    | Required | Description                    |
+| ---------- | ------- | -------- | ------------------------------ |
+| `name`     | string  | Yes      | Server display name            |
+| `url`      | string  | Yes      | Server HTTP endpoint URL       |
+| `category` | string  | Yes      | Category for grouping          |
+| `enabled`  | boolean | No       | Enable/disable (default: true) |
+| `config`   | object  | No       | Additional configuration       |
+
+---
+
+### Get MCP Server
+
+```
+GET /mcp/servers/{serverId}
+```
+
+---
+
+### Update MCP Server
+
+```
+PUT /mcp/servers/{serverId}
+```
+
+---
+
+### Delete MCP Server
+
+```
+DELETE /mcp/servers/{serverId}
+```
+
+---
+
+### Check MCP Server Health
+
+```
+GET /mcp/servers/{serverId}/health
+```
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "latency_ms": 45,
+  "checked_at": "2025-01-07T10:00:00Z"
+}
+```
+
+Possible status values: `healthy`, `unhealthy`, `unknown`
+
+---
+
+### List MCP Server Tools
+
+```
+GET /mcp/servers/{serverId}/tools
+```
+
+**Response:**
+
+```json
+{
+  "server_id": "mcp_abc123",
+  "tools": [
+    {
+      "name": "list_nodes",
+      "description": "List infrastructure nodes with optional filters",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "class": {"type": "string", "enum": ["compute", "networking", "iot"]},
+          "status": {"type": "string", "enum": ["active", "inactive", "archived"]}
+        }
+      }
+    }
+  ],
+  "fetched_at": "2025-01-07T10:00:00Z"
+}
+```
+
+---
+
+## Global Search
+
+Full-text search across all infrastructure entities.
+
+### Search
+
+```
+GET /search
+```
+
+**Query Parameters:**
+
+| Parameter | Type    | Default | Description                                    |
+| --------- | ------- | ------- | ---------------------------------------------- |
+| `q`       | string  | -       | Search query (required)                        |
+| `types`   | string  | all     | Comma-separated: `node,service,network,group`  |
+| `limit`   | integer | 20      | Max results                                    |
+| `offset`  | integer | 0       | Skip N results                                 |
+
+**Response:**
+
+```json
+{
+  "query": "nginx",
+  "results": [
+    {
+      "type": "service",
+      "id": "svc-nginx-a1b2",
+      "name": "nginx",
+      "description": "Web server",
+      "score": 0.95,
+      "highlight": {
+        "name": ["<em>nginx</em>"]
+      }
+    },
+    {
+      "type": "node",
+      "id": "web-server-01",
+      "name": "web-server-01",
+      "description": "Hosts nginx reverse proxy",
+      "score": 0.72,
+      "highlight": {
+        "description": ["Hosts <em>nginx</em> reverse proxy"]
+      }
+    }
+  ],
+  "total": 2
+}
+```
+
+---
+
+## Settings
+
+User preferences and system settings.
+
+### Get User Settings
+
+```
+GET /settings
+```
+
+**Response:**
+
+```json
+{
+  "user_id": "user_abc123",
+  "ui": {
+    "theme": "system",
+    "sidebar_collapsed": false,
+    "animations_enabled": true
+  },
+  "views": {
+    "nodes": {
+      "layout": "list",
+      "sort_field": "name",
+      "sort_order": "asc",
+      "page_size": 20,
+      "filters": {}
+    },
+    "services": {
+      "layout": "grid",
+      "sort_field": "status",
+      "sort_order": "desc",
+      "page_size": 20,
+      "filters": {}
+    }
+  },
+  "notifications": {
+    "email_enabled": true,
+    "push_enabled": false,
+    "digest_frequency": "daily"
+  },
+  "chat": {
+    "default_provider_id": "llm_abc123",
+    "auto_save": true,
+    "show_tool_calls": true
+  },
+  "updated_at": "2025-01-07T10:00:00Z"
+}
+```
+
+---
+
+### Update User Settings
+
+```
+PUT /settings
+```
+
+**Request Body:** Partial update with same structure as response.
+
+```json
+{
+  "ui": {
+    "theme": "dark"
+  },
+  "chat": {
+    "show_tool_calls": false
+  }
+}
+```
+
+---
+
+### Get System Settings (Admin)
+
+```
+GET /settings/system
+```
+
+**Required Permission:** `admin:*`
+
+**Response:**
+
+```json
+{
+  "registration": {
+    "enabled": true,
+    "require_approval": true,
+    "allowed_domains": ["company.com"]
+  },
+  "security": {
+    "password_min_length": 8,
+    "session_timeout_minutes": 60,
+    "max_failed_logins": 5
+  },
+  "features": {
+    "mcp_enabled": true,
+    "chat_enabled": true,
+    "time_machine_enabled": true
+  }
+}
+```
+
+---
+
+### Update System Settings (Admin)
+
+```
+PUT /settings/system
+```
+
+**Required Permission:** `admin:*`
 
 ---
 

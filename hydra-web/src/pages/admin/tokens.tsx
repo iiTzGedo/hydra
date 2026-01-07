@@ -3,27 +3,21 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
-  Key,
   Plus,
   Copy,
   Check,
-  Trash2,
-  Clock,
   Users,
   Server,
   Loader2,
 } from 'lucide-react';
-import { useTokens, useCreateToken, useRevokeToken } from '@/api/auth';
+import { useCreateToken } from '@/api/auth';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, ROLE_LABELS } from '@/lib/constants';
-import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
-import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
+import { cn } from '@/lib/utils';
 import type { Role } from '@/types/auth';
 
 export default function TokensPage() {
-  const { data: tokens, isLoading, error, refetch } = useTokens();
   const createMutation = useCreateToken();
-  const revokeMutation = useRevokeToken();
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newToken, setNewToken] = useState<string | null>(null);
@@ -47,7 +41,6 @@ export default function TokensPage() {
       allowedRoles: scope === 'user' ? allowedRoles : undefined,
     });
     setNewToken(result.token);
-    refetch();
   };
 
   const handleCopy = async () => {
@@ -58,33 +51,11 @@ export default function TokensPage() {
     }
   };
 
-  const handleRevoke = async (tokenId: string) => {
-    await revokeMutation.mutateAsync(tokenId);
-    refetch();
-  };
-
   const toggleRole = (role: Role) => {
     setAllowedRoles((prev) =>
       prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
     );
   };
-
-  if (error) {
-    return (
-      <div className="p-6">
-        <Link
-          to={ROUTES.ADMIN}
-          className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Admin
-        </Link>
-        <div className="rounded-xl border bg-card p-8 text-center">
-          <p className="text-error">Failed to load tokens</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="p-6">
@@ -98,7 +69,7 @@ export default function TokensPage() {
 
       <PageHeader
         title="Registration Tokens"
-        description="Create and manage tokens for user and node registration"
+        description="Create tokens for user and node registration"
         actions={
           <button
             onClick={() => setShowCreateForm(true)}
@@ -287,85 +258,10 @@ export default function TokensPage() {
         )}
       </AnimatePresence>
 
-      {/* Token list */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      ) : !tokens?.length ? (
-        <div className="rounded-xl border bg-card p-8 text-center">
-          <Key className="mx-auto h-12 w-12 text-muted-foreground" />
-          <h3 className="mt-4 text-lg font-semibold">No active tokens</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Create a token to allow new registrations
-          </p>
-        </div>
-      ) : (
-        <motion.div
-          variants={staggerContainerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid gap-4 md:grid-cols-2"
-        >
-          {tokens.map((token) => (
-            <motion.div
-              key={token.token}
-              variants={staggerItemVariants}
-              className="rounded-xl border bg-card p-6 shadow-sm"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={cn(
-                    'rounded-lg p-2',
-                    token.scope === 'user' ? 'bg-compute' : 'bg-networking'
-                  )}>
-                    {token.scope === 'user' ? (
-                      <Users className="h-5 w-5 text-white" />
-                    ) : (
-                      <Server className="h-5 w-5 text-white" />
-                    )}
-                  </div>
-                  <div>
-                    <span className="font-mono text-sm">
-                      {token.token.slice(0, 12)}...
-                    </span>
-                    <p className="text-xs text-muted-foreground capitalize">
-                      {token.scope} token
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleRevoke(token.token)}
-                  disabled={revokeMutation.isPending}
-                  className="rounded-lg p-2 text-error hover:bg-error/10 transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="mt-4 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Uses</span>
-                  <span>{token.usedCount} / {token.maxUses}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Expires</span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    {formatRelativeTime(new Date(token.expiresAt))}
-                  </span>
-                </div>
-                {token.allowedRoles && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Roles</span>
-                    <span>{token.allowedRoles.map((r) => ROLE_LABELS[r]).join(', ')}</span>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
-        </motion.div>
-      )}
+      <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
+        Registration tokens can be created here. Token listing and revocation are not available
+        in API v0.3.0, so store tokens securely when created.
+      </div>
     </div>
   );
 }

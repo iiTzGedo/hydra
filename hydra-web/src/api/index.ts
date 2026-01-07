@@ -8,5 +8,6 @@ export * from './groups';
 export * from './topologies';
 export * from './timemachine';
 export * from './users';
+export * from './query';
 export * from './health';
 export * from './client';

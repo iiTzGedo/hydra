@@ -6,29 +6,6 @@
 
 ---
 
-## Table of Contents
-
-1. [Build & Installation](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#1-build--installation)
-2. [Configuration](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#2-configuration)
-3. [Registration Flow](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#3-registration-flow)
-4. [API Client](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#4-api-client)
-5. [Hardware Collector](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#5-hardware-collector)
-6. [Network Collector](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#6-network-collector)
-7. [Storage Collector](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#7-storage-collector)
-8. [Software Collector](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#8-software-collector)
-9. [Service Discovery](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#9-service-discovery)
-10. [Virtualization Collector](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#10-virtualization-collector)
-11. [User Collector](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#11-user-collector)
-12. [Config Collector](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#12-config-collector)
-13. [Profile Assembly & Submission](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#13-profile-assembly--submission)
-14. [Scheduling](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#14-scheduling)
-15. [Command Execution](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#15-command-execution)
-16. [Error Handling & Resilience](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#16-error-handling--resilience)
-17. [Resource Usage](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#17-resource-usage)
-18. [Cross-Platform Support](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#18-cross-platform-support)
-
----
-
 ## 1. Build & Installation
 
 ### 1.1 Build Process

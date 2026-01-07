@@ -1,299 +1,216 @@
 /**
  * MCP Marketplace Page
- * Browse and connect to suggested MCP servers
+ * Configure MCP servers without static marketplace data
  */
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import {
-  Search,
-  ExternalLink,
-  Plus,
-  Check,
-  Server,
-  Activity,
-  GitBranch,
-  Database,
-  Cloud,
-  Code,
-  Folder,
-  Box,
-  BarChart2,
-  GitMerge,
-  Layers,
-  Terminal,
-  Star,
-} from 'lucide-react';
-import {
-  SUGGESTED_MCP_SERVERS,
-  getMCPCategories,
-  MCP_CATEGORY_LABELS,
-  searchMCPServers,
-} from '@/lib/mcp-marketplace';
+import { ExternalLink, Plus, Server, AlertCircle } from 'lucide-react';
 import { useMCPStore } from '@/stores/mcp-store';
 import { cn } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
-import type { SuggestedMCPServer, MCPServerCategory } from '@/types/mcp';
+import type { MCPServerCategory } from '@/types/mcp';
 
-// Icon mapping
-const iconMap: Record<string, React.ElementType> = {
-  server: Server,
-  activity: Activity,
-  'git-branch': GitBranch,
-  database: Database,
-  cloud: Cloud,
-  code: Code,
-  folder: Folder,
-  box: Box,
-  'bar-chart-2': BarChart2,
-  'git-merge': GitMerge,
-  layers: Layers,
-  terminal: Terminal,
-};
-
-// Category colors
-const categoryColors: Record<MCPServerCategory, string> = {
-  infrastructure: 'bg-blue-500',
-  monitoring: 'bg-green-500',
-  'version-control': 'bg-purple-500',
-  databases: 'bg-orange-500',
-  cloud: 'bg-cyan-500',
-  development: 'bg-pink-500',
-  other: 'bg-gray-500',
-};
+const categories: MCPServerCategory[] = [
+  'infrastructure',
+  'monitoring',
+  'version-control',
+  'databases',
+  'cloud',
+  'development',
+  'other',
+];
 
 export default function MCPMarketplacePage() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const { servers, addServer } = useMCPStore();
+  const [showForm, setShowForm] = useState(false);
+  const [name, setName] = useState('');
+  const [endpoint, setEndpoint] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<MCPServerCategory>('other');
+  const [docsUrl, setDocsUrl] = useState('');
 
-  const categories = getMCPCategories();
-
-  // Filter servers based on search and category
-  const filteredServers = searchQuery
-    ? searchMCPServers(searchQuery)
-    : selectedCategory
-    ? SUGGESTED_MCP_SERVERS.filter((s) => s.category === selectedCategory)
-    : SUGGESTED_MCP_SERVERS;
-
-  // Check if a server is already added
-  const isServerAdded = (serverId: string) => {
-    return servers.some((s) => s.id === serverId || s.name === serverId);
-  };
-
-  const handleAddServer = (server: SuggestedMCPServer) => {
-    if (!isServerAdded(server.id)) {
-      addServer({
-        name: server.name,
-        description: server.description,
-        type: server.id === 'hydra-mcp' ? 'builtin' : 'remote',
-        category: server.category,
-        docsUrl: server.docsUrl,
-      });
-    }
+  const handleAdd = () => {
+    if (!name.trim()) return;
+    addServer({
+      name: name.trim(),
+      description: description.trim() || 'Custom MCP server',
+      type: endpoint ? 'remote' : 'custom',
+      category,
+      endpoint: endpoint.trim() || undefined,
+      docsUrl: docsUrl.trim() || undefined,
+    });
+    setName('');
+    setEndpoint('');
+    setDescription('');
+    setDocsUrl('');
+    setCategory('other');
+    setShowForm(false);
   };
 
   return (
-    <div className="container mx-auto max-w-7xl p-6 space-y-8">
-      {/* Header */}
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold">MCP Marketplace</h1>
-        <p className="text-muted-foreground">
-          Connect MCP servers to enhance your AI assistant with specialized tools and resources.
-          These servers extend your assistant&apos;s capabilities for infrastructure management.
-        </p>
-      </div>
-
-      {/* Search and Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search MCP servers..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-          />
+    <div className="container mx-auto max-w-6xl p-6 space-y-8">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold">MCP Servers</h1>
+          <p className="text-muted-foreground">
+            Configure MCP servers for the chat interface. No marketplace feed is bundled in the
+            web app.
+          </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setSelectedCategory(null)}
-            className={cn(
-              'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-              !selectedCategory
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted hover:bg-muted/80'
-            )}
-          >
-            All
-          </button>
-          {categories.map((category) => (
-            <button
-              key={category}
-              onClick={() => setSelectedCategory(category)}
-              className={cn(
-                'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-                selectedCategory === category
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted hover:bg-muted/80'
-              )}
-            >
-              {MCP_CATEGORY_LABELS[category] || category}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Server Grid */}
-      <motion.div
-        variants={staggerContainerVariants}
-        initial="hidden"
-        animate="visible"
-        className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
-      >
-        {filteredServers.map((server) => (
-          <ServerCard
-            key={server.id}
-            server={server}
-            isAdded={isServerAdded(server.id)}
-            onAdd={() => handleAddServer(server)}
-          />
-        ))}
-      </motion.div>
-
-      {filteredServers.length === 0 && (
-        <div className="text-center py-12">
-          <Server className="mx-auto h-12 w-12 text-muted-foreground" />
-          <h3 className="mt-4 text-lg font-semibold">No servers found</h3>
-          <p className="text-muted-foreground">Try adjusting your search or filters</p>
-        </div>
-      )}
-
-      {/* Info Section */}
-      <div className="border rounded-xl p-6 bg-muted/30 space-y-4">
-        <h2 className="text-lg font-semibold">About MCP Servers</h2>
-        <p className="text-muted-foreground">
-          MCP (Model Context Protocol) servers expose tools and resources that AI assistants can
-          use to interact with external systems. By connecting multiple MCP servers, you can give
-          your assistant access to:
-        </p>
-        <ul className="list-disc list-inside text-muted-foreground space-y-1">
-          <li>Infrastructure data from Hydra (nodes, services, networks, profiles)</li>
-          <li>Real-time metrics from Prometheus and Grafana</li>
-          <li>Code repositories from GitHub or GitLab</li>
-          <li>Cloud resources from AWS, GCP, or Azure</li>
-          <li>Container orchestration with Kubernetes and Docker</li>
-        </ul>
-        <p className="text-muted-foreground">
-          Each server provides specialized capabilities. The Hydra MCP server is built-in and
-          provides infrastructure context. Add more servers to enhance your assistant&apos;s
-          abilities.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-interface ServerCardProps {
-  server: SuggestedMCPServer;
-  isAdded: boolean;
-  onAdd: () => void;
-}
-
-function ServerCard({ server, isAdded, onAdd }: ServerCardProps) {
-  const Icon = iconMap[server.icon] || Server;
-
-  return (
-    <motion.div
-      variants={staggerItemVariants}
-      className="border rounded-xl p-5 bg-card hover:shadow-lg transition-shadow space-y-4"
-    >
-      {/* Header */}
-      <div className="flex items-start gap-3">
-        <div
+        <button
+          onClick={() => setShowForm((open) => !open)}
           className={cn(
-            'p-2.5 rounded-lg text-white',
-            categoryColors[server.category]
+            'inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground',
+            'hover:bg-primary/90 transition-colors'
           )}
         >
-          <Icon className="h-5 w-5" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold truncate">{server.name}</h3>
-            {server.isPopular && (
-              <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-            )}
+          <Plus className="h-4 w-4" />
+          Add Server
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="rounded-xl border bg-card p-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Name</label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                placeholder="e.g., Hydra MCP"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Endpoint (ws://)</label>
+              <input
+                value={endpoint}
+                onChange={(e) => setEndpoint(e.target.value)}
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                placeholder="ws://hydra-mcp:3000"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium">Description</label>
+              <input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                placeholder="Optional description"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Category</label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as MCPServerCategory)}
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+              >
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat.replace('-', ' ')}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Docs URL</label>
+              <input
+                value={docsUrl}
+                onChange={(e) => setDocsUrl(e.target.value)}
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                placeholder="https://..."
+              />
+            </div>
           </div>
-          <span className="text-xs text-muted-foreground capitalize">
-            {MCP_CATEGORY_LABELS[server.category]}
-          </span>
-        </div>
-      </div>
-
-      {/* Description */}
-      <p className="text-sm text-muted-foreground line-clamp-2">{server.description}</p>
-
-      {/* Features */}
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-muted-foreground">Key Features:</p>
-        <ul className="text-xs text-muted-foreground space-y-0.5">
-          {server.features.slice(0, 3).map((feature, i) => (
-            <li key={i} className="truncate">
-              • {feature}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-2 pt-2">
-        {isAdded ? (
-          <button
-            disabled
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-500/10 text-green-600"
-          >
-            <Check className="h-4 w-4" />
-            Added
-          </button>
-        ) : server.id === 'hydra-mcp' ? (
-          <button
-            disabled
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary/10 text-primary"
-          >
-            <Check className="h-4 w-4" />
-            Built-in
-          </button>
-        ) : (
-          <button
-            onClick={onAdd}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Add
-          </button>
-        )}
-        <a
-          href={server.docsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="p-2 rounded-lg border hover:bg-muted transition-colors"
-          title="View Documentation"
-        >
-          <ExternalLink className="h-4 w-4" />
-        </a>
-      </div>
-
-      {/* Install Command */}
-      {server.installCommand && (
-        <div className="pt-2 border-t">
-          <p className="text-xs text-muted-foreground mb-1">Install:</p>
-          <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
-            {server.installCommand}
-          </code>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              onClick={() => setShowForm(false)}
+              className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAdd}
+              disabled={!name.trim()}
+              className={cn(
+                'rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground',
+                'hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+              )}
+            >
+              Save
+            </button>
+          </div>
         </div>
       )}
-    </motion.div>
+
+      {servers.length === 0 ? (
+        <div className="rounded-xl border bg-card p-8 text-center">
+          <Server className="mx-auto h-12 w-12 text-muted-foreground" />
+          <h3 className="mt-4 text-lg font-semibold">No MCP servers configured</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Add a server to enable MCP tools in the chat interface.
+          </p>
+        </div>
+      ) : (
+        <motion.div
+          variants={staggerContainerVariants}
+          initial="hidden"
+          animate="visible"
+          className="grid gap-4 md:grid-cols-2"
+        >
+          {servers.map((server) => (
+            <motion.div
+              key={server.id}
+              variants={staggerItemVariants}
+              className="rounded-xl border bg-card p-5 shadow-sm space-y-3"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        'h-2 w-2 rounded-full',
+                        server.status === 'connected' && 'bg-green-500',
+                        server.status === 'disconnected' && 'bg-gray-400',
+                        server.status === 'error' && 'bg-red-500'
+                      )}
+                    />
+                    <h3 className="font-semibold">{server.name}</h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{server.description}</p>
+                </div>
+                {server.status === 'error' && (
+                  <AlertCircle className="h-4 w-4 text-error" />
+                )}
+              </div>
+              {server.endpoint && (
+                <div className="text-xs text-muted-foreground font-mono">
+                  {server.endpoint}
+                </div>
+              )}
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span className="capitalize">{server.category.replace('-', ' ')}</span>
+                {server.docsUrl && (
+                  <a
+                    href={server.docsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    Docs
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+              {server.error && (
+                <p className="text-xs text-error">{server.error}</p>
+              )}
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
+    </div>
   );
 }

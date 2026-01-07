@@ -5,27 +5,6 @@
 
 ---
 
-## Table of Contents
-
-1. [Service Setup & Configuration](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#1-service-setup--configuration)
-2. [MCP Protocol Compliance](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#2-mcp-protocol-compliance)
-3. [TOON Response Formatting](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#3-toon-response-formatting)
-4. [Node Tools](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#4-node-tools)
-5. [Service Tools](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#5-service-tools)
-6. [Organization Tools (Groups & Networks)](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#6-organization-tools-groups--networks)
-7. [Topology Tools](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#7-topology-tools)
-8. [Time Machine Tools](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#8-time-machine-tools)
-9. [Query Tools](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#9-query-tools)
-10. [Control Tools (Write Operations)](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#10-control-tools-write-operations)
-11. [MCP Resources](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#11-mcp-resources)
-12. [MCP Prompts](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#12-mcp-prompts)
-13. [API Client Integration](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#13-api-client-integration)
-14. [Error Handling](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#14-error-handling)
-15. [Performance & Caching](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#15-performance--caching)
-16. [Security](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#16-security)
-
----
-
 ## 1. Service Setup & Configuration
 
 ### 1.1 Service Startup

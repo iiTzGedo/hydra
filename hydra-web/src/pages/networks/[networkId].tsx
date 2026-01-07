@@ -66,7 +66,7 @@ export default function NetworkDetailPage() {
       </Link>
 
       <PageHeader
-        title={network.name || network.cidr}
+        title={network.name || network.cidr || 'Network'}
         description={`${typeLabel} network`}
         actions={
           <div className="flex items-center gap-2">
@@ -114,7 +114,7 @@ export default function NetworkDetailPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">CIDR</span>
-                    <span className="font-mono">{network.cidr}</span>
+                    <span className="font-mono">{network.cidr || '—'}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Type</span>
@@ -132,10 +132,16 @@ export default function NetworkDetailPage() {
               <div>
                 <h4 className="text-sm font-medium text-muted-foreground mb-3">Gateway & DNS</h4>
                 <div className="space-y-2">
-                  {network.gateway && (
+                  {network.gatewayV4 && (
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Gateway</span>
-                      <span className="font-mono">{network.gateway}</span>
+                      <span className="text-muted-foreground">Gateway v4</span>
+                      <span className="font-mono">{network.gatewayV4}</span>
+                    </div>
+                  )}
+                  {network.gatewayV6 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Gateway v6</span>
+                      <span className="font-mono">{network.gatewayV6}</span>
                     </div>
                   )}
                   {network.dns?.servers && network.dns.servers.length > 0 && (
@@ -144,10 +150,18 @@ export default function NetworkDetailPage() {
                       <span className="font-mono">{network.dns.servers.join(', ')}</span>
                     </div>
                   )}
-                  {network.domain && (
+                  {network.dns?.domain && (
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Domain</span>
-                      <span>{network.domain}</span>
+                      <span>{network.dns.domain}</span>
+                    </div>
+                  )}
+                  {network.dns?.searchDomains && network.dns.searchDomains.length > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Search</span>
+                      <span className="font-mono">
+                        {network.dns.searchDomains.join(', ')}
+                      </span>
                     </div>
                   )}
                 </div>

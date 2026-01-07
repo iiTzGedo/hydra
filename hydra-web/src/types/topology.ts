@@ -1,12 +1,12 @@
 import { ListParams } from './api';
 
 // Topology mode
-export type TopologyMode = 'infrastructure' | 'services';
+export type TopologyMode = 'network' | 'infrastructure' | 'service';
 
 // Topology node type
 export interface TopologyNode {
   id: string;
-  type: 'network' | 'node' | 'service';
+  type: string;
   label: string;
   data: {
     nodeId?: string;
@@ -29,7 +29,7 @@ export interface TopologyEdge {
   id: string;
   source: string;
   target: string;
-  type: 'network' | 'parent-child' | 'service';
+  type: string;
   label?: string;
   data?: {
     interface?: string;
@@ -44,25 +44,37 @@ export interface TopologyGraph {
   edges: TopologyEdge[];
 }
 
+export interface TopologyStats {
+  nodeCount: number;
+  edgeCount: number;
+  networkCount?: number;
+  serviceCount?: number;
+  computeTimeMs?: number;
+}
+
+export interface TopologyScope {
+  networkIds?: string[];
+  groupIds?: string[];
+  nodeIds?: string[];
+}
+
 // Topology summary (for list views)
 export interface TopologySummary {
   topologyId: string;
   mode: TopologyMode;
+  version: number;
+  generatedAt: string;
   validFrom: string;
   validUntil?: string;
-  nodeCount: number;
-  edgeCount: number;
-  createdAt: string;
+  stats: TopologyStats;
 }
 
 // Full topology
 export interface Topology extends TopologySummary {
+  scope?: TopologyScope;
   graph?: TopologyGraph;
-  generatedAt: string;
-  metadata?: {
-    generationDuration?: number;
-    layoutAlgorithm?: string;
-  };
+  previousTopologyId?: string;
+  diff?: TopologyDiff;
 }
 
 // Topology list params
@@ -75,30 +87,36 @@ export interface TopologyListParams extends ListParams {
 // Generate topology request
 export interface GenerateTopologyRequest {
   mode: TopologyMode;
-  forceRegenerate?: boolean;
+  scope?: TopologyScope;
 }
 
 // Topology diff
 export interface TopologyDiff {
-  fromTopologyId?: string;
-  toTopologyId?: string;
-  mode: TopologyMode;
-  changes: {
-    nodesAdded: TopologyNode[];
-    nodesRemoved: TopologyNode[];
-    nodesChanged: Array<{
-      node: TopologyNode;
-      changes: string[];
-    }>;
-    edgesAdded: TopologyEdge[];
-    edgesRemoved: TopologyEdge[];
-  };
-  summary: {
-    totalChanges: number;
-    nodesAdded: number;
-    nodesRemoved: number;
-    nodesChanged: number;
-    edgesAdded: number;
-    edgesRemoved: number;
-  };
+  nodesAdded: string[];
+  nodesRemoved: string[];
+  nodesModified: string[];
+  edgesAdded: string[];
+  edgesRemoved: string[];
+}
+
+export interface TopologyDiffResponse {
+  from: TopologySummary;
+  to: TopologySummary;
+  diff: TopologyDiff;
+  summary: Record<string, number>;
+}
+
+// Subgraph response (node-centric view)
+export interface SubgraphStats {
+  nodeCount: number;
+  edgeCount: number;
+  serviceCount: number;
+  networkCount: number;
+}
+
+export interface SubgraphResponse {
+  centerNodeId: string;
+  depth: number;
+  graph: TopologyGraph;
+  stats: SubgraphStats;
 }

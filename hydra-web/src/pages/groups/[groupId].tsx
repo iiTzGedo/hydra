@@ -11,7 +11,7 @@ import {
   Code,
 } from 'lucide-react';
 import { useGroup, useGroupMembers } from '@/api/groups';
-import { getSelectorDisplayValue } from '@/types/group';
+import { getSelectorEntries, getSelectorDisplayValue } from '@/types/group';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, NODE_CLASS_COLORS } from '@/lib/constants';
 import { cn, formatDate } from '@/lib/utils';
@@ -21,6 +21,7 @@ export default function GroupDetailPage() {
   const { groupId } = useParams<{ groupId: string }>();
   const { data: group, isLoading, error } = useGroup(groupId!);
   const { data: members } = useGroupMembers(groupId!);
+  const selectorEntries = group?.selectors ? getSelectorEntries(group.selectors) : [];
 
   if (isLoading) {
     return (
@@ -118,7 +119,7 @@ export default function GroupDetailPage() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Selectors</span>
-                    <span className="font-medium">{group.selectors?.length || 0}</span>
+                    <span className="font-medium">{selectorEntries.length}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Members</span>
@@ -132,7 +133,9 @@ export default function GroupDetailPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Created</span>
-                    <span className="text-sm">{formatDate(new Date(group.createdAt))}</span>
+                    <span className="text-sm">
+                      {group.createdAt ? formatDate(new Date(group.createdAt)) : '—'}
+                    </span>
                   </div>
                   {group.updatedAt && (
                     <div className="flex items-center justify-between">
@@ -167,7 +170,7 @@ export default function GroupDetailPage() {
         </motion.div>
 
         {/* Selectors */}
-        {group.selectors && group.selectors.length > 0 && (
+        {selectorEntries.length > 0 && (
           <motion.div
             variants={staggerItemVariants}
             className="rounded-xl border bg-card p-6 shadow-sm"
@@ -178,7 +181,7 @@ export default function GroupDetailPage() {
             </div>
 
             <div className="space-y-3">
-              {group.selectors.map((selector, index) => (
+              {selectorEntries.map((selector, index) => (
                 <div
                   key={index}
                   className="rounded-lg border p-4 bg-muted/30"
@@ -221,20 +224,25 @@ export default function GroupDetailPage() {
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
               {members.items.map((member) => {
-                const colors = NODE_CLASS_COLORS[member.class];
+                const colors = NODE_CLASS_COLORS[member.class || 'unknown'];
+                const memberRoute =
+                  member.type === 'service'
+                    ? ROUTES.SERVICES + '/' + member.id
+                    : ROUTES.NODES + '/' + member.id;
                 return (
                   <Link
                     key={member.id}
-                    to={ROUTES.NODES + '/' + member.id}
+                    to={memberRoute}
                     className="flex items-center gap-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
                   >
                     <div className={cn('rounded-lg p-2', colors?.bg || 'bg-muted')}>
                       <Server className="h-4 w-4 text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{member.id}</div>
+                      <div className="font-medium truncate">{member.displayName || member.id}</div>
                       <div className="text-xs text-muted-foreground capitalize">
-                        {member.class} • {member.kind}
+                        {member.type}
+                        {member.nodeId ? ` • ${member.nodeId}` : ''}
                       </div>
                     </div>
                     <span

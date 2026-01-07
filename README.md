@@ -63,6 +63,15 @@ flowchart LR
 - **Time Machine** — Navigate historical infrastructure states like version control for your infrastructure
 - **AI-Native Interface** — Query your infrastructure using natural language via Model Context Protocol (MCP)
 
+### Web Dashboard Features
+
+- **AI Chat** — Built-in chat interface with LLM integration (Anthropic Claude, OpenAI GPT, Ollama)
+- **Command Palette** — Global search with `Cmd+K` / `Ctrl+K` to find nodes, services, networks, and groups
+- **Multi-Mode Topology** — Three visualization modes: Infrastructure, Network, and Service graphs
+- **Profile Browser** — Side-by-side diff visualization comparing profile versions
+- **MCP Server Management** — Configure and monitor MCP server connections
+- **Persistent Preferences** — Layout, sort, and filter settings persist across sessions
+
 ### Node Classes
 
 | Class | Examples | Profile Data |
@@ -173,8 +182,14 @@ cd hydra-mcp
 # Install
 uv pip install -e .
 
-# Run the MCP server
+# Run the MCP server (HTTP mode - for web integration)
+HYDRA_MCP_TRANSPORT=http hydra-mcp
+
+# Run the MCP server (stdio mode - for Claude Desktop)
 hydra-mcp
+
+# Check health
+curl http://localhost:8081/health
 ```
 </details>
 
@@ -185,6 +200,8 @@ hydra-mcp
 | Web UI | http://localhost:5173 | Dashboard and visualization |
 | API | http://localhost:8080/api/v1 | REST API |
 | API Docs | http://localhost:8080/api/v1/docs | Swagger UI |
+| MCP Server | http://localhost:8081 | MCP HTTP transport for AI integration |
+| MCP Health | http://localhost:8081/health | MCP server health check and tool listing |
 
 ### Install Your First Agent
 
@@ -330,6 +347,16 @@ transcoding container competing for CPU. Recommendations:
 | **Time Machine** | `time_machine_node`, `time_machine_topology` |
 | **Control** | `control_service`, `control_device` |
 
+### New API Endpoints
+
+| Category | Endpoints | Description |
+|----------|-----------|-------------|
+| **AI Models** | `/ai/models/*` | LLM provider configuration (create, list, validate, delete) |
+| **Chat** | `/chat/projects/*`, `/chat/sessions/*` | Chat persistence with projects, sessions, and messages |
+| **MCP** | `/mcp/servers/*` | MCP server configuration and health checks |
+| **Search** | `/search` | Global full-text search across all entities |
+| **Settings** | `/settings`, `/settings/system` | User preferences and system settings |
+
 ### Claude Desktop Integration
 
 ```json
@@ -384,6 +411,9 @@ node:
 |----------|-------------|---------|
 | `HYDRA_MCP_API_URL` | Hydra API base URL | `http://localhost:8080/api/v1` |
 | `HYDRA_MCP_API_KEY` | API key for authentication | - |
+| `HYDRA_MCP_TRANSPORT` | Transport mode: `stdio` or `http` | `stdio` |
+| `HYDRA_MCP_HTTP_HOST` | HTTP server host | `0.0.0.0` |
+| `HYDRA_MCP_HTTP_PORT` | HTTP server port | `8081` |
 | `HYDRA_MCP_TOON_INDENT` | TOON indentation | `2` |
 
 #### hydra-web
@@ -391,6 +421,8 @@ node:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `VITE_API_URL` | Hydra API base URL | `http://localhost:8080/api/v1` |
+| `VITE_MCP_URL` | MCP server HTTP endpoint | `http://localhost:8081` |
+| `VITE_MCP_WS_URL` | MCP WebSocket URL (future) | `ws://localhost:8081/ws` |
 
 ### Agent Configuration
 
@@ -419,10 +451,35 @@ interval_seconds = 86400  # 24 hours
 ## Web Interface
 
 ### Dashboard
-Infrastructure overview with capacity gauges, activity feed, and mini topology.
+Infrastructure overview with capacity gauges, activity feed, service summary, and mini topology.
+
+### AI Chat
+Built-in chat interface for natural language infrastructure queries:
+- **Multi-Provider Support** — Configure Anthropic Claude, OpenAI GPT, or local Ollama models
+- **MCP Integration** — Executes infrastructure tools in real-time
+- **Chat Persistence** — Projects and sessions saved to database
+- **Tool Call Visualization** — See which MCP tools are being called
 
 ### Topology Viewer
-Interactive graph visualization of network and infrastructure relationships using ReactFlow.
+Interactive graph visualization with three modes:
+- **Infrastructure Mode** — Node hierarchy with parent-child relationships
+- **Network Mode** — Network-centric view with subnet groupings
+- **Service Mode** — Service dependency graph across nodes
+
+### Command Palette
+Global search accessible via `Cmd+K` / `Ctrl+K`:
+- Search nodes, services, networks, and groups
+- Quick navigation to any page
+- Keyboard-driven workflow
+
+### Node Detail Page
+Comprehensive node view with:
+- Latest profile with hardware, network, storage details
+- Profile history timeline with diff comparison
+- Services running on the node
+- Networks the node belongs to
+- Groups containing the node
+- Topology subgraph showing adjacent nodes
 
 ### Time Machine
 Navigate historical infrastructure states with timeline scrubbing and state comparison.
@@ -525,14 +582,20 @@ hydra/
 - Node registration and profiling
 - Service discovery and tracking
 - Network auto-discovery
-- Topology generation
+- Topology generation (Infrastructure, Network, Service modes)
 - Time Machine
-- Web dashboard
-- MCP service with AI tools
+- Web dashboard with AI chat integration
+- MCP service with HTTP transport and 18 AI tools
+- Command Palette global search
+- Profile browser with diff visualization
+- LLM provider management (Anthropic, OpenAI, Ollama)
+- User settings persistence
 
 ### Planned
+- Time Machine calendar view and enhanced timeline UI
 - Write operations and command execution
 - Home Assistant integration
+- Chat WebSocket streaming
 - Mobile applications (React Native)
 - Prometheus metrics export
 - SSO/OIDC authentication

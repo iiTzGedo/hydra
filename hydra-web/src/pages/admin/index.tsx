@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { useUsers } from '@/api/users';
-import { useTokens, useApiKeys, useApprovals } from '@/api/auth';
+import { useApiKeys, useApprovals } from '@/api/auth';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants, scaleVariants } from '@/lib/animations';
@@ -64,7 +64,6 @@ function AdminCard({ title, description, icon, href, count, countLabel, color }:
 export default function AdminPage() {
   const { data: users } = useUsers({ limit: 1 });
   const { data: approvals } = useApprovals();
-  const { data: tokens } = useTokens();
   const { data: apiKeys } = useApiKeys();
 
   const adminCards = [
@@ -88,11 +87,9 @@ export default function AdminPage() {
     },
     {
       title: 'Registration Tokens',
-      description: 'Create and manage registration tokens',
+      description: 'Create registration tokens',
       icon: <Key className="h-6 w-6 text-white" />,
       href: ROUTES.ADMIN_TOKENS,
-      count: tokens?.length ?? 0,
-      countLabel: 'active tokens',
       color: 'bg-networking',
     },
     {

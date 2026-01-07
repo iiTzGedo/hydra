@@ -1,0 +1,115 @@
+"""Settings management endpoints."""
+
+import structlog
+from fastapi import APIRouter, Depends
+
+from hydra.api.v1.core.deps import CurrentUser, require_permission
+from hydra.api.v1.core.exceptions import AuthorizationError
+from hydra.api.v1.models.settings import (
+    SystemSettingsResponse,
+    SystemSettingsUpdate,
+    UserSettingsResponse,
+    UserSettingsUpdate,
+)
+from hydra.api.v1.services.settings import SettingsService
+from hydra.db.mongodb import MongoDB, get_mongodb
+
+router = APIRouter(prefix="/settings", tags=["Settings"])
+logger = structlog.get_logger(__name__)
+
+
+async def get_settings_service(mongodb: MongoDB = Depends(get_mongodb)) -> SettingsService:
+    """Get settings service."""
+    return SettingsService(mongodb)
+
+
+def _check_not_agent(current_user: dict) -> None:
+    """Verify user is not an agent."""
+    if current_user.get("type") == "agent":
+        raise AuthorizationError("settings:read")
+
+
+# ==================== User Settings ====================
+
+
+@router.get(
+    "",
+    response_model=UserSettingsResponse,
+    summary="Get User Settings",
+    description="Get settings for the current user.",
+)
+async def get_user_settings(
+    current_user: CurrentUser,
+    settings_service: SettingsService = Depends(get_settings_service),
+) -> UserSettingsResponse:
+    """Get user settings."""
+    _check_not_agent(current_user)
+
+    result = await settings_service.get_user_settings(
+        user_id=current_user["user_id"],
+    )
+
+    return UserSettingsResponse(**result)
+
+
+@router.put(
+    "",
+    response_model=UserSettingsResponse,
+    summary="Update User Settings",
+    description="Update settings for the current user.",
+)
+async def update_user_settings(
+    request: UserSettingsUpdate,
+    current_user: CurrentUser,
+    settings_service: SettingsService = Depends(get_settings_service),
+) -> UserSettingsResponse:
+    """Update user settings."""
+    _check_not_agent(current_user)
+
+    result = await settings_service.update_user_settings(
+        user_id=current_user["user_id"],
+        request=request,
+    )
+
+    return UserSettingsResponse(**result)
+
+
+# ==================== System Settings (Admin Only) ====================
+
+
+@router.get(
+    "/system",
+    response_model=SystemSettingsResponse,
+    summary="Get System Settings",
+    description="Get system-wide settings. Admin only.",
+    dependencies=[Depends(require_permission("settings:*"))],
+)
+async def get_system_settings(
+    current_user: CurrentUser,
+    settings_service: SettingsService = Depends(get_settings_service),
+) -> SystemSettingsResponse:
+    """Get system settings."""
+    result = await settings_service.get_system_settings()
+
+    return SystemSettingsResponse(**result)
+
+
+@router.put(
+    "/system",
+    response_model=SystemSettingsResponse,
+    summary="Update System Settings",
+    description="Update system-wide settings. Admin only.",
+    dependencies=[Depends(require_permission("settings:*"))],
+)
+async def update_system_settings(
+    request: SystemSettingsUpdate,
+    current_user: CurrentUser,
+    settings_service: SettingsService = Depends(get_settings_service),
+) -> SystemSettingsResponse:
+    """Update system settings."""
+    result = await settings_service.update_system_settings(
+        request=request,
+        admin_user_id=current_user["user_id"],
+    )
+
+    return SystemSettingsResponse(**result)

@@ -151,6 +151,36 @@ class MongoDB:
         """Documentation collection."""
         return self.db.docs
 
+    @property
+    def ai_models(self):
+        """AI/LLM provider configurations collection."""
+        return self.db.ai_models
+
+    @property
+    def mcp_servers(self):
+        """MCP server configurations collection."""
+        return self.db.mcp_servers
+
+    @property
+    def chat_projects(self):
+        """Chat projects collection."""
+        return self.db.chat_projects
+
+    @property
+    def chat_sessions(self):
+        """Chat sessions collection."""
+        return self.db.chat_sessions
+
+    @property
+    def chat_messages(self):
+        """Chat messages collection."""
+        return self.db.chat_messages
+
+    @property
+    def user_settings(self):
+        """User settings collection."""
+        return self.db.user_settings
+
 
 # Global instance
 _mongodb: MongoDB | None = None

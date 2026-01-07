@@ -5,28 +5,6 @@
 
 ---
 
-## Table of Contents
-
-1. [Infrastructure & Deployment](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#1-infrastructure--deployment)
-2. [Health & System Endpoints](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#2-health--system-endpoints)
-3. [Authentication & Authorization](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#3-authentication--authorization)
-4. [User Management](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#4-user-management)
-5. [Node Management](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#5-node-management)
-6. [Profile Management](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#6-profile-management)
-7. [Service Management](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#7-service-management)
-8. [Group Management](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#8-group-management)
-9. [Network Management](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#9-network-management)
-10. [Topology Generation](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#10-topology-generation)
-11. [Time Machine](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#11-time-machine)
-12. [Command Execution](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#12-command-execution)
-13. [Documentation System](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#13-documentation-system)
-14. [Home Assistant Integration](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#14-home-assistant-integration)
-15. [Query & Analytics](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#15-query--analytics)
-16. [Performance & Scalability](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#16-performance--scalability)
-17. [Security](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#17-security)
-18. [Error Handling](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#18-error-handling)
-
----
 
 ## 1. Infrastructure & Deployment
 

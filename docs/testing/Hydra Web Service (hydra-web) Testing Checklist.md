@@ -5,31 +5,6 @@
 
 ---
 
-## Table of Contents
-
-1. [Build & Deployment](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#1-build--deployment)
-2. [Authentication UI](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#2-authentication-ui)
-3. [Layout & Navigation](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#3-layout--navigation)
-4. [Dashboard](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#4-dashboard)
-5. [Node Explorer](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#5-node-explorer)
-6. [Service Explorer](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#6-service-explorer)
-7. [Network Explorer](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#7-network-explorer)
-8. [Group Management](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#8-group-management)
-9. [Topology Viewer](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#9-topology-viewer)
-10. [Time Machine](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#10-time-machine)
-11. [MCP Chat Interface](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#11-mcp-chat-interface)
-12. [Admin Dashboard](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#12-admin-dashboard)
-13. [Home Dashboard (Family View)](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#13-home-dashboard-family-view)
-14. [Documentation Viewer](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#14-documentation-viewer)
-15. [Responsive Design & UX](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#15-responsive-design--ux)
-16. [State Management](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#16-state-management)
-17. [API Integration](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#17-api-integration)
-18. [Performance](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#18-performance)
-19. [Accessibility](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#19-accessibility)
-20. [Browser Compatibility](https://claude.ai/chat/eb95da67-6ec0-436a-b5b8-0e3f9a851048#20-browser-compatibility)
-
----
-
 ## 1. Build & Deployment
 
 ### 1.1 Development Build

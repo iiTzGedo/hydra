@@ -31,18 +31,47 @@ uv pip install -e ".[dev]"
 
 Environment variables (prefix: `HYDRA_MCP_`):
 
+### API Connection
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `HYDRA_MCP_API_URL` | Hydra API base URL | `http://localhost:8080/api/v1` |
 | `HYDRA_MCP_API_KEY` | API key for authentication | - |
 | `HYDRA_MCP_API_TIMEOUT` | Request timeout (seconds) | `30` |
-| `HYDRA_MCP_TOON_INDENT` | TOON indentation spaces | `2` |
+
+### Transport Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HYDRA_MCP_TRANSPORT` | Transport mode: `stdio` or `http` | `stdio` |
+| `HYDRA_MCP_HTTP_HOST` | HTTP server host | `0.0.0.0` |
+| `HYDRA_MCP_HTTP_PORT` | HTTP server port | `8081` |
+| `HYDRA_MCP_CORS_ORIGINS` | CORS allowed origins (JSON array) | `["*"]` |
+
+### TOON Formatting
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HYDRA_MCP_TOON_INDENT` | Indentation spaces | `2` |
 | `HYDRA_MCP_TOON_DELIMITER` | Array field delimiter | `,` |
+| `HYDRA_MCP_TOON_LENGTH_MARKER` | Array length prefix | `` |
+
+### Logging
+
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `HYDRA_MCP_LOG_LEVEL` | Logging level | `INFO` |
+| `HYDRA_MCP_LOG_FORMAT` | Log format (`json` or `text`) | `json` |
 
 ## Usage
 
-### Running the Server
+### Transport Modes
+
+The MCP server supports two transport modes:
+
+#### stdio Transport (Default)
+
+Standard input/output transport for Claude Desktop and MCP-compatible clients:
 
 ```bash
 # Via CLI entry point
@@ -50,6 +79,57 @@ hydra-mcp
 
 # Or as a Python module
 python -m hydra
+
+# Explicitly specify stdio transport
+HYDRA_MCP_TRANSPORT=stdio hydra-mcp
+```
+
+#### HTTP Transport
+
+HTTP REST API for web clients and direct access:
+
+```bash
+# Start with HTTP transport
+HYDRA_MCP_TRANSPORT=http hydra-mcp
+
+# Or with custom host/port
+HYDRA_MCP_TRANSPORT=http HYDRA_MCP_HTTP_PORT=9000 hydra-mcp
+```
+
+### HTTP API Endpoints
+
+When running in HTTP mode, the following endpoints are available:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check with server info |
+| `/tools` | GET | List available tools |
+| `/tools/call` | POST | Execute a tool |
+| `/resources` | GET | List available resources |
+| `/resources/read` | POST | Read a resource |
+| `/prompts` | GET | List available prompts |
+
+#### Example HTTP Requests
+
+```bash
+# Health check
+curl http://localhost:8081/health
+
+# List tools
+curl http://localhost:8081/tools
+
+# Call a tool
+curl -X POST http://localhost:8081/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{"name": "list_nodes", "arguments": {"status": "active"}}'
+
+# List resources
+curl http://localhost:8081/resources
+
+# Read a resource
+curl -X POST http://localhost:8081/resources/read \
+  -H "Content-Type: application/json" \
+  -d '{"uri": "infrastructure://overview"}'
 ```
 
 ### Claude Desktop Integration
@@ -175,14 +255,48 @@ ruff check hydra
 
 ## Docker
 
-```bash
-# Build the image
-docker build -t hydra-mcp .
+### Building the Image
 
-# Run (stdio-based MCP server)
-docker run -it --rm \
+```bash
+docker build -t hydra-mcp .
+```
+
+### Running with HTTP Transport (Recommended for Docker)
+
+```bash
+# Run with HTTP transport (default in Docker)
+docker run -d --name hydra-mcp \
+  -p 8081:8081 \
   -e HYDRA_MCP_API_URL=http://host.docker.internal:8080/api/v1 \
   hydra-mcp
+
+# Check health
+curl http://localhost:8081/health
+```
+
+### Running with stdio Transport
+
+```bash
+# Interactive stdio mode (for testing)
+docker run -it --rm \
+  -e HYDRA_MCP_TRANSPORT=stdio \
+  -e HYDRA_MCP_API_URL=http://host.docker.internal:8080/api/v1 \
+  hydra-mcp
+```
+
+### Docker Compose
+
+The service is included in the main `docker-compose.dev.yml`:
+
+```bash
+# Start all services
+docker-compose -f docker-compose.dev.yml up -d
+
+# Start only hydra-mcp
+docker-compose -f docker-compose.dev.yml up -d hydra-mcp
+
+# View logs
+docker-compose -f docker-compose.dev.yml logs -f hydra-mcp
 ```
 
 ## Architecture
@@ -195,9 +309,11 @@ hydra-mcp/
 │   ├── config.py        # Settings via pydantic-settings
 │   ├── client.py        # Async HTTP client for Hydra API
 │   ├── toon.py          # TOON formatter wrapper
-│   └── server.py        # MCP server implementation
+│   └── server.py        # MCP server (stdio + HTTP transport)
 ├── tests/
+├── .env.example         # Environment variable template
 ├── pyproject.toml
+├── Dockerfile
 └── README.md
 ```
 

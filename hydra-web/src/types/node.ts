@@ -102,9 +102,10 @@ export interface NodeRegistrationRequest {
   class: NodeClass;
   type: NodeType;
   kind?: NodeKind;
-  displayName?: string;
+  displayName: string;
   description?: string;
   tags?: string[];
+  parentNodeId?: string;
   location?: NodeLocation;
 }
 

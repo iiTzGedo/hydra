@@ -190,14 +190,16 @@ function NetworkCard({ network }: { network: NetworkListItem }) {
       {/* Content */}
       <Link to={ROUTES.NETWORKS + '/' + network.id}>
         <h3 className="font-semibold hover:text-primary transition-colors mb-2">
-          {network.name || network.cidr}
+          {network.name || network.cidr || 'Unnamed network'}
         </h3>
 
         <div className="space-y-2 text-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">CIDR</span>
-            <span className="font-mono">{network.cidr}</span>
-          </div>
+          {network.cidr && (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">CIDR</span>
+              <span className="font-mono">{network.cidr}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Type</span>
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{typeLabel}</span>
@@ -208,10 +210,16 @@ function NetworkCard({ network }: { network: NetworkListItem }) {
               <span className="font-mono">{network.vlanId}</span>
             </div>
           )}
-          {network.gateway && (
+          {network.gatewayV4 && (
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Gateway</span>
-              <span className="font-mono">{network.gateway}</span>
+              <span className="text-muted-foreground">Gateway v4</span>
+              <span className="font-mono">{network.gatewayV4}</span>
+            </div>
+          )}
+          {network.gatewayV6 && (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Gateway v6</span>
+              <span className="font-mono">{network.gatewayV6}</span>
             </div>
           )}
         </div>

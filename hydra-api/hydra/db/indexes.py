@@ -104,6 +104,43 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("resource.type", ASCENDING), ("resource.id", ASCENDING)]),
         IndexModel([("actor.id", ASCENDING)]),
     ],
+    # AI/LLM provider configurations
+    "ai_models": [
+        IndexModel([("providerId", ASCENDING)], unique=True),
+        IndexModel([("createdBy", ASCENDING), ("createdAt", DESCENDING)]),
+        IndexModel([("type", ASCENDING)]),
+        IndexModel([("isDefault", ASCENDING)], sparse=True),
+    ],
+    # Chat projects (groups of chat sessions)
+    "chat_projects": [
+        IndexModel([("projectId", ASCENDING)], unique=True),
+        IndexModel([("ownerId", ASCENDING), ("createdAt", DESCENDING)]),
+        IndexModel([("updatedAt", DESCENDING)]),
+    ],
+    # Chat sessions
+    "chat_sessions": [
+        IndexModel([("sessionId", ASCENDING)], unique=True),
+        IndexModel([("projectId", ASCENDING), ("lastMessageAt", DESCENDING)]),
+        IndexModel([("ownerId", ASCENDING), ("lastMessageAt", DESCENDING)]),
+        IndexModel([("status", ASCENDING)]),
+    ],
+    # Chat messages
+    "chat_messages": [
+        IndexModel([("messageId", ASCENDING)], unique=True),
+        IndexModel([("sessionId", ASCENDING), ("order", ASCENDING)]),
+        IndexModel([("sessionId", ASCENDING), ("createdAt", ASCENDING)]),
+    ],
+    # MCP server configurations
+    "mcp_servers": [
+        IndexModel([("serverId", ASCENDING)], unique=True),
+        IndexModel([("ownerId", ASCENDING), ("createdAt", DESCENDING)]),
+        IndexModel([("category", ASCENDING)]),
+        IndexModel([("enabled", ASCENDING)]),
+    ],
+    # User settings
+    "user_settings": [
+        IndexModel([("userId", ASCENDING)], unique=True),
+    ],
 }
 
 

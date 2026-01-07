@@ -21,7 +21,7 @@ export function RootLayout({ children }: RootLayoutProps) {
       <div
         className={cn(
           'flex flex-1 flex-col overflow-hidden transition-all duration-200',
-          sidebarCollapsed ? 'md:pl-[72px]' : 'md:pl-60'
+          sidebarCollapsed ? 'md:pl-[96px]' : 'md:pl-[264px]'
         )}
       >
         {/* Header */}
@@ -31,12 +31,14 @@ export function RootLayout({ children }: RootLayoutProps) {
         <main className="flex-1 overflow-auto">
           <motion.div
             initial="initial"
-            animate="enter"
+            animate="animate"
             exit="exit"
             variants={pageVariants}
             className="h-full"
           >
-            {children}
+            <div className="mx-auto w-full max-w-[1600px]">
+              {children}
+            </div>
           </motion.div>
         </main>
       </div>

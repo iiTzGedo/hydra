@@ -3,27 +3,24 @@ import { ProfileSections } from './profile';
 
 // Timeline event type
 export type TimelineEventType =
-  | 'node_registered'
-  | 'node_updated'
-  | 'node_archived'
   | 'profile_submitted'
-  | 'service_added'
+  | 'service_discovered'
   | 'service_removed'
-  | 'service_changed'
   | 'topology_generated'
+  | 'node_registered'
+  | 'node_archived'
   | 'network_created'
-  | 'network_updated';
+  | 'group_created';
 
 // Timeline event
 export interface TimelineEvent {
-  id: string;
-  type: TimelineEventType;
+  eventId: string;
+  eventType: TimelineEventType;
   timestamp: string;
-  nodeId?: string;
-  serviceId?: string;
-  networkId?: string;
-  summary: string;
-  details?: Record<string, unknown>;
+  entityType: string;
+  entityId: string;
+  description: string;
+  metadata?: Record<string, unknown>;
 }
 
 // Timeline response
@@ -61,9 +58,11 @@ export interface HistoricalTopology {
   timestamp: string;
   mode: TopologyMode;
   topologyId: string;
-  validFrom: string;
-  validUntil?: string;
-  graph: TopologyGraph;
+  version: number;
+  generatedAt: string;
+  graph?: TopologyGraph;
+  stats?: Record<string, unknown>;
+  note?: string;
 }
 
 // Time machine query params

@@ -12,6 +12,7 @@ class TopologyMode(str, Enum):
 
     NETWORK = "network"
     INFRASTRUCTURE = "infrastructure"
+    SERVICE = "service"
 
 
 class GraphNodeType(str, Enum):
@@ -166,6 +167,29 @@ class GenerateTopologyRequest(BaseModel):
 
     mode: TopologyMode
     scope: TopologyScope | None = None
+
+
+# Subgraph Response
+class SubgraphStats(BaseModel):
+    """Statistics about a subgraph."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    node_count: int = Field(alias="nodeCount")
+    edge_count: int = Field(alias="edgeCount")
+    service_count: int = Field(default=0, alias="serviceCount")
+    network_count: int = Field(default=0, alias="networkCount")
+
+
+class SubgraphResponse(BaseModel):
+    """Response for node-centric subgraph query."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    center_node_id: str = Field(alias="centerNodeId")
+    depth: int
+    graph: TopologyGraph
+    stats: SubgraphStats
 
 
 # Query Parameters

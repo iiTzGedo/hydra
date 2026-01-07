@@ -10,6 +10,7 @@ from hydra.api.v1.core.deps import MongoDBDep, require_permission
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.topologies import (
     GenerateTopologyRequest,
+    SubgraphResponse,
     TopologyDiffResponse,
     TopologyListParams,
     TopologyMode,
@@ -129,3 +130,27 @@ async def generate_topology(
     """Generate a new topology."""
     topology = await topologies_service.generate_topology(request)
     return SuccessResponse(data=TopologyResponse(**topology))
+
+
+@router.get(
+    "/subgraph",
+    response_model=SuccessResponse[SubgraphResponse],
+    summary="Get Node Subgraph",
+    description="Get a subgraph centered on a specific node with its immediate neighbors.",
+    dependencies=[Depends(require_permission("topologies:read"))],
+)
+async def get_subgraph(
+    topologies_service: TopologiesServiceDep,
+    node_id: str = Query(..., alias="nodeId", description="The center node ID"),
+    depth: int = Query(default=1, ge=1, le=3, description="Depth of neighbors to include"),
+    include_services: bool = Query(default=True, alias="includeServices"),
+    include_networks: bool = Query(default=True, alias="includeNetworks"),
+) -> SuccessResponse[SubgraphResponse]:
+    """Get a subgraph centered on a node."""
+    result = await topologies_service.get_subgraph(
+        node_id=node_id,
+        depth=depth,
+        include_services=include_services,
+        include_networks=include_networks,
+    )
+    return SuccessResponse(data=SubgraphResponse(**result))

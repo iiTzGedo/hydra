@@ -14,6 +14,7 @@ const NodesPage = lazy(() => import('@/pages/nodes'));
 const NodeDetailPage = lazy(() => import('@/pages/nodes/[nodeId]'));
 const NodeProfilesPage = lazy(() => import('@/pages/nodes/[nodeId]/profiles'));
 const ProfileDetailPage = lazy(() => import('@/pages/nodes/[nodeId]/profile/[profileId]'));
+const ProfileComparePage = lazy(() => import('@/pages/nodes/[nodeId]/profiles/compare'));
 
 const ServicesPage = lazy(() => import('@/pages/services'));
 const ServiceDetailPage = lazy(() => import('@/pages/services/[serviceId]'));
@@ -110,6 +111,13 @@ export const appRoutes: RouteConfig[] = [
     path: ROUTES.NODE_PROFILES,
     element: NodeProfilesPage,
     title: 'Profile History',
+    requiresAuth: true,
+    permissions: ['profiles:read'],
+  },
+  {
+    path: ROUTES.NODE_PROFILES_COMPARE,
+    element: ProfileComparePage,
+    title: 'Compare Profiles',
     requiresAuth: true,
     permissions: ['profiles:read'],
   },

@@ -26,7 +26,6 @@ import {
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants, fadeInVariants } from '@/lib/animations';
 import { useMCPStore } from '@/stores/mcp-store';
-import { useHydraMCPTools, useMCPChat } from '@/api/mcp';
 import { ROUTES } from '@/lib/constants';
 import type { MCPChatMessage, MCPToolCall, LLMProvider } from '@/types/mcp';
 
@@ -49,9 +48,6 @@ export default function ChatPage() {
     activeLLMProviderId,
     createSession,
     addMessage,
-    updateMessage,
-    addToolCall,
-    updateToolCall,
     getCurrentSession,
     getActiveServers,
     getActiveLLMProvider,
@@ -67,10 +63,9 @@ export default function ChatPage() {
   const messages = currentSession?.messages || [];
   const activeServers = getActiveServers();
   const activeLLMProvider = getActiveLLMProvider();
-
-  // MCP hooks
-  const { data: tools } = useHydraMCPTools();
-  const chatMutation = useMCPChat();
+  const hydraMcp = servers.find((server) => server.id === 'hydra-mcp');
+  const isHydraMcpConnected = hydraMcp?.status === 'connected';
+  const [isSending, setIsSending] = useState(false);
 
   // Auto-create session if none exists
   useEffect(() => {
@@ -93,68 +88,53 @@ export default function ChatPage() {
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || chatMutation.isPending || !currentSessionId) return;
+    if (!input.trim() || isSending || !currentSessionId) return;
 
     // Check if LLM provider is configured
     if (!activeLLMProvider?.isConfigured) {
       setShowSettings(true);
       return;
     }
+    if (!isHydraMcpConnected) {
+      addMessage(currentSessionId, {
+        role: 'assistant',
+        content:
+          hydraMcp?.error ||
+          'Hydra MCP is offline. Start the MCP service and connect it in Settings.',
+        error: true,
+      });
+      return;
+    }
 
     const userContent = input.trim();
     setInput('');
 
-    // Add user message
+    setIsSending(true);
+
     addMessage(currentSessionId, {
       role: 'user',
       content: userContent,
     });
 
-    // Create pending assistant message
-    const pendingMessageId = crypto.randomUUID();
-    addMessage(currentSessionId, {
-      role: 'assistant',
-      content: '',
-      pending: true,
-    });
-
-    try {
-      // Build messages array for API
-      const chatMessages = [
-        ...messages.map((m) => ({
-          role: m.role as 'user' | 'assistant' | 'system',
-          content: m.content,
-        })),
-        { role: 'user' as const, content: userContent },
-      ];
-
-      // Call MCP chat API
-      const response = await chatMutation.mutateAsync({
-        messages: chatMessages,
-        tools: tools || [],
-        model: activeLLMProvider.model,
-      });
-
-      // Update message with response
-      updateMessage(currentSessionId, pendingMessageId, {
-        content: response.content,
-        pending: false,
-        toolCalls: response.toolCalls?.map((tc) => ({
-          ...tc,
-          status: 'success' as const,
-        })),
-      });
-    } catch (error) {
-      // Update message with error
-      updateMessage(currentSessionId, pendingMessageId, {
+    if (!isHydraMcpConnected) {
+      addMessage(currentSessionId, {
+        role: 'assistant',
         content:
-          error instanceof Error
-            ? `Error: ${error.message}`
-            : 'An error occurred while processing your request.',
-        pending: false,
+          hydraMcp?.error ||
+          'Hydra MCP is offline. Start the MCP service and connect it in Settings.',
         error: true,
       });
+      setIsSending(false);
+      return;
     }
+
+    addMessage(currentSessionId, {
+      role: 'assistant',
+      content:
+        'MCP chat transport is not wired yet. The web client needs a WebSocket MCP bridge before it can execute tools.',
+      error: true,
+    });
+    setIsSending(false);
   };
 
   const handleSuggestedQuery = (query: string) => {
@@ -172,7 +152,7 @@ export default function ChatPage() {
     createSession('New Chat');
   };
 
-  const isLoading = chatMutation.isPending;
+  const isLoading = isSending;
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex flex-col">
@@ -221,6 +201,12 @@ export default function ChatPage() {
           </button>
         </div>
       </div>
+
+      {!isHydraMcpConnected && (
+        <div className="mx-4 mt-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-muted-foreground">
+          MCP is offline. Start `hydra-mcp` and connect it in Settings to enable chat tools.
+        </div>
+      )}
 
       {/* Settings Panel */}
       <AnimatePresence>
@@ -358,7 +344,7 @@ export default function ChatPage() {
           </div>
           <button
             onClick={handleSend}
-            disabled={!input.trim() || isLoading}
+            disabled={!input.trim() || isLoading || !isHydraMcpConnected}
             className={cn(
               'rounded-xl bg-primary p-3 text-primary-foreground',
               'hover:bg-primary/90 transition-colors',

@@ -40,6 +40,24 @@ class Settings(BaseSettings):
         description="MCP server version",
     )
 
+    # Transport settings
+    transport: str = Field(
+        default="stdio",
+        description="Transport mode: 'stdio' or 'http'",
+    )
+    http_host: str = Field(
+        default="0.0.0.0",
+        description="HTTP server host (only used when transport=http)",
+    )
+    http_port: int = Field(
+        default=8081,
+        description="HTTP server port (only used when transport=http)",
+    )
+    cors_origins: list[str] = Field(
+        default=["*"],
+        description="CORS allowed origins for HTTP transport",
+    )
+
     # TOON formatting (see https://github.com/toon-format/toon-python)
     toon_indent: int = Field(
         default=2,

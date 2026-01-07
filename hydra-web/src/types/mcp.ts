@@ -11,12 +11,13 @@ export interface MCPServer {
   description: string;
   type: 'builtin' | 'remote' | 'custom';
   status: 'connected' | 'disconnected' | 'error';
-  endpoint?: string; // For remote servers
+  endpoint?: string; // HTTP endpoint URL for health/tools/resources
+  wsEndpoint?: string; // WebSocket endpoint URL for streaming
   category: MCPServerCategory;
   icon?: string;
   docsUrl?: string;
-  tools?: MCPTool[];
-  resources?: MCPResource[];
+  tools?: (MCPTool | string)[]; // Can be full tool objects or just names from health check
+  resources?: (MCPResource | string)[]; // Can be full resource objects or just URIs from health check
   lastConnected?: Date;
   error?: string;
 }

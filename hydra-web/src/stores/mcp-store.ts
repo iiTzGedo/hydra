@@ -14,6 +14,51 @@ import type {
   LLMProvider,
 } from '@/types/mcp';
 
+const HYDRA_MCP_URL = import.meta.env.VITE_MCP_URL as string | undefined;
+const HYDRA_MCP_WS_URL = import.meta.env.VITE_MCP_WS_URL as string | undefined;
+
+interface MCPHealthResponse {
+  status: string;
+  transport: string;
+  server: string;
+  version: string;
+  tools: string[];
+  resources: string[];
+}
+
+/**
+ * Probe MCP server via HTTP health endpoint
+ */
+const probeHttpHealth = async (endpoint: string, timeoutMs = 5000): Promise<MCPHealthResponse> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${endpoint}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data as MCPHealthResponse;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Connection timed out');
+    }
+    throw error;
+  }
+};
+
 interface MCPStore {
   // Server management
   servers: MCPServer[];
@@ -67,6 +112,8 @@ const HYDRA_MCP_SERVER: MCPServer = {
   type: 'builtin',
   status: 'disconnected',
   category: 'infrastructure',
+  endpoint: HYDRA_MCP_URL,
+  wsEndpoint: HYDRA_MCP_WS_URL,
   docsUrl: '/docs/mcp',
   tools: [],
   resources: [],
@@ -144,19 +191,32 @@ export const useMCPStore = create<MCPStore>()(
         if (!server) return;
 
         set({ isConnecting: true });
-        get().updateServerStatus(serverId, 'connected');
+        get().updateServerStatus(serverId, 'disconnected');
 
         try {
-          // For built-in Hydra MCP, connect via API
-          if (server.type === 'builtin' && serverId === 'hydra-mcp') {
-            // TODO: Implement actual connection to Hydra MCP
-            // This would involve fetching available tools and resources
-            get().updateServerStatus(serverId, 'connected');
-          } else if (server.endpoint) {
-            // For remote servers, attempt connection
-            // TODO: Implement remote server connection
-            get().updateServerStatus(serverId, 'connected');
+          const endpoint = server.endpoint || (serverId === 'hydra-mcp' ? HYDRA_MCP_URL : undefined);
+          if (!endpoint) {
+            throw new Error('MCP endpoint is not configured. Set VITE_MCP_URL in your .env file.');
           }
+
+          // Use HTTP health check for MCP servers
+          const health = await probeHttpHealth(endpoint);
+
+          // Update server with tools from health response
+          set((state) => ({
+            servers: state.servers.map((s) =>
+              s.id === serverId
+                ? {
+                    ...s,
+                    status: 'connected' as const,
+                    error: undefined,
+                    lastConnected: new Date(),
+                    tools: health.tools || [],
+                    resources: health.resources || [],
+                  }
+                : s
+            ),
+          }));
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Connection failed';
           get().updateServerStatus(serverId, 'error', errorMessage);

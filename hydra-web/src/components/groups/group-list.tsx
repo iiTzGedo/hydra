@@ -12,7 +12,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { useGroups } from '@/api/groups';
-import { Group, Selector } from '@/types/group';
+import { GroupSummary } from '@/types/group';
 import { GroupFilterState } from './group-filters';
 import { ROUTES } from '@/lib/constants';
 import { cn, formatDate } from '@/lib/utils';
@@ -133,37 +133,13 @@ export function GroupList({ filters }: GroupListProps) {
   );
 }
 
-// Helper to get a display value for a selector
-function getSelectorDisplayValue(selector: Selector): string {
-  switch (selector.type) {
-    case 'id':
-      return selector.ids.slice(0, 2).join(', ');
-    case 'network':
-      return selector.networkIds.slice(0, 2).join(', ');
-    case 'tag':
-      return selector.tags.slice(0, 2).join(', ');
-    case 'status':
-      return selector.statuses.slice(0, 2).join(', ');
-    case 'class':
-      return selector.classes.slice(0, 2).join(', ');
-    case 'type':
-      return selector.types.slice(0, 2).join(', ');
-    case 'kind':
-      return selector.kinds.slice(0, 2).join(', ');
-    case 'runtime':
-      return selector.runtimes.slice(0, 2).join(', ');
-    default:
-      return '';
-  }
-}
-
-type GroupListItem = Group & { id: string };
+type GroupListItem = GroupSummary & { id: string };
 
 function GroupCard({ group }: { group: GroupListItem }) {
   const [menuOpen, setMenuOpen] = useState(false);
-
-  // Count selectors
-  const selectorCount = group.selectors?.length || 0;
+  const typeLabel = group.types.length
+    ? group.types.map((type) => (type === 'node' ? 'Nodes' : 'Services')).join(', ')
+    : '—';
 
   return (
     <motion.div
@@ -235,50 +211,26 @@ function GroupCard({ group }: { group: GroupListItem }) {
 
         <div className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Selectors</span>
-            <span className="font-medium">{selectorCount}</span>
+            <span className="text-muted-foreground">Types</span>
+            <span className="font-medium">{typeLabel}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Created</span>
-            <span>{formatDate(new Date(group.createdAt))}</span>
+            <span>{group.createdAt ? formatDate(new Date(group.createdAt)) : '—'}</span>
           </div>
         </div>
       </Link>
 
       {/* Member count */}
-      {group.memberCounts && group.memberCounts.total > 0 && (
+      {group.memberCount && group.memberCount.nodes + group.memberCount.services > 0 && (
         <div className="mt-4 pt-4 border-t">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Users className="h-4 w-4" />
-            <span>{group.memberCounts.total} members</span>
+            <span>{group.memberCount.nodes + group.memberCount.services} members</span>
           </div>
         </div>
       )}
 
-      {/* Selector preview */}
-      {group.selectors && group.selectors.length > 0 && (
-        <div className="mt-4 pt-4 border-t">
-          <div className="flex flex-wrap gap-1">
-            {group.selectors.slice(0, 3).map((selector, i) => {
-              const displayValue = getSelectorDisplayValue(selector);
-              return (
-                <span
-                  key={i}
-                  className="rounded bg-muted px-2 py-0.5 text-xs font-mono"
-                >
-                  {selector.type}:{displayValue.slice(0, 15)}
-                  {displayValue.length > 15 && '...'}
-                </span>
-              );
-            })}
-            {group.selectors.length > 3 && (
-              <span className="text-xs text-muted-foreground">
-                +{group.selectors.length - 3} more
-              </span>
-            )}
-          </div>
-        </div>
-      )}
     </motion.div>
   );
 }

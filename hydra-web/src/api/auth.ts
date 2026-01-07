@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
 import { useAuthStore } from '@/stores/auth-store';
@@ -19,8 +20,8 @@ import type {
   RegistrationToken,
   CreateApiKeyRequest,
   ApiKey,
+  ApiKeyListResponse,
 } from '@/types/auth';
-import type { ApiResponse } from '@/types/api';
 
 // Login mutation
 export function useLogin() {
@@ -70,7 +71,7 @@ export function useMe() {
   const setLoading = useAuthStore((state) => state.setLoading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
-  return useQuery({
+  const query = useQuery({
     queryKey: queryKeys.auth.me(),
     queryFn: async () => {
       const response = await apiClient.get<MeResponse>('/auth/me');
@@ -79,22 +80,33 @@ export function useMe() {
     enabled: isAuthenticated,
     retry: false,
     staleTime: 1000 * 60 * 5, // 5 minutes
-    onSuccess: (data: MeResponse) => {
-      if (data.type === 'user') {
-        setUser({
-          userId: data.userId!,
-          username: data.username!,
-          email: data.email!,
-          role: data.role,
-          permissions: data.permissions,
-          createdAt: '',
-        });
-      }
-    },
-    onSettled: () => {
-      setLoading(false);
-    },
   });
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setLoading(false);
+      return;
+    }
+
+    if (query.data?.type === 'user') {
+      setUser({
+        userId: query.data.userId!,
+        username: query.data.username!,
+        email: query.data.email!,
+        role: query.data.role,
+        permissions: query.data.permissions,
+        createdAt: '',
+      });
+    }
+  }, [isAuthenticated, query.data, setLoading, setUser]);
+
+  useEffect(() => {
+    if (!isAuthenticated || query.isFetched) {
+      setLoading(false);
+    }
+  }, [isAuthenticated, query.isFetched, setLoading]);
+
+  return query;
 }
 
 // Forgot password
@@ -188,26 +200,10 @@ export function useRejectUser() {
 
 // Create registration token
 export function useCreateRegistrationToken() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async (data: CreateRegistrationTokenRequest) => {
       const response = await apiClient.post<RegistrationToken>('/auth/tokens', data);
       return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.auth.tokens() });
-    },
-  });
-}
-
-// Get registration tokens
-export function useRegistrationTokens() {
-  return useQuery({
-    queryKey: queryKeys.auth.tokens(),
-    queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<RegistrationToken[]>>('/auth/tokens');
-      return response.data.data; // Return the array directly
     },
   });
 }
@@ -222,7 +218,7 @@ export function useCreateApiKey() {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.auth.apikeys() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.apiKeys() });
     },
   });
 }
@@ -230,10 +226,10 @@ export function useCreateApiKey() {
 // Get API keys
 export function useApiKeys() {
   return useQuery({
-    queryKey: queryKeys.auth.apikeys(),
+    queryKey: queryKeys.auth.apiKeys(),
     queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<ApiKey[]>>('/auth/apikeys');
-      return response.data.data; // Return the array directly
+      const response = await apiClient.get<ApiKeyListResponse>('/auth/apikeys');
+      return response.data.apiKeys;
     },
   });
 }
@@ -248,28 +244,12 @@ export function useRevokeApiKey() {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.auth.apikeys() });
-    },
-  });
-}
-
-// Revoke registration token
-export function useRevokeToken() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (tokenId: string) => {
-      const response = await apiClient.delete(`/auth/tokens/${tokenId}`);
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.auth.tokens() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.apiKeys() });
     },
   });
 }
 
 // Aliases for convenience
-export { useRegistrationTokens as useTokens };
 export { useCreateRegistrationToken as useCreateToken };
 export { useForgotPassword as useRequestPasswordReset };
 export { useRegister as useRegisterWithToken };

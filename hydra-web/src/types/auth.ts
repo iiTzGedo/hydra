@@ -130,7 +130,7 @@ export interface RegistrationToken {
   allowedRoles?: Role[];
   scope: 'user' | 'node';
   createdBy: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 // API Keys
@@ -145,10 +145,15 @@ export interface ApiKey {
   keyId: string;
   key?: string; // Only returned once at creation
   name: string;
-  roles: Role[];
+  roles?: Role[];
   permissions: string[];
   expiresAt?: string;
   lastUsedAt?: string;
-  createdBy: string;
+  createdBy?: string;
   createdAt: string;
+}
+
+export interface ApiKeyListResponse {
+  apiKeys: ApiKey[];
+  total: number;
 }

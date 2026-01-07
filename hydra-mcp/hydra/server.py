@@ -1005,12 +1005,138 @@ Please create documentation including:
         raise ValueError(f"Unknown prompt: {name}")
 
 
+# ==================== HTTP Transport ====================
+
+
+def create_http_app():
+    """Create FastAPI app for HTTP transport."""
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel
+
+    http_app = FastAPI(
+        title="Hydra MCP Server",
+        description="MCP server for Hydra infrastructure management",
+        version=settings.server_version,
+    )
+
+    # CORS middleware
+    http_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    class ToolCallRequest(BaseModel):
+        name: str
+        arguments: dict[str, Any] = {}
+
+    class ToolCallResponse(BaseModel):
+        content: str
+        is_error: bool = False
+
+    class ResourceReadRequest(BaseModel):
+        uri: str
+
+    @http_app.get("/health")
+    async def health():
+        """Health check endpoint."""
+        tools_result = await list_tools()
+        resources_result = await list_resources()
+        return {
+            "status": "healthy",
+            "transport": "http",
+            "server": settings.server_name,
+            "version": settings.server_version,
+            "tools": [t.name for t in tools_result.tools],
+            "resources": [r.uri for r in resources_result.resources],
+        }
+
+    @http_app.get("/tools")
+    async def get_tools():
+        """List available tools."""
+        result = await list_tools()
+        return {
+            "tools": [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "inputSchema": t.inputSchema,
+                }
+                for t in result.tools
+            ]
+        }
+
+    @http_app.post("/tools/call")
+    async def call_tool_http(request: ToolCallRequest):
+        """Call a tool."""
+        result = await call_tool(request.name, request.arguments)
+        content = result.content[0].text if result.content else ""
+        return ToolCallResponse(
+            content=content,
+            is_error=result.isError if hasattr(result, "isError") else False,
+        )
+
+    @http_app.get("/resources")
+    async def get_resources():
+        """List available resources."""
+        result = await list_resources()
+        return {
+            "resources": [
+                {
+                    "uri": r.uri,
+                    "name": r.name,
+                    "description": r.description,
+                    "mimeType": r.mimeType,
+                }
+                for r in result.resources
+            ]
+        }
+
+    @http_app.post("/resources/read")
+    async def read_resource_http(request: ResourceReadRequest):
+        """Read a resource."""
+        result = await read_resource(request.uri)
+        content = result.contents[0].text if result.contents else ""
+        return {"content": content}
+
+    @http_app.get("/prompts")
+    async def get_prompts():
+        """List available prompts."""
+        result = await list_prompts()
+        return {
+            "prompts": [
+                {
+                    "name": p.name,
+                    "description": p.description,
+                    "arguments": [
+                        {
+                            "name": a.name,
+                            "description": a.description,
+                            "required": a.required,
+                        }
+                        for a in (p.arguments or [])
+                    ],
+                }
+                for p in result.prompts
+            ]
+        }
+
+    return http_app
+
+
 # ==================== Server Entry Point ====================
 
 
-async def main():
-    """Run the MCP server."""
-    logger.info("starting_hydra_mcp_server", version=settings.server_version)
+async def run_stdio():
+    """Run the MCP server with stdio transport."""
+    logger.info(
+        "starting_hydra_mcp_server",
+        transport="stdio",
+        version=settings.server_version,
+    )
 
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
@@ -1020,10 +1146,43 @@ async def main():
         )
 
 
-def run():
+async def run_http():
+    """Run the MCP server with HTTP transport."""
+    import uvicorn
+
+    logger.info(
+        "starting_hydra_mcp_server",
+        transport="http",
+        host=settings.http_host,
+        port=settings.http_port,
+        version=settings.server_version,
+    )
+
+    http_app = create_http_app()
+    config = uvicorn.Config(
+        http_app,
+        host=settings.http_host,
+        port=settings.http_port,
+        log_level=settings.log_level.lower(),
+    )
+    http_server = uvicorn.Server(config)
+    await http_server.serve()
+
+
+async def main(transport: str | None = None):
+    """Run the MCP server with the specified transport."""
+    transport = transport or settings.transport
+
+    if transport == "http":
+        await run_http()
+    else:
+        await run_stdio()
+
+
+def run(transport: str | None = None):
     """Synchronous entry point for CLI."""
     import asyncio
-    asyncio.run(main())
+    asyncio.run(main(transport))
 
 
 if __name__ == "__main__":

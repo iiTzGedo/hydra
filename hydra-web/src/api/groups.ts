@@ -4,21 +4,23 @@ import { queryKeys } from '@/lib/query-client';
 import type { ApiResponse, PaginatedResponse } from '@/types/api';
 import type {
   Group,
+  GroupSummary,
   GroupListParams,
   GroupMember,
+  GroupMembersResponse,
   CreateGroupRequest,
   UpdateGroupRequest,
 } from '@/types/group';
 
-// Extended Group with id alias for component convenience
-type GroupWithId = Group & { id: string };
+// Extended Group summary with id alias for component convenience
+type GroupWithId = GroupSummary & { id: string };
 
 // List groups
 export function useGroups(params?: GroupListParams) {
   return useQuery({
     queryKey: queryKeys.groups.list(params),
     queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<Group[]>>('/groups', {
+      const response = await apiClient.get<ApiResponse<GroupSummary[]>>('/groups', {
         params: {
           types: params?.types,
           parentGroupId: params?.parentGroupId,
@@ -37,7 +39,7 @@ export function useGroups(params?: GroupListParams) {
       }));
       const result: PaginatedResponse<GroupWithId> = {
         items,
-        total: response.data.meta?.total ?? response.data.data.length,
+        total: response.data.meta?.total ?? items.length,
         limit: response.data.meta?.limit ?? params?.limit ?? 20,
         offset: response.data.meta?.offset ?? params?.offset ?? 0,
       };
@@ -61,19 +63,32 @@ export function useGroup(groupId: string) {
 // Get group members
 export function useGroupMembers(
   groupId: string,
-  params?: { limit?: number; offset?: number }
+  params?: { limit?: number; offset?: number; entityType?: 'node' | 'service' }
 ) {
   return useQuery({
     queryKey: queryKeys.groups.members(groupId, params),
     queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<GroupMember[]>>(
+      const response = await apiClient.get<ApiResponse<GroupMembersResponse>>(
         `/groups/${groupId}/members`,
         { params }
       );
-      // Transform to expected paginated format
+      const nodes = response.data.data.nodes.map((node) => ({
+        id: node.nodeId,
+        type: 'node' as const,
+        displayName: node.displayName,
+        matchedBy: node.matchedSelectors,
+      }));
+      const services = response.data.data.services.map((service) => ({
+        id: service.serviceId,
+        type: 'service' as const,
+        displayName: service.name,
+        matchedBy: service.matchedSelectors,
+        nodeId: service.nodeId,
+      }));
+      const items: GroupMember[] = [...nodes, ...services];
       return {
-        items: response.data.data,
-        total: response.data.meta?.total ?? response.data.data.length,
+        items,
+        total: response.data.meta?.total ?? items.length,
         limit: response.data.meta?.limit ?? params?.limit ?? 50,
         offset: response.data.meta?.offset ?? params?.offset ?? 0,
       };

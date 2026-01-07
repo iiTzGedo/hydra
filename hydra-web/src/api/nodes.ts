@@ -7,6 +7,8 @@ import type {
   NodeSummary,
   NodeListParams,
   UpdateNodeRequest,
+  NodeRegistrationRequest,
+  NodeRegistrationResponse,
 } from '@/types/node';
 
 // Extended NodeSummary with id alias for component convenience
@@ -102,6 +104,24 @@ export function useArchiveNode() {
     },
     onSuccess: (_data, nodeId) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.nodes.detail(nodeId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.nodes.list() });
+    },
+  });
+}
+
+// Register node (returns API key credentials)
+export function useRegisterNode() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: NodeRegistrationRequest) => {
+      const response = await apiClient.post<ApiResponse<NodeRegistrationResponse>>(
+        '/node/register',
+        data
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.nodes.list() });
     },
   });

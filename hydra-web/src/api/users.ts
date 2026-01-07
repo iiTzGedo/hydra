@@ -1,14 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
-import type { ApiResponse } from '@/types/api';
 import type {
-  UserSummary,
+  UserListResponse,
   UserListParams,
   ElevateRoleRequest,
   GrantTemporaryRoleRequest,
-  AuditLogEntry,
-  AuditLogParams,
 } from '@/types/user';
 import type { Role } from '@/types/auth';
 
@@ -17,7 +14,7 @@ export function useUsers(params?: UserListParams) {
   return useQuery({
     queryKey: queryKeys.users.list(params),
     queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<UserSummary[]>>('/users', {
+      const response = await apiClient.get<UserListResponse>('/users', {
         params: {
           role: params?.role,
           status: params?.status,
@@ -29,11 +26,15 @@ export function useUsers(params?: UserListParams) {
         },
       });
       // Transform to expected paginated format
+      const items = response.data.users.map((user) => ({
+        ...user,
+        lastLoginAt: user.lastLogin,
+      }));
       return {
-        items: response.data.data,
-        total: response.data.meta?.total ?? response.data.data.length,
-        limit: response.data.meta?.limit ?? params?.limit ?? 20,
-        offset: response.data.meta?.offset ?? params?.offset ?? 0,
+        items,
+        total: response.data.total ?? items.length,
+        limit: response.data.limit ?? params?.limit ?? 20,
+        offset: response.data.offset ?? params?.offset ?? 0,
       };
     },
   });
@@ -101,36 +102,6 @@ export function useRevokeTemporaryRole() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.users.list() });
-    },
-  });
-}
-
-// Get audit log
-export function useAuditLog(params?: AuditLogParams) {
-  return useQuery({
-    queryKey: ['audit', 'log', params],
-    queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<AuditLogEntry[]>>('/audit', {
-        params: {
-          action: params?.action,
-          resource: params?.resource,
-          actorId: params?.actorId,
-          since: params?.since,
-          until: params?.until,
-          search: params?.search,
-          limit: params?.limit,
-          offset: params?.offset,
-          sortBy: params?.sortBy,
-          sortOrder: params?.sortOrder,
-        },
-      });
-      // Transform to expected paginated format
-      return {
-        items: response.data.data,
-        total: response.data.meta?.total ?? response.data.data.length,
-        limit: response.data.meta?.limit ?? params?.limit ?? 50,
-        offset: response.data.meta?.offset ?? params?.offset ?? 0,
-      };
     },
   });
 }

@@ -15,6 +15,7 @@ export interface UserSummary {
   role: Role;
   status: UserStatus;
   createdAt: string;
+  lastLogin?: string;
   lastLoginAt?: string;
 }
 
@@ -31,6 +32,13 @@ export interface UserListParams extends ListParams {
   status?: UserStatus;
 }
 
+export interface UserListResponse {
+  users: UserSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 // Elevate role request
 export interface ElevateRoleRequest {
   newRole: Role;
@@ -40,27 +48,4 @@ export interface ElevateRoleRequest {
 export interface GrantTemporaryRoleRequest {
   role: Role;
   durationHours: number;
-}
-
-// Audit log entry
-export interface AuditLogEntry {
-  id: string;
-  action: 'create' | 'update' | 'delete' | 'archive' | 'execute';
-  resource: string;
-  resourceId: string;
-  actorId: string;
-  actorType: 'user' | 'agent' | 'system';
-  actorName: string;
-  details?: Record<string, unknown>;
-  timestamp: string;
-  ipAddress?: string;
-}
-
-// Audit log params
-export interface AuditLogParams extends ListParams {
-  action?: string;
-  resource?: string;
-  actorId?: string;
-  since?: string;
-  until?: string;
 }

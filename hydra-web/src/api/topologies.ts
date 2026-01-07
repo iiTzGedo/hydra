@@ -7,8 +7,9 @@ import type {
   TopologySummary,
   TopologyListParams,
   TopologyMode,
-  TopologyDiff,
+  TopologyDiffResponse,
   GenerateTopologyRequest,
+  SubgraphResponse,
 } from '@/types/topology';
 
 // List topologies
@@ -90,11 +91,37 @@ export function useTopologyDiff(fromId?: string, toId?: string, mode?: TopologyM
   return useQuery({
     queryKey: queryKeys.topologies.diff(fromId, toId, mode),
     queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<TopologyDiff>>('/topologies/diff', {
+      const response = await apiClient.get<ApiResponse<TopologyDiffResponse>>('/topologies/diff', {
         params: { fromId, toId, mode },
       });
       return response.data.data;
     },
     enabled: !!(fromId || toId || mode),
+  });
+}
+
+// Get subgraph centered on a node
+export function useSubgraph(
+  nodeId: string,
+  options?: {
+    depth?: number;
+    includeServices?: boolean;
+    includeNetworks?: boolean;
+  }
+) {
+  return useQuery({
+    queryKey: queryKeys.topologies.subgraph(nodeId, options),
+    queryFn: async () => {
+      const response = await apiClient.get<ApiResponse<SubgraphResponse>>('/topologies/subgraph', {
+        params: {
+          nodeId,
+          depth: options?.depth ?? 1,
+          includeServices: options?.includeServices ?? true,
+          includeNetworks: options?.includeNetworks ?? true,
+        },
+      });
+      return response.data.data;
+    },
+    enabled: !!nodeId,
   });
 }
