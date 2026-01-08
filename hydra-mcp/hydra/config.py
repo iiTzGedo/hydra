@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     # Transport settings
     transport: str = Field(
         default="stdio",
-        description="Transport mode: 'stdio' or 'http'",
+        description="Transport mode: 'stdio', 'http', 'sse', or 'streamable-http'",
     )
     http_host: str = Field(
         default="0.0.0.0",

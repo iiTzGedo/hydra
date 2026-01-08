@@ -10,6 +10,8 @@ from typing import Any
 import structlog
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.server.sse import SseServerTransport
+from mcp.server.streamable_http import StreamableHTTPServerTransport
 from mcp.types import (
     CallToolResult,
     GetPromptResult,
@@ -430,6 +432,29 @@ async def list_tools() -> ListToolsResult:
                 "required": ["entityId", "service"],
             },
         ),
+        Tool(
+            name="service_dependency_map",
+            description="Map dependencies between services and identify critical paths",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "serviceId": {
+                        "type": "string",
+                        "description": "Optional service ID to focus analysis on",
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "default": 3,
+                        "description": "Dependency depth to explore (1-5)",
+                    },
+                    "includeNetworkAnalysis": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Include network topology in dependency analysis",
+                    },
+                },
+            },
+        ),
     ]
     return ListToolsResult(tools=tools)
 
@@ -587,6 +612,206 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
             data=args.get("parameters"),
         )
         return toon.format(result)
+
+    elif name == "service_dependency_map":
+        # Fetch services
+        service_id = args.get("serviceId")
+        depth = args.get("depth", 3)
+        include_network = args.get("includeNetworkAnalysis", True)
+
+        if service_id:
+            # Analyze specific service
+            service = await client.get_service(service_id)
+            services = [service]
+        else:
+            # Analyze all services
+            services, _ = await client.list_services(limit=200)
+            if not isinstance(services, list):
+                services = []
+
+        # Build dependency map
+        dependency_map = {
+            "services": [],
+            "dependencies": [],
+            "analysis": {
+                "totalServices": len(services),
+                "criticalServices": [],
+                "isolatedServices": [],
+                "singlePointsOfFailure": [],
+                "communicationPatterns": [],
+            },
+        }
+
+        # Service-to-service dependency tracking
+        service_deps = {}
+        service_dependents = {}
+
+        for svc in services:
+            svc_id = svc.get("serviceId", "")
+            svc_name = svc.get("name", "")
+            node_id = svc.get("nodeId", "")
+            runtime = svc.get("runtime", "")
+            status = svc.get("status", "")
+
+            service_info = {
+                "serviceId": svc_id,
+                "name": svc_name,
+                "nodeId": node_id,
+                "runtime": runtime,
+                "status": status,
+                "dependencies": [],
+                "dependents": [],
+            }
+
+            # Extract dependencies from service metadata
+            metadata = svc.get("metadata", {})
+
+            # Docker/Podman: analyze environment variables, links, networks
+            if runtime in ["docker", "podman"]:
+                env_vars = metadata.get("environment", {})
+                networks = metadata.get("networks", [])
+                links = metadata.get("links", [])
+
+                # Analyze environment variables for service references
+                for key, value in env_vars.items() if isinstance(env_vars, dict) else []:
+                    if isinstance(value, str):
+                        # Look for patterns like: SERVICE_HOST, SERVICE_PORT, etc.
+                        if "_HOST" in key or "_URL" in key or "_ENDPOINT" in key:
+                            service_info["dependencies"].append({
+                                "type": "environment",
+                                "target": value,
+                                "reference": key,
+                            })
+
+                # Add network-based dependencies
+                if networks:
+                    service_info["networks"] = networks
+
+                # Add explicit links
+                if links:
+                    service_info["dependencies"].extend([
+                        {"type": "link", "target": link} for link in links
+                    ])
+
+            # Kubernetes: analyze pod dependencies
+            elif runtime == "kubernetes":
+                containers = metadata.get("containers", [])
+                for container in containers if isinstance(containers, list) else []:
+                    env = container.get("env", [])
+                    for env_var in env if isinstance(env, list) else []:
+                        name = env_var.get("name", "")
+                        value = env_var.get("value", "")
+                        if "_SERVICE" in name or "_HOST" in name:
+                            service_info["dependencies"].append({
+                                "type": "kubernetes_env",
+                                "target": value,
+                                "reference": name,
+                            })
+
+            # systemd: analyze configuration
+            elif runtime == "systemd":
+                config = metadata.get("config", {})
+                requires = config.get("Requires", [])
+                wants = config.get("Wants", [])
+                after = config.get("After", [])
+
+                if requires:
+                    service_info["dependencies"].extend([
+                        {"type": "systemd_requires", "target": req} for req in requires
+                    ])
+                if wants:
+                    service_info["dependencies"].extend([
+                        {"type": "systemd_wants", "target": want} for want in wants
+                    ])
+                if after:
+                    service_info["dependencies"].extend([
+                        {"type": "systemd_after", "target": dep} for dep in after
+                    ])
+
+            dependency_map["services"].append(service_info)
+            service_deps[svc_id] = service_info["dependencies"]
+            service_dependents[svc_id] = []
+
+        # Build dependency graph
+        for svc_info in dependency_map["services"]:
+            svc_id = svc_info["serviceId"]
+            for dep in svc_info["dependencies"]:
+                target = dep.get("target", "")
+
+                # Try to match target to another service
+                for other_svc in dependency_map["services"]:
+                    other_id = other_svc["serviceId"]
+                    other_name = other_svc["name"]
+
+                    if other_id != svc_id and (target in other_id or target in other_name):
+                        dependency_map["dependencies"].append({
+                            "from": svc_id,
+                            "to": other_id,
+                            "type": dep.get("type", "unknown"),
+                        })
+
+                        if other_id not in service_dependents:
+                            service_dependents[other_id] = []
+                        service_dependents[other_id].append(svc_id)
+
+        # Analyze patterns
+        for svc_info in dependency_map["services"]:
+            svc_id = svc_info["serviceId"]
+            num_deps = len(service_deps.get(svc_id, []))
+            num_dependents = len(service_dependents.get(svc_id, []))
+
+            # Critical services (many dependents)
+            if num_dependents >= 3:
+                dependency_map["analysis"]["criticalServices"].append({
+                    "serviceId": svc_id,
+                    "name": svc_info["name"],
+                    "dependents": num_dependents,
+                    "reason": "High number of dependent services",
+                })
+
+            # Isolated services (no dependencies or dependents)
+            if num_deps == 0 and num_dependents == 0:
+                dependency_map["analysis"]["isolatedServices"].append({
+                    "serviceId": svc_id,
+                    "name": svc_info["name"],
+                })
+
+            # Single points of failure (critical + running)
+            if num_dependents >= 2 and svc_info["status"] == "running":
+                dependency_map["analysis"]["singlePointsOfFailure"].append({
+                    "serviceId": svc_id,
+                    "name": svc_info["name"],
+                    "dependents": num_dependents,
+                    "impact": "High - failure would affect multiple services",
+                })
+
+        # Network topology analysis
+        if include_network:
+            try:
+                topology = await client.get_topology(mode="network")
+                networks = topology.get("networks", [])
+
+                # Analyze service communication patterns
+                network_services = {}
+                for svc_info in dependency_map["services"]:
+                    svc_networks = svc_info.get("networks", [])
+                    for net in svc_networks:
+                        if net not in network_services:
+                            network_services[net] = []
+                        network_services[net].append(svc_info["serviceId"])
+
+                # Identify communication patterns
+                for net, svc_list in network_services.items():
+                    if len(svc_list) > 1:
+                        dependency_map["analysis"]["communicationPatterns"].append({
+                            "network": net,
+                            "services": svc_list,
+                            "pattern": "Shared network communication",
+                        })
+            except Exception as e:
+                logger.warning("network_analysis_failed", error=str(e))
+
+        return toon.format(dependency_map)
 
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -1147,7 +1372,7 @@ async def run_stdio():
 
 
 async def run_http():
-    """Run the MCP server with HTTP transport."""
+    """Run the MCP server with HTTP transport (custom REST API)."""
     import uvicorn
 
     logger.info(
@@ -1169,13 +1394,129 @@ async def run_http():
     await http_server.serve()
 
 
+async def run_sse():
+    """Run the MCP server with SSE transport (MCP protocol over HTTP)."""
+    from starlette.applications import Starlette
+    from starlette.routing import Mount, Route
+    import uvicorn
+
+    logger.info(
+        "starting_hydra_mcp_server",
+        transport="sse",
+        host=settings.http_host,
+        port=settings.http_port,
+        version=settings.server_version,
+    )
+
+    # Create SSE transport
+    sse_transport = SseServerTransport("/messages")
+
+    # Create Starlette app with MCP SSE endpoints
+    sse_app = Starlette(
+        routes=[
+            Route("/sse", endpoint=sse_transport.connect_sse),
+            Route("/messages", endpoint=sse_transport.handle_post_message, methods=["POST"]),
+        ]
+    )
+
+    # Run the MCP server with SSE transport
+    async with sse_transport.connect_sse() as streams:
+        async def run_server():
+            await server.run(
+                streams[0],
+                streams[1],
+                server.create_initialization_options(),
+            )
+
+        # Start both the ASGI app and MCP server
+        import anyio
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_server)
+            config = uvicorn.Config(
+                sse_app,
+                host=settings.http_host,
+                port=settings.http_port,
+                log_level=settings.log_level.lower(),
+            )
+            http_server = uvicorn.Server(config)
+            tg.start_soon(http_server.serve)
+
+
+async def run_streamable_http():
+    """Run the MCP server with Streamable HTTP transport (recommended for Claude Desktop)."""
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+    from starlette.middleware.cors import CORSMiddleware
+    import uvicorn
+
+    logger.info(
+        "starting_hydra_mcp_server",
+        transport="streamable-http",
+        host=settings.http_host,
+        port=settings.http_port,
+        version=settings.server_version,
+    )
+
+    # Create Streamable HTTP transport
+    streamable_transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,  # Let the transport generate session IDs
+        is_json_response_enabled=False,  # Use SSE for streaming
+    )
+
+    # Create Starlette app that mounts the MCP transport
+    mcp_app = Starlette(
+        routes=[
+            Mount("/mcp", app=streamable_transport.handle_request),
+        ]
+    )
+
+    # Add CORS middleware
+    mcp_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Run MCP server
+    async def run_mcp():
+        async with streamable_transport.connect() as streams:
+            await server.run(
+                streams[0],  # read stream
+                streams[1],  # write stream
+                server.create_initialization_options(),
+            )
+
+    # Start both the ASGI app and MCP server
+    import anyio
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run_mcp)
+        config = uvicorn.Config(
+            mcp_app,
+            host=settings.http_host,
+            port=settings.http_port,
+            log_level=settings.log_level.lower(),
+        )
+        http_server = uvicorn.Server(config)
+        await http_server.serve()
+
+
 async def main(transport: str | None = None):
     """Run the MCP server with the specified transport."""
     transport = transport or settings.transport
 
     if transport == "http":
+        # Custom REST API (for Hydra API integration)
         await run_http()
+    elif transport == "sse":
+        # MCP protocol over SSE (for Claude Desktop)
+        await run_sse()
+    elif transport == "streamable-http":
+        # MCP protocol over Streamable HTTP (recommended for Claude Desktop)
+        await run_streamable_http()
     else:
+        # stdio transport (for CLI and desktop apps)
         await run_stdio()
 
 

@@ -43,7 +43,7 @@ Environment variables (prefix: `HYDRA_MCP_`):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `HYDRA_MCP_TRANSPORT` | Transport mode: `stdio` or `http` | `stdio` |
+| `HYDRA_MCP_TRANSPORT` | Transport mode: `stdio`, `http`, `sse`, or `streamable-http` | `stdio` |
 | `HYDRA_MCP_HTTP_HOST` | HTTP server host | `0.0.0.0` |
 | `HYDRA_MCP_HTTP_PORT` | HTTP server port | `8081` |
 | `HYDRA_MCP_CORS_ORIGINS` | CORS allowed origins (JSON array) | `["*"]` |
@@ -67,33 +67,26 @@ Environment variables (prefix: `HYDRA_MCP_`):
 
 ### Transport Modes
 
-The MCP server supports two transport modes:
+Hydra MCP supports **four transport modes**:
 
-#### stdio Transport (Default)
+| Transport | Use Case | Claude Desktop | API Integration |
+|-----------|----------|----------------|-----------------|
+| `stdio` | Claude Desktop local (default) | ✅ | ❌ |
+| `streamable-http` | Claude Desktop remote (recommended) | ✅ | ❌ |
+| `sse` | Claude Desktop remote (legacy) | ✅ | ❌ |
+| `http` | Hydra Web/API integration | ❌ | ✅ |
 
-Standard input/output transport for Claude Desktop and MCP-compatible clients:
+**Quick Start:**
 
 ```bash
-# Via CLI entry point
+# For Claude Desktop (local subprocess)
 hydra-mcp
 
-# Or as a Python module
-python -m hydra
+# For Claude Desktop (remote HTTP) - RECOMMENDED
+HYDRA_MCP_TRANSPORT=streamable-http hydra-mcp
 
-# Explicitly specify stdio transport
-HYDRA_MCP_TRANSPORT=stdio hydra-mcp
-```
-
-#### HTTP Transport
-
-HTTP REST API for web clients and direct access:
-
-```bash
-# Start with HTTP transport
+# For Hydra Web/API integration
 HYDRA_MCP_TRANSPORT=http hydra-mcp
-
-# Or with custom host/port
-HYDRA_MCP_TRANSPORT=http HYDRA_MCP_HTTP_PORT=9000 hydra-mcp
 ```
 
 ### HTTP API Endpoints
@@ -134,13 +127,17 @@ curl -X POST http://localhost:8081/resources/read \
 
 ### Claude Desktop Integration
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+**Config Location:**
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Linux: `~/.config/claude-desktop/config.json`
+
+**Option 1: Local (stdio)** - Claude Desktop spawns MCP process
 
 ```json
 {
   "mcpServers": {
     "hydra": {
-      "command": "hydra-mcp",
+      "command": "/path/to/hydra-mcp",
       "env": {
         "HYDRA_MCP_API_URL": "http://localhost:8080/api/v1",
         "HYDRA_MCP_API_KEY": "your-api-key"
@@ -149,6 +146,45 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
   }
 }
 ```
+
+**Option 2: Remote (streamable-http)** - Connect to running MCP server (recommended)
+
+```bash
+# Start MCP server
+HYDRA_MCP_TRANSPORT=streamable-http \
+HYDRA_MCP_API_URL=http://localhost:8080/api/v1 \
+HYDRA_MCP_API_KEY=your-api-key \
+hydra-mcp
+
+# Configure Claude Desktop
+{
+  "mcpServers": {
+    "hydra": {
+      "url": "http://localhost:8081/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
+
+# Or via Claude CLI
+claude mcp add hydra --transport streamable-http http://localhost:8081/mcp
+```
+
+### Troubleshooting
+
+**Claude Desktop not connecting:**
+- Verify transport matches: config says `streamable-http`, server must use `streamable-http`
+- Check endpoint URL: `http://localhost:8081/mcp` for streamable-http
+- Test server: `curl http://localhost:8081/mcp`
+
+**"Address already in use":**
+- Stop old instance: `pkill hydra-mcp`
+- Or use different port: `HYDRA_MCP_HTTP_PORT=8082`
+
+**HTTP transport returns 404 from Claude Desktop:**
+- Expected! `http` transport is NOT MCP protocol compatible
+- Use `streamable-http` or `sse` for Claude Desktop
+- `http` transport is only for Hydra Web/API integration
 
 ## Available Tools
 

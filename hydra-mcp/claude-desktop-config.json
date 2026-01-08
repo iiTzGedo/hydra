@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "hydra": {
+      "url": "http://localhost:8081/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
