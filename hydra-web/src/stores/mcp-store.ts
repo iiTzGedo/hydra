@@ -12,6 +12,7 @@ import type {
   MCPChatMessage,
   MCPToolCall,
   LLMProvider,
+  ChatProject,
 } from '@/types/mcp';
 
 const HYDRA_MCP_URL = import.meta.env.VITE_MCP_URL as string | undefined;
@@ -76,12 +77,19 @@ interface MCPStore {
   removeLLMProvider: (providerId: string) => void;
   setActiveLLMProvider: (providerId: string | null) => void;
 
+  // Project management
+  projects: ChatProject[];
+  createProject: (name: string) => string;
+  deleteProject: (projectId: string) => void;
+  renameProject: (projectId: string, name: string) => void;
+
   // Chat session management
   sessions: MCPChatSession[];
   currentSessionId: string | null;
-  createSession: (name?: string) => string;
+  createSession: (name?: string, projectId?: string) => string;
   deleteSession: (sessionId: string) => void;
   setCurrentSession: (sessionId: string | null) => void;
+  renameSession: (sessionId: string, name: string) => void;
   addMessage: (sessionId: string, message: Omit<MCPChatMessage, 'id' | 'timestamp'>) => void;
   updateMessage: (sessionId: string, messageId: string, updates: Partial<MCPChatMessage>) => void;
   addToolCall: (sessionId: string, messageId: string, toolCall: MCPToolCall) => void;
@@ -102,6 +110,8 @@ interface MCPStore {
   getActiveServers: () => MCPServer[];
   getActiveLLMProvider: () => LLMProvider | null;
   getCurrentSession: () => MCPChatSession | null;
+  getProjectSessions: (projectId: string) => MCPChatSession[];
+  getStandaloneSessions: () => MCPChatSession[];
 }
 
 // Default Hydra MCP server (built-in)
@@ -152,6 +162,7 @@ export const useMCPStore = create<MCPStore>()(
       servers: [HYDRA_MCP_SERVER],
       llmProviders: DEFAULT_LLM_PROVIDERS,
       activeLLMProviderId: null,
+      projects: [],
       sessions: [],
       currentSessionId: null,
       isConnecting: false,
@@ -267,12 +278,46 @@ export const useMCPStore = create<MCPStore>()(
         set({ activeLLMProviderId: providerId });
       },
 
+      // Project management
+      createProject: (name) => {
+        const projectId = generateId();
+        const newProject: ChatProject = {
+          id: projectId,
+          name,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        set((state) => ({
+          projects: [newProject, ...state.projects],
+        }));
+        return projectId;
+      },
+
+      deleteProject: (projectId) => {
+        set((state) => ({
+          projects: state.projects.filter((p) => p.id !== projectId),
+          // Also delete or orphan sessions in this project
+          sessions: state.sessions.map((s) =>
+            s.projectId === projectId ? { ...s, projectId: undefined } : s
+          ),
+        }));
+      },
+
+      renameProject: (projectId, name) => {
+        set((state) => ({
+          projects: state.projects.map((p) =>
+            p.id === projectId ? { ...p, name, updatedAt: new Date() } : p
+          ),
+        }));
+      },
+
       // Chat session management
-      createSession: (name) => {
+      createSession: (name, projectId) => {
         const sessionId = generateId();
         const newSession: MCPChatSession = {
           id: sessionId,
           name: name || `Chat ${new Date().toLocaleDateString()}`,
+          projectId,
           messages: [],
           connectedServers: get()
             .servers.filter((s) => s.status === 'connected')
@@ -298,6 +343,14 @@ export const useMCPStore = create<MCPStore>()(
 
       setCurrentSession: (sessionId) => {
         set({ currentSessionId: sessionId });
+      },
+
+      renameSession: (sessionId, name) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId ? { ...s, name, updatedAt: new Date() } : s
+          ),
+        }));
       },
 
       addMessage: (sessionId, message) => {
@@ -395,6 +448,14 @@ export const useMCPStore = create<MCPStore>()(
         const { sessions, currentSessionId } = get();
         return sessions.find((s) => s.id === currentSessionId) || null;
       },
+
+      getProjectSessions: (projectId) => {
+        return get().sessions.filter((s) => s.projectId === projectId);
+      },
+
+      getStandaloneSessions: () => {
+        return get().sessions.filter((s) => !s.projectId);
+      },
     }),
     {
       name: 'hydra-mcp-storage',
@@ -402,7 +463,8 @@ export const useMCPStore = create<MCPStore>()(
         servers: state.servers.map((s) => ({ ...s, status: 'disconnected' as const })),
         llmProviders: state.llmProviders,
         activeLLMProviderId: state.activeLLMProviderId,
-        sessions: state.sessions.slice(0, 10), // Only persist last 10 sessions
+        projects: state.projects,
+        sessions: state.sessions.slice(0, 50), // Persist last 50 sessions
       }),
     }
   )

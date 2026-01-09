@@ -94,11 +94,22 @@ export interface MCPToolCall {
 }
 
 /**
+ * Chat project for organizing conversations
+ */
+export interface ChatProject {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
  * MCP Chat session
  */
 export interface MCPChatSession {
   id: string;
   name: string;
+  projectId?: string; // Optional: if set, belongs to a project; otherwise standalone
   messages: MCPChatMessage[];
   connectedServers: string[];
   llmProvider: string;

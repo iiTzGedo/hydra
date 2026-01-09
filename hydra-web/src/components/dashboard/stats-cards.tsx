@@ -1,111 +1,152 @@
-import { motion } from 'framer-motion';
-import { Server, Boxes, Network, FolderTree, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Server, Boxes, Network, AlertTriangle, CheckCircle2, XCircle, AlertCircle, Activity } from 'lucide-react';
 import { useNodes } from '@/api/nodes';
 import { useServices } from '@/api/services';
 import { useNetworks } from '@/api/networks';
-import { useGroups } from '@/api/groups';
-import { cn } from '@/lib/utils';
-import { scaleVariants } from '@/lib/animations';
-
-interface StatCardProps {
-  title: string;
-  value: number | string;
-  icon: React.ReactNode;
-  trend?: { value: number; label: string };
-  color: string;
-  isLoading?: boolean;
-}
-
-function StatCard({ title, value, icon, trend, color, isLoading }: StatCardProps) {
-  return (
-    <motion.div
-      variants={scaleVariants}
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
-      className="rounded-xl border bg-card p-6 shadow-sm"
-    >
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          {isLoading ? (
-            <div className="mt-2 h-8 w-16 animate-pulse rounded bg-muted" />
-          ) : (
-            <p className="mt-2 text-3xl font-bold">{value}</p>
-          )}
-          {trend && !isLoading && (
-            <div className="mt-2 flex items-center gap-1 text-sm">
-              {trend.value > 0 ? (
-                <TrendingUp className="h-4 w-4 text-success" />
-              ) : trend.value < 0 ? (
-                <TrendingDown className="h-4 w-4 text-error" />
-              ) : (
-                <Minus className="h-4 w-4 text-muted-foreground" />
-              )}
-              <span
-                className={cn(
-                  trend.value > 0
-                    ? 'text-success'
-                    : trend.value < 0
-                    ? 'text-error'
-                    : 'text-muted-foreground'
-                )}
-              >
-                {trend.value > 0 ? '+' : ''}{trend.value}%
-              </span>
-              <span className="text-muted-foreground">{trend.label}</span>
-            </div>
-          )}
-        </div>
-        <div className={cn('rounded-lg p-3', color)}>
-          {icon}
-        </div>
-      </div>
-    </motion.div>
-  );
-}
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ROUTES } from '@/lib/constants';
 
 export function StatsCards() {
-  const { data: nodesData, isLoading: nodesLoading } = useNodes({ limit: 1 });
-  const { data: servicesData, isLoading: servicesLoading } = useServices({ limit: 1 });
-  const { data: networksData, isLoading: networksLoading } = useNetworks({ limit: 1 });
-  const { data: groupsData, isLoading: groupsLoading } = useGroups({ limit: 1 });
+  const { data: nodesData, isLoading: nodesLoading } = useNodes({});
+  const { data: servicesData, isLoading: servicesLoading } = useServices({});
+  const { data: networksData, isLoading: networksLoading } = useNetworks({});
 
-  const stats = [
-    {
-      title: 'Total Nodes',
-      value: nodesData?.total ?? 0,
-      icon: <Server className="h-6 w-6 text-white" />,
-      color: 'bg-compute',
-      isLoading: nodesLoading,
-    },
-    {
-      title: 'Services',
-      value: servicesData?.total ?? 0,
-      icon: <Boxes className="h-6 w-6 text-white" />,
-      color: 'bg-hydra-blue',
-      isLoading: servicesLoading,
-    },
-    {
-      title: 'Networks',
-      value: networksData?.total ?? 0,
-      icon: <Network className="h-6 w-6 text-white" />,
-      color: 'bg-networking',
-      isLoading: networksLoading,
-    },
-    {
-      title: 'Groups',
-      value: groupsData?.total ?? 0,
-      icon: <FolderTree className="h-6 w-6 text-white" />,
-      color: 'bg-iot',
-      isLoading: groupsLoading,
-    },
-  ];
+  // Calculate node stats
+  const totalNodes = nodesData?.total ?? 0;
+  const onlineNodes = nodesData?.items?.filter((n) => n.status === 'active').length ?? 0;
+  const offlineNodes = nodesData?.items?.filter((n) => n.status === 'inactive' || n.status === 'archived').length ?? 0;
+  const warningNodes = nodesData?.items?.filter((n) => n.status === 'pending').length ?? 0;
+
+  // Calculate service stats
+  const totalServices = servicesData?.total ?? 0;
+  const runningServices = servicesData?.items?.filter((s) => s.status === 'running').length ?? 0;
+  const stoppedServices = servicesData?.items?.filter((s) => s.status !== 'running').length ?? 0;
+
+  // Calculate network stats
+  const totalNetworks = networksData?.total ?? 0;
+  const physicalNetworks = networksData?.items?.filter((n) => n.type === 'physical').length ?? 0;
+
+  // Mock active alerts count (since alerts API may not exist yet)
+  const criticalAlerts = 2;
+  const warningAlerts = 3;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {stats.map((stat) => (
-        <StatCard key={stat.title} {...stat} />
-      ))}
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* Total Nodes */}
+      <Link to={ROUTES.NODES}>
+        <Card className="bg-card border-border hover:border-foreground/20 transition-colors cursor-pointer">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Nodes</CardTitle>
+            <Server className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {nodesLoading ? (
+              <Skeleton className="h-8 w-16 bg-muted" />
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-foreground">{totalNodes}</div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="flex items-center text-xs text-success">
+                    <CheckCircle2 className="mr-1 h-3 w-3 text-success" />
+                    {onlineNodes} online
+                  </span>
+                  {offlineNodes > 0 && (
+                    <span className="flex items-center text-xs text-destructive">
+                      <XCircle className="mr-1 h-3 w-3 text-destructive" />
+                      {offlineNodes} offline
+                    </span>
+                  )}
+                  {warningNodes > 0 && (
+                    <span className="flex items-center text-xs text-warning">
+                      <AlertCircle className="mr-1 h-3 w-3 text-warning" />
+                      {warningNodes} warning
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </Link>
+
+      {/* Services */}
+      <Link to={ROUTES.SERVICES}>
+        <Card className="bg-card border-border hover:border-foreground/20 transition-colors cursor-pointer">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Services</CardTitle>
+            <Boxes className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {servicesLoading ? (
+              <Skeleton className="h-8 w-16 bg-muted" />
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-foreground">{totalServices}</div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="flex items-center text-xs text-success">
+                    <Activity className="mr-1 h-3 w-3 text-success" />
+                    {runningServices} running
+                  </span>
+                  {stoppedServices > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {stoppedServices} stopped
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </Link>
+
+      {/* Networks */}
+      <Link to={ROUTES.NETWORKS}>
+        <Card className="bg-card border-border hover:border-foreground/20 transition-colors cursor-pointer">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Networks</CardTitle>
+            <Network className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {networksLoading ? (
+              <Skeleton className="h-8 w-16 bg-muted" />
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-foreground">{totalNetworks}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {physicalNetworks} physical, {totalNetworks - physicalNetworks} virtual
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </Link>
+
+      {/* Active Alerts */}
+      <Link to="/alerts">
+        <Card className="bg-card border-border hover:border-foreground/20 transition-colors cursor-pointer">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Alerts</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-foreground">{criticalAlerts + warningAlerts}</div>
+            <div className="flex items-center gap-2 mt-1">
+              {criticalAlerts > 0 && (
+                <Badge variant="destructive" className="text-[10px]">
+                  {criticalAlerts} critical
+                </Badge>
+              )}
+              {warningAlerts > 0 && (
+                <Badge variant="warning" className="text-[10px]">
+                  {warningAlerts} warning
+                </Badge>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
     </div>
   );
 }

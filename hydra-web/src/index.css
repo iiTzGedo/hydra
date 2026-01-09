@@ -1,77 +1,137 @@
+/* Import Geist Mono font */
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
+    /* Light theme */
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 0 0% 4%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 0 0% 4%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 217.2 91.2% 59.8%;
+    --popover-foreground: 0 0% 4%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 44%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 217 91% 60%;
     --radius: 0.5rem;
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 222.2 84% 4.9%;
-    --sidebar-primary: 217.2 91.2% 59.8%;
-    --sidebar-primary-foreground: 210 40% 98%;
-    --sidebar-accent: 210 40% 96.1%;
-    --sidebar-accent-foreground: 222.2 47.4% 11.2%;
-    --sidebar-border: 214.3 31.8% 91.4%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Sidebar light */
+    --sidebar: 0 0% 98%;
+    --sidebar-foreground: 0 0% 4%;
+    --sidebar-primary: 0 0% 9%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 0 0% 96%;
+    --sidebar-accent-foreground: 0 0% 9%;
+    --sidebar-border: 0 0% 90%;
+    --sidebar-ring: 0 0% 63%;
+
+    /* Hydra semantic colors */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 187 94% 43%;
+    --info-foreground: 0 0% 100%;
+
+    /* Node class colors */
+    --compute: 258 90% 66%;
+    --compute-foreground: 0 0% 100%;
+    --network: 187 94% 43%;
+    --network-foreground: 0 0% 100%;
+    --iot: 160 84% 39%;
+    --iot-foreground: 0 0% 100%;
+
+    /* Chart colors */
+    --chart-1: 217 91% 60%;
+    --chart-2: 160 84% 39%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 0 84% 60%;
+    --chart-5: 258 90% 66%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-    --sidebar-background: 222.2 84% 4.9%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 217.2 91.2% 59.8%;
-    --sidebar-primary-foreground: 222.2 47.4% 11.2%;
-    --sidebar-accent: 217.2 32.6% 17.5%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217.2 32.6% 17.5%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Dark theme - matching prototype zinc palette */
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 15%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 240 4% 65%;
+    --accent: 0 0% 24%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 15%;
+    --input: 0 0% 24%;
+    --ring: 217 91% 60%;
+
+    /* Sidebar dark */
+    --sidebar: 0 0% 9%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 0 0% 9%;
+    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 15%;
+    --sidebar-ring: 0 0% 24%;
+
+    /* Hydra semantic colors (same in dark) */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 187 94% 43%;
+    --info-foreground: 0 0% 100%;
+
+    /* Node class colors (same in dark) */
+    --compute: 258 90% 66%;
+    --compute-foreground: 0 0% 100%;
+    --network: 187 94% 43%;
+    --network-foreground: 0 0% 100%;
+    --iot: 160 84% 39%;
+    --iot-foreground: 0 0% 100%;
+
+    /* Chart colors */
+    --chart-1: 217 91% 60%;
+    --chart-2: 160 84% 39%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 0 84% 60%;
+    --chart-5: 258 90% 66%;
   }
 }
+
 
 @layer base {
   * {
     @apply border-border;
   }
 
+  html {
+    font-family: 'Geist Mono', monospace;
+  }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
@@ -90,6 +150,87 @@
 
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-muted-foreground/30;
+  }
+
+  /* Focus visible styles */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  /* Page header pattern */
+  .page-header {
+    @apply flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight;
+  }
+
+  .page-subtitle {
+    @apply text-sm text-muted-foreground;
+  }
+
+  /* KPI card pattern */
+  .kpi-card {
+    @apply rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50;
+  }
+
+  .kpi-value {
+    @apply text-2xl font-bold;
+  }
+
+  .kpi-label {
+    @apply text-xs text-muted-foreground uppercase tracking-wide;
+  }
+
+  /* Status badge variants */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+
+  .status-badge-online {
+    @apply bg-success/10 text-success;
+  }
+
+  .status-badge-offline {
+    @apply bg-destructive/10 text-destructive;
+  }
+
+  .status-badge-warning {
+    @apply bg-warning/10 text-warning;
+  }
+
+  .status-badge-unknown {
+    @apply bg-muted text-muted-foreground;
+  }
+
+  /* Node class badges */
+  .node-class-badge {
+    @apply inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium;
+  }
+
+  .node-class-compute {
+    @apply bg-compute/10 text-compute;
+  }
+
+  .node-class-networking {
+    @apply bg-network/10 text-network;
+  }
+
+  .node-class-iot {
+    @apply bg-iot/10 text-iot;
+  }
+
+  /* Filter bar pattern */
+  .filter-bar {
+    @apply flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2;
+  }
+
+  /* Inspector panel */
+  .inspector-panel {
+    @apply border-l bg-card w-80 shrink-0 overflow-y-auto;
   }
 }
 
@@ -135,12 +276,27 @@
 
   /* Glass effect */
   .glass {
-    @apply bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg;
+    @apply bg-background/80 backdrop-blur-lg;
   }
 
   /* Focus ring */
   .focus-ring {
     @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+  }
+
+  /* Truncate with ellipsis */
+  .truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .truncate-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 }
 
@@ -163,9 +319,121 @@
 }
 
 .react-flow__node.networking-node {
-  @apply border-networking;
+  @apply border-network;
 }
 
 .react-flow__node.iot-node {
   @apply border-iot;
+}
+
+/* React Flow background */
+.react-flow__background {
+  background-color: hsl(var(--background));
+}
+
+/* React Flow minimap */
+.react-flow__minimap {
+  @apply rounded-lg border bg-card;
+}
+
+/* Command palette styles */
+[cmdk-root] {
+  @apply rounded-lg border bg-popover text-popover-foreground shadow-lg;
+}
+
+[cmdk-input] {
+  @apply w-full border-b bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground;
+}
+
+[cmdk-list] {
+  @apply max-h-[300px] overflow-y-auto p-2;
+}
+
+[cmdk-item] {
+  @apply flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none;
+}
+
+[cmdk-item][data-selected="true"] {
+  @apply bg-accent text-accent-foreground;
+}
+
+[cmdk-group-heading] {
+  @apply px-2 py-1.5 text-xs font-medium text-muted-foreground;
+}
+
+[cmdk-empty] {
+  @apply py-6 text-center text-sm text-muted-foreground;
+}
+
+/* Keyframe definitions */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-top {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-bottom {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-left {
+  from {
+    transform: translateX(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@layer utilities {
+  .table-compact th {
+    @apply h-8 px-2 text-xs;
+  }
+
+  .table-compact td {
+    @apply px-2 py-1.5 text-xs;
+  }
 }

@@ -14,7 +14,7 @@ class TestHealthEndpoint:
         """Health endpoint should return server status."""
         # This test verifies the health endpoint structure
         # Full integration tests require running the actual server
-        from hydra.server import create_http_app
+        from hydra_mcp.server import create_http_app
         from fastapi.testclient import TestClient
 
         with patch("hydra.server.list_tools") as mock_tools, \
@@ -47,7 +47,7 @@ class TestToolsEndpoint:
 
     async def test_list_tools_returns_array(self):
         """Tools endpoint should return list of tools."""
-        from hydra.server import create_http_app
+        from hydra_mcp.server import create_http_app
         from fastapi.testclient import TestClient
 
         app = create_http_app()
@@ -66,7 +66,7 @@ class TestResourcesEndpoint:
 
     async def test_list_resources_returns_array(self):
         """Resources endpoint should return list of resources."""
-        from hydra.server import create_http_app
+        from hydra_mcp.server import create_http_app
         from fastapi.testclient import TestClient
 
         app = create_http_app()
@@ -85,7 +85,7 @@ class TestPromptsEndpoint:
 
     async def test_list_prompts_returns_array(self):
         """Prompts endpoint should return list of prompts."""
-        from hydra.server import create_http_app
+        from hydra_mcp.server import create_http_app
         from fastapi.testclient import TestClient
 
         app = create_http_app()

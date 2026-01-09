@@ -30,13 +30,10 @@ const TopologyPage = lazy(() => import('@/pages/topology'));
 const TimeMachinePage = lazy(() => import('@/pages/timemachine'));
 const ChatPage = lazy(() => import('@/pages/chat'));
 const MCPMarketplacePage = lazy(() => import('@/pages/mcp/marketplace'));
+const AlertsPage = lazy(() => import('@/pages/alerts'));
+const ProfilePage = lazy(() => import('@/pages/profile'));
 
-const AdminPage = lazy(() => import('@/pages/admin'));
-const AdminUsersPage = lazy(() => import('@/pages/admin/users'));
-const AdminApprovalsPage = lazy(() => import('@/pages/admin/approvals'));
-const AdminTokensPage = lazy(() => import('@/pages/admin/tokens'));
-const AdminApiKeysPage = lazy(() => import('@/pages/admin/apikeys'));
-const AdminAuditPage = lazy(() => import('@/pages/admin/audit'));
+const SettingsPage = lazy(() => import('@/pages/settings'));
 
 const NotFoundPage = lazy(() => import('@/pages/error/404'));
 
@@ -217,55 +214,32 @@ export const appRoutes: RouteConfig[] = [
     showInNav: true,
     navIcon: 'Store',
   },
+  {
+    path: ROUTES.ALERTS,
+    element: AlertsPage,
+    title: 'Alerts',
+    requiresAuth: true,
+    showInNav: true,
+    navIcon: 'Bell',
+  },
+  {
+    path: ROUTES.PROFILE,
+    element: ProfilePage,
+    title: 'Profile',
+    requiresAuth: true,
+    showInNav: false,
+  },
 ];
 
-// Admin routes
+// Settings route (unified, replaces admin routes)
 export const adminRoutes: RouteConfig[] = [
   {
-    path: ROUTES.ADMIN,
-    element: AdminPage,
-    title: 'Admin',
+    path: ROUTES.SETTINGS,
+    element: SettingsPage,
+    title: 'Settings',
     requiresAuth: true,
-    roles: ['admin'],
     showInNav: true,
     navIcon: 'Settings',
-  },
-  {
-    path: ROUTES.ADMIN_USERS,
-    element: AdminUsersPage,
-    title: 'Users',
-    requiresAuth: true,
-    roles: ['admin'],
-  },
-  {
-    path: ROUTES.ADMIN_APPROVALS,
-    element: AdminApprovalsPage,
-    title: 'Approvals',
-    requiresAuth: true,
-    roles: ['admin'],
-  },
-  {
-    path: ROUTES.ADMIN_TOKENS,
-    element: AdminTokensPage,
-    title: 'Tokens',
-    requiresAuth: true,
-    roles: ['admin', 'operator'],
-    permissions: ['tokens:create'],
-  },
-  {
-    path: ROUTES.ADMIN_APIKEYS,
-    element: AdminApiKeysPage,
-    title: 'API Keys',
-    requiresAuth: true,
-    permissions: ['tokens:create'],
-  },
-  {
-    path: ROUTES.ADMIN_AUDIT,
-    element: AdminAuditPage,
-    title: 'Audit Log',
-    requiresAuth: true,
-    roles: ['admin'],
-    permissions: ['audit:read'],
   },
 ];
 

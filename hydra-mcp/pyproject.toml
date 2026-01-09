@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-hydra-mcp = "hydra.server:run"
+hydra-mcp = "hydra_mcp.server:run"
 
 [project.optional-dependencies]
 dev = [
@@ -39,7 +39,7 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["hydra"]
+packages = ["hydra_mcp"]
 
 [tool.ruff]
 target-version = "py311"
@@ -48,12 +48,12 @@ select = ["E", "W", "F", "I", "B", "C4", "UP", "ARG", "SIM"]
 ignore = ["E501", "B008", "B904"]
 
 [tool.ruff.isort]
-known-first-party = ["hydra"]
+known-first-party = ["hydra_mcp"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-v --cov=hydra --cov-report=term-missing"
+addopts = "-v --cov=hydra_mcp --cov-report=term-missing"
 
 [tool.mypy]
 python_version = "3.11"

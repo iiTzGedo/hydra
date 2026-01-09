@@ -5,29 +5,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Hydra brand colors
-        hydra: {
-          blue: '#3B82F6',
-          dark: '#1E293B',
-          light: '#F8FAFC',
-        },
-        // Node class colors
-        compute: {
-          DEFAULT: '#8B5CF6',
-          light: '#A78BFA',
-          dark: '#7C3AED',
-        },
-        networking: {
-          DEFAULT: '#06B6D4',
-          light: '#22D3EE',
-          dark: '#0891B2',
-        },
-        iot: {
-          DEFAULT: '#10B981',
-          light: '#34D399',
-          dark: '#059669',
-        },
-        // Semantic colors
+        // Semantic colors from CSS variables
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
@@ -61,25 +39,43 @@ export default {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        // Status colors
+        // Hydra status colors
         success: {
-          DEFAULT: '#22C55E',
-          light: '#4ADE80',
-          dark: '#16A34A',
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))',
         },
         warning: {
-          DEFAULT: '#F59E0B',
-          light: '#FBBF24',
-          dark: '#D97706',
+          DEFAULT: 'hsl(var(--warning))',
+          foreground: 'hsl(var(--warning-foreground))',
         },
-        error: {
-          DEFAULT: '#EF4444',
-          light: '#F87171',
-          dark: '#DC2626',
+        info: {
+          DEFAULT: 'hsl(var(--info))',
+          foreground: 'hsl(var(--info-foreground))',
+        },
+        // Node class colors
+        compute: {
+          DEFAULT: 'hsl(var(--compute))',
+          foreground: 'hsl(var(--compute-foreground))',
+        },
+        network: {
+          DEFAULT: 'hsl(var(--network))',
+          foreground: 'hsl(var(--network-foreground))',
+        },
+        iot: {
+          DEFAULT: 'hsl(var(--iot))',
+          foreground: 'hsl(var(--iot-foreground))',
+        },
+        // Chart colors
+        chart: {
+          1: 'hsl(var(--chart-1))',
+          2: 'hsl(var(--chart-2))',
+          3: 'hsl(var(--chart-3))',
+          4: 'hsl(var(--chart-4))',
+          5: 'hsl(var(--chart-5))',
         },
         // Sidebar
         sidebar: {
-          DEFAULT: 'hsl(var(--sidebar-background))',
+          DEFAULT: 'hsl(var(--sidebar))',
           foreground: 'hsl(var(--sidebar-foreground))',
           primary: 'hsl(var(--sidebar-primary))',
           'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
@@ -95,8 +91,8 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Menlo', 'monospace'],
+        sans: ['Geist Mono', 'monospace'],
+        mono: ['Geist Mono', 'monospace'],
       },
       keyframes: {
         'accordion-down': {
@@ -115,6 +111,10 @@ export default {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
         },
+        'fade-out': {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0' },
+        },
         'slide-in-from-right': {
           '0%': { transform: 'translateX(100%)' },
           '100%': { transform: 'translateX(0)' },
@@ -131,9 +131,29 @@ export default {
           '0%': { transform: 'translateY(100%)' },
           '100%': { transform: 'translateY(0)' },
         },
+        'slide-out-to-right': {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(100%)' },
+        },
+        'slide-out-to-left': {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-100%)' },
+        },
+        'zoom-in': {
+          '0%': { opacity: '0', transform: 'scale(0.95)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+        'zoom-out': {
+          '0%': { opacity: '1', transform: 'scale(1)' },
+          '100%': { opacity: '0', transform: 'scale(0.95)' },
+        },
         pulse: {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.5' },
+        },
+        spin: {
+          '0%': { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' },
         },
       },
       animation: {
@@ -141,11 +161,17 @@ export default {
         'accordion-up': 'accordion-up 0.2s ease-out',
         shimmer: 'shimmer 2s infinite linear',
         'fade-in': 'fade-in 0.2s ease-out',
+        'fade-out': 'fade-out 0.2s ease-out',
         'slide-in-from-right': 'slide-in-from-right 0.3s ease-out',
         'slide-in-from-left': 'slide-in-from-left 0.3s ease-out',
         'slide-in-from-top': 'slide-in-from-top 0.3s ease-out',
         'slide-in-from-bottom': 'slide-in-from-bottom 0.3s ease-out',
+        'slide-out-to-right': 'slide-out-to-right 0.3s ease-out',
+        'slide-out-to-left': 'slide-out-to-left 0.3s ease-out',
+        'zoom-in': 'zoom-in 0.2s ease-out',
+        'zoom-out': 'zoom-out 0.2s ease-out',
         pulse: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        spin: 'spin 1s linear infinite',
       },
     },
   },

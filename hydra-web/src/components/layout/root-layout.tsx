@@ -1,45 +1,25 @@
-import { motion } from 'framer-motion';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
-import { useUiStore } from '@/stores/ui-store';
 import { cn } from '@/lib/utils';
-import { pageVariants } from '@/lib/animations';
 
 interface RootLayoutProps {
   children: React.ReactNode;
 }
 
 export function RootLayout({ children }: RootLayoutProps) {
-  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
-
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen bg-background text-foreground">
       {/* Sidebar */}
       <Sidebar />
 
       {/* Main content area */}
-      <div
-        className={cn(
-          'flex flex-1 flex-col overflow-hidden transition-all duration-200',
-          sidebarCollapsed ? 'md:pl-[96px]' : 'md:pl-[264px]'
-        )}
-      >
+      <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header */}
         <Header />
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto">
-          <motion.div
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            variants={pageVariants}
-            className="h-full"
-          >
-            <div className="mx-auto w-full max-w-[1600px]">
-              {children}
-            </div>
-          </motion.div>
+        <main className="flex-1 overflow-auto bg-background p-6">
+          {children}
         </main>
       </div>
     </div>

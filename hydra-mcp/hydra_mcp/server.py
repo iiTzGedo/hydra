@@ -27,9 +27,9 @@ from mcp.types import (
     Tool,
 )
 
-from hydra.client import HydraAPIError, HydraClient
-from hydra.config import get_settings
-from hydra.toon import TOONFormatter
+from hydra_mcp.client import HydraAPIError, HydraClient
+from hydra_mcp.config import get_settings
+from hydra_mcp.toon import TOONFormatter
 
 logger = structlog.get_logger(__name__)
 

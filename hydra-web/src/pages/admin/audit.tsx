@@ -22,10 +22,23 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES } from '@/lib/constants';
-import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
+import { formatDate, formatRelativeTime } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import { useAuditLog } from '@/api/query';
 import type { AuditAction, AuditEntry } from '@/types/query';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 
 const resourceIcons: Record<string, typeof User> = {
   user: User,
@@ -47,19 +60,19 @@ const actionIcons: Record<AuditAction, typeof User> = {
   execute: Zap,
 };
 
-const actionColors: Record<AuditAction, string> = {
-  create: 'text-success bg-success/10',
-  update: 'text-primary bg-primary/10',
-  delete: 'text-error bg-error/10',
-  login: 'text-primary bg-primary/10',
-  logout: 'text-muted-foreground bg-muted',
-  register: 'text-success bg-success/10',
-  execute: 'text-warning bg-warning/10',
+const actionVariants: Record<AuditAction, 'success' | 'default' | 'destructive' | 'secondary' | 'warning'> = {
+  create: 'success',
+  update: 'default',
+  delete: 'destructive',
+  login: 'default',
+  logout: 'secondary',
+  register: 'success',
+  execute: 'warning',
 };
 
 export default function AuditPage() {
   const [search, setSearch] = useState('');
-  const [filterAction, setFilterAction] = useState<string | null>(null);
+  const [filterAction, setFilterAction] = useState<string>('all');
   const [page, setPage] = useState(0);
   const limit = 10;
 
@@ -70,7 +83,7 @@ export default function AuditPage() {
   const { data, isLoading, error } = useAuditLog({
     limit,
     offset: page * limit,
-    resourceType: filterAction || undefined,
+    resourceType: filterAction !== 'all' ? filterAction : undefined,
   });
 
   const logs = data?.items ?? [];
@@ -93,13 +106,12 @@ export default function AuditPage() {
 
   return (
     <div className="p-6">
-      <Link
-        to={ROUTES.ADMIN}
-        className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Admin
-      </Link>
+      <Button variant="ghost" size="sm" asChild className="mb-4">
+        <Link to={ROUTES.ADMIN}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Admin
+        </Link>
+      </Button>
 
       <PageHeader
         title="Audit Log"
@@ -110,147 +122,146 @@ export default function AuditPage() {
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
+          <Input
             type="text"
             placeholder="Search logs..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className={cn(
-              'w-full rounded-lg border bg-background pl-10 pr-4 py-2 text-sm',
-              'focus:outline-none focus:ring-2 focus:ring-ring',
-              'placeholder:text-muted-foreground'
-            )}
+            className="pl-10"
           />
         </div>
 
-        <select
-          value={filterAction || ''}
-          onChange={(e) => setFilterAction(e.target.value || null)}
-          className={cn(
-            'rounded-lg border bg-background px-3 py-2 text-sm',
-            'focus:outline-none focus:ring-2 focus:ring-ring'
-          )}
-        >
-          <option value="">All Actions</option>
-          <option value="user">User</option>
-          <option value="node">Node</option>
-          <option value="service">Service</option>
-          <option value="network">Network</option>
-          <option value="group">Group</option>
-          <option value="topology">Topology</option>
-        </select>
+        <Select value={filterAction} onValueChange={setFilterAction}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All Actions" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Actions</SelectItem>
+            <SelectItem value="user">User</SelectItem>
+            <SelectItem value="node">Node</SelectItem>
+            <SelectItem value="service">Service</SelectItem>
+            <SelectItem value="network">Network</SelectItem>
+            <SelectItem value="group">Group</SelectItem>
+            <SelectItem value="topology">Topology</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Audit log list */}
       {error ? (
-        <div className="rounded-xl border bg-card p-8 text-center">
-          <p className="text-error">Failed to load audit logs</p>
-        </div>
+        <Card>
+          <CardContent className="p-8 text-center">
+            <p className="text-destructive">Failed to load audit logs</p>
+          </CardContent>
+        </Card>
       ) : isLoading ? (
-        <div className="rounded-xl border bg-card p-6">
-          <div className="space-y-4">
+        <Card>
+          <CardContent className="p-6 space-y-4">
             {[...Array(5)].map((_, index) => (
-              <div key={index} className="h-12 rounded-lg bg-muted animate-pulse" />
+              <Skeleton key={index} className="h-12 w-full rounded-lg" />
             ))}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       ) : filteredLogs.length === 0 ? (
-        <div className="rounded-xl border bg-card p-8 text-center">
-          <FileText className="mx-auto h-12 w-12 text-muted-foreground" />
-          <h3 className="mt-4 text-lg font-semibold">No audit entries</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {normalizedSearch ? 'No entries match your search' : 'Audit log is empty'}
-          </p>
-        </div>
+        <Card>
+          <CardContent className="p-8 text-center">
+            <FileText className="mx-auto h-12 w-12 text-muted-foreground" />
+            <h3 className="mt-4 text-lg font-semibold">No audit entries</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {normalizedSearch ? 'No entries match your search' : 'Audit log is empty'}
+            </p>
+          </CardContent>
+        </Card>
       ) : (
         <motion.div
           variants={staggerContainerVariants}
           initial="hidden"
           animate="visible"
-          className="rounded-xl border bg-card shadow-sm"
         >
-          <div className="divide-y">
-            {filteredLogs.map((log: AuditEntry) => {
-              const Icon = resourceIcons[log.resource.type] || FileText;
-              const ActionIcon = actionIcons[log.action] || Settings;
-              const colorClass = actionColors[log.action] || 'text-muted-foreground bg-muted';
+          <Card>
+            <div className="divide-y">
+              {filteredLogs.map((log: AuditEntry) => {
+                const Icon = resourceIcons[log.resource.type] || FileText;
+                const ActionIcon = actionIcons[log.action] || Settings;
+                const variant = actionVariants[log.action] || 'secondary';
 
-              return (
-                <motion.div
-                  key={log.entryId}
-                  variants={staggerItemVariants}
-                  className="flex items-start gap-4 p-4 hover:bg-muted/50 transition-colors"
-                >
-                  <div className={cn('rounded-lg p-2', colorClass)}>
-                    <Icon className="h-4 w-4" />
-                  </div>
+                return (
+                  <motion.div
+                    key={log.entryId}
+                    variants={staggerItemVariants}
+                    className="flex items-start gap-4 p-4 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className={cn(
+                      'rounded-lg p-2',
+                      variant === 'success' && 'bg-success/10 text-success',
+                      variant === 'default' && 'bg-primary/10 text-primary',
+                      variant === 'destructive' && 'bg-destructive/10 text-destructive',
+                      variant === 'secondary' && 'bg-muted text-muted-foreground',
+                      variant === 'warning' && 'bg-warning/10 text-warning',
+                    )}>
+                      <Icon className="h-4 w-4" />
+                    </div>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <ActionIcon className="h-3 w-3 text-muted-foreground" />
-                      <span className="font-medium">{log.action}</span>
-                      <span className={cn('rounded-full px-2 py-0.5 text-xs', colorClass)}>
-                        {log.resource.type}
-                      </span>
-                    </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      <span className="font-mono">{log.resource.type}:{log.resource.id}</span>
-                      <span className="mx-2">by</span>
-                      <span>{log.actor.type}:{log.actor.id}</span>
-                      {log.actor.ip && <span className="ml-2">({log.actor.ip})</span>}
-                    </div>
-                    {log.details && Object.keys(log.details).length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {Object.entries(log.details).map(([key, value]) => (
-                          <span
-                            key={key}
-                            className="rounded bg-muted px-2 py-0.5 text-xs"
-                          >
-                            {key}: {String(value)}
-                          </span>
-                        ))}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <ActionIcon className="h-3 w-3 text-muted-foreground" />
+                        <span className="font-medium">{log.action}</span>
+                        <Badge variant={variant}>
+                          {log.resource.type}
+                        </Badge>
                       </div>
-                    )}
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-sm" title={formatDate(log.timestamp)}>
-                      {formatRelativeTime(log.timestamp)}
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        <span className="font-mono">{log.resource.type}:{log.resource.id}</span>
+                        <span className="mx-2">by</span>
+                        <span>{log.actor.type}:{log.actor.id}</span>
+                        {log.actor.ip && <span className="ml-2">({log.actor.ip})</span>}
+                      </div>
+                      {log.details && Object.keys(log.details).length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {Object.entries(log.details).map(([key, value]) => (
+                            <Badge key={key} variant="secondary" className="text-xs">
+                              {key}: {String(value)}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
+
+                    <div className="text-right">
+                      <div className="text-sm" title={formatDate(log.timestamp)}>
+                        {formatRelativeTime(log.timestamp)}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </Card>
         </motion.div>
       )}
 
       {/* Pagination */}
       {totalPages > 1 && !normalizedSearch && (
         <div className="mt-4 flex items-center justify-center gap-2">
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setPage((p) => Math.max(0, p - 1))}
             disabled={page === 0}
-            className={cn(
-              'rounded-lg p-2 hover:bg-muted transition-colors',
-              'disabled:opacity-50 disabled:cursor-not-allowed'
-            )}
           >
             <ChevronLeft className="h-4 w-4" />
-          </button>
+          </Button>
           <span className="text-sm">
             Page {page + 1} of {totalPages}
           </span>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
             disabled={page >= totalPages - 1}
-            className={cn(
-              'rounded-lg p-2 hover:bg-muted transition-colors',
-              'disabled:opacity-50 disabled:cursor-not-allowed'
-            )}
           >
             <ChevronRight className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
       )}
     </div>

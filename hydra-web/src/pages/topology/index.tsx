@@ -25,15 +25,34 @@ import {
   Boxes,
   Search,
   X,
+  Share2,
 } from 'lucide-react';
 import { useLatestTopology, useGenerateTopology } from '@/api/topologies';
 import { TopologyNode as TopologyNodeType, TopologyMode } from '@/types/topology';
-import { PageHeader } from '@/components/layout/page-header';
 import { TopologyNodeComponent } from '@/components/topology/topology-node';
 import { TopologyDetailPanel } from '@/components/topology/detail-panel';
 import { NODE_CLASS_COLORS } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const nodeTypes = {
   topology: TopologyNodeComponent,
@@ -67,7 +86,7 @@ export default function TopologyPage() {
 
   const [selectedNode, setSelectedNode] = useState<TopologyNodeType | null>(null);
   const [showMiniMap, setShowMiniMap] = useState(true);
-  const [filterClass, setFilterClass] = useState<string | null>(null);
+  const [filterClass, setFilterClass] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Convert topology data to ReactFlow nodes and edges
@@ -80,7 +99,7 @@ export default function TopologyPage() {
     }
 
     // Filter by class if selected
-    let filteredTopologyNodes = filterClass
+    let filteredTopologyNodes = filterClass !== 'all'
       ? topologyNodes.filter((n) => n.data?.class === filterClass)
       : topologyNodes;
 
@@ -195,306 +214,319 @@ export default function TopologyPage() {
     refetch();
   };
 
-  const handleModeChange = (mode: TopologyMode) => {
-    setTopologyMode(mode);
-    setFilterClass(null);
+  const handleModeChange = (mode: string) => {
+    setTopologyMode(mode as TopologyMode);
+    setFilterClass('all');
     setSearchQuery('');
     setSelectedNode(null);
   };
 
   const currentModeOption = modeOptions.find((m) => m.value === topologyMode) || modeOptions[0];
-  const CurrentModeIcon = currentModeOption.icon;
 
+  // Loading state
   if (isLoading) {
     return (
-      <div className="h-[calc(100vh-3.5rem)] flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-          <p className="mt-2 text-muted-foreground">Loading {currentModeOption.label.toLowerCase()} topology...</p>
+      <TooltipProvider>
+        <div className="h-[calc(100vh-3.5rem)] flex flex-col">
+          <div className="border-b p-4 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Skeleton className="h-10 w-80" />
+              <div>
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-4 w-32 mt-1" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-10 w-48" />
+              <Skeleton className="h-10 w-32" />
+            </div>
+          </div>
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+              <p className="mt-2 text-muted-foreground">Loading {currentModeOption.label.toLowerCase()} topology...</p>
+            </div>
+          </div>
         </div>
-      </div>
+      </TooltipProvider>
     );
   }
 
+  // Empty state
   if (!topology?.graph?.nodes?.length) {
     return (
-      <div className="p-6">
-        <PageHeader
-          title={`${currentModeOption.label} Topology`}
-          description={currentModeOption.description}
-        />
+      <TooltipProvider>
+        <div className="p-6 space-y-6">
+          {/* Header */}
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Topology</h1>
+            <p className="text-muted-foreground">
+              Visualize your infrastructure relationships
+            </p>
+          </div>
 
-        {/* Mode tabs */}
-        <div className="flex items-center gap-2 mb-6">
-          {modeOptions.map((option) => {
-            const Icon = option.icon;
-            return (
-              <button
-                key={option.value}
-                onClick={() => handleModeChange(option.value)}
-                className={cn(
-                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                  topologyMode === option.value
-                    ? 'bg-primary text-primary-foreground'
-                    : 'border hover:bg-muted'
-                )}
+          {/* Mode tabs */}
+          <Tabs value={topologyMode} onValueChange={handleModeChange}>
+            <TabsList>
+              {modeOptions.map((option) => {
+                const Icon = option.icon;
+                return (
+                  <TabsTrigger key={option.value} value={option.value} className="gap-2">
+                    <Icon className="h-4 w-4" />
+                    {option.label}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+          </Tabs>
+
+          <Card>
+            <CardContent className="p-8 text-center">
+              <Share2 className="mx-auto h-12 w-12 text-muted-foreground" />
+              <h3 className="mt-4 text-lg font-semibold">No {currentModeOption.label.toLowerCase()} topology data</h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Generate a {currentModeOption.label.toLowerCase()} topology from your registered nodes
+              </p>
+              <Button
+                onClick={handleRegenerateTopology}
+                disabled={generateMutation.isPending}
+                className="mt-4"
               >
-                <Icon className="h-4 w-4" />
-                {option.label}
-              </button>
-            );
-          })}
+                {generateMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Generate Topology
+              </Button>
+            </CardContent>
+          </Card>
         </div>
-
-        <div className="rounded-xl border bg-card p-8 text-center">
-          <Maximize className="mx-auto h-12 w-12 text-muted-foreground" />
-          <h3 className="mt-4 text-lg font-semibold">No {currentModeOption.label.toLowerCase()} topology data</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Generate a {currentModeOption.label.toLowerCase()} topology from your registered nodes
-          </p>
-          <button
-            onClick={handleRegenerateTopology}
-            disabled={generateMutation.isPending}
-            className={cn(
-              'mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground',
-              'hover:bg-primary/90 transition-colors',
-              'disabled:opacity-50 disabled:cursor-not-allowed'
-            )}
-          >
-            {generateMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            Generate Topology
-          </button>
-        </div>
-      </div>
+      </TooltipProvider>
     );
   }
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex flex-col">
-      {/* Header */}
-      <div className="border-b p-4 flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-4">
-          {/* Mode tabs */}
-          <div className="flex rounded-lg border bg-muted/40 p-0.5">
-            {modeOptions.map((option) => {
-              const Icon = option.icon;
-              return (
+    <TooltipProvider>
+      <div className="h-[calc(100vh-3.5rem)] flex flex-col">
+        {/* Header */}
+        <div className="border-b p-4 flex items-center justify-between flex-wrap gap-4 bg-background">
+          <div className="flex items-center gap-4">
+            {/* Mode tabs */}
+            <Tabs value={topologyMode} onValueChange={handleModeChange}>
+              <TabsList>
+                {modeOptions.map((option) => {
+                  const Icon = option.icon;
+                  return (
+                    <Tooltip key={option.value}>
+                      <TooltipTrigger asChild>
+                        <TabsTrigger value={option.value} className="gap-1.5">
+                          <Icon className="h-4 w-4" />
+                          <span className="hidden sm:inline">{option.label}</span>
+                        </TabsTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{option.description}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </TabsList>
+            </Tabs>
+
+            <div>
+              <h1 className="text-lg font-semibold">{currentModeOption.label} Topology</h1>
+              <div className="text-sm text-muted-foreground">
+                <Badge variant="secondary" className="mr-2">{topology.graph?.nodes.length || 0} nodes</Badge>
+                <Badge variant="outline">{topology.graph?.edges?.length || 0} connections</Badge>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search nodes..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-48 pl-9 pr-8"
+              />
+              {searchQuery && (
                 <button
-                  key={option.value}
-                  onClick={() => handleModeChange(option.value)}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-                    topologyMode === option.value
-                      ? 'bg-background shadow-sm'
-                      : 'hover:bg-background/50'
-                  )}
-                  title={option.description}
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
-                  <Icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{option.label}</span>
+                  <X className="h-4 w-4" />
                 </button>
-              );
-            })}
-          </div>
-
-          <div>
-            <h1 className="text-lg font-semibold">{currentModeOption.label} Topology</h1>
-            <p className="text-sm text-muted-foreground">
-              {topology.graph?.nodes.length || 0} nodes • {topology.graph?.edges?.length || 0} connections
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search nodes..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={cn(
-                'w-48 rounded-lg border bg-background pl-8 pr-8 py-2 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring'
               )}
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
+            </div>
+
+            {/* Class filter */}
+            <Select value={filterClass} onValueChange={setFilterClass}>
+              <SelectTrigger className="w-[130px]">
+                <SelectValue placeholder="All Types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                {topologyMode === 'service' ? (
+                  <>
+                    <SelectItem value="service">Services</SelectItem>
+                    <SelectItem value="compute">Hosts</SelectItem>
+                  </>
+                ) : topologyMode === 'network' ? (
+                  <>
+                    <SelectItem value="network">Networks</SelectItem>
+                    <SelectItem value="compute">Compute</SelectItem>
+                    <SelectItem value="networking">Networking</SelectItem>
+                    <SelectItem value="iot">IoT</SelectItem>
+                  </>
+                ) : (
+                  <>
+                    <SelectItem value="compute">Compute</SelectItem>
+                    <SelectItem value="networking">Networking</SelectItem>
+                    <SelectItem value="iot">IoT</SelectItem>
+                  </>
+                )}
+              </SelectContent>
+            </Select>
+
+            {/* Toggle minimap */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={showMiniMap ? 'secondary' : 'outline'}
+                  size="icon"
+                  onClick={() => setShowMiniMap(!showMiniMap)}
+                >
+                  {showMiniMap ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {showMiniMap ? 'Hide minimap' : 'Show minimap'}
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Regenerate */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  onClick={handleRegenerateTopology}
+                  disabled={generateMutation.isPending}
+                >
+                  {generateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  <span className="ml-2 hidden sm:inline">Regenerate</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Regenerate topology from current data</TooltipContent>
+            </Tooltip>
           </div>
-
-          {/* Class filter */}
-          <select
-            value={filterClass || ''}
-            onChange={(e) => setFilterClass(e.target.value || null)}
-            className={cn(
-              'rounded-lg border bg-background px-3 py-2 text-sm',
-              'focus:outline-none focus:ring-2 focus:ring-ring'
-            )}
-          >
-            <option value="">All Types</option>
-            {topologyMode === 'service' ? (
-              <>
-                <option value="service">Services</option>
-                <option value="compute">Hosts</option>
-              </>
-            ) : topologyMode === 'network' ? (
-              <>
-                <option value="network">Networks</option>
-                <option value="compute">Compute</option>
-                <option value="networking">Networking</option>
-                <option value="iot">IoT</option>
-              </>
-            ) : (
-              <>
-                <option value="compute">Compute</option>
-                <option value="networking">Networking</option>
-                <option value="iot">IoT</option>
-              </>
-            )}
-          </select>
-
-          {/* Toggle minimap */}
-          <button
-            onClick={() => setShowMiniMap(!showMiniMap)}
-            className={cn(
-              'rounded-lg border px-3 py-2 text-sm',
-              'hover:bg-muted transition-colors',
-              showMiniMap && 'bg-muted'
-            )}
-            title={showMiniMap ? 'Hide minimap' : 'Show minimap'}
-          >
-            {showMiniMap ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-          </button>
-
-          {/* Regenerate */}
-          <button
-            onClick={handleRegenerateTopology}
-            disabled={generateMutation.isPending}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm',
-              'hover:bg-muted transition-colors',
-              'disabled:opacity-50 disabled:cursor-not-allowed'
-            )}
-            title="Regenerate topology"
-          >
-            {generateMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            <span className="hidden sm:inline">Regenerate</span>
-          </button>
         </div>
-      </div>
 
-      {/* Topology canvas */}
-      <div className="flex-1 relative">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeClick={handleNodeClick}
-          onPaneClick={handlePaneClick}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.2 }}
-          minZoom={0.1}
-          maxZoom={2}
-          connectionMode={ConnectionMode.Loose}
-          defaultEdgeOptions={{
-            type: 'smoothstep',
-          }}
-        >
-          <Background color="hsl(var(--muted-foreground))" gap={20} size={1} />
-          <Controls showInteractive={false} />
-          {showMiniMap && (
-            <MiniMap
-              nodeColor={(node) => {
-                const nodeClass = node.data?.class || node.data?.type;
-                switch (nodeClass) {
-                  case 'compute':
-                  case 'compute-physical':
-                  case 'compute-logical':
-                    return '#8B5CF6';
-                  case 'networking':
-                    return '#06B6D4';
-                  case 'iot':
-                    return '#10B981';
-                  case 'service':
-                    return '#F59E0B';
-                  case 'network':
-                    return '#3B82F6';
-                  default:
-                    return '#6B7280';
-                }
-              }}
-              maskColor="hsl(var(--background) / 0.8)"
-              pannable
-              zoomable
-            />
-          )}
+        {/* Topology canvas */}
+        <div className="flex-1 relative">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeClick={handleNodeClick}
+            onPaneClick={handlePaneClick}
+            nodeTypes={nodeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+            minZoom={0.1}
+            maxZoom={2}
+            connectionMode={ConnectionMode.Loose}
+            defaultEdgeOptions={{
+              type: 'smoothstep',
+            }}
+          >
+            <Background color="hsl(var(--muted-foreground))" gap={20} size={1} />
+            <Controls showInteractive={false} />
+            {showMiniMap && (
+              <MiniMap
+                nodeColor={(node) => {
+                  const nodeClass = node.data?.class || node.data?.type;
+                  switch (nodeClass) {
+                    case 'compute':
+                    case 'compute-physical':
+                    case 'compute-logical':
+                      return '#8B5CF6';
+                    case 'networking':
+                      return '#06B6D4';
+                    case 'iot':
+                      return '#10B981';
+                    case 'service':
+                      return '#F59E0B';
+                    case 'network':
+                      return '#3B82F6';
+                    default:
+                      return '#6B7280';
+                  }
+                }}
+                maskColor="hsl(var(--background) / 0.8)"
+                pannable
+                zoomable
+              />
+            )}
 
-          {/* Legend */}
-          <Panel position="bottom-left" className="bg-card/90 backdrop-blur rounded-lg border p-3 shadow-lg">
-            <div className="text-xs font-medium mb-2">Node Types</div>
-            <div className="flex flex-col gap-1">
-              {topologyMode === 'service' ? (
-                <>
-                  <div className="flex items-center gap-2">
-                    <div className="h-3 w-3 rounded bg-amber-500" />
-                    <span className="text-xs">Service</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="h-3 w-3 rounded bg-violet-500" />
-                    <span className="text-xs">Host</span>
-                  </div>
-                </>
-              ) : topologyMode === 'network' ? (
-                <>
-                  <div className="flex items-center gap-2">
-                    <div className="h-3 w-3 rounded bg-blue-500" />
-                    <span className="text-xs">Network</span>
-                  </div>
-                  {Object.entries(NODE_CLASS_COLORS).map(([nodeClass, colors]) => (
+            {/* Legend */}
+            <Panel position="bottom-left" className="bg-card/90 backdrop-blur rounded-lg border p-3 shadow-lg">
+              <div className="text-xs font-medium mb-2 text-muted-foreground uppercase tracking-wider">Node Types</div>
+              <div className="flex flex-col gap-1.5">
+                {topologyMode === 'service' ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 rounded bg-amber-500" />
+                      <span className="text-xs">Service</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 rounded bg-violet-500" />
+                      <span className="text-xs">Host</span>
+                    </div>
+                  </>
+                ) : topologyMode === 'network' ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 rounded bg-blue-500" />
+                      <span className="text-xs">Network</span>
+                    </div>
+                    {Object.entries(NODE_CLASS_COLORS).map(([nodeClass, colors]) => (
+                      <div key={nodeClass} className="flex items-center gap-2">
+                        <div className={cn('h-3 w-3 rounded', colors.bg)} />
+                        <span className="text-xs capitalize">{nodeClass}</span>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  Object.entries(NODE_CLASS_COLORS).map(([nodeClass, colors]) => (
                     <div key={nodeClass} className="flex items-center gap-2">
                       <div className={cn('h-3 w-3 rounded', colors.bg)} />
                       <span className="text-xs capitalize">{nodeClass}</span>
                     </div>
-                  ))}
-                </>
-              ) : (
-                Object.entries(NODE_CLASS_COLORS).map(([nodeClass, colors]) => (
-                  <div key={nodeClass} className="flex items-center gap-2">
-                    <div className={cn('h-3 w-3 rounded', colors.bg)} />
-                    <span className="text-xs capitalize">{nodeClass}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </Panel>
-        </ReactFlow>
+                  ))
+                )}
+              </div>
+            </Panel>
+          </ReactFlow>
 
-        {/* Detail panel */}
-        {selectedNode && (
-          <TopologyDetailPanel
-            node={selectedNode}
-            onClose={() => setSelectedNode(null)}
-          />
-        )}
+          {/* Detail panel */}
+          {selectedNode && (
+            <TopologyDetailPanel
+              node={selectedNode}
+              onClose={() => setSelectedNode(null)}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }
 

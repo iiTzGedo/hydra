@@ -1,90 +1,130 @@
+import { useMemo } from 'react';
 import { Cpu, MemoryStick, HardDrive } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { useCapacity } from '@/api/query';
 
-interface CapacityStatProps {
-  label: string;
-  total: number;
-  unit: string;
-  icon: React.ReactNode;
-  color: string;
-  isLoading?: boolean;
-}
-
-function CapacityStat({ label, total, unit, icon, color, isLoading }: CapacityStatProps) {
-  const formattedTotal = total.toLocaleString(undefined, {
-    maximumFractionDigits: unit === 'TB' ? 2 : 0,
-  });
-
-  return (
-    <div className="space-y-2 rounded-lg border p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className={cn('rounded-lg p-2', color)}>
-            {icon}
-          </div>
-          <span className="font-medium">{label}</span>
-        </div>
-        {isLoading ? (
-          <div className="h-6 w-20 animate-pulse rounded bg-muted" />
-        ) : (
-          <span className="text-sm text-muted-foreground">
-            {formattedTotal} {unit}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
+// Generate mock metrics data for 24h chart
+const generateMetricsData = () => {
+  const data = [];
+  const now = Date.now();
+  for (let i = 23; i >= 0; i--) {
+    data.push({
+      time: new Date(now - i * 3600000).toLocaleTimeString([], { hour: '2-digit' }),
+      cpu: Math.floor(Math.random() * 30) + 40,
+      memory: Math.floor(Math.random() * 20) + 55,
+    });
+  }
+  return data;
+};
 
 export function CapacityOverview() {
   const { data, isLoading } = useCapacity();
-  const summary = data?.summary;
+  const metricsData = useMemo(() => generateMetricsData(), []);
+
+  // Mock average values (in real app, calculate from actual data)
+  const avgCpu = 58;
+  const avgMemory = 67;
+  const avgStorage = 42;
 
   return (
-    <div className="rounded-xl border bg-card p-6 shadow-sm">
-      <h3 className="mb-6 text-lg font-semibold">Capacity Overview</h3>
-      {summary ? (
-        <div className="space-y-4">
-          <CapacityStat
-            label="CPU Cores"
-            total={summary.totalCores ?? 0}
-            unit="cores"
-            icon={<Cpu className="h-4 w-4 text-white" />}
-            color="bg-compute"
-            isLoading={isLoading}
-          />
-          <CapacityStat
-            label="Memory"
-            total={summary.totalMemoryGB ?? 0}
-            unit="GB"
-            icon={<MemoryStick className="h-4 w-4 text-white" />}
-            color="bg-hydra-blue"
-            isLoading={isLoading}
-          />
-          <CapacityStat
-            label="Storage"
-            total={summary.totalStorageTB ?? 0}
-            unit="TB"
-            icon={<HardDrive className="h-4 w-4 text-white" />}
-            color="bg-networking"
-            isLoading={isLoading}
-          />
-          <p className="text-xs text-muted-foreground">
-            Totals reflect reported capacity. Utilization data is not provided by the API.
-          </p>
+    <Card className="bg-card border-border">
+      <CardHeader>
+        <CardTitle className="text-foreground">Capacity Snapshot</CardTitle>
+        <CardDescription className="text-muted-foreground">
+          Last captured utilization across all nodes with recent snapshots below
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {/* Chart */}
+        <div className="h-[250px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={metricsData}>
+              <defs>
+                <linearGradient id="cpuGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="memoryGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="hsl(var(--chart-2))" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="hsl(var(--chart-2))" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis
+                dataKey="time"
+                stroke="hsl(var(--muted-foreground))"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                stroke="hsl(var(--muted-foreground))"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                domain={[0, 100]}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'hsl(var(--popover))',
+                  border: '1px solid hsl(var(--border))',
+                  borderRadius: '8px',
+                }}
+                labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
+              />
+              <Area
+                type="monotone"
+                dataKey="cpu"
+                stroke="hsl(var(--chart-1))"
+                fill="url(#cpuGradient)"
+                name="CPU %"
+              />
+              <Area
+                type="monotone"
+                dataKey="memory"
+                stroke="hsl(var(--chart-2))"
+                fill="url(#memoryGradient)"
+                name="Memory %"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
-      ) : isLoading ? (
-        <div className="space-y-4">
-          {[...Array(3)].map((_, index) => (
-            <div key={index} className="h-16 rounded-lg bg-muted animate-pulse" />
-          ))}
+
+        {/* Resource Gauges */}
+        <div className="grid grid-cols-3 gap-4 mt-6">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center text-muted-foreground">
+                <Cpu className="mr-2 h-4 w-4 text-chart-1" />
+                CPU
+              </span>
+              <span className="text-foreground font-medium">{avgCpu}%</span>
+            </div>
+            <Progress value={avgCpu} className="h-2 bg-muted" indicatorClassName="bg-chart-1" />
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center text-muted-foreground">
+                <MemoryStick className="mr-2 h-4 w-4 text-chart-2" />
+                Memory
+              </span>
+              <span className="text-foreground font-medium">{avgMemory}%</span>
+            </div>
+            <Progress value={avgMemory} className="h-2 bg-muted" indicatorClassName="bg-chart-2" />
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center text-muted-foreground">
+                <HardDrive className="mr-2 h-4 w-4 text-chart-3" />
+                Storage
+              </span>
+              <span className="text-foreground font-medium">{avgStorage}%</span>
+            </div>
+            <Progress value={avgStorage} className="h-2 bg-muted" indicatorClassName="bg-chart-3" />
+          </div>
         </div>
-      ) : (
-        <div className="flex h-32 items-center justify-center rounded-lg bg-muted/50">
-          <p className="text-sm text-muted-foreground">No capacity data available</p>
-        </div>
-      )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }

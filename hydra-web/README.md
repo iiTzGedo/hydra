@@ -12,7 +12,7 @@ React/TypeScript web dashboard for the Hydra infrastructure management platform.
 - **Topology Viewer** - Interactive infrastructure visualization with ReactFlow
 - **Time Machine** - Navigate historical infrastructure states with timeline scrubbing
 - **Admin Dashboard** - User management, registration tokens, API keys, and audit logs
-- **MCP Chat** - AI chat interface (placeholder for hydra-mcp integration)
+- **MCP Chat** - AI chat interface with LLM provider configuration and MCP server management
 
 ## Tech Stack
 
@@ -20,6 +20,8 @@ React/TypeScript web dashboard for the Hydra infrastructure management platform.
 - **TypeScript** - Type safety
 - **Vite** - Build tool and dev server
 - **TailwindCSS** - Utility-first styling
+- **Radix UI** - Headless UI primitives
+- **shadcn/ui patterns** - Component architecture with CVA variants
 - **TanStack Query** - Server state management
 - **Zustand** - Client state management
 - **ReactFlow** - Topology visualization
@@ -82,6 +84,7 @@ src/
 │   ├── timemachine.ts   # Historical state queries
 │   └── users.ts         # User management
 ├── components/
+│   ├── ui/              # Reusable UI components (shadcn-style)
 │   ├── layout/          # App shell (sidebar, header, etc.)
 │   ├── dashboard/       # Dashboard widgets
 │   ├── topology/        # ReactFlow nodes and controls
@@ -111,6 +114,62 @@ src/
 └── router/              # React Router configuration
 ```
 
+## UI Component Library
+
+The application uses a shadcn/ui-inspired component library built with Radix UI primitives and class-variance-authority (CVA) for variant management.
+
+### Available Components
+
+| Component | Description |
+|-----------|-------------|
+| `Button` | Primary action buttons with variants: default, destructive, outline, secondary, ghost, link, success, warning |
+| `Card` | Container component with CardHeader, CardTitle, CardDescription, CardContent, CardFooter |
+| `Badge` | Status indicators with variants: default, secondary, destructive, outline, success, warning, compute, network, iot |
+| `Input` | Text input field |
+| `Textarea` | Multi-line text input |
+| `Label` | Form field labels |
+| `Select` | Dropdown selection with SelectTrigger, SelectContent, SelectItem |
+| `Dialog` | Modal dialogs with DialogHeader, DialogTitle, DialogDescription, DialogContent |
+| `DropdownMenu` | Action menus with DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem |
+| `Tabs` | Tabbed navigation with TabsList, TabsTrigger, TabsContent |
+| `Table` | Data tables with TableHeader, TableBody, TableRow, TableHead, TableCell |
+| `Tooltip` | Hover hints with TooltipProvider, TooltipTrigger, TooltipContent |
+| `Avatar` | User avatars with AvatarImage, AvatarFallback |
+| `Skeleton` | Loading placeholders |
+| `Progress` | Progress bars |
+| `Checkbox` | Checkbox inputs |
+| `Switch` | Toggle switches |
+| `Slider` | Range sliders |
+| `ScrollArea` | Custom scrollbars |
+| `Separator` | Visual dividers |
+| `Popover` | Floating content panels |
+| `Command` | Command palette / autocomplete |
+
+### Usage Example
+
+```tsx
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+
+function NodeCard({ node }) {
+  return (
+    <Card className="hover:bg-accent/50 transition-colors">
+      <CardHeader>
+        <CardTitle>{node.nodeId}</CardTitle>
+        <Badge variant={node.class}>{node.class}</Badge>
+      </CardHeader>
+      <CardContent>
+        <p className="text-muted-foreground">{node.description}</p>
+        <Button variant="outline" size="sm">
+          View Details
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
 ## Configuration
 
 ### Environment Variables
@@ -121,14 +180,21 @@ src/
 
 ### Theme
 
-The app supports light and dark modes, toggled via the header. Theme preference is persisted in localStorage.
+The app uses a dark theme with the Geist Mono font. Colors are defined using HSL CSS variables for easy customization.
 
-Custom colors are defined in `tailwind.config.js`:
+#### Design Tokens
 
-- **Primary**: Hydra Blue `#3B82F6`
-- **Compute**: Purple `#8B5CF6`
-- **Networking**: Cyan `#06B6D4`
-- **IoT**: Green `#10B981`
+| Token | Description | Value |
+|-------|-------------|-------|
+| `--primary` | Primary actions | Hydra Blue |
+| `--compute` | Compute nodes | Purple `#8B5CF6` |
+| `--networking` | Network devices | Cyan `#06B6D4` |
+| `--iot` | IoT devices | Green `#10B981` |
+| `--success` | Success states | Green |
+| `--warning` | Warning states | Amber |
+| `--destructive` | Error/danger states | Red |
+
+Theme preference is persisted in localStorage.
 
 ## Authentication
 

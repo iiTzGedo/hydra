@@ -203,6 +203,7 @@ claude mcp add hydra --transport streamable-http http://localhost:8081/mcp
 | `get_network` | Get network details |
 | `get_topology` | Get infrastructure or network topology graph |
 | `search_infrastructure` | Search across nodes, services, and entities |
+| `service_dependency_map` | Map dependencies between services and identify critical paths |
 
 ### Analytics
 

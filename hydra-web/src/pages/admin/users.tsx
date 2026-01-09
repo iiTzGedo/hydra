@@ -17,15 +17,29 @@ import { useUsers, useArchiveUser, useElevateRole } from '@/api/users';
 import type { UserSummary, Role } from '@/types/user';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, ROLE_LABELS } from '@/lib/constants';
-import { cn, formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Skeleton } from '@/components/ui/skeleton';
 
-const roleColors: Record<Role, string> = {
-  admin: 'bg-error/10 text-error',
-  operator: 'bg-warning/10 text-warning',
-  viewer: 'bg-primary/10 text-primary',
-  family: 'bg-success/10 text-success',
-  agent: 'bg-muted text-muted-foreground',
+const roleVariants: Record<Role, 'destructive' | 'warning' | 'default' | 'success' | 'secondary'> = {
+  admin: 'destructive',
+  operator: 'warning',
+  viewer: 'default',
+  family: 'success',
+  agent: 'secondary',
 };
 
 const roleIcons: Record<Role, typeof Shield> = {
@@ -52,29 +66,29 @@ export default function UsersPage() {
   if (error) {
     return (
       <div className="p-6">
-        <Link
-          to={ROUTES.ADMIN}
-          className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Admin
-        </Link>
-        <div className="rounded-xl border bg-card p-8 text-center">
-          <p className="text-error">Failed to load users</p>
-        </div>
+        <Button variant="ghost" size="sm" asChild className="mb-6">
+          <Link to={ROUTES.ADMIN}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Admin
+          </Link>
+        </Button>
+        <Card>
+          <CardContent className="p-8 text-center">
+            <p className="text-destructive">Failed to load users</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
     <div className="p-6">
-      <Link
-        to={ROUTES.ADMIN}
-        className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Admin
-      </Link>
+      <Button variant="ghost" size="sm" asChild className="mb-4">
+        <Link to={ROUTES.ADMIN}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Admin
+        </Link>
+      </Button>
 
       <PageHeader
         title="User Management"
@@ -85,43 +99,41 @@ export default function UsersPage() {
       <div className="mb-6">
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
+          <Input
             type="text"
             placeholder="Search users..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className={cn(
-              'w-full rounded-lg border bg-background pl-10 pr-4 py-2 text-sm',
-              'focus:outline-none focus:ring-2 focus:ring-ring',
-              'placeholder:text-muted-foreground'
-            )}
+            className="pl-10"
           />
         </div>
       </div>
 
       {/* User list */}
       {isLoading ? (
-        <div className="rounded-xl border bg-card shadow-sm">
+        <Card>
           <div className="divide-y">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="flex items-center gap-4 p-4">
-                <div className="h-10 w-10 animate-pulse rounded-full bg-muted" />
+                <Skeleton className="h-10 w-10 rounded-full" />
                 <div className="flex-1 space-y-2">
-                  <div className="h-4 w-32 animate-pulse rounded bg-muted" />
-                  <div className="h-3 w-48 animate-pulse rounded bg-muted" />
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-48" />
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       ) : !data?.items?.length ? (
-        <div className="rounded-xl border bg-card p-8 text-center">
-          <UserCog className="mx-auto h-12 w-12 text-muted-foreground" />
-          <h3 className="mt-4 text-lg font-semibold">No users found</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {search ? 'Try adjusting your search' : 'No users registered yet'}
-          </p>
-        </div>
+        <Card>
+          <CardContent className="p-8 text-center">
+            <UserCog className="mx-auto h-12 w-12 text-muted-foreground" />
+            <h3 className="mt-4 text-lg font-semibold">No users found</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {search ? 'Try adjusting your search' : 'No users registered yet'}
+            </p>
+          </CardContent>
+        </Card>
       ) : (
         <>
           <div className="mb-4 text-sm text-muted-foreground">
@@ -132,43 +144,40 @@ export default function UsersPage() {
             variants={staggerContainerVariants}
             initial="hidden"
             animate="visible"
-            className="rounded-xl border bg-card shadow-sm"
           >
-            <div className="divide-y">
-              <AnimatePresence mode="popLayout">
-                {data.items.map((user: UserSummary) => (
-                  <UserRow key={user.userId} user={user} />
-                ))}
-              </AnimatePresence>
-            </div>
+            <Card>
+              <div className="divide-y">
+                <AnimatePresence mode="popLayout">
+                  {data.items.map((user: UserSummary) => (
+                    <UserRow key={user.userId} user={user} />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </Card>
           </motion.div>
 
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="mt-4 flex items-center justify-center gap-2">
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={page === 0}
-                className={cn(
-                  'rounded-lg p-2 hover:bg-muted transition-colors',
-                  'disabled:opacity-50 disabled:cursor-not-allowed'
-                )}
               >
                 <ChevronLeft className="h-4 w-4" />
-              </button>
+              </Button>
               <span className="text-sm">
                 Page {page + 1} of {totalPages}
               </span>
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                 disabled={page >= totalPages - 1}
-                className={cn(
-                  'rounded-lg p-2 hover:bg-muted transition-colors',
-                  'disabled:opacity-50 disabled:cursor-not-allowed'
-                )}
               >
                 <ChevronRight className="h-4 w-4" />
-              </button>
+              </Button>
             </div>
           )}
         </>
@@ -178,7 +187,6 @@ export default function UsersPage() {
 }
 
 function UserRow({ user }: { user: UserSummary }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const archiveMutation = useArchiveUser();
   const elevateMutation = useElevateRole();
 
@@ -186,12 +194,10 @@ function UserRow({ user }: { user: UserSummary }) {
   const roleLabel = ROLE_LABELS[user.role] || user.role;
 
   const handleArchive = async () => {
-    setMenuOpen(false);
     await archiveMutation.mutateAsync(user.userId);
   };
 
   const handleElevate = async (newRole: Role) => {
-    setMenuOpen(false);
     await elevateMutation.mutateAsync({ userId: user.userId, data: { newRole } });
   };
 
@@ -202,21 +208,21 @@ function UserRow({ user }: { user: UserSummary }) {
       className="group flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
     >
       {/* Avatar */}
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground font-medium">
-        {user.username?.charAt(0).toUpperCase() || 'U'}
-      </div>
+      <Avatar>
+        <AvatarFallback className="bg-primary text-primary-foreground">
+          {user.username?.charAt(0).toUpperCase() || 'U'}
+        </AvatarFallback>
+      </Avatar>
 
       {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium truncate">{user.username}</span>
-          <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', roleColors[user.role])}>
+          <Badge variant={roleVariants[user.role]}>
             {roleLabel}
-          </span>
+          </Badge>
           {user.status === 'archived' && (
-            <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              Archived
-            </span>
+            <Badge variant="secondary">Archived</Badge>
           )}
         </div>
         <div className="mt-1 text-sm text-muted-foreground truncate">
@@ -230,47 +236,41 @@ function UserRow({ user }: { user: UserSummary }) {
       </div>
 
       {/* Actions */}
-      <div className="relative">
-        <button
-          onClick={() => setMenuOpen(!menuOpen)}
-          className="rounded-lg p-2 hover:bg-muted transition-colors opacity-0 group-hover:opacity-100"
-        >
-          <MoreVertical className="h-4 w-4" />
-        </button>
-
-        {menuOpen && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-            <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border bg-popover p-1 shadow-lg">
-              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                Change Role
-              </div>
-              {(['admin', 'operator', 'viewer', 'family'] as Role[]).map((role) => (
-                <button
-                  key={role}
-                  onClick={() => handleElevate(role)}
-                  disabled={user.role === role}
-                  className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent',
-                    'disabled:opacity-50 disabled:cursor-not-allowed'
-                  )}
-                >
-                  <RoleIcon className="h-4 w-4" />
-                  {ROLE_LABELS[role]}
-                </button>
-              ))}
-              <div className="my-1 border-t" />
-              <button
-                onClick={handleArchive}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-error hover:bg-error/10"
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>Change Role</DropdownMenuLabel>
+          {(['admin', 'operator', 'viewer', 'family'] as Role[]).map((role) => {
+            const Icon = roleIcons[role];
+            return (
+              <DropdownMenuItem
+                key={role}
+                onClick={() => handleElevate(role)}
+                disabled={user.role === role}
               >
-                <Archive className="h-4 w-4" />
-                Archive User
-              </button>
-            </div>
-          </>
-        )}
-      </div>
+                <Icon className="mr-2 h-4 w-4" />
+                {ROLE_LABELS[role]}
+              </DropdownMenuItem>
+            );
+          })}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={handleArchive}
+            className="text-destructive focus:text-destructive"
+          >
+            <Archive className="mr-2 h-4 w-4" />
+            Archive User
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </motion.div>
   );
 }

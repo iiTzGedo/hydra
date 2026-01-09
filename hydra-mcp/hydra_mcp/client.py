@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 import structlog
 
-from hydra.config import Settings, get_settings
+from hydra_mcp.config import Settings, get_settings
 
 logger = structlog.get_logger(__name__)
 

@@ -197,3 +197,42 @@ export function useMCPServerResources(serverId: string) {
     enabled: !!serverId,
   });
 }
+
+// MCP Chat - Send message with tool support
+export interface MCPChatRequest {
+  message: string;
+  sessionId?: string;
+  connectedServers: string[];
+  llmProvider: {
+    type: 'anthropic' | 'openai' | 'ollama' | 'custom';
+    model: string;
+    apiKey?: string;
+    baseUrl?: string;
+  };
+}
+
+export interface MCPChatToolCall {
+  id: string;
+  serverId: string;
+  serverName: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  result?: unknown;
+  error?: string;
+  status: 'pending' | 'success' | 'error';
+}
+
+export interface MCPChatResponse {
+  message: string;
+  role: 'assistant';
+  toolCalls?: MCPChatToolCall[];
+}
+
+export function useSendMCPMessage() {
+  return useMutation({
+    mutationFn: async (data: MCPChatRequest) => {
+      const response = await apiClient.post<ApiResponse<MCPChatResponse>>('/mcp/chat', data);
+      return response.data.data;
+    },
+  });
+}

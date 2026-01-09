@@ -4,6 +4,8 @@ import { ArrowRight, CheckCircle, XCircle, AlertCircle, HelpCircle } from 'lucid
 import { useServices } from '@/api/services';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 interface StatusItemProps {
   label: string;
@@ -15,12 +17,12 @@ interface StatusItemProps {
 
 function StatusItem({ label, count, icon, color, bgColor }: StatusItemProps) {
   return (
-    <div className="flex items-center justify-between rounded-lg p-3 hover:bg-muted/50 transition-colors">
+    <div className="flex items-center justify-between rounded-lg p-3 hover:bg-muted/60 transition-colors">
       <div className="flex items-center gap-3">
         <div className={cn('rounded-lg p-2', bgColor)}>
           {icon}
         </div>
-        <span className="font-medium">{label}</span>
+        <span className="font-medium text-foreground">{label}</span>
       </div>
       <span className={cn('text-2xl font-bold', color)}>{count}</span>
     </div>
@@ -67,9 +69,9 @@ export function ServiceSummary() {
     {
       label: 'Error',
       count: statusCounts.error,
-      icon: <AlertCircle className="h-4 w-4 text-error" />,
-      color: 'text-error',
-      bgColor: 'bg-error/10',
+      icon: <AlertCircle className="h-4 w-4 text-destructive" />,
+      color: 'text-destructive',
+      bgColor: 'bg-destructive/10',
     },
     {
       label: 'Unknown',
@@ -81,52 +83,52 @@ export function ServiceSummary() {
   ];
 
   return (
-    <div className="rounded-xl border bg-card p-6 shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Service Status</h3>
-        <Link
-          to={ROUTES.SERVICES}
-          className="flex items-center gap-1 text-sm text-primary hover:underline"
-        >
-          View all
-          <ArrowRight className="h-4 w-4" />
+    <Card className="bg-card border-border">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-foreground">Service Status</CardTitle>
+        <Link to={ROUTES.SERVICES}>
+          <Button variant="outline" size="sm">
+            View all
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
         </Link>
-      </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {statuses.map((status) => (
+              <StatusItem key={status.label} {...status} />
+            ))}
+          </div>
+        )}
 
-      {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
-          ))}
+        {/* Runtime breakdown */}
+        <div className="mt-4 border-t border-border pt-4">
+          <h4 className="mb-3 text-sm font-medium text-muted-foreground">By Runtime</h4>
+          <div className="flex flex-wrap gap-2">
+            {['docker', 'systemd', 'kubernetes', 'podman'].map((runtime) => {
+              const count = servicesData?.items?.filter((s) => s.runtime === runtime).length ?? 0;
+              if (count === 0) return null;
+              return (
+                <motion.div
+                  key={runtime}
+                  whileHover={{ scale: 1.05 }}
+                  className="rounded-full bg-muted px-3 py-1 text-sm"
+                >
+                  <span className="font-medium text-foreground">{runtime}</span>
+                  <span className="ml-1 text-muted-foreground">({count})</span>
+                </motion.div>
+              );
+            })}
+          </div>
         </div>
-      ) : (
-        <div className="space-y-2">
-          {statuses.map((status) => (
-            <StatusItem key={status.label} {...status} />
-          ))}
-        </div>
-      )}
-
-      {/* Runtime breakdown */}
-      <div className="mt-4 border-t pt-4">
-        <h4 className="mb-3 text-sm font-medium text-muted-foreground">By Runtime</h4>
-        <div className="flex flex-wrap gap-2">
-          {['docker', 'systemd', 'kubernetes', 'podman'].map((runtime) => {
-            const count = servicesData?.items?.filter((s) => s.runtime === runtime).length ?? 0;
-            if (count === 0) return null;
-            return (
-              <motion.div
-                key={runtime}
-                whileHover={{ scale: 1.05 }}
-                className="rounded-full bg-muted px-3 py-1 text-sm"
-              >
-                <span className="font-medium">{runtime}</span>
-                <span className="ml-1 text-muted-foreground">({count})</span>
-              </motion.div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
