@@ -9,8 +9,18 @@ use sysinfo::Networks;
 pub struct NetworkProfile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fqdn: Option<String>,
     pub interfaces: Vec<NetworkInterface>,
     pub dns_servers: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dns_search: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_gateway: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub routes: Vec<NetworkRoute>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -21,7 +31,29 @@ pub struct NetworkInterface {
     pub mac_address: Option<String>,
     pub ipv4_addresses: Vec<String>,
     pub ipv6_addresses: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub netmask: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtu: Option<u32>,
     pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
+    pub interface_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed_mbps: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkRoute {
+    pub destination: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interface: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metric: Option<u32>,
 }
 
 pub struct NetworkCollector;
@@ -57,7 +89,12 @@ impl NetworkCollector {
                 mac_address: Some(mac_str),
                 ipv4_addresses,
                 ipv6_addresses,
-                state: "up".to_string(), // Simplified
+                netmask: None, // Would require platform-specific enumeration
+                gateway: None,
+                mtu: None,
+                state: "up".to_string(),
+                interface_type: None,
+                speed_mbps: None,
             });
         }
 
@@ -66,40 +103,89 @@ impl NetworkCollector {
             .ok()
             .and_then(|h| h.into_string().ok());
 
-        // DNS servers would require platform-specific reading of resolv.conf or registry
-        let dns_servers = Self::get_dns_servers();
+        // Get domain and FQDN
+        let (domain, fqdn) = Self::get_domain_info(&hostname);
+
+        // DNS servers and search domains
+        let (dns_servers, dns_search) = Self::get_dns_config();
+
+        // Default gateway and routes
+        let (default_gateway, routes) = Self::get_routing_info();
 
         Ok(NetworkProfile {
             hostname,
+            domain,
+            fqdn,
             interfaces,
             dns_servers,
+            dns_search,
+            default_gateway,
+            routes,
         })
     }
 
-    /// Get DNS servers on Unix-like systems (Linux, macOS, BSD).
-    #[cfg(unix)]
-    fn get_dns_servers() -> Vec<String> {
-        // Read from /etc/resolv.conf (works on Linux, macOS, BSD)
-        if let Ok(contents) = std::fs::read_to_string("/etc/resolv.conf") {
-            contents
-                .lines()
-                .filter(|line| line.starts_with("nameserver"))
-                .filter_map(|line| line.split_whitespace().nth(1))
-                .map(String::from)
-                .collect()
-        } else {
-            vec![]
+    /// Get domain and FQDN.
+    fn get_domain_info(hostname: &Option<String>) -> (Option<String>, Option<String>) {
+        #[cfg(unix)]
+        {
+            if let Ok(contents) = std::fs::read_to_string("/etc/resolv.conf") {
+                for line in contents.lines() {
+                    if line.starts_with("domain") {
+                        let domain = line.split_whitespace().nth(1).map(String::from);
+                        let fqdn = hostname.as_ref().and_then(|h| {
+                            domain.as_ref().map(|d| format!("{}.{}", h, d))
+                        });
+                        return (domain, fqdn);
+                    }
+                }
+            }
         }
+        #[cfg(windows)]
+        {
+            use std::process::Command;
+            if let Ok(output) = Command::new("powershell")
+                .args(["-NoProfile", "-Command", "(Get-WmiObject Win32_ComputerSystem).Domain"])
+                .output()
+            {
+                if output.status.success() {
+                    let domain = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !domain.is_empty() && domain != "WORKGROUP" {
+                        let fqdn = hostname.as_ref().map(|h| format!("{}.{}", h, domain));
+                        return (Some(domain), fqdn);
+                    }
+                }
+            }
+        }
+        (None, hostname.clone())
     }
 
-    /// Get DNS servers on Windows by reading from the registry.
-    #[cfg(windows)]
-    fn get_dns_servers() -> Vec<String> {
-        use std::process::Command;
-
+    /// Get DNS configuration (servers and search domains).
+    #[cfg(unix)]
+    fn get_dns_config() -> (Vec<String>, Vec<String>) {
         let mut servers = Vec::new();
+        let mut search = Vec::new();
 
-        // Use netsh to get DNS server configuration
+        if let Ok(contents) = std::fs::read_to_string("/etc/resolv.conf") {
+            for line in contents.lines() {
+                if line.starts_with("nameserver") {
+                    if let Some(server) = line.split_whitespace().nth(1) {
+                        servers.push(server.to_string());
+                    }
+                } else if line.starts_with("search") {
+                    search = line.split_whitespace().skip(1).map(String::from).collect();
+                }
+            }
+        }
+
+        (servers, search)
+    }
+
+    #[cfg(windows)]
+    fn get_dns_config() -> (Vec<String>, Vec<String>) {
+        use std::process::Command;
+        let mut servers = Vec::new();
+        let search = Vec::new();
+
         if let Ok(output) = Command::new("netsh")
             .args(["interface", "ip", "show", "dns"])
             .output()
@@ -107,14 +193,8 @@ impl NetworkCollector {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
-                    // Look for lines with IP addresses
                     let trimmed = line.trim();
-                    if trimmed.starts_with("DNS Servers") || trimmed.starts_with("Statically") {
-                        continue;
-                    }
-                    // Check if line contains an IP address
                     if let Some(ip) = trimmed.split_whitespace().last() {
-                        // Basic validation - check if it looks like an IP
                         if ip.contains('.') && ip.chars().all(|c| c.is_ascii_digit() || c == '.') {
                             servers.push(ip.to_string());
                         }
@@ -123,35 +203,107 @@ impl NetworkCollector {
             }
         }
 
-        // Fallback: try ipconfig
-        if servers.is_empty() {
-            if let Ok(output) = Command::new("ipconfig").args(["/all"]).output() {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let mut capture_dns = false;
-                    for line in stdout.lines() {
-                        if line.contains("DNS Servers") {
-                            capture_dns = true;
-                            // Extract IP from same line if present
-                            if let Some(ip) = line.split(':').nth(1) {
-                                let ip = ip.trim();
-                                if !ip.is_empty() && ip.contains('.') {
-                                    servers.push(ip.to_string());
-                                }
-                            }
-                        } else if capture_dns {
-                            let trimmed = line.trim();
-                            if trimmed.is_empty() || trimmed.contains(':') {
-                                capture_dns = false;
-                            } else if trimmed.contains('.') {
-                                servers.push(trimmed.to_string());
-                            }
+        (servers, search)
+    }
+
+    /// Get routing information.
+    #[cfg(target_os = "linux")]
+    fn get_routing_info() -> (Option<String>, Vec<NetworkRoute>) {
+        use std::process::Command;
+        let mut default_gateway = None;
+        let mut routes = Vec::new();
+
+        if let Ok(output) = Command::new("ip").args(["route", "show"]).output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.is_empty() {
+                        continue;
+                    }
+
+                    let destination = parts[0].to_string();
+                    let mut gateway = None;
+                    let mut interface = None;
+                    let mut metric = None;
+
+                    for i in 0..parts.len() {
+                        match parts[i] {
+                            "via" => gateway = parts.get(i + 1).map(|s| s.to_string()),
+                            "dev" => interface = parts.get(i + 1).map(|s| s.to_string()),
+                            "metric" => metric = parts.get(i + 1).and_then(|s| s.parse().ok()),
+                            _ => {}
                         }
+                    }
+
+                    if destination == "default" {
+                        default_gateway = gateway.clone();
+                    }
+
+                    routes.push(NetworkRoute {
+                        destination,
+                        gateway,
+                        interface,
+                        metric,
+                    });
+                }
+            }
+        }
+
+        (default_gateway, routes)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_routing_info() -> (Option<String>, Vec<NetworkRoute>) {
+        use std::process::Command;
+        let mut default_gateway = None;
+        let mut routes = Vec::new();
+
+        if let Ok(output) = Command::new("route").args(["print", "0.0.0.0"]).output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 5 && parts[0] == "0.0.0.0" {
+                        default_gateway = Some(parts[2].to_string());
+                        routes.push(NetworkRoute {
+                            destination: "default".to_string(),
+                            gateway: Some(parts[2].to_string()),
+                            interface: Some(parts[3].to_string()),
+                            metric: parts.get(4).and_then(|s| s.parse().ok()),
+                        });
+                        break;
                     }
                 }
             }
         }
 
-        servers
+        (default_gateway, routes)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn get_routing_info() -> (Option<String>, Vec<NetworkRoute>) {
+        use std::process::Command;
+        let mut default_gateway = None;
+        let routes = Vec::new();
+
+        if let Ok(output) = Command::new("route").args(["-n", "get", "default"]).output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    if line.trim().starts_with("gateway:") {
+                        default_gateway = line.split(':').nth(1).map(|s| s.trim().to_string());
+                        break;
+                    }
+                }
+            }
+        }
+
+        (default_gateway, routes)
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    fn get_routing_info() -> (Option<String>, Vec<NetworkRoute>) {
+        (None, Vec::new())
     }
 }

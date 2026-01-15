@@ -5,26 +5,6 @@
 
 ---
 
-## Table of Contents
-
-1. [[#1. Executive Summary|Executive Summary]]
-2. [[#2. Product Vision & Strategy|Product Vision & Strategy]]
-3. [[#3. Target Users & Personas|Target Users & Personas]]
-4. [[#4. Core Capabilities|Core Capabilities]]
-5. [[#5. System Components|System Components]]
-6. [[#6. User Journeys|User Journeys]]
-7. [[#7. Use Cases|Use Cases]]
-8. [[#8. Web Application Design|Web Application Design]]
-9. [[#9. Mobile Application|Mobile Application]]
-10. [[#10. Integrations|Integrations]]
-11. [[#11. Security & Access Control|Security & Access Control]]
-12. [[#12. Operational Features|Operational Features]]
-13. [[#13. Success Metrics|Success Metrics]]
-14. [[#14. Competitive Positioning|Competitive Positioning]]
-15. [[#15. Open Source Strategy|Open Source Strategy]]
-
----
-
 ## 1. Executive Summary
 
 ### 1.1 What is Hydra?

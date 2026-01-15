@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from hydra.api.v1.core.validators import TAG_PATTERN, validate_tag
+
 
 class ServiceRuntime(str, Enum):
     """Service runtime environment."""
@@ -162,8 +164,8 @@ class UpdateServiceRequest(BaseModel):
     def validate_tags(cls, v: list[str] | None) -> list[str] | None:
         if v is not None:
             for tag in v:
-                if not tag or len(tag) > 64:
-                    raise ValueError(f"Invalid tag: {tag}")
+                if not validate_tag(tag):
+                    raise ValueError(f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}")
         return v
 
 
@@ -193,3 +195,13 @@ class ServiceListParams(BaseModel):
         default="lastSeen", alias="sortBy"
     )
     sort_order: Literal["asc", "desc"] = Field(default="desc", alias="sortOrder")
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        for tag in v:
+            if not validate_tag(tag):
+                raise ValueError(f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}")
+        return v

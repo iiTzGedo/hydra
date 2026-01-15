@@ -56,6 +56,47 @@ async def get_optional_token(
     return None
 
 
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    auth_service: AuthService = Depends(get_auth_service),
+    users_service: UsersService = Depends(get_users_service),
+) -> dict | None:
+    """Get an optional current user (returns None if unauthenticated)."""
+    if x_api_key:
+        try:
+            key_data = await auth_service.validate_api_key(x_api_key)
+        except InvalidTokenError:
+            return None
+
+        if key_data.get("type") == "node":
+            token_payload = {
+                "sub": key_data["nodeId"],
+                "sub_type": "api_key",
+                "node_id": key_data["nodeId"],
+                "permissions": key_data.get("permissions", []),
+            }
+        else:
+            token_payload = {
+                "sub": key_data["ownerId"],
+                "sub_type": "api_key",
+                "permissions": key_data.get("permissions", []),
+                "roles": key_data.get("roles", []),
+                "node_id": key_data.get("nodeId"),
+            }
+
+        return await users_service.get_current_user(token_payload)
+
+    if credentials:
+        try:
+            token_payload = decode_token(credentials.credentials)
+        except InvalidTokenError:
+            return None
+        return await users_service.get_current_user(token_payload)
+
+    return None
+
+
 async def get_current_token(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
@@ -243,7 +284,8 @@ async def get_registration_auth(
     if credentials:
         try:
             payload = decode_token(credentials.credentials)
-            current_user = await auth_service.get_current_user(payload)
+            # Use auth_service.users instead of calling get_current_user dependency directly
+            current_user = await auth_service.users.get_current_user(payload)
 
             # Check permission
             user_permissions = current_user.get("permissions", [])
@@ -291,6 +333,7 @@ async def get_storage_service():
 # Type aliases for cleaner dependency injection
 CurrentToken = Annotated[dict, Depends(get_current_token)]
 CurrentUser = Annotated[dict, Depends(get_current_user)]
+OptionalUser = Annotated[dict | None, Depends(get_optional_user)]
 RegistrationAuth = Annotated[dict, Depends(get_registration_auth)]
 MongoDBDep = Annotated[MongoDB, Depends(get_mongodb)]
 RedisDep = Annotated[RedisClient, Depends(get_redis)]

@@ -3,17 +3,25 @@
 use anyhow::{anyhow, Context, Result};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::collectors::Profile;
-use crate::config::{AgentConfig, Credentials};
+use crate::config::AgentConfig;
+use crate::vault::{ApiKeyData, AgentCredentials, Vault};
+
+const API_KEY_RENEWAL_THRESHOLD_DAYS: i64 = 7;
+const API_KEY_DEFAULT_EXPIRY_DAYS: i64 = 90;
 
 /// API client for Hydra API communication.
 pub struct ApiClient {
     client: Client,
     config: AgentConfig,
-    credentials: Option<Credentials>,
+    vault: Vault,
 }
 
 /// Node registration request sent to /node/register
@@ -56,8 +64,44 @@ struct LoginResponse {
     expires_in: u64,
 }
 
+/// API key creation request for /auth/apikeys
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateApiKeyRequest {
+    name: String,
+    permissions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_at: Option<String>,
+}
+
+/// API key creation response from /auth/apikeys
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateApiKeyResponse {
+    key_id: String,
+    key: String,
+    name: String,
+    expires_at: Option<String>,
+    created_at: String,
+}
+
+/// Agent registration response from /auth/register (role=agent)
+/// Per Some Updates.md: API no longer returns api_key or password - agent creates/manages these
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentRegistrationResponse {
+    user_id: String,
+    username: String,
+    parent_user_id: String,
+    role: String,
+    created_at: String,
+}
+
 /// Node registration response from /node/register (returned directly, not wrapped in data)
 /// Note: Some endpoints use SuccessResponse wrapper, others return directly
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DirectNodeRegistrationResponse {
@@ -68,6 +112,14 @@ struct DirectNodeRegistrationResponse {
     registered_at: String,
     #[allow(dead_code)]
     status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileMeta {
+    version: String,
+    profile_hash: String,
+    section_fingerprints: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,21 +145,230 @@ struct ApiErrorDetail {
     message: String,
 }
 
+fn profile_meta_path(vault_dir: &Path) -> PathBuf {
+    vault_dir.join("profile_meta.json")
+}
+
+fn load_profile_meta(path: &Path) -> Result<Option<ProfileMeta>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let contents = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read profile meta file: {}", path.display()))?;
+
+    let meta: ProfileMeta = serde_json::from_str(&contents)
+        .with_context(|| format!("Failed to parse profile meta file: {}", path.display()))?;
+
+    Ok(Some(meta))
+}
+
+fn save_profile_meta(path: &Path, meta: &ProfileMeta) -> Result<()> {
+    let contents = serde_json::to_string_pretty(meta)?;
+    std::fs::write(path, contents)
+        .with_context(|| format!("Failed to write profile meta file: {}", path.display()))?;
+    Ok(())
+}
+
+fn canonical_json(value: &Value) -> String {
+    match value {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            let mut entries = Vec::new();
+            for key in keys {
+                let key_json = serde_json::to_string(key).unwrap_or_else(|_| "\"\"".to_string());
+                let value_json = canonical_json(&map[key]);
+                entries.push(format!("{}:{}", key_json, value_json));
+            }
+            format!("{{{}}}", entries.join(","))
+        }
+        Value::Array(values) => {
+            let items: Vec<String> = values.iter().map(canonical_json).collect();
+            format!("[{}]", items.join(","))
+        }
+        _ => serde_json::to_string(value).unwrap_or_else(|_| "null".to_string()),
+    }
+}
+
+fn sha256_hex(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let digest = hasher.finalize();
+    digest.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn hash_section<T: Serialize>(section: &T) -> Result<String> {
+    let value = serde_json::to_value(section)?;
+    let json = canonical_json(&value);
+    let hex = sha256_hex(&json);
+    Ok(hex.chars().take(16).collect())
+}
+
+fn compute_section_fingerprints(profile: &Profile) -> Result<HashMap<String, Vec<String>>> {
+    let mut fingerprints = HashMap::new();
+
+    if let Some(hardware) = &profile.hardware {
+        fingerprints.insert("hardware".to_string(), vec![hash_section(hardware)?]);
+    }
+    if let Some(network) = &profile.network {
+        fingerprints.insert("network".to_string(), vec![hash_section(network)?]);
+    }
+    if let Some(storage) = &profile.storage {
+        fingerprints.insert("storage".to_string(), vec![hash_section(storage)?]);
+    }
+    if let Some(software) = &profile.software {
+        fingerprints.insert("software".to_string(), vec![hash_section(software)?]);
+    }
+
+    Ok(fingerprints)
+}
+
+fn compute_profile_hash(fingerprints: &HashMap<String, Vec<String>>) -> String {
+    let mut sections: Vec<&String> = fingerprints.keys().collect();
+    sections.sort();
+
+    let mut all_hashes = Vec::new();
+    for section in sections {
+        let mut hashes = fingerprints.get(section).cloned().unwrap_or_default();
+        hashes.sort();
+        all_hashes.extend(hashes);
+    }
+
+    let combined = all_hashes.join(":");
+    sha256_hex(&combined)
+}
+
+fn section_weight(section: &str) -> f64 {
+    match section {
+        "hardware" => 0.30,
+        "configs" => 0.25,
+        "software" => 0.20,
+        "storage" => 0.15,
+        "network" => 0.10,
+        _ => 0.10,
+    }
+}
+
+fn increment_version(previous: &str, position: usize) -> Result<String> {
+    let parts: Vec<&str> = previous.split('-').collect();
+    if parts.len() != 2 || !parts[0].starts_with('E') {
+        return Err(anyhow!("Invalid version format: {}", previous));
+    }
+
+    let epoch: u32 = parts[0][1..].parse()?;
+    let components: Vec<&str> = parts[1].split('.').collect();
+    if components.len() != 4 {
+        return Err(anyhow!("Invalid version format: {}", previous));
+    }
+
+    let mut values: Vec<u32> = components
+        .iter()
+        .map(|c| u32::from_str_radix(c, 16))
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("Invalid hex version component")?;
+
+    if position >= values.len() {
+        return Err(anyhow!("Invalid version position"));
+    }
+
+    values[position] += 1;
+
+    let mut epoch = epoch;
+    for i in (0..values.len()).rev() {
+        if values[i] > 15 {
+            values[i] = 0;
+            if i > 0 {
+                values[i - 1] += 1;
+            } else {
+                epoch += 1;
+                values = vec![0, 0, 0, 0];
+                break;
+            }
+        }
+    }
+
+    for i in (position + 1)..values.len() {
+        values[i] = 0;
+    }
+
+    let hex_components: Vec<String> = values.iter().map(|v| format!("{:X}", v)).collect();
+    Ok(format!("E{}-{}", epoch, hex_components.join(".")))
+}
+
+fn compute_profile_version(
+    previous: Option<&ProfileMeta>,
+    current_fingerprints: &HashMap<String, Vec<String>>,
+    profile_hash: &str,
+) -> Result<String> {
+    if let Some(prev) = previous {
+        if prev.profile_hash == profile_hash {
+            return Ok(prev.version.clone());
+        }
+    }
+
+    if previous.is_none() {
+        return Ok("E0-0.0.0.1".to_string());
+    }
+
+    let prev_meta = previous.unwrap();
+    let mut total_diff = 0.0;
+
+    let mut all_sections: HashSet<String> = HashSet::new();
+    all_sections.extend(prev_meta.section_fingerprints.keys().cloned());
+    all_sections.extend(current_fingerprints.keys().cloned());
+
+    for section in all_sections {
+        let prev_hashes = prev_meta
+            .section_fingerprints
+            .get(&section)
+            .cloned()
+            .unwrap_or_default();
+        let curr_hashes = current_fingerprints
+            .get(&section)
+            .cloned()
+            .unwrap_or_default();
+
+        let prev_set: HashSet<String> = prev_hashes.into_iter().collect();
+        let curr_set: HashSet<String> = curr_hashes.into_iter().collect();
+
+        if prev_set != curr_set {
+            let union: HashSet<String> = prev_set.union(&curr_set).cloned().collect();
+            let intersection: HashSet<String> = prev_set.intersection(&curr_set).cloned().collect();
+            let union_size = union.len() as f64;
+            let intersection_size = intersection.len() as f64;
+            if union_size > 0.0 {
+                let jaccard = 1.0 - (intersection_size / union_size);
+                total_diff += jaccard * section_weight(&section);
+            }
+        }
+    }
+
+    let position = if total_diff > 0.75 {
+        0
+    } else if total_diff > 0.50 {
+        1
+    } else if total_diff > 0.25 {
+        2
+    } else {
+        3
+    };
+
+    increment_version(&prev_meta.version, position)
+}
+
 impl ApiClient {
     /// Create a new API client.
-    pub fn new(config: &AgentConfig) -> Result<Self> {
+    pub fn new(config: &AgentConfig, vault: &Vault) -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(config.api.timeout_seconds))
             .build()
             .context("Failed to create HTTP client")?;
 
-        // Try to load existing credentials
-        let credentials = Credentials::load(&config.api.credentials_file).ok();
-
         Ok(Self {
             client,
             config: config.clone(),
-            credentials,
+            vault: vault.clone(),
         })
     }
 
@@ -131,58 +392,310 @@ impl ApiClient {
     }
 
     /// Save registration response as credentials (from direct response).
+    #[allow(dead_code)]
     fn save_credentials_from_direct(&self, response: &DirectNodeRegistrationResponse) -> Result<()> {
-        let credentials = Credentials {
+        let api_key = ApiKeyData {
             api_key: response.api_key.clone(),
             api_key_id: response.api_key_id.clone(),
-            node_id: response.node_id.clone(),
-            created_at: response.registered_at.clone(),
+            expires_at: None,
+            node_id: Some(response.node_id.clone()),
+            stored_at: chrono::Utc::now().to_rfc3339(),
         };
 
-        credentials.save(&self.config.api.credentials_file)?;
-        info!(node_id = %response.node_id, "Credentials saved");
+        self.vault.save_api_key(&api_key)?;
+        info!(node_id = %response.node_id, "API key saved to vault");
         Ok(())
     }
 
-    /// Register the node using a registration token.
-    /// The token is passed via X-Registration-Token header and allows
-    /// instant registration without user authentication.
-    pub async fn register_with_token(&self, registration_token: &str) -> Result<()> {
-        let url = format!("{}/node/register", self.config.api.url);
-        let request = self.build_registration_request();
+    /// Save agent registration response as credentials (password from local generation).
+    /// Per Some Updates.md: API no longer returns api_key or password.
+    fn save_credentials_from_agent(&self, response: &AgentRegistrationResponse, password: &str) -> Result<()> {
+        let creds = AgentCredentials {
+            user_id: response.user_id.clone(),
+            username: response.username.clone(),
+            password: Some(password.to_string()),
+            parent_user_id: response.parent_user_id.clone(),
+            created_at: response.created_at.clone(),
+        };
+        self.vault.save_agent_credentials(&creds)?;
+        info!(
+            node_id = %self.config.node.node_id,
+            agent_username = %response.username,
+            "Agent credentials saved to vault"
+        );
+        Ok(())
+    }
 
-        debug!(?request, "Sending registration request with token");
+    /// Save API key from CreateApiKeyResponse (agent creates its own key).
+    fn save_api_key_from_response(&self, response: &CreateApiKeyResponse) -> Result<()> {
+        let api_key = ApiKeyData {
+            api_key: response.key.clone(),
+            api_key_id: response.key_id.clone(),
+            expires_at: response.expires_at.clone(),
+            node_id: Some(self.config.node.node_id.clone()),
+            stored_at: chrono::Utc::now().to_rfc3339(),
+        };
+        self.vault.save_api_key(&api_key)?;
+        info!("API key saved to vault");
+        Ok(())
+    }
+
+    /// Generate a random agent username (pattern: agent-XXXXXXXX where X is [0-9A-Z]).
+    fn generate_agent_username() -> String {
+        use rand::Rng;
+        const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let mut rng = rand::thread_rng();
+        let suffix: String = (0..8)
+            .map(|_| {
+                let idx = rng.gen_range(0..CHARS.len());
+                CHARS[idx] as char
+            })
+            .collect();
+        format!("agent-{}", suffix)
+    }
+
+    /// Generate a secure random password.
+    fn generate_agent_password() -> String {
+        use rand::RngCore;
+        let mut rng = rand::thread_rng();
+        let mut bytes = [0u8; 24];
+        rng.fill_bytes(&mut bytes);
+        // URL-safe base64 encoding
+        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let mut result = String::with_capacity(32);
+        for chunk in bytes.chunks(3) {
+            let b0 = chunk[0] as usize;
+            let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
+            let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
+            result.push(CHARS[b0 >> 2] as char);
+            result.push(CHARS[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
+            if chunk.len() > 1 {
+                result.push(CHARS[((b1 & 0x0f) << 2) | (b2 >> 6)] as char);
+            }
+            if chunk.len() > 2 {
+                result.push(CHARS[b2 & 0x3f] as char);
+            }
+        }
+        result
+    }
+
+    /// Create API key for agent using its JWT.
+    async fn create_agent_api_key(&self, username: &str, access_token: &str) -> Result<CreateApiKeyResponse> {
+        let api_key_url = format!("{}/auth/apikeys", self.config.api.url);
+
+        let expires_at = (chrono::Utc::now() + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS))
+            .to_rfc3339();
+
+        let request = CreateApiKeyRequest {
+            name: format!("{}-api-key", username),
+            permissions: Vec::new(),
+            expires_at: Some(expires_at),
+        };
+
+        debug!("Creating API key for agent: {}", username);
 
         let response = self
             .client
-            .post(&url)
-            .header("X-Registration-Token", registration_token)
+            .post(&api_key_url)
+            .bearer_auth(access_token)
             .json(&request)
             .send()
             .await
-            .context("Failed to send registration request")?;
+            .context("Failed to send API key creation request")?;
 
         if !response.status().is_success() {
             let error: ApiError = response.json().await?;
             return Err(anyhow!(
-                "Registration failed: {} - {}",
+                "API key creation failed: {} - {}",
                 error.error.code,
                 error.error.message
             ));
         }
 
-        // Node registration response is returned directly, not wrapped in data
-        let result: DirectNodeRegistrationResponse = response.json().await?;
-        self.save_credentials_from_direct(&result)?;
+        let api_key_response: CreateApiKeyResponse = response.json().await?;
+        info!("API key created successfully");
+        Ok(api_key_response)
+    }
 
+    async fn ensure_api_key(&self) -> Result<String> {
+        if let Some(api_key) = self.vault.get_api_key()? {
+            let expiring = self
+                .vault
+                .api_key_expires_within(API_KEY_RENEWAL_THRESHOLD_DAYS)?;
+            if !expiring {
+                return Ok(api_key);
+            }
+            warn!("API key expiring soon, renewing...");
+        }
+
+        self.refresh_api_key().await?;
+        self.vault
+            .get_api_key()?
+            .ok_or_else(|| anyhow!("API key unavailable after refresh"))
+    }
+
+    async fn refresh_api_key(&self) -> Result<()> {
+        let creds = self
+            .vault
+            .load_agent_credentials()?
+            .ok_or_else(|| anyhow!("Agent credentials not found in vault"))?;
+
+        let password = creds
+            .password
+            .clone()
+            .ok_or_else(|| anyhow!("Agent password not available. Re-register the agent."))?;
+
+        let access_token = self.login_as_agent(&creds.username, &password).await?;
+
+        let expires_at = (chrono::Utc::now()
+            + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS))
+        .to_rfc3339();
+
+        let request = CreateApiKeyRequest {
+            name: format!("hydra-agent-{}", self.config.node.node_id),
+            permissions: Vec::new(),
+            expires_at: Some(expires_at),
+        };
+
+        let url = format!("{}/auth/apikeys", self.config.api.url);
+        let response = self
+            .client
+            .post(&url)
+            .bearer_auth(&access_token)
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to create API key")?;
+
+        if !response.status().is_success() {
+            let error: ApiError = response.json().await?;
+            return Err(anyhow!(
+                "API key creation failed: {} - {}",
+                error.error.code,
+                error.error.message
+            ));
+        }
+
+        let result: CreateApiKeyResponse = response.json().await?;
+        let api_key = ApiKeyData {
+            api_key: result.key,
+            api_key_id: result.key_id,
+            expires_at: result.expires_at,
+            node_id: Some(self.config.node.node_id.clone()),
+            stored_at: chrono::Utc::now().to_rfc3339(),
+        };
+
+        self.vault.save_api_key(&api_key)?;
+        info!("API key refreshed and stored in vault");
+        Ok(())
+    }
+
+    async fn login_as_agent(&self, username: &str, password: &str) -> Result<String> {
+        let login_url = format!("{}/auth/login", self.config.api.url);
+        let request = LoginRequest {
+            username: username.to_string(),
+            password: password.to_string(),
+        };
+
+        let response = self
+            .client
+            .post(&login_url)
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to login as agent")?;
+
+        if !response.status().is_success() {
+            let error: ApiError = response.json().await?;
+            return Err(anyhow!(
+                "Agent login failed: {} - {}",
+                error.error.code,
+                error.error.message
+            ));
+        }
+
+        let login_response: LoginResponse = response.json().await?;
+        Ok(login_response.access_token)
+    }
+
+    /// Register the agent and node using a registration token.
+    /// Per Some Updates.md: Generate credentials locally, register, login, create API key.
+    pub async fn register_with_token(&self, registration_token: &str) -> Result<()> {
+        // Step 1: Generate credentials locally
+        let agent_username = Self::generate_agent_username();
+        let agent_password = Self::generate_agent_password();
+        debug!("Generated agent credentials: {}", agent_username);
+
+        // Step 2: Register agent with API (credentials sent, not generated by API)
+        let agent_url = format!("{}/auth/register", self.config.api.url);
+        let agent_response = self
+            .client
+            .post(&agent_url)
+            .json(&serde_json::json!({
+                "role": "agent",
+                "username": agent_username,
+                "password": agent_password,
+                "registrationToken": registration_token,
+            }))
+            .send()
+            .await
+            .context("Failed to send agent registration request")?;
+
+        if !agent_response.status().is_success() {
+            let error: ApiError = agent_response.json().await?;
+            return Err(anyhow!(
+                "Agent registration failed: {} - {}",
+                error.error.code,
+                error.error.message
+            ));
+        }
+
+        let agent_result: AgentRegistrationResponse = agent_response.json().await?;
+        info!("Agent registered successfully, logging in...");
+
+        // Step 3: Login as agent to get JWT
+        let access_token = self.login_as_agent(&agent_username, &agent_password).await?;
+
+        // Step 4: Create API key using agent JWT
+        let api_key_response = self.create_agent_api_key(&agent_username, &access_token).await?;
+
+        // Step 5: Save credentials to vault AFTER successful registration
+        self.save_credentials_from_agent(&agent_result, &agent_password)?;
+        self.save_api_key_from_response(&api_key_response)?;
+
+        // Step 6: Register node using agent API key
+        let register_url = format!("{}/node/register", self.config.api.url);
+        let request = self.build_registration_request();
+
+        debug!(?request, "Registering node with agent API key");
+
+        let response = self
+            .client
+            .post(&register_url)
+            .header("X-API-Key", &api_key_response.key)
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to send node registration request")?;
+
+        if !response.status().is_success() {
+            let error: ApiError = response.json().await?;
+            return Err(anyhow!(
+                "Node registration failed: {} - {}",
+                error.error.code,
+                error.error.message
+            ));
+        }
+
+        let result: DirectNodeRegistrationResponse = response.json().await?;
         info!(node_id = %result.node_id, "Registration with token successful");
         Ok(())
     }
 
-    /// Register the node using user credentials.
-    /// This first logs in to get an access token, then registers the node.
+    /// Register the agent and node using user credentials.
+    /// Per Some Updates.md: Login, generate agent credentials locally, register, login as agent, create API key.
     pub async fn register_with_credentials(&self, username: &str, password: &str) -> Result<()> {
-        // Step 1: Login to get access token
+        // Step 1: Login as admin/operator to get access token
         let login_url = format!("{}/auth/login", self.config.api.url);
         let login_request = LoginRequest {
             username: username.to_string(),
@@ -208,20 +721,61 @@ impl ApiClient {
             ));
         }
 
-        // Login response is returned directly, not wrapped in data
         let login_result: LoginResponse = login_response.json().await?;
-        info!("Login successful, registering node...");
+        info!("Login successful, registering agent...");
 
-        // Step 2: Register node using access token
+        // Step 2: Generate agent credentials locally
+        let agent_username = Self::generate_agent_username();
+        let agent_password = Self::generate_agent_password();
+        debug!("Generated agent credentials: {}", agent_username);
+
+        // Step 3: Register agent with API (credentials sent, not generated by API)
+        let agent_url = format!("{}/auth/register", self.config.api.url);
+        let agent_response = self
+            .client
+            .post(&agent_url)
+            .bearer_auth(&login_result.access_token)
+            .json(&serde_json::json!({
+                "role": "agent",
+                "username": agent_username,
+                "password": agent_password,
+            }))
+            .send()
+            .await
+            .context("Failed to send agent registration request")?;
+
+        if !agent_response.status().is_success() {
+            let error: ApiError = agent_response.json().await?;
+            return Err(anyhow!(
+                "Agent registration failed: {} - {}",
+                error.error.code,
+                error.error.message
+            ));
+        }
+
+        let agent_result: AgentRegistrationResponse = agent_response.json().await?;
+        info!("Agent registered successfully, logging in as agent...");
+
+        // Step 4: Login as agent to get JWT
+        let access_token = self.login_as_agent(&agent_username, &agent_password).await?;
+
+        // Step 5: Create API key using agent JWT
+        let api_key_response = self.create_agent_api_key(&agent_username, &access_token).await?;
+
+        // Step 6: Save credentials to vault AFTER successful registration
+        self.save_credentials_from_agent(&agent_result, &agent_password)?;
+        self.save_api_key_from_response(&api_key_response)?;
+
+        // Step 7: Register node using agent API key
         let register_url = format!("{}/node/register", self.config.api.url);
         let request = self.build_registration_request();
 
-        debug!(?request, "Sending registration request with user token");
+        debug!(?request, "Registering node with agent API key");
 
         let response = self
             .client
             .post(&register_url)
-            .bearer_auth(&login_result.access_token)
+            .header("X-API-Key", &api_key_response.key)
             .json(&request)
             .send()
             .await
@@ -236,10 +790,7 @@ impl ApiClient {
             ));
         }
 
-        // Node registration response is returned directly, not wrapped in data
         let result: DirectNodeRegistrationResponse = response.json().await?;
-        self.save_credentials_from_direct(&result)?;
-
         info!(
             node_id = %result.node_id,
             registered_by = %result.registered_by,
@@ -253,10 +804,16 @@ impl ApiClient {
     pub async fn submit_profile(&self, profile: &Profile) -> Result<ProfileSubmitResponse> {
         let url = format!("{}/profiles", self.config.api.url);
 
-        let credentials = self
-            .credentials
-            .as_ref()
-            .ok_or_else(|| anyhow!("No credentials found. Run with --register first."))?;
+        let api_key = self.ensure_api_key().await?;
+
+        let meta_path = profile_meta_path(&self.vault.base_path());
+        let previous_meta = load_profile_meta(&meta_path)?;
+        let fingerprints = compute_section_fingerprints(profile)?;
+        let profile_hash = compute_profile_hash(&fingerprints);
+        let version = compute_profile_version(previous_meta.as_ref(), &fingerprints, &profile_hash)?;
+
+        let mut payload = profile.clone();
+        payload.version = version.clone();
 
         let mut retries = self.config.api.retries;
         let mut last_error: Option<anyhow::Error> = None;
@@ -265,21 +822,56 @@ impl ApiClient {
             let response = self
                 .client
                 .post(&url)
-                .header("X-API-Key", &credentials.api_key)
-                .json(profile)
+                .header("X-API-Key", &api_key)
+                .json(&payload)
                 .send()
                 .await;
 
             match response {
                 Ok(resp) if resp.status().is_success() => {
                     let result: ApiResponse<ProfileSubmitResponse> = resp.json().await?;
+                    let meta = ProfileMeta {
+                        version,
+                        profile_hash,
+                        section_fingerprints: fingerprints,
+                    };
+                    save_profile_meta(&meta_path, &meta)?;
                     return Ok(result.data);
                 }
                 Ok(resp) if resp.status() == StatusCode::UNAUTHORIZED => {
-                    // API key is invalid or revoked - need to re-register
-                    return Err(anyhow!(
-                        "API key authentication failed. The key may have been revoked. Re-register the agent."
-                    ));
+                    self.refresh_api_key().await?;
+                    let refreshed_key = self.ensure_api_key().await?;
+                    let retry_resp = self
+                        .client
+                        .post(&url)
+                        .header("X-API-Key", &refreshed_key)
+                        .json(&payload)
+                        .send()
+                        .await;
+
+                    match retry_resp {
+                        Ok(retry) if retry.status().is_success() => {
+                            let result: ApiResponse<ProfileSubmitResponse> = retry.json().await?;
+                            let meta = ProfileMeta {
+                                version,
+                                profile_hash,
+                                section_fingerprints: fingerprints,
+                            };
+                            save_profile_meta(&meta_path, &meta)?;
+                            return Ok(result.data);
+                        }
+                        Ok(retry) => {
+                            let error: ApiError = retry.json().await?;
+                            return Err(anyhow!(
+                                "API error after key refresh: {} - {}",
+                                error.error.code,
+                                error.error.message
+                            ));
+                        }
+                        Err(e) => {
+                            return Err(anyhow!(e));
+                        }
+                    }
                 }
                 Ok(resp) => {
                     let error: ApiError = resp.json().await?;

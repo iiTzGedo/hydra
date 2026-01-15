@@ -196,6 +196,112 @@ class NodeService:
         if result.matched_count == 0:
             raise NodeNotFoundError(node_id)
 
+    async def list_agents(
+        self,
+        status: str | None = None,
+        healthy_only: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        """
+        List all registered agents (nodes with API keys).
+
+        An agent is considered healthy if it has submitted a profile within the last 24 hours.
+
+        Args:
+            status: Optional status filter
+            healthy_only: Only return healthy agents
+            limit: Max results
+            offset: Pagination offset
+
+        Returns:
+            dict with agents list and counts
+        """
+        from datetime import timedelta
+
+        now = datetime.now(timezone.utc)
+        health_threshold = now - timedelta(hours=24)
+
+        # Build query - agents are nodes that have lastProfileAt set (have profiled at least once)
+        query: dict = {"lastProfileAt": {"$ne": None}}
+
+        if status:
+            query["status"] = status
+
+        # Count total
+        total = await self.db.nodes.count_documents(query)
+
+        # Get nodes
+        cursor = (
+            self.db.nodes.find(query)
+            .sort("lastProfileAt", DESCENDING)
+            .skip(offset)
+            .limit(limit)
+        )
+
+        agents = []
+        active_count = 0
+
+        async for node in cursor:
+            last_profile_at = node.get("lastProfileAt")
+            is_healthy = last_profile_at and last_profile_at >= health_threshold
+
+            if healthy_only and not is_healthy:
+                continue
+
+            if is_healthy:
+                active_count += 1
+
+            # Get profile count and latest version for this node
+            profile_count = await self.db.profiles.count_documents({"nodeId": node["nodeId"]})
+
+            # Get latest profile version
+            latest_profile = await self.db.profiles.find_one(
+                {"nodeId": node["nodeId"]},
+                sort=[("submittedAt", DESCENDING)],
+                projection={"version": 1}
+            )
+            last_profile_version = latest_profile.get("version") if latest_profile else None
+
+            agents.append({
+                "nodeId": node["nodeId"],
+                "class": node["class"],
+                "type": node["type"],
+                "kind": node.get("kind"),
+                "displayName": node["displayName"],
+                "tags": node.get("tags", []),
+                "registeredBy": node.get("registeredBy"),
+                "registeredAt": node["registeredAt"],
+                "status": node["status"],
+                "lastProfileAt": last_profile_at,
+                "profileCount": profile_count,
+                "lastProfileVersion": last_profile_version,
+                "isHealthy": is_healthy,
+            })
+
+        # If we didn't count active during fetch (healthy_only=True case), count them
+        if healthy_only:
+            active_count = len(agents)
+        else:
+            # Recalculate active count from actual query if we limited results
+            active_query = {**query, "lastProfileAt": {"$gte": health_threshold}}
+            active_count = await self.db.nodes.count_documents(active_query)
+
+        logger.info(
+            "agents_listed",
+            total=total,
+            active=active_count,
+            returned=len(agents),
+        )
+
+        return {
+            "agents": agents,
+            "total": total,
+            "active": active_count,
+            "limit": limit,
+            "offset": offset,
+        }
+
     def _format_node(self, doc: dict) -> dict:
         """Format a node document for API response."""
         return {
@@ -208,6 +314,7 @@ class NodeService:
             "tags": doc.get("tags", []),
             "parentNodeId": doc.get("parentNodeId"),
             "networkIds": doc.get("networkIds", []),
+            "registeredBy": doc.get("registeredBy"),
             "registeredAt": doc["registeredAt"],
             "lastUpdated": doc["lastUpdated"],
             "lastProfileAt": doc.get("lastProfileAt"),
@@ -223,6 +330,7 @@ class NodeService:
             "kind": doc.get("kind"),
             "displayName": doc["displayName"],
             "tags": doc.get("tags", []),
+            "registeredBy": doc.get("registeredBy"),
             "status": doc["status"],
             "lastProfileAt": doc.get("lastProfileAt"),
         }

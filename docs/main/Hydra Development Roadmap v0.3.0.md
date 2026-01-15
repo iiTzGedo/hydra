@@ -5,22 +5,6 @@
 
 ---
 
-## Table of Contents
-
-1. [[#Overview|Overview]]
-2. [[#Development Phases|Development Phases]]
-3. [[#Phase 1 Foundation|Phase 1: Foundation]]
-4. [[#Phase 2 Core Features|Phase 2: Core Features]]
-5. [[#Phase 3 Intelligence Layer|Phase 3: Intelligence Layer]]
-6. [[#Phase 4 Control Plane|Phase 4: Control Plane]]
-7. [[#Phase 5 Ecosystem|Phase 5: Ecosystem]]
-8. [[#Phase 6 Enterprise Ready|Phase 6: Enterprise Ready]]
-9. [[#Technical Debt & Maintenance|Technical Debt & Maintenance]]
-10. [[#Success Criteria|Success Criteria]]
-11. [[#Dependencies|Dependencies]]
-
----
-
 ## Overview
 
 ### Purpose

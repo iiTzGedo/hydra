@@ -4,7 +4,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from hydra.api.v1.core.validators import NETWORK_ID_PATTERN, validate_network_id
 
 
 class TopologyMode(str, Enum):
@@ -101,6 +103,18 @@ class TopologyScope(BaseModel):
     network_ids: list[str] | None = Field(default=None, alias="networkIds")
     group_ids: list[str] | None = Field(default=None, alias="groupIds")
     node_ids: list[str] | None = Field(default=None, alias="nodeIds")
+
+    @field_validator("network_ids")
+    @classmethod
+    def validate_network_ids(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        for network_id in v:
+            if not validate_network_id(network_id):
+                raise ValueError(
+                    f"Invalid network ID '{network_id}'. Must match pattern: {NETWORK_ID_PATTERN}"
+                )
+        return v
 
 
 class TopologyDiff(BaseModel):

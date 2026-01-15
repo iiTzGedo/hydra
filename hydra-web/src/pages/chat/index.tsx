@@ -302,11 +302,11 @@ export default function ChatPage() {
     <TooltipProvider>
       <div className="h-[calc(100vh-3.5rem)] flex gap-4 p-4 bg-background">
         {/* Left Sidebar - Chats & Tools */}
-        <div className="w-72 flex flex-col bg-card border border-border rounded-lg overflow-hidden shrink-0">
+        <div className="w-72 flex flex-col bg-card border border-border rounded-lg overflow-hidden shrink-0 min-h-0">
           <Tabs
             value={sidebarTab}
             onValueChange={(v) => setSidebarTab(v as 'chats' | 'tools')}
-            className="flex flex-col h-full"
+            className="flex flex-col h-full min-h-0"
           >
             <TabsList className="w-full rounded-none border-b border-border bg-transparent h-auto p-0 shrink-0">
               <TabsTrigger
@@ -326,7 +326,7 @@ export default function ChatPage() {
             </TabsList>
 
             {/* Chats Tab */}
-            <TabsContent value="chats" className="flex-1 m-0 overflow-hidden flex flex-col">
+            <TabsContent value="chats" className="data-[state=inactive]:hidden flex-1 m-0 overflow-hidden flex flex-col">
               <div className="p-2 border-b border-border shrink-0 flex gap-2">
                 <Button
                   onClick={() => handleNewChat()}
@@ -455,8 +455,8 @@ export default function ChatPage() {
             </TabsContent>
 
             {/* Tools Tab */}
-            <TabsContent value="tools" className="flex-1 m-0 overflow-hidden flex flex-col">
-              <ScrollArea className="flex-1">
+            <TabsContent value="tools" className="flex-1 min-h-0 m-0 p-0 overflow-hidden flex flex-col">
+              <div className="flex-1 min-h-0 overflow-y-auto">
                 <div className="p-3 space-y-4">
                   {/* MCP Services Section */}
                   <div className="space-y-2">
@@ -546,7 +546,7 @@ export default function ChatPage() {
                   </div>
 
                   {/* Available Tools Section */}
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                       <Wrench className="h-3.5 w-3.5 text-blue-500" />
                       Available Tools
@@ -602,7 +602,7 @@ export default function ChatPage() {
                     </div>
                   </div>
                 </div>
-              </ScrollArea>
+              </div>
 
               {/* Fixed bottom section - Quick Actions, Context, LLM */}
               <div className="border-t border-border p-3 space-y-3 shrink-0">

@@ -4,33 +4,6 @@
 > **Status:** Comprehensive Technical Specification
 
 ---
-
-## Table of Contents
-
-1. [[#1. Objective|Objective]]
-2. [[#2. Background|Background]]
-3. [[#3. Requirements|Requirements]]
-4. [[#4. System Architecture|System Architecture]]
-5. [[#5. Technical Implementation|Technical Implementation]]
-6. [[#6. Data Models & MongoDB Schema|Data Models & MongoDB Schema]]
-7. [[#7. Profile Schemas by Node Class|Profile Schemas by Node Class]]
-8. [[#8. API Service (hydra-api)|API Service (hydra-api)]]
-9. [[#9. Agent Service (hydra-agent)|Agent Service (hydra-agent)]]
-10. [[#10. MCP Service (hydra-mcp)|MCP Service (hydra-mcp)]]
-11. [[#11. Web Service (hydra-web)|Web Service (hydra-web)]]
-12. [[#12. Authentication & Security|Authentication & Security]]
-13. [[#13. Access Control (RBAC)|Access Control (RBAC)]]
-14. [[#14. Write Operations & Command Execution|Write Operations & Command Execution]]
-15. [[#15. Home Assistant Integration|Home Assistant Integration]]
-16. [[#16. Mobile Application|Mobile Application]]
-17. [[#17. Monitoring & Observability|Monitoring & Observability]]
-18. [[#18. Deployment|Deployment]]
-19. [[#19. Testing Strategy|Testing Strategy]]
-20. [[#20. Technical Concerns & Mitigations|Technical Concerns & Mitigations]]
-21. [[#21. Appendices|Appendices]]
-
----
-
 ## 1. Objective
 
 ### 1.1 High-Level Summary
@@ -548,6 +521,10 @@ Profile versioning uses pre-computed hash fingerprints for O(1) diff detection:
         "rack": { "type": "string" },
         "position": { "type": "integer" }
       }
+    },
+    "registeredBy": {
+      "type": ["string", "null"],
+      "description": "User ID of the user who registered this node"
     },
     "registeredAt": { "type": "string", "format": "date-time" },
     "lastUpdated": { "type": "string", "format": "date-time" },
@@ -1208,6 +1185,121 @@ On profile submission:
     "correlationId": { "type": "string" }
   }
 }
+```
+
+### 6.11 Collection: `tokens`
+
+**Purpose:** Store registration tokens for user and node registration.
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "hydra:tokens",
+  "title": "RegistrationToken",
+  "type": "object",
+  "required": ["token", "type", "scope", "createdBy", "createdAt"],
+  "properties": {
+    "_id": { "type": "string" },
+    "token": {
+      "type": "string",
+      "pattern": "^reg_[A-Za-z0-9_-]{32,}$",
+      "description": "Registration token value (reg_ prefix + 32+ char random)"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["registration"],
+      "description": "Token type (always 'registration' for this collection)"
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["user", "node"],
+      "description": "Token scope - 'user' for user registration, 'node' for node registration"
+    },
+    "description": { "type": ["string", "null"], "maxLength": 256 },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "maxUses": { "type": ["integer", "null"], "description": "Max uses (null = unlimited)" },
+    "usedCount": { "type": "integer", "default": 0 },
+    "usedBy": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "entityId": { "type": "string", "description": "Node ID or User ID" },
+          "entityType": { "type": "string", "enum": ["node", "user"] },
+          "usedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "description": "History of token usage"
+    },
+    "allowedRoles": {
+      "type": ["array", "null"],
+      "items": { "type": "string", "enum": ["admin", "operator", "viewer", "family"] },
+      "description": "Roles allowed for user scope tokens (null = any)"
+    },
+    "createdBy": { "type": "string", "description": "User ID of token creator" },
+    "creatorRole": { "type": "string", "description": "Role of creator at time of creation" },
+    "maxRoleLevel": { "type": "integer", "description": "Numeric role level of creator" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}
+```
+
+**Indexes:**
+
+```javascript
+db.tokens.createIndexes([
+  { key: { "token": 1 }, unique: true },
+  { key: { "type": 1, "scope": 1 } },
+  { key: { "createdBy": 1 } },
+  { key: { "expiresAt": 1 } }
+])
+```
+
+### 6.12 Collection: `api_keys`
+
+**Purpose:** Store API keys for users and nodes.
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "hydra:api_keys",
+  "title": "ApiKey",
+  "type": "object",
+  "required": ["keyId", "keyHash", "name", "type", "ownerId", "ownerType"],
+  "properties": {
+    "_id": { "type": "string" },
+    "keyId": { "type": "string", "pattern": "^key_(node_)?[A-Za-z0-9_-]+$" },
+    "keyHash": { "type": "string", "description": "Bcrypt hash of the API key" },
+    "name": { "type": "string", "maxLength": 128 },
+    "type": { "type": "string", "enum": ["user", "node"] },
+    "ownerId": { "type": "string", "description": "User ID who owns this key" },
+    "ownerType": { "type": "string", "enum": ["user"] },
+    "nodeId": { "type": ["string", "null"], "description": "Node ID (for node API keys)" },
+    "roles": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "permissions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+    "lastUsedAt": { "type": ["string", "null"], "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "revokedAt": { "type": ["string", "null"], "format": "date-time" }
+  }
+}
+```
+
+**Indexes:**
+
+```javascript
+db.api_keys.createIndexes([
+  { key: { "keyId": 1 }, unique: true },
+  { key: { "ownerId": 1, "type": 1 } },
+  { key: { "nodeId": 1 }, sparse: true },
+  { key: { "revokedAt": 1 } }
+])
 ```
 
 ---

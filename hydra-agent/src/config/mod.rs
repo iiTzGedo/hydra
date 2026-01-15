@@ -1,8 +1,15 @@
 //! Agent configuration management.
+//!
+//! Configuration files are stored at platform-specific locations:
+//! - Unix: `/etc/hydra/agent.toml`
+//! - Windows: `C:\ProgramData\Hydra\agent.toml`
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+
+use crate::platform::paths;
 
 /// Agent configuration loaded from TOML file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,7 +117,9 @@ pub struct ScheduleConfig {
 
 // Default value functions
 fn default_credentials_path() -> String {
-    "/etc/hydra/credentials.json".to_string()
+    paths::default_credentials_file()
+        .to_string_lossy()
+        .to_string()
 }
 
 fn default_timeout() -> u64 {
@@ -182,13 +191,88 @@ impl AgentConfig {
         let config: Self = toml::from_str(&contents)
             .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
 
+        config.validate()?;
+
         Ok(config)
+    }
+
+    fn validate(&self) -> Result<()> {
+        let node_id_re = Regex::new(r"^[a-z]+([._-][a-z0-9]+){0,2}$")
+            .context("Invalid node ID regex pattern")?;
+        let tag_re = Regex::new(r"^[a-z]+[_:]?[a-z]+$")
+            .context("Invalid tag regex pattern")?;
+
+        if !node_id_re.is_match(&self.node.node_id) {
+            return Err(anyhow!(
+                "Invalid node_id '{}'. Must match ^[a-z]+([._-][a-z0-9]+){{0,2}}$",
+                self.node.node_id
+            ));
+        }
+
+        if let Some(parent_node_id) = &self.node.parent_node_id {
+            if !node_id_re.is_match(parent_node_id) {
+                return Err(anyhow!(
+                    "Invalid parent_node_id '{}'. Must match ^[a-z]+([._-][a-z0-9]+){{0,2}}$",
+                    parent_node_id
+                ));
+            }
+        }
+
+        for tag in &self.node.tags {
+            if tag.len() > 64 || !tag_re.is_match(tag) {
+                return Err(anyhow!(
+                    "Invalid tag '{}'. Must match ^[a-z]+[_:]?[a-z]+$ and be <= 64 chars",
+                    tag
+                ));
+            }
+        }
+
+        // Validate collection level
+        const VALID_LEVELS: &[&str] = &["shallow", "neutral", "deep"];
+        if !VALID_LEVELS.contains(&self.collection.level.as_str()) {
+            return Err(anyhow!(
+                "Invalid collection level '{}'. Must be one of: shallow, neutral, deep",
+                self.collection.level
+            ));
+        }
+
+        // Validate node class
+        const VALID_CLASSES: &[&str] = &["compute", "networking", "iot"];
+        if !VALID_CLASSES.contains(&self.node.class.as_str()) {
+            return Err(anyhow!(
+                "Invalid node class '{}'. Must be one of: compute, networking, iot",
+                self.node.class
+            ));
+        }
+
+        // Validate node type
+        const VALID_TYPES: &[&str] = &["physical", "logical"];
+        if !VALID_TYPES.contains(&self.node.node_type.as_str()) {
+            return Err(anyhow!(
+                "Invalid node_type '{}'. Must be one of: physical, logical",
+                self.node.node_type
+            ));
+        }
+
+        // Validate collectors if specified
+        const VALID_COLLECTORS: &[&str] = &["hardware", "network", "storage", "software", "services"];
+        for collector in &self.collection.collectors {
+            if !VALID_COLLECTORS.contains(&collector.as_str()) {
+                return Err(anyhow!(
+                    "Invalid collector '{}'. Must be one of: hardware, network, storage, software, services",
+                    collector
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 
 /// Credentials stored after registration.
 /// Uses API key authentication instead of JWT tokens.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Credentials {
     /// API key for authentication (sent as X-API-Key header)
     pub api_key: String,

@@ -22,6 +22,7 @@ pub use storage::StorageCollector;
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     pub node_id: String,
+    pub version: String,
     pub collected_at: DateTime<Utc>,
     pub agent_version: String,
     pub collection_level: String,
@@ -61,6 +62,7 @@ pub async fn collect_profile(config: &AgentConfig) -> Result<Profile> {
     let collectors = &config.collection.collectors;
     let mut profile = Profile {
         node_id: config.node.node_id.clone(),
+        version: String::new(),
         collected_at: Utc::now(),
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         collection_level: config.collection.level.clone(),

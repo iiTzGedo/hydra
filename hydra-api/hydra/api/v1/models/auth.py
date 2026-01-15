@@ -4,7 +4,18 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+import re
+
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+
+from hydra.api.v1.core.validators import (
+    AGENT_USERNAME_PATTERN,
+    NODE_ID_PATTERN_NEW,
+    TAG_PATTERN,
+    validate_agent_username,
+    validate_node_id,
+    validate_tag,
+)
 
 
 class TokenType(str, Enum):
@@ -78,6 +89,70 @@ def can_create_token_for_role(creator_role: str, target_role: str) -> bool:
     return get_role_level(creator_role) >= get_role_level(target_role)
 
 
+def can_have_sub_accounts(role: str) -> bool:
+    """Check if a role can have sub-accounts (only admin and operator)."""
+    return role in [Role.ADMIN.value, Role.OPERATOR.value]
+
+
+def is_valid_sub_account_role(role: str) -> bool:
+    """Check if a role can be a sub-account (family, viewer, or agent)."""
+    return role in [Role.FAMILY.value, Role.VIEWER.value, Role.AGENT.value]
+
+
+# =============================================================================
+# Sub-Account Models
+# =============================================================================
+
+class SubAccountInfo(BaseModel):
+    """Information about a linked sub-account."""
+
+    user_id: str = Field(alias="userId")
+    username: str
+    role: Role
+    created_at: datetime = Field(alias="createdAt")
+
+    model_config = {"populate_by_name": True}
+
+
+class SubAccountLinkRequest(BaseModel):
+    """Request to link an existing user as a sub-account."""
+
+    password: str = Field(
+        min_length=8,
+        description="Password of the user to be linked as sub-account",
+    )
+    reset_password: bool = Field(
+        default=False,
+        alias="resetPassword",
+        description="If true, reset sub-account password to match parent password",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class SubAccountLinkResponse(BaseModel):
+    """Response for successful sub-account linking."""
+
+    parent_user_id: str = Field(alias="parentUserId")
+    sub_account_user_id: str = Field(alias="subAccountUserId")
+    sub_account_username: str = Field(alias="subAccountUsername")
+    sub_account_role: Role = Field(alias="subAccountRole")
+    linked_at: datetime = Field(alias="linkedAt")
+    password_reset: bool = Field(alias="passwordReset")
+
+    model_config = {"populate_by_name": True}
+
+
+class SubAccountListResponse(BaseModel):
+    """Response listing all sub-accounts of a user."""
+
+    parent_user_id: str = Field(alias="parentUserId")
+    sub_accounts: list[SubAccountInfo] = Field(alias="subAccounts")
+    total: int
+
+    model_config = {"populate_by_name": True}
+
+
 class TemporaryRole(BaseModel):
     """Temporary role grant for a user."""
 
@@ -109,15 +184,15 @@ class RefreshTokenRequest(BaseModel):
 class UserRegistrationRequest(BaseModel):
     """User registration request (open endpoint)."""
 
-    username: str = Field(
+    username: str | None = Field(
+        default=None,
         min_length=3,
         max_length=32,
-        pattern=r"^[a-z0-9_-]{3,32}$",
         description="Unique username (lowercase alphanumeric, hyphens, underscores)",
     )
-    email: EmailStr
-    password: str = Field(min_length=8)
-    role: Role = Field(description="Requested role (admin, operator, viewer, family)")
+    email: EmailStr | None = None
+    password: str | None = Field(default=None, min_length=8)
+    role: Role = Field(description="Requested role (admin, operator, viewer, family, agent)")
     registration_token: str | None = Field(
         default=None,
         alias="registrationToken",
@@ -126,12 +201,35 @@ class UserRegistrationRequest(BaseModel):
 
     model_config = {"populate_by_name": True}
 
-    @field_validator("role")
-    @classmethod
-    def validate_role(cls, v: Role) -> Role:
-        if v == Role.AGENT:
-            raise ValueError("Cannot register as agent role")
-        return v
+    @model_validator(mode="after")
+    def validate_registration_fields(self) -> "UserRegistrationRequest":
+        if self.role == Role.AGENT:
+            if self.username:
+                if not (
+                    validate_agent_username(self.username)
+                    or re.fullmatch(r"^[a-z0-9_-]{3,32}$", self.username)
+                ):
+                    raise ValueError(
+                        "Agent username must be lowercase alphanumeric, hyphens, or underscores "
+                        "(3-32 chars)"
+                    )
+            if self.password and len(self.password) < 8:
+                raise ValueError("Password must be at least 8 characters")
+            return self
+
+        if not self.username:
+            raise ValueError("Username is required")
+        if not re.fullmatch(r"^[a-z0-9_-]{3,32}$", self.username):
+            raise ValueError(
+                "Username must be lowercase alphanumeric, hyphens, or underscores (3-32 chars)"
+            )
+        if not self.email:
+            raise ValueError("Email is required")
+        if not self.password:
+            raise ValueError("Password is required")
+        if len(self.password) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        return self
 
 
 class CreateRegistrationTokenRequest(BaseModel):
@@ -163,10 +261,6 @@ class CreateRegistrationTokenRequest(BaseModel):
     @field_validator("allowed_roles")
     @classmethod
     def validate_allowed_roles(cls, v: list[Role] | None) -> list[Role] | None:
-        if v:
-            for role in v:
-                if role == Role.AGENT:
-                    raise ValueError("Cannot allow agent role in registration token")
         return v
 
 
@@ -177,7 +271,7 @@ class NodeRegistrationRequest(BaseModel):
         alias="nodeId",
         min_length=3,
         max_length=64,
-        pattern=r"^[a-z0-9][a-z0-9.-]{2,63}$",
+        description=f"Node ID must match pattern: {NODE_ID_PATTERN_NEW}",
     )
     node_class: Literal["compute", "networking", "iot"] = Field(alias="class")
     node_type: Literal["physical", "logical"] = Field(alias="type")
@@ -188,12 +282,29 @@ class NodeRegistrationRequest(BaseModel):
     parent_node_id: str | None = Field(default=None, alias="parentNodeId")
     location: dict | None = None
 
+    model_config = {"populate_by_name": True}
+
+    @field_validator("node_id")
+    @classmethod
+    def validate_node_id(cls, v: str) -> str:
+        """Validate node ID with strict validation."""
+        is_valid, warning = validate_node_id(v, strict=True)
+        if not is_valid:
+            raise ValueError(
+                f"Invalid node ID format. Must match: {NODE_ID_PATTERN_NEW}."
+            )
+        return v
+
     @field_validator("tags")
     @classmethod
     def validate_tags(cls, v: list[str]) -> list[str]:
+        """Validate tags match the required pattern."""
         for tag in v:
-            if not tag or len(tag) > 64:
-                raise ValueError(f"Invalid tag: {tag}")
+            if not validate_tag(tag):
+                raise ValueError(
+                    f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN} "
+                    f"and be max 64 characters."
+                )
         return v
 
 
@@ -220,6 +331,15 @@ class CreateUserRequest(BaseModel):
     role: Role = Role.VIEWER
     permissions: list[str] = Field(default_factory=list)
     preferences: dict = Field(default_factory=dict)
+
+    model_config = {"populate_by_name": True}
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: Role) -> Role:
+        if v == Role.AGENT:
+            raise ValueError("Cannot create agent users via admin create user endpoint")
+        return v
 
 
 class ApproveUserRequest(BaseModel):
@@ -332,12 +452,18 @@ class UserRegistrationResponse(BaseModel):
 
     user_id: str = Field(alias="userId")
     username: str
-    email: str
+    email: str | None = None
     role: Role
     status: UserStatus
     is_bootstrap: bool | None = Field(default=None, alias="isBootstrap")
     message: str | None = None
     created_at: datetime = Field(alias="createdAt")
+    is_system_account: bool | None = Field(default=None, alias="isSystemAccount")
+    parent_user_id: str | None = Field(default=None, alias="parentUserId")
+    api_key: str | None = Field(default=None, alias="apiKey")
+    api_key_id: str | None = Field(default=None, alias="apiKeyId")
+    api_key_expires_at: datetime | None = Field(default=None, alias="apiKeyExpiresAt")
+    password: str | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -377,6 +503,45 @@ class RegistrationTokenResponse(BaseModel):
     used_count: int = Field(default=0, alias="usedCount")
     allowed_roles: list[Role] | None = Field(default=None, alias="allowedRoles")
     created_by: str = Field(alias="createdBy")
+
+    model_config = {"populate_by_name": True}
+
+
+class RegistrationTokenUsage(BaseModel):
+    """Registration token usage record."""
+
+    entity_id: str = Field(alias="entityId")
+    entity_type: str = Field(alias="entityType")
+    used_at: datetime = Field(alias="usedAt")
+
+    model_config = {"populate_by_name": True}
+
+
+class RegistrationTokenListItem(BaseModel):
+    """Registration token list item (without actual token value for security)."""
+
+    token_id: str = Field(alias="tokenId", description="Masked token identifier (last 8 chars)")
+    scope: TokenScope
+    description: str | None = None
+    expires_at: datetime = Field(alias="expiresAt")
+    max_uses: int | None = Field(alias="maxUses")
+    used_count: int = Field(alias="usedCount")
+    used_by: list[RegistrationTokenUsage] = Field(default_factory=list, alias="usedBy")
+    allowed_roles: list[Role] | None = Field(default=None, alias="allowedRoles")
+    created_by: str = Field(alias="createdBy")
+    created_at: datetime = Field(alias="createdAt")
+    is_active: bool = Field(alias="isActive", description="Whether token is still usable")
+
+    model_config = {"populate_by_name": True}
+
+
+class RegistrationTokenListResponse(BaseModel):
+    """List of registration tokens response."""
+
+    tokens: list[RegistrationTokenListItem]
+    total: int
+    limit: int
+    offset: int
 
     model_config = {"populate_by_name": True}
 
@@ -536,6 +701,11 @@ class UserDetailResponse(BaseModel):
     registered_nodes: list[str] = Field(default_factory=list, alias="registeredNodes")
     preferences: dict = Field(default_factory=dict)
     status: UserStatus
+    # Sub-account fields
+    is_system_account: bool = Field(default=False, alias="isSystemAccount")
+    parent_user_id: str | None = Field(default=None, alias="parentUserId")
+    sub_accounts: list[SubAccountInfo] = Field(default_factory=list, alias="subAccounts")
+    # Timestamps
     last_login: datetime | None = Field(alias="lastLogin")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")

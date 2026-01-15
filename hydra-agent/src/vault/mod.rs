@@ -1,0 +1,611 @@
+//! Credential vault for secure storage of authentication data.
+//!
+//! The vault stores credentials with platform-specific paths:
+//! - Unix: `/var/cv/hydra/`
+//! - Windows: `C:\ProgramData\Hydra\vault\`
+//!
+//! Files in the vault:
+//! - `.creds` - Agent credentials (username, password, user_id)
+//! - `.apikey` - API key details
+//! - `.session` - Current JWT session (for logged-in admin/operator)
+//!
+//! ## Environment Variable Caching
+//!
+//! Credentials can be cached in environment variables for quick access:
+//! - `HYDRA_API_KEY` - API key for authentication
+//! - `HYDRA_AGENT_USER` - Agent username
+//! - `HYDRA_AGENT_PWD` - Agent password
+//!
+//! When reading credentials, environment variables are checked first before
+//! falling back to vault files. This enables faster access in service contexts.
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use tracing::{debug, info, warn};
+
+use crate::platform::paths;
+
+/// Environment variable names for credential caching
+pub const ENV_API_KEY: &str = "HYDRA_API_KEY";
+pub const ENV_AGENT_USER: &str = "HYDRA_AGENT_USER";
+pub const ENV_AGENT_PWD: &str = "HYDRA_AGENT_PWD";
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
+/// Get the default vault directory path for the current platform
+pub fn default_vault_dir() -> PathBuf {
+    paths::default_vault_dir()
+}
+
+/// Default vault directory path (for backwards compatibility)
+pub const VAULT_DIR: &str = {
+    #[cfg(unix)]
+    {
+        "/var/cv/hydra"
+    }
+    #[cfg(windows)]
+    {
+        r"C:\ProgramData\Hydra\vault"
+    }
+};
+
+/// Agent credentials stored after registration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCredentials {
+    /// Agent user ID
+    pub user_id: String,
+    /// Agent username (e.g., agent-ABC12345)
+    pub username: String,
+    /// Agent password (auto-generated)
+    pub password: Option<String>,
+    /// Parent user ID who created this agent
+    pub parent_user_id: String,
+    /// When the agent was created
+    pub created_at: String,
+}
+
+/// API key stored for authentication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKeyData {
+    /// API key value (hyk_agent_...)
+    pub api_key: String,
+    /// API key ID for reference
+    pub api_key_id: String,
+    /// When the API key expires
+    pub expires_at: Option<String>,
+    /// Node ID this key is associated with (if any)
+    pub node_id: Option<String>,
+    /// When the key was created/stored
+    pub stored_at: String,
+}
+
+/// JWT session for logged-in admin/operator user
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionData {
+    /// Access token (JWT)
+    pub access_token: String,
+    /// Refresh token
+    pub refresh_token: String,
+    /// Token type (Bearer)
+    pub token_type: String,
+    /// When the access token expires (Unix timestamp)
+    pub expires_at: i64,
+    /// Username of the logged-in user
+    pub username: String,
+    /// User ID
+    pub user_id: String,
+    /// User role
+    pub role: String,
+}
+
+/// Node registration data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeRegistrationData {
+    /// Registered node ID
+    pub node_id: String,
+    /// When the node was registered
+    pub registered_at: String,
+    /// Who registered the node
+    pub registered_by: String,
+    /// Node status
+    pub status: String,
+}
+
+/// Credential vault for secure storage
+#[derive(Clone)]
+pub struct Vault {
+    /// Base directory for vault storage
+    base_path: PathBuf,
+}
+
+impl Default for Vault {
+    fn default() -> Self {
+        Self::new(VAULT_DIR)
+    }
+}
+
+impl Vault {
+    /// Create a new vault instance with the specified base path
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        Self {
+            base_path: path.as_ref().to_path_buf(),
+        }
+    }
+
+    /// Ensure vault directory exists with proper permissions
+    pub fn ensure_directory(&self) -> Result<()> {
+        if !self.base_path.exists() {
+            fs::create_dir_all(&self.base_path)
+                .with_context(|| format!("Failed to create vault directory: {}", self.base_path.display()))?;
+
+            // Set platform-specific secure permissions
+            #[cfg(unix)]
+            {
+                // Set directory permissions to 700 (owner only)
+                fs::set_permissions(&self.base_path, fs::Permissions::from_mode(0o700))?;
+            }
+
+            #[cfg(windows)]
+            {
+                // Set ACL to allow only Administrators and SYSTEM
+                use crate::platform::windows::WindowsPermissions;
+                use crate::platform::FilePermissions;
+                let perms = WindowsPermissions;
+                if let Err(e) = perms.set_dir_owner_only(&self.base_path) {
+                    warn!("Failed to set Windows ACL on vault directory: {}", e);
+                    // Continue anyway - directory was created
+                }
+            }
+
+            info!("Created vault directory: {}", self.base_path.display());
+        }
+
+        Ok(())
+    }
+
+    /// Get the path to a file in the vault
+    fn file_path(&self, filename: &str) -> PathBuf {
+        self.base_path.join(filename)
+    }
+
+    /// Get vault base path (for related metadata files)
+    pub fn base_path(&self) -> PathBuf {
+        self.base_path.clone()
+    }
+
+    /// Write data to a vault file with proper permissions
+    fn write_file<T: Serialize>(&self, filename: &str, data: &T) -> Result<()> {
+        self.ensure_directory()?;
+
+        let path = self.file_path(filename);
+        let contents = serde_json::to_string_pretty(data)?;
+
+        fs::write(&path, &contents)
+            .with_context(|| format!("Failed to write vault file: {}", path.display()))?;
+
+        // Set platform-specific secure permissions
+        #[cfg(unix)]
+        {
+            // Set file permissions to 600 (owner read/write only)
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        }
+
+        #[cfg(windows)]
+        {
+            // Set ACL to allow only Administrators and SYSTEM
+            use crate::platform::windows::WindowsPermissions;
+            use crate::platform::FilePermissions;
+            let perms = WindowsPermissions;
+            if let Err(e) = perms.set_owner_only(&path) {
+                warn!("Failed to set Windows ACL on vault file: {}", e);
+                // Continue anyway - file was written
+            }
+        }
+
+        debug!("Wrote vault file: {}", path.display());
+        Ok(())
+    }
+
+    /// Read data from a vault file
+    fn read_file<T: for<'de> Deserialize<'de>>(&self, filename: &str) -> Result<Option<T>> {
+        let path = self.file_path(filename);
+
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let contents = fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read vault file: {}", path.display()))?;
+
+        let data: T = serde_json::from_str(&contents)
+            .with_context(|| format!("Failed to parse vault file: {}", path.display()))?;
+
+        Ok(Some(data))
+    }
+
+    /// Delete a vault file
+    fn delete_file(&self, filename: &str) -> Result<()> {
+        let path = self.file_path(filename);
+
+        if path.exists() {
+            fs::remove_file(&path)
+                .with_context(|| format!("Failed to delete vault file: {}", path.display()))?;
+            debug!("Deleted vault file: {}", path.display());
+        }
+
+        Ok(())
+    }
+
+    // ==================== Agent Credentials ====================
+
+    /// Save agent credentials
+    pub fn save_agent_credentials(&self, creds: &AgentCredentials) -> Result<()> {
+        self.write_file(".creds", creds)
+    }
+
+    /// Load agent credentials
+    pub fn load_agent_credentials(&self) -> Result<Option<AgentCredentials>> {
+        self.read_file(".creds")
+    }
+
+    /// Check if agent credentials exist
+    pub fn has_agent_credentials(&self) -> bool {
+        self.file_path(".creds").exists()
+    }
+
+    /// Delete agent credentials
+    pub fn delete_agent_credentials(&self) -> Result<()> {
+        self.delete_file(".creds")
+    }
+
+    // ==================== API Key ====================
+
+    /// Save API key
+    pub fn save_api_key(&self, api_key: &ApiKeyData) -> Result<()> {
+        self.write_file(".apikey", api_key)
+    }
+
+    /// Load API key
+    pub fn load_api_key(&self) -> Result<Option<ApiKeyData>> {
+        self.read_file(".apikey")
+    }
+
+    /// Check if API key exists
+    pub fn has_api_key(&self) -> bool {
+        self.file_path(".apikey").exists()
+    }
+
+    /// Delete API key
+    pub fn delete_api_key(&self) -> Result<()> {
+        self.delete_file(".apikey")
+    }
+
+    /// Check if API key is expired
+    pub fn is_api_key_expired(&self) -> Result<bool> {
+        if let Some(api_key) = self.load_api_key()? {
+            if let Some(expires_at) = &api_key.expires_at {
+                // Parse ISO 8601 timestamp and compare
+                if let Ok(expiry) = chrono::DateTime::parse_from_rfc3339(expires_at) {
+                    return Ok(expiry < chrono::Utc::now());
+                }
+            }
+            // No expiry set means never expires
+            return Ok(false);
+        }
+        // No API key means "expired" in a sense
+        Ok(true)
+    }
+
+    /// Check if API key expires within the given number of days
+    pub fn api_key_expires_within(&self, days: i64) -> Result<bool> {
+        if let Some(api_key) = self.load_api_key()? {
+            if let Some(expires_at) = &api_key.expires_at {
+                if let Ok(expiry) = chrono::DateTime::parse_from_rfc3339(expires_at) {
+                    let threshold = chrono::Utc::now() + chrono::Duration::days(days);
+                    return Ok(expiry < threshold);
+                }
+            }
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    // ==================== Session ====================
+
+    /// Save session data
+    pub fn save_session(&self, session: &SessionData) -> Result<()> {
+        self.write_file(".session", session)
+    }
+
+    /// Load session data
+    pub fn load_session(&self) -> Result<Option<SessionData>> {
+        self.read_file(".session")
+    }
+
+    /// Check if session exists
+    pub fn has_session(&self) -> bool {
+        self.file_path(".session").exists()
+    }
+
+    /// Delete session
+    pub fn delete_session(&self) -> Result<()> {
+        self.delete_file(".session")
+    }
+
+    /// Check if current session is valid (not expired)
+    pub fn is_session_valid(&self) -> Result<bool> {
+        if let Some(session) = self.load_session()? {
+            let now = chrono::Utc::now().timestamp();
+            // Consider valid if we have at least 60 seconds before expiry
+            return Ok(session.expires_at > now + 60);
+        }
+        Ok(false)
+    }
+
+    /// Get access token if session is valid
+    pub fn get_valid_access_token(&self) -> Result<Option<String>> {
+        if self.is_session_valid()? {
+            if let Some(session) = self.load_session()? {
+                return Ok(Some(session.access_token));
+            }
+        }
+        Ok(None)
+    }
+
+    // ==================== Node Registration ====================
+
+    /// Save node registration data
+    pub fn save_node_registration(&self, data: &NodeRegistrationData) -> Result<()> {
+        self.write_file(".node", data)
+    }
+
+    /// Load node registration data
+    pub fn load_node_registration(&self) -> Result<Option<NodeRegistrationData>> {
+        self.read_file(".node")
+    }
+
+    /// Check if node is registered
+    pub fn has_node_registration(&self) -> bool {
+        self.file_path(".node").exists()
+    }
+
+    /// Delete node registration data
+    pub fn delete_node_registration(&self) -> Result<()> {
+        self.delete_file(".node")
+    }
+
+    // ==================== Combined Operations ====================
+
+    /// Get the current API key for requests.
+    /// Checks environment variable first, then falls back to vault file.
+    pub fn get_api_key(&self) -> Result<Option<String>> {
+        // Check environment variable first (fast path)
+        if let Ok(api_key) = env::var(ENV_API_KEY) {
+            if !api_key.is_empty() {
+                debug!("Using API key from environment variable");
+                return Ok(Some(api_key));
+            }
+        }
+
+        // Fall back to vault file
+        if let Some(api_key) = self.load_api_key()? {
+            if !self.is_api_key_expired()? {
+                return Ok(Some(api_key.api_key));
+            }
+            warn!("API key is expired");
+        }
+        Ok(None)
+    }
+
+    /// Get authentication header value (API key or Bearer token).
+    /// Checks environment variables first for fast access in service contexts.
+    pub fn get_auth_header(&self) -> Result<Option<(String, String)>> {
+        // Prefer API key over session token
+        if let Some(api_key) = self.get_api_key()? {
+            return Ok(Some(("X-API-Key".to_string(), api_key)));
+        }
+
+        // Fall back to session token
+        if let Some(token) = self.get_valid_access_token()? {
+            return Ok(Some(("Authorization".to_string(), format!("Bearer {}", token))));
+        }
+
+        Ok(None)
+    }
+
+    /// Get agent username from environment or vault.
+    pub fn get_agent_username(&self) -> Result<Option<String>> {
+        // Check environment variable first
+        if let Ok(username) = env::var(ENV_AGENT_USER) {
+            if !username.is_empty() {
+                debug!("Using agent username from environment variable");
+                return Ok(Some(username));
+            }
+        }
+
+        // Fall back to vault file
+        if let Some(creds) = self.load_agent_credentials()? {
+            return Ok(Some(creds.username));
+        }
+        Ok(None)
+    }
+
+    /// Get agent password from environment or vault.
+    pub fn get_agent_password(&self) -> Result<Option<String>> {
+        // Check environment variable first
+        if let Ok(password) = env::var(ENV_AGENT_PWD) {
+            if !password.is_empty() {
+                debug!("Using agent password from environment variable");
+                return Ok(Some(password));
+            }
+        }
+
+        // Fall back to vault file
+        if let Some(creds) = self.load_agent_credentials()? {
+            return Ok(creds.password);
+        }
+        Ok(None)
+    }
+
+    /// Export credentials to environment variables.
+    /// Use in service context for fast access. Returns the exported variables.
+    pub fn export_to_env(&self) -> Result<Vec<(String, String)>> {
+        let mut exported = Vec::new();
+
+        // Export API key
+        if let Some(api_key_data) = self.load_api_key()? {
+            if !self.is_api_key_expired()? {
+                env::set_var(ENV_API_KEY, &api_key_data.api_key);
+                exported.push((ENV_API_KEY.to_string(), api_key_data.api_key));
+                debug!("Exported API key to environment");
+            }
+        }
+
+        // Export agent credentials
+        if let Some(creds) = self.load_agent_credentials()? {
+            env::set_var(ENV_AGENT_USER, &creds.username);
+            exported.push((ENV_AGENT_USER.to_string(), creds.username.clone()));
+            debug!("Exported agent username to environment");
+
+            if let Some(password) = &creds.password {
+                env::set_var(ENV_AGENT_PWD, password);
+                exported.push((ENV_AGENT_PWD.to_string(), password.clone()));
+                debug!("Exported agent password to environment");
+            }
+        }
+
+        Ok(exported)
+    }
+
+    /// Clear environment variable cache.
+    pub fn clear_env_cache(&self) {
+        env::remove_var(ENV_API_KEY);
+        env::remove_var(ENV_AGENT_USER);
+        env::remove_var(ENV_AGENT_PWD);
+        debug!("Cleared environment variable cache");
+    }
+
+    /// Check if credentials are available from environment variables.
+    pub fn has_env_credentials(&self) -> bool {
+        env::var(ENV_API_KEY).map(|v| !v.is_empty()).unwrap_or(false)
+    }
+
+    /// Clear all vault data
+    pub fn clear_all(&self) -> Result<()> {
+        self.delete_agent_credentials()?;
+        self.delete_api_key()?;
+        self.delete_session()?;
+        self.delete_node_registration()?;
+        self.clear_env_cache();
+        info!("Cleared all vault data");
+        Ok(())
+    }
+
+    /// Get vault status summary
+    pub fn status(&self) -> VaultStatus {
+        VaultStatus {
+            has_agent_credentials: self.has_agent_credentials(),
+            has_api_key: self.has_api_key(),
+            has_session: self.has_session(),
+            has_node_registration: self.has_node_registration(),
+            api_key_expired: self.is_api_key_expired().unwrap_or(true),
+            session_valid: self.is_session_valid().unwrap_or(false),
+            has_env_credentials: self.has_env_credentials(),
+        }
+    }
+}
+
+/// Summary of vault status
+#[derive(Debug, Clone)]
+pub struct VaultStatus {
+    pub has_agent_credentials: bool,
+    pub has_api_key: bool,
+    pub has_session: bool,
+    pub has_node_registration: bool,
+    pub api_key_expired: bool,
+    pub session_valid: bool,
+    pub has_env_credentials: bool,
+}
+
+impl std::fmt::Display for VaultStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Vault Status:")?;
+        writeln!(f, "  Agent credentials: {}", if self.has_agent_credentials { "present" } else { "not found" })?;
+        writeln!(f, "  API key: {}",
+            if self.has_api_key {
+                if self.api_key_expired { "expired" } else { "valid" }
+            } else {
+                "not found"
+            }
+        )?;
+        writeln!(f, "  Session: {}",
+            if self.has_session {
+                if self.session_valid { "active" } else { "expired" }
+            } else {
+                "not found"
+            }
+        )?;
+        writeln!(f, "  Node registration: {}", if self.has_node_registration { "registered" } else { "not registered" })?;
+        writeln!(f, "  Env cache: {}", if self.has_env_credentials { "active" } else { "not cached" })?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_vault_operations() {
+        let temp_dir = TempDir::new().unwrap();
+        let vault = Vault::new(temp_dir.path());
+
+        // Test agent credentials
+        let creds = AgentCredentials {
+            user_id: "user_123".to_string(),
+            username: "agent-TEST1234".to_string(),
+            password: Some("secret123".to_string()),
+            parent_user_id: "user_admin".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+
+        vault.save_agent_credentials(&creds).unwrap();
+        assert!(vault.has_agent_credentials());
+
+        let loaded = vault.load_agent_credentials().unwrap().unwrap();
+        assert_eq!(loaded.username, "agent-TEST1234");
+
+        vault.delete_agent_credentials().unwrap();
+        assert!(!vault.has_agent_credentials());
+    }
+
+    #[test]
+    fn test_api_key_operations() {
+        let temp_dir = TempDir::new().unwrap();
+        let vault = Vault::new(temp_dir.path());
+
+        let api_key = ApiKeyData {
+            api_key: "hyk_agent_test123".to_string(),
+            api_key_id: "key_123".to_string(),
+            expires_at: Some("2099-12-31T23:59:59Z".to_string()),
+            node_id: Some("test-node".to_string()),
+            stored_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+
+        vault.save_api_key(&api_key).unwrap();
+        assert!(vault.has_api_key());
+        assert!(!vault.is_api_key_expired().unwrap());
+
+        let loaded = vault.load_api_key().unwrap().unwrap();
+        assert_eq!(loaded.api_key, "hyk_agent_test123");
+    }
+}

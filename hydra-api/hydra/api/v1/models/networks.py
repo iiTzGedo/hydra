@@ -6,6 +6,17 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from hydra.api.v1.core.validators import (
+    CIDR_PATTERN,
+    IPV4_PATTERN,
+    NETWORK_ID_PATTERN,
+    TAG_PATTERN,
+    validate_cidr,
+    validate_ipv4,
+    validate_network_id,
+    validate_tag,
+)
+
 
 class NetworkType(str, Enum):
     """Network type."""
@@ -37,6 +48,15 @@ class DhcpConfig(BaseModel):
     range_start: str | None = Field(default=None, alias="rangeStart")
     range_end: str | None = Field(default=None, alias="rangeEnd")
     server_node_id: str | None = Field(default=None, alias="serverNodeId")
+
+    @field_validator("range_start", "range_end")
+    @classmethod
+    def validate_ranges(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not validate_ipv4(v):
+            raise ValueError(f"Invalid IPv4 address. Must match pattern: {IPV4_PATTERN}")
+        return v
 
 
 class DnsConfig(BaseModel):
@@ -146,10 +166,26 @@ class CreateNetworkRequest(BaseModel):
     @field_validator("network_id")
     @classmethod
     def validate_network_id(cls, v: str) -> str:
-        import re
+        if not validate_network_id(v):
+            raise ValueError(f"Network ID must match pattern: {NETWORK_ID_PATTERN}")
+        return v
 
-        if not re.match(r"^[a-z0-9][a-z0-9.-]*$", v):
-            raise ValueError("Network ID must be lowercase alphanumeric with dots and hyphens")
+    @field_validator("cidr")
+    @classmethod
+    def validate_cidr(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not validate_cidr(v):
+            raise ValueError(f"Invalid CIDR format. Must match pattern: {CIDR_PATTERN}")
+        return v
+
+    @field_validator("gateway_v4")
+    @classmethod
+    def validate_gateway_v4(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not validate_ipv4(v):
+            raise ValueError(f"Invalid IPv4 address. Must match pattern: {IPV4_PATTERN}")
         return v
 
     @field_validator("tags")
@@ -157,8 +193,10 @@ class CreateNetworkRequest(BaseModel):
     def validate_tags(cls, v: list[str] | None) -> list[str] | None:
         if v is not None:
             for tag in v:
-                if not tag or len(tag) > 64:
-                    raise ValueError(f"Invalid tag: {tag}")
+                if not validate_tag(tag):
+                    raise ValueError(
+                        f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}"
+                    )
         return v
 
 
@@ -176,13 +214,24 @@ class UpdateNetworkRequest(BaseModel):
     dns: DnsConfig | None = None
     tags: list[str] | None = None
 
+    @field_validator("gateway_v4")
+    @classmethod
+    def validate_gateway_v4(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not validate_ipv4(v):
+            raise ValueError(f"Invalid IPv4 address. Must match pattern: {IPV4_PATTERN}")
+        return v
+
     @field_validator("tags")
     @classmethod
     def validate_tags(cls, v: list[str] | None) -> list[str] | None:
         if v is not None:
             for tag in v:
-                if not tag or len(tag) > 64:
-                    raise ValueError(f"Invalid tag: {tag}")
+                if not validate_tag(tag):
+                    raise ValueError(
+                        f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}"
+                    )
         return v
 
 
@@ -211,3 +260,22 @@ class NetworkListParams(BaseModel):
         default="updatedAt", alias="sortBy"
     )
     sort_order: Literal["asc", "desc"] = Field(default="desc", alias="sortOrder")
+
+    @field_validator("cidr")
+    @classmethod
+    def validate_cidr(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not validate_cidr(v):
+            raise ValueError(f"Invalid CIDR format. Must match pattern: {CIDR_PATTERN}")
+        return v
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        for tag in v:
+            if not validate_tag(tag):
+                raise ValueError(f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}")
+        return v

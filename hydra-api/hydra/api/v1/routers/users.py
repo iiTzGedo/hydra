@@ -14,6 +14,7 @@ from hydra.api.v1.models.auth import (
     GrantTemporaryRoleRequest,
     Role,
     RoleElevationResponse,
+    SubAccountListResponse,
     TemporaryRole,
     TemporaryRoleGrantResponse,
     TemporaryRoleRevokeResponse,
@@ -50,6 +51,40 @@ async def list_users(
         total=result["total"],
         limit=result["limit"],
         offset=result["offset"],
+    )
+
+
+@router.get(
+    "/{userId}/subs",
+    response_model=SubAccountListResponse,
+    summary="List Sub-Accounts",
+    description="List sub-accounts for a user (self or admin).",
+)
+async def list_sub_accounts(
+    users_service: UsersServiceDep,
+    current_user: CurrentUser,
+    userId: str = Path(description="User ID to list sub-accounts for"),
+) -> SubAccountListResponse:
+    """List sub-accounts for a user."""
+    if current_user.get("type") == "agent":
+        raise AuthorizationError()
+
+    if current_user.get("user_id") != userId and current_user.get("role") != Role.ADMIN.value:
+        raise AuthorizationError()
+
+    result = await users_service.list_sub_accounts(userId)
+    return SubAccountListResponse(
+        parent_user_id=result["parent_user_id"],
+        sub_accounts=[
+            {
+                "user_id": sub["user_id"],
+                "username": sub["username"],
+                "role": Role(sub["role"]),
+                "created_at": sub["created_at"],
+            }
+            for sub in result["sub_accounts"]
+        ],
+        total=result["total"],
     )
 
 

@@ -28,6 +28,7 @@ async def test_submit_profile_success(
         "/api/v1/profiles",
         json={
             "nodeId": sample_node["nodeId"],
+            "version": "E0-0.0.0.1",
             "collectedAt": now.isoformat(),
             "agentVersion": "0.1.0",
             "collectionLevel": "neutral",
@@ -95,6 +96,7 @@ async def test_submit_profile_increments_version(
         "/api/v1/profiles",
         json={
             "nodeId": sample_node["nodeId"],
+            "version": "E0-0.0.1.0",
             "collectedAt": now.isoformat(),
             "agentVersion": "0.1.0",
             "hardware": {
@@ -107,8 +109,7 @@ async def test_submit_profile_increments_version(
 
     assert response.status_code == 200
     data = response.json()
-    # Version should be higher than E0-0.0.0.5
-    assert data["data"]["version"] > "E0-0.0.0.5"
+    assert data["data"]["version"] == "E0-0.0.1.0"
 
 
 @pytest.mark.asyncio
@@ -125,6 +126,7 @@ async def test_submit_profile_node_not_found(
         "/api/v1/profiles",
         json={
             "nodeId": "non-existent-node",
+            "version": "E0-0.0.0.1",
             "collectedAt": now.isoformat(),
             "agentVersion": "0.1.0",
         },

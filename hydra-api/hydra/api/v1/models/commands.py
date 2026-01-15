@@ -4,7 +4,14 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from hydra.api.v1.core.validators import (
+    NODE_ID_PATTERN_NEW,
+    SERVICE_ID_PATTERN,
+    validate_node_id_strict,
+    validate_service_id,
+)
 
 
 class CommandType(str, Enum):
@@ -61,6 +68,22 @@ class CommandTarget(BaseModel):
     ]
 
     model_config = {"populate_by_name": True}
+
+    @field_validator("node_id")
+    @classmethod
+    def validate_node_id(cls, v: str) -> str:
+        if not validate_node_id_strict(v):
+            raise ValueError(f"Invalid node ID format. Must match pattern: {NODE_ID_PATTERN_NEW}")
+        return v
+
+    @field_validator("service_id")
+    @classmethod
+    def validate_service_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not validate_service_id(v):
+            raise ValueError(f"Invalid service ID format. Must match pattern: {SERVICE_ID_PATTERN}")
+        return v
 
 
 class CommandResult(BaseModel):

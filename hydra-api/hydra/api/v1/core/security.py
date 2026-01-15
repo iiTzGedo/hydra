@@ -4,23 +4,27 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+from argon2 import PasswordHasher
+from argon2.exceptions import VerificationError
 
 from hydra.core.config import Settings, get_settings
 from hydra.api.v1.core.exceptions import InvalidTokenError
 
 # Password hashing context
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+pwd_hasher = PasswordHasher()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_hasher.verify(hashed_password, plain_password)
+    except VerificationError:
+        return False
 
 
 def hash_password(password: str) -> str:
     """Hash a password."""
-    return pwd_context.hash(password)
+    return pwd_hasher.hash(password)
 
 
 def create_access_token(

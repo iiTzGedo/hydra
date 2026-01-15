@@ -297,7 +297,7 @@ async def list_messages(
     sessionId: str = Path(description="Session ID"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    order: str = Query(default="asc", regex="^(asc|desc)$"),
+    order: str = Query(default="asc", pattern="^(asc|desc)$"),
 ) -> ChatMessageListResponse:
     """List messages in a chat session."""
     _check_not_agent(current_user)

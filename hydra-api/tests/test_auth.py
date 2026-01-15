@@ -169,3 +169,291 @@ async def test_access_without_token(client: AsyncClient):
     response = await client.get("/api/v1/auth/me")
 
     assert response.status_code == 401
+
+
+# ==================== Sub-Account Tests ====================
+
+
+@pytest.mark.asyncio
+async def test_register_agent_success(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+):
+    """Test successful agent account registration."""
+    admin_user = {
+        "userId": "user_admin123",
+        "username": "admin",
+        "email": "admin@example.com",
+        "role": "admin",
+        "status": "active",
+        "passwordHash": "$2b$12$test",
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        side_effect=[admin_user, admin_user, None]
+    )
+    mock_mongodb.users.insert_one = AsyncMock()
+    mock_mongodb.users.update_one = AsyncMock()
+    mock_mongodb.api_keys.insert_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/auth/register",
+        json={"role": "agent"},  # Auto-generate username and password
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["role"] == "agent"
+    assert data["isSystemAccount"] is True
+    assert data["parentUserId"] == "user_admin123"
+    assert "apiKey" in data
+    assert data["username"].startswith("agent-")
+
+
+@pytest.mark.asyncio
+async def test_register_agent_custom_username(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+):
+    """Test agent registration with custom username."""
+    admin_user = {
+        "userId": "user_admin123",
+        "username": "admin",
+        "email": "admin@example.com",
+        "role": "admin",
+        "status": "active",
+        "passwordHash": "$2b$12$test",
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        side_effect=[admin_user, admin_user, None]
+    )
+    mock_mongodb.users.insert_one = AsyncMock()
+    mock_mongodb.users.update_one = AsyncMock()
+    mock_mongodb.api_keys.insert_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/auth/register",
+        json={"role": "agent", "username": "my-custom-agent"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["username"] == "my-custom-agent"
+
+
+@pytest.mark.asyncio
+async def test_register_agent_viewer_forbidden(
+    client: AsyncClient,
+    mock_mongodb,
+    viewer_token,
+):
+    """Test that viewer cannot register agent accounts."""
+    viewer_user = {
+        "userId": "user_viewer123",
+        "username": "viewer",
+        "email": "viewer@example.com",
+        "role": "viewer",
+        "status": "active",
+        "passwordHash": "$2b$12$test",
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    mock_mongodb.users.find_one = AsyncMock(side_effect=[viewer_user, viewer_user])
+
+    response = await client.post(
+        "/api/v1/auth/register",
+        json={"role": "agent"},
+        headers={"Authorization": f"Bearer {viewer_token}"},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_list_sub_accounts(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+):
+    """Test listing sub-accounts."""
+    admin_user = {
+        "userId": "user_admin123",
+        "username": "admin",
+        "email": "admin@example.com",
+        "role": "admin",
+        "status": "active",
+        "subAccounts": [
+            {
+                "userId": "user_agent1",
+                "username": "agent-ABC123",
+                "role": "agent",
+                "createdAt": datetime.now(timezone.utc),
+            }
+        ],
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    agent_user = {
+        "userId": "user_agent1",
+        "username": "agent-ABC123",
+        "role": "agent",
+        "status": "active",
+        "isSystemAccount": True,
+        "lastLogin": None,
+        "createdAt": datetime.now(timezone.utc),
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        side_effect=[admin_user, admin_user, agent_user]
+    )
+
+    response = await client.get(
+        "/api/v1/users/user_admin123/subs",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert len(data["subAccounts"]) == 1
+    assert data["subAccounts"][0]["username"] == "agent-ABC123"
+
+
+@pytest.mark.asyncio
+async def test_link_sub_account_success(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+):
+    """Test linking an existing user as sub-account."""
+    from hydra.api.v1.core.security import hash_password
+
+    admin_user = {
+        "userId": "user_admin123",
+        "username": "admin",
+        "email": "admin@example.com",
+        "role": "admin",
+        "status": "active",
+        "passwordHash": hash_password("adminpass"),
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    family_user = {
+        "userId": "user_family123",
+        "username": "family",
+        "email": "family@example.com",
+        "role": "family",
+        "status": "active",
+        "passwordHash": hash_password("familypass"),
+        "parentUserId": None,  # No parent yet
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        side_effect=[admin_user, admin_user, family_user]
+    )
+    mock_mongodb.users.update_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/auth/register/sub/user_family123",
+        json={"password": "familypass"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["parentUserId"] == "user_admin123"
+    assert data["subAccountUserId"] == "user_family123"
+
+
+@pytest.mark.asyncio
+async def test_link_sub_account_invalid_role(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+):
+    """Test that admin/operator cannot be linked as sub-account."""
+    from hydra.api.v1.core.security import hash_password
+
+    admin_user = {
+        "userId": "user_admin123",
+        "username": "admin",
+        "email": "admin@example.com",
+        "role": "admin",
+        "status": "active",
+        "passwordHash": hash_password("adminpass"),
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    operator_user = {
+        "userId": "user_operator123",
+        "username": "operator",
+        "email": "operator@example.com",
+        "role": "operator",  # Cannot be sub-account
+        "status": "active",
+        "passwordHash": hash_password("operatorpass"),
+        "parentUserId": None,
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        side_effect=[admin_user, admin_user, operator_user]
+    )
+
+    response = await client.post(
+        "/api/v1/auth/register/sub/user_operator123",
+        json={"password": "operatorpass"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 422
+    data = response.json()
+    assert data["error"]["code"] == "INVALID_SUB_ACCOUNT_ROLE"
+
+
+@pytest.mark.asyncio
+async def test_unlink_sub_account_success(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+):
+    """Test unlinking a sub-account."""
+    admin_user = {
+        "userId": "user_admin123",
+        "username": "admin",
+        "email": "admin@example.com",
+        "role": "admin",
+        "status": "active",
+        "subAccounts": [{"userId": "user_family123"}],
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    family_user = {
+        "userId": "user_family123",
+        "username": "family",
+        "email": "family@example.com",
+        "role": "family",
+        "status": "active",
+        "parentUserId": "user_admin123",  # Linked to admin
+        "createdAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        side_effect=[admin_user, admin_user, family_user]
+    )
+    mock_mongodb.users.update_one = AsyncMock()
+
+    response = await client.delete(
+        "/api/v1/auth/sub/user_family123",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["message"] == "Sub-account unlinked successfully"

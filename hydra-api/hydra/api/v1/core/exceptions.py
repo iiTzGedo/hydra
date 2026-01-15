@@ -326,6 +326,72 @@ class TempRoleAlreadyActiveError(HydraError):
         )
 
 
+# Sub-Account Errors
+class SubAccountError(HydraError):
+    """Base error for sub-account operations."""
+
+    pass
+
+
+class CannotHaveSubAccountsError(SubAccountError):
+    """User role cannot have sub-accounts."""
+
+    def __init__(self, role: str):
+        super().__init__(
+            "CANNOT_HAVE_SUB_ACCOUNTS",
+            f"Users with role '{role}' cannot have sub-accounts. Only admin and operator can.",
+            status_code=403,
+            details={"role": role},
+        )
+
+
+class InvalidSubAccountRoleError(SubAccountError):
+    """Invalid role for sub-account."""
+
+    def __init__(self, role: str):
+        super().__init__(
+            "INVALID_SUB_ACCOUNT_ROLE",
+            f"Role '{role}' cannot be a sub-account. Only family, viewer, and agent roles can.",
+            status_code=422,
+            details={"role": role, "allowed_roles": ["family", "viewer", "agent"]},
+        )
+
+
+class AlreadyHasParentError(SubAccountError):
+    """User is already a sub-account."""
+
+    def __init__(self, user_id: str, parent_id: str):
+        super().__init__(
+            "ALREADY_HAS_PARENT",
+            f"User '{user_id}' is already a sub-account of '{parent_id}'",
+            status_code=409,
+            details={"userId": user_id, "parentUserId": parent_id},
+        )
+
+
+class NotASubAccountError(SubAccountError):
+    """User is not a sub-account."""
+
+    def __init__(self, user_id: str):
+        super().__init__(
+            "NOT_A_SUB_ACCOUNT",
+            f"User '{user_id}' is not a sub-account",
+            status_code=422,
+            details={"userId": user_id},
+        )
+
+
+class SystemAccountLoginBlockedError(AuthenticationError):
+    """System accounts cannot login via web."""
+
+    def __init__(self, username: str):
+        super().__init__(
+            "SYSTEM_ACCOUNT_LOGIN_BLOCKED",
+            f"System account '{username}' cannot login via web interface. Use API key instead.",
+            details={"username": username},
+        )
+
+
 # Rate Limit Error (429)
 class RateLimitError(HydraError):
     """Rate limit exceeded."""

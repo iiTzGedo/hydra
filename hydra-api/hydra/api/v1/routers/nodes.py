@@ -13,6 +13,8 @@ from hydra.api.v1.models.auth import (
 )
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.nodes import (
+    AgentInfo,
+    AgentListResponse,
     NodeClass,
     NodeKind,
     NodeListParams,
@@ -84,6 +86,46 @@ async def list_nodes(
     return SuccessResponse(
         data=[NodeSummary(**node) for node in nodes],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@router.get(
+    "/agents",
+    response_model=AgentListResponse,
+    summary="List Agents",
+    description="""List all registered agents (nodes with active hydra-agent installations).
+
+An agent is a node that has submitted at least one profile. Agents are considered "healthy" if they
+have submitted a profile within the last 24 hours.
+
+**Use Cases:**
+- Monitor agent deployment status across infrastructure
+- Identify agents that have stopped reporting
+- Track agent health and profile submission frequency
+""",
+    dependencies=[Depends(require_permission("nodes:read"))],
+)
+async def list_agents(
+    node_service: NodeServiceDep,
+    status: NodeStatus | None = Query(default=None, description="Filter by node status"),
+    healthy_only: bool = Query(default=False, alias="healthyOnly", description="Only show healthy agents"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> AgentListResponse:
+    """List all registered agents with health status."""
+    result = await node_service.list_agents(
+        status=status.value if status else None,
+        healthy_only=healthy_only,
+        limit=limit,
+        offset=offset,
+    )
+
+    return AgentListResponse(
+        agents=[AgentInfo(**agent) for agent in result["agents"]],
+        total=result["total"],
+        active=result["active"],
+        limit=result["limit"],
+        offset=result["offset"],
     )
 
 

@@ -58,14 +58,20 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 100
     rate_limit_window_seconds: int = 60
 
-    # Object Storage (S3/Garage) for agent binary distribution
-    # S3-compatible storage is required for agent binary distribution
+    # Object Storage (S3/Garage) for agent binary and bundle distribution
     object_storage_enabled: bool = False
     object_storage_endpoint: str | None = Field(default=None)
     object_storage_bucket: str = "hydra-bucket"
     object_storage_access_key: str | None = Field(default=None)
     object_storage_secret_key: str | None = Field(default=None)
     object_storage_region: str = "garage"
+
+    # Local Storage for agent bundle distribution (alternative to S3)
+    local_storage_enabled: bool = False
+    local_storage_path: str = Field(
+        default="/var/lib/hydra/bundles",
+        description="Local filesystem path for agent bundles",
+    )
 
     # SMTP Configuration for email (password reset, notifications)
     smtp_enabled: bool = False
@@ -104,13 +110,18 @@ class Settings(BaseSettings):
 
     @property
     def has_object_storage(self) -> bool:
-        """Check if object storage is configured."""
+        """Check if object storage (S3) is configured."""
         return (
             self.object_storage_enabled
             and self.object_storage_endpoint is not None
             and self.object_storage_access_key is not None
             and self.object_storage_secret_key is not None
         )
+
+    @property
+    def has_local_storage(self) -> bool:
+        """Check if local storage is configured for agent bundles."""
+        return self.local_storage_enabled and self.local_storage_path is not None
 
     @property
     def has_smtp(self) -> bool:

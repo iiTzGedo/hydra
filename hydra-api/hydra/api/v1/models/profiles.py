@@ -4,7 +4,14 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from hydra.api.v1.core.validators import (
+    IPV4_PATTERN,
+    PROFILE_VERSION_PATTERN,
+    validate_ipv4,
+    validate_profile_version,
+)
 
 
 class CollectionLevel(str, Enum):
@@ -74,6 +81,16 @@ class NetworkInterface(BaseModel):
     state: Literal["up", "down", "unknown"] = "unknown"
     type: str | None = None  # ethernet, wifi, bridge, etc.
     speed_mbps: int | None = Field(default=None, alias="speedMbps")
+
+    @field_validator("ipv4_addresses")
+    @classmethod
+    def validate_ipv4_addresses(cls, v: list[str]) -> list[str]:
+        for address in v:
+            if not validate_ipv4(address):
+                raise ValueError(
+                    f"Invalid IPv4 address '{address}'. Must match pattern: {IPV4_PATTERN}"
+                )
+        return v
 
 
 class NetworkRoute(BaseModel):
@@ -227,6 +244,7 @@ class ProfileSubmission(BaseModel):
     """Profile submission from agent."""
 
     node_id: str = Field(alias="nodeId")
+    version: str = Field(alias="version")
     collected_at: datetime = Field(alias="collectedAt")
     agent_version: str = Field(alias="agentVersion")
     collection_level: CollectionLevel = Field(default=CollectionLevel.NEUTRAL, alias="collectionLevel")
@@ -238,6 +256,15 @@ class ProfileSubmission(BaseModel):
     users: UsersProfile | None = None
     configs: ConfigsProfile | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, v: str) -> str:
+        if not validate_profile_version(v):
+            raise ValueError(
+                f"Invalid profile version format. Must match pattern: {PROFILE_VERSION_PATTERN}"
+            )
+        return v
 
 
 class ProfileResponse(BaseModel):

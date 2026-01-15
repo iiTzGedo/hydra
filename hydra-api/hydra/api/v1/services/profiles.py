@@ -44,8 +44,8 @@ def generate_service_id(node_id: str, runtime: str, name: str) -> str:
     hash_digest = hashlib.sha256(hash_input.encode()).hexdigest()
     hash_suffix = hash_digest[:4]  # First 4 characters of the hash
 
-    # Sanitize name: lowercase, replace underscores with hyphens, limit length
-    sanitized_name = name.lower().replace("_", "-").replace(".", "-")
+    # Sanitize name: lowercase, replace dots with hyphens, keep underscores
+    sanitized_name = name.lower().replace(".", "-")
     # Limit name length to keep service ID reasonable (max 50 chars total)
     max_name_len = 40  # svc- (4) + name + - (1) + hash (4) = 9 + name
     if len(sanitized_name) > max_name_len:
@@ -97,15 +97,22 @@ class ProfileService:
             existing = await self.db.profiles.find_one({"profileId": previous["profileId"]})
             return self._format_profile(existing)
 
-        # Calculate version
+        # Calculate expected version and enforce agent-provided version
         if previous:
-            version = self._calculate_version(
+            expected_version = self._calculate_version(
                 previous.get("version", "E0-0.0.0.0"),
                 previous.get("sectionFingerprints", {}),
                 fingerprints,
             )
         else:
-            version = "E0-0.0.0.1"
+            expected_version = "E0-0.0.0.1"
+
+        if submission.version != expected_version:
+            raise ValidationError(
+                f"Profile version mismatch. Expected {expected_version}, got {submission.version}"
+            )
+
+        version = submission.version
 
         # Create profile document
         now = datetime.now(timezone.utc)

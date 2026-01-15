@@ -5,34 +5,6 @@
 
 ---
 
-## Table of Contents
-
-1. [[#Overview|Overview]]
-2. [[#Authentication|Authentication]]
-3. [[#Health & System|Health & System]]
-4. [[#Users|Users]]
-5. [[#Nodes|Nodes]]
-6. [[#Profiles|Profiles]]
-7. [[#Services|Services]]
-8. [[#Groups|Groups]]
-9. [[#Networks|Networks]]
-10. [[#Topologies|Topologies]]
-11. [[#Time Machine|Time Machine]]
-12. [[#Commands|Commands]]
-13. [[#Documentations|Documentations]]
-14. [[#Home Assistant|Home Assistant]]
-15. [[#Query & Analytics|Query & Analytics]]
-16. [[#AI Models|AI Models]]
-17. [[#Chat|Chat]]
-18. [[#MCP Servers|MCP Servers]]
-19. [[#Global Search|Global Search]]
-20. [[#Settings|Settings]]
-21. [[#Error Codes|Error Codes]]
-22. [[#Rate Limits|Rate Limits]]
-23. [[#Appendices|Appendices]]
-
----
-
 ## Overview
 
 ### Base URL
@@ -408,40 +380,98 @@ Refresh an access token.
 
 ### POST /auth/tokens
 
-Create a new registration token (admin only).
+Create a new registration token for user or node registration.
 
 **Request Body:**
 
 ```json
 {
-  "description": "Token for new team member",
+  "scope": "node",
+  "description": "Token for server deployment",
   "expiresIn": 604800,
-  "maxUses": 1,
+  "maxUses": 10,
   "allowedRoles": ["operator", "viewer"]
 }
 ```
 
 |Field|Type|Required|Description|
 |---|---|---|---|
+|`scope`|enum|No|Token scope: `user` (default) or `node`|
 |`description`|string|No|Token description|
 |`expiresIn`|integer|No|Expiry in seconds (default: 604800 = 7 days)|
 |`maxUses`|integer|No|Max uses (null = unlimited)|
-|`allowedRoles`|string[]|No|Restrict token to specific roles (null = any)|
+|`allowedRoles`|string[]|No|Restrict token to specific roles (only for `user` scope)|
 
 **Response:** `201 Created`
 
 ```json
 {
   "token": "reg_a1b2c3d4e5f6...",
+  "scope": "node",
   "expiresAt": "2025-12-23T00:00:00Z",
-  "maxUses": 1,
+  "maxUses": 10,
   "usedCount": 0,
-  "allowedRoles": ["operator", "viewer"],
+  "allowedRoles": null,
   "createdBy": "user_admin001"
 }
 ```
 
-**Required Permission:** `admin` role only
+**Required Permission:** `tokens:create` (admin) OR `tokens:create:user`/`tokens:create:node`
+
+---
+
+### GET /auth/tokens
+
+List registration tokens created by the current user.
+
+**Query Parameters:**
+
+|Parameter|Type|Description|
+|---|---|---|
+|`scope`|enum|Filter by scope: `user` or `node`|
+|`activeOnly`|boolean|Only return active tokens (default: true)|
+|`limit`|integer|Max results (default: 50, max: 200)|
+|`offset`|integer|Pagination offset|
+
+**Response:** `200 OK`
+
+```json
+{
+  "tokens": [
+    {
+      "tokenId": "...abc12345",
+      "scope": "node",
+      "description": "Q1 server rollout",
+      "expiresAt": "2025-12-23T00:00:00Z",
+      "maxUses": 10,
+      "usedCount": 3,
+      "usedBy": [
+        {
+          "entityId": "proxmox-01",
+          "entityType": "node",
+          "usedAt": "2025-12-16T10:00:00Z"
+        },
+        {
+          "entityId": "docker-host-01",
+          "entityType": "node",
+          "usedAt": "2025-12-16T11:00:00Z"
+        }
+      ],
+      "allowedRoles": null,
+      "createdBy": "user_admin001",
+      "createdAt": "2025-12-16T09:00:00Z",
+      "isActive": true
+    }
+  ],
+  "total": 5,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Note:** For security, actual token values are masked (only last 8 characters shown as `tokenId`).
+
+**Required Permission:** Authenticated user (returns only tokens created by the current user)
 
 ---
 
@@ -991,6 +1021,7 @@ List all registered nodes.
       "displayName": "Proxmox Host 01",
       "status": "active",
       "tags": ["production", "hypervisor"],
+      "registeredBy": "user_admin001",
       "networkIds": ["homenet-lan"],
       "lastProfileAt": "2025-12-16T06:00:00Z"
     }
@@ -1000,6 +1031,101 @@ List all registered nodes.
   "offset": 0
 }
 ```
+
+**Required Permission:** `nodes:read`
+
+---
+
+### GET /nodes/agents
+
+List all registered agents (nodes with active hydra-agent installations).
+
+An agent is a node that has submitted at least one profile. Agents are considered "healthy" if they have submitted a profile within the last 24 hours.
+
+**Use Cases:**
+- Monitor agent deployment status across infrastructure
+- Identify agents that have stopped reporting
+- Track agent health and profile submission frequency
+
+**Query Parameters:**
+
+|Parameter|Type|Description|
+|---|---|---|
+|`status`|enum|Filter by status: `active`, `inactive`, `archived`, `pending`|
+|`healthyOnly`|boolean|Only return healthy agents (default: false)|
+|`limit`|integer|Max results (default: 50, max: 200)|
+|`offset`|integer|Pagination offset|
+
+**Response:** `200 OK`
+
+```json
+{
+  "agents": [
+    {
+      "nodeId": "proxmox-01",
+      "class": "compute",
+      "type": "physical",
+      "kind": "bare-metal",
+      "displayName": "Proxmox Host 01",
+      "tags": ["production", "hypervisor"],
+      "registeredBy": "user_admin001",
+      "registeredAt": "2025-12-01T10:30:00Z",
+      "status": "active",
+      "lastProfileAt": "2025-12-16T06:00:00Z",
+      "profileCount": 1452,
+      "lastProfileVersion": "E0-0.1.2.45",
+      "isHealthy": true
+    },
+    {
+      "nodeId": "nas-01",
+      "class": "compute",
+      "type": "physical",
+      "kind": "bare-metal",
+      "displayName": "TrueNAS Server",
+      "tags": ["storage"],
+      "registeredBy": "user_operator01",
+      "registeredAt": "2025-12-05T14:00:00Z",
+      "status": "active",
+      "lastProfileAt": "2025-12-14T12:00:00Z",
+      "profileCount": 856,
+      "lastProfileVersion": "E0-0.0.5.12",
+      "isHealthy": false
+    }
+  ],
+  "total": 12,
+  "active": 10,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Response Fields:**
+
+|Field|Type|Description|
+|---|---|---|
+|`agents`|array|List of agent info objects|
+|`total`|integer|Total number of agents (nodes with profiles)|
+|`active`|integer|Number of healthy agents (profiled within 24h)|
+|`limit`|integer|Pagination limit|
+|`offset`|integer|Pagination offset|
+
+**Agent Info Fields:**
+
+|Field|Type|Description|
+|---|---|---|
+|`nodeId`|string|Unique node identifier|
+|`class`|enum|Node class: `compute`, `networking`, `iot`|
+|`type`|enum|Node type: `physical`, `logical`|
+|`kind`|string|Node kind (e.g., `bare-metal`, `vm`, `lxc`)|
+|`displayName`|string|Human-readable node name|
+|`tags`|string[]|Node tags|
+|`registeredBy`|string|User ID who registered the node|
+|`registeredAt`|datetime|Registration timestamp|
+|`status`|enum|Node status|
+|`lastProfileAt`|datetime|Last profile submission timestamp|
+|`profileCount`|integer|Total profiles submitted by this agent|
+|`lastProfileVersion`|string|Version of the most recent profile|
+|`isHealthy`|boolean|True if profiled within last 24 hours|
 
 **Required Permission:** `nodes:read`
 
@@ -1035,6 +1161,7 @@ Get detailed information for a specific node.
     "rack": "main",
     "position": 1
   },
+  "registeredBy": "user_admin001",
   "registeredAt": "2025-12-01T10:30:00Z",
   "lastUpdated": "2025-12-16T08:15:00Z",
   "lastProfileAt": "2025-12-16T06:00:00Z",

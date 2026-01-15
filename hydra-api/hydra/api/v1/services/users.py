@@ -6,11 +6,15 @@ from datetime import datetime, timedelta, timezone
 import structlog
 
 from hydra.api.v1.core.exceptions import (
+    AlreadyHasParentError,
     BootstrapRequiresAdminError,
     CannotElevateAgentError,
+    CannotHaveSubAccountsError,
     EmailExistsError,
     InvalidPasswordError,
+    InvalidSubAccountRoleError,
     NodeNotFoundError,
+    NotASubAccountError,
     PasswordResetTokenError,
     PendingUserNotFoundError,
     RegistrationTokenError,
@@ -30,6 +34,8 @@ from hydra.api.v1.models.auth import (
     Role,
     ROLE_LIMITS,
     UserRegistrationRequest,
+    can_have_sub_accounts,
+    is_valid_sub_account_role,
 )
 
 logger = structlog.get_logger(__name__)
@@ -536,6 +542,7 @@ class UsersService:
                 "docs:*",
                 "commands:execute",
                 "ha:*",
+                "tokens:create",
                 "tokens:create:user",  # Can create user registration tokens (role-restricted)
                 "tokens:create:node",  # Can create node registration tokens
             ],
@@ -556,7 +563,17 @@ class UsersService:
                 "ha:control",
                 "tokens:create:user",  # Can create user registration tokens (family only)
             ],
-            Role.AGENT.value: ["profiles:write", "commands:poll"],
+            Role.AGENT.value: [
+                "profiles:write",
+                "profiles:read",
+                "nodes:create",
+                "nodes:read",
+                "nodes:update",
+                "tokens:create",
+                "tokens:read",
+                "tokens:revoke",
+                "commands:poll",
+            ],
         }
         return role_permissions.get(role, [])
 
@@ -650,6 +667,13 @@ class UsersService:
             "limit": limit,
             "offset": offset,
         }
+
+    async def is_parent_of(self, parent_user_id: str, child_user_id: str) -> bool:
+        """Check if parent_user_id is the direct parent of child_user_id."""
+        child = await self.db.users.find_one({"userId": child_user_id})
+        if not child:
+            return False
+        return child.get("parentUserId") == parent_user_id
 
     async def get_current_user(self, token_payload: dict) -> dict:
         """Get current user/agent info from token payload."""
@@ -885,3 +909,268 @@ class UsersService:
         logger.info("password_changed", user_id=user_id)
 
         return {"changed_at": now}
+
+    # ==================== Sub-Account Management ====================
+
+    async def link_sub_account(
+        self,
+        parent_user_id: str,
+        target_user_id: str,
+        target_password: str,
+        reset_password: bool = False,
+    ) -> dict:
+        """
+        Link an existing user as a sub-account of the parent user.
+
+        Args:
+            parent_user_id: User ID of the parent (admin/operator)
+            target_user_id: User ID of the target to become sub-account
+            target_password: Password of the target user (for verification)
+            reset_password: If true, reset sub-account password to match parent
+
+        Returns:
+            Sub-account linking result
+
+        Raises:
+            UserNotFoundError: If parent or target user not found
+            CannotHaveSubAccountsError: If parent role cannot have sub-accounts
+            InvalidSubAccountRoleError: If target role cannot be a sub-account
+            AlreadyHasParentError: If target already has a parent
+            InvalidPasswordError: If target password verification fails
+        """
+        # Prevent self-linking
+        if parent_user_id == target_user_id:
+            raise ValidationError("Cannot link a user as a sub-account of themselves")
+
+        # Get parent user
+        parent = await self.db.users.find_one({"userId": parent_user_id})
+        if not parent:
+            raise UserNotFoundError(parent_user_id)
+
+        # Validate parent can have sub-accounts
+        if not can_have_sub_accounts(parent["role"]):
+            raise CannotHaveSubAccountsError(parent["role"])
+        if parent.get("parentUserId"):
+            raise ValidationError("Sub-accounts cannot have sub-accounts")
+
+        # Get target user
+        target = await self.db.users.find_one({"userId": target_user_id})
+        if not target:
+            raise UserNotFoundError(target_user_id)
+
+        # Validate target role can be a sub-account
+        if not is_valid_sub_account_role(target["role"]):
+            raise InvalidSubAccountRoleError(target["role"])
+
+        # Check if target already has a parent
+        if target.get("parentUserId"):
+            raise AlreadyHasParentError(target_user_id, target["parentUserId"])
+
+        # Verify target password
+        if not verify_password(target_password, target["passwordHash"]):
+            raise InvalidPasswordError()
+
+        now = datetime.now(timezone.utc)
+
+        # Update target user with parent reference
+        update_fields = {
+            "parentUserId": parent_user_id,
+            "updatedAt": now,
+        }
+
+        # Optionally reset password to match parent
+        password_reset = False
+        if reset_password:
+            update_fields["passwordHash"] = parent["passwordHash"]
+            password_reset = True
+
+        await self.db.users.update_one(
+            {"userId": target_user_id},
+            {"$set": update_fields},
+        )
+
+        # Add to parent's sub_accounts list
+        sub_account_info = {
+            "userId": target_user_id,
+            "username": target["username"],
+            "role": target["role"],
+            "createdAt": now,
+        }
+
+        await self.db.users.update_one(
+            {"userId": parent_user_id},
+            {
+                "$push": {"subAccounts": sub_account_info},
+                "$set": {"updatedAt": now},
+            },
+        )
+
+        logger.info(
+            "sub_account_linked",
+            parent_user_id=parent_user_id,
+            sub_account_user_id=target_user_id,
+            password_reset=password_reset,
+        )
+
+        return {
+            "parent_user_id": parent_user_id,
+            "sub_account_user_id": target_user_id,
+            "sub_account_username": target["username"],
+            "sub_account_role": target["role"],
+            "linked_at": now,
+            "password_reset": password_reset,
+        }
+
+    async def unlink_sub_account(
+        self,
+        parent_user_id: str,
+        sub_account_user_id: str,
+    ) -> dict:
+        """
+        Unlink a sub-account from its parent.
+
+        Args:
+            parent_user_id: User ID of the parent
+            sub_account_user_id: User ID of the sub-account to unlink
+
+        Returns:
+            Unlinking result
+
+        Raises:
+            UserNotFoundError: If parent or sub-account not found
+            NotASubAccountError: If target is not a sub-account of parent
+        """
+        # Get parent user
+        parent = await self.db.users.find_one({"userId": parent_user_id})
+        if not parent:
+            raise UserNotFoundError(parent_user_id)
+
+        # Get sub-account user
+        sub_account = await self.db.users.find_one({"userId": sub_account_user_id})
+        if not sub_account:
+            raise UserNotFoundError(sub_account_user_id)
+
+        # Verify it's actually a sub-account of this parent
+        if sub_account.get("parentUserId") != parent_user_id:
+            raise NotASubAccountError(sub_account_user_id)
+
+        now = datetime.now(timezone.utc)
+
+        # Remove parent reference from sub-account
+        await self.db.users.update_one(
+            {"userId": sub_account_user_id},
+            {
+                "$unset": {"parentUserId": ""},
+                "$set": {"updatedAt": now},
+            },
+        )
+
+        # Remove from parent's sub_accounts list
+        await self.db.users.update_one(
+            {"userId": parent_user_id},
+            {
+                "$pull": {"subAccounts": {"userId": sub_account_user_id}},
+                "$set": {"updatedAt": now},
+            },
+        )
+
+        logger.info(
+            "sub_account_unlinked",
+            parent_user_id=parent_user_id,
+            sub_account_user_id=sub_account_user_id,
+        )
+
+        return {
+            "parent_user_id": parent_user_id,
+            "sub_account_user_id": sub_account_user_id,
+            "unlinked_at": now,
+        }
+
+    async def list_sub_accounts(self, user_id: str) -> dict:
+        """
+        List sub-accounts of a user.
+
+        Args:
+            user_id: User ID to list sub-accounts for
+
+        Returns:
+            List of sub-accounts with details
+
+        Raises:
+            UserNotFoundError: If user not found
+        """
+        user = await self.db.users.find_one({"userId": user_id})
+        if not user:
+            raise UserNotFoundError(user_id)
+
+        sub_accounts = user.get("subAccounts", [])
+
+        # Enrich with current status from database
+        enriched_subs = []
+        for sub in sub_accounts:
+            sub_user = await self.db.users.find_one({"userId": sub["userId"]})
+            if sub_user:
+                enriched_subs.append({
+                    "user_id": sub["userId"],
+                    "username": sub_user["username"],
+                    "role": sub_user["role"],
+                    "status": sub_user.get("status", "active"),
+                    "is_system_account": sub_user.get("isSystemAccount", False),
+                    "created_at": sub.get("createdAt"),
+                    "last_login": sub_user.get("lastLogin"),
+                })
+
+        return {
+            "parent_user_id": user_id,
+            "sub_accounts": enriched_subs,
+            "total": len(enriched_subs),
+        }
+
+    async def get_user_detail(self, user_id: str) -> dict:
+        """
+        Get detailed user information including sub-accounts.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Full user details
+
+        Raises:
+            UserNotFoundError: If user not found
+        """
+        user = await self.db.users.find_one({"userId": user_id})
+        if not user:
+            raise UserNotFoundError(user_id)
+
+        # Get active temporary roles
+        temp_roles = self._get_active_temporary_roles(user.get("temporaryRoles", []))
+
+        # Get sub-account details if any
+        sub_accounts = []
+        for sub in user.get("subAccounts", []):
+            sub_accounts.append({
+                "user_id": sub["userId"],
+                "username": sub.get("username"),
+                "role": sub.get("role"),
+                "created_at": sub.get("createdAt"),
+            })
+
+        return {
+            "user_id": user["userId"],
+            "username": user["username"],
+            "email": user["email"],
+            "role": user["role"],
+            "temporary_roles": temp_roles,
+            "permissions": user.get("permissions", []),
+            "resource_permissions": user.get("resourcePermissions", []),
+            "registered_nodes": user.get("registeredNodes", []),
+            "preferences": user.get("preferences", {}),
+            "status": user.get("status", "active"),
+            "is_system_account": user.get("isSystemAccount", False),
+            "parent_user_id": user.get("parentUserId"),
+            "sub_accounts": sub_accounts,
+            "last_login": user.get("lastLogin"),
+            "created_at": user["createdAt"],
+            "updated_at": user.get("updatedAt"),
+        }

@@ -17,8 +17,8 @@ class TestHealthEndpoint:
         from hydra_mcp.server import create_http_app
         from fastapi.testclient import TestClient
 
-        with patch("hydra.server.list_tools") as mock_tools, \
-             patch("hydra.server.list_resources") as mock_resources:
+        with patch("hydra_mcp.server.list_tools") as mock_tools, \
+             patch("hydra_mcp.server.list_resources") as mock_resources:
 
             # Mock the tool and resource lists
             mock_tools_result = AsyncMock()

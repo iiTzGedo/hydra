@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, Path, Query
 from hydra.api.v1.core.deps import (
     AuthServiceDep,
     CurrentUser,
+    OptionalUser,
     UsersServiceDep,
     require_permission,
 )
+from hydra.api.v1.core.exceptions import AuthorizationError
 from hydra.core.config import get_settings
 from hydra.api.v1.models.auth import (
     ApiKeyListResponse,
@@ -28,16 +30,24 @@ from hydra.api.v1.models.auth import (
     LoginResponse,
     PendingUsersListResponse,
     RefreshTokenRequest,
+    RegistrationTokenListItem,
+    RegistrationTokenListResponse,
     RegistrationTokenResponse,
+    RegistrationTokenUsage,
     RejectionResponse,
     ResetPasswordRequest,
     ResetPasswordResponse,
     Role,
+    SubAccountLinkRequest,
+    SubAccountLinkResponse,
+    SubAccountListResponse,
     TemporaryRole,
     TokenResponse,
+    TokenScope,
     UserInfo,
     UserRegistrationRequest,
     UserRegistrationResponse,
+    UserStatus,
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -178,7 +188,7 @@ async def change_password(
     response_model=UserRegistrationResponse,
     status_code=201,
     summary="Register User",
-    description="Register a new user account. No authentication required.",
+    description="Register a new user account. Agent registrations require admin/operator auth or a valid registration token.",
     responses={
         201: {"description": "User created (with token or bootstrap)"},
         202: {"description": "Registration pending approval"},
@@ -186,9 +196,47 @@ async def change_password(
 )
 async def register_user(
     request: UserRegistrationRequest,
+    auth_service: AuthServiceDep,
     users_service: UsersServiceDep,
+    current_user: OptionalUser,
 ) -> UserRegistrationResponse:
     """Register a new user account."""
+    if request.role == Role.AGENT:
+        parent_user_id = None
+        if current_user:
+            if current_user.get("type") != "user":
+                raise AuthorizationError()
+            if current_user.get("role") not in [Role.ADMIN.value, Role.OPERATOR.value]:
+                raise AuthorizationError()
+            parent_user_id = current_user["user_id"]
+
+        if not parent_user_id and not request.registration_token:
+            raise AuthorizationError()
+
+        result = await auth_service.register_agent(
+            parent_user_id=parent_user_id,
+            username=request.username,
+            password=request.password,
+            registration_token=request.registration_token,
+        )
+
+        return UserRegistrationResponse(
+            user_id=result["user_id"],
+            username=result["username"],
+            email=None,
+            role=Role(result["role"]),
+            status=UserStatus.ACTIVE,
+            is_bootstrap=None,
+            message=result.get("message"),
+            created_at=result["created_at"],
+            is_system_account=result.get("is_system_account"),
+            parent_user_id=result.get("parent_user_id"),
+            api_key=result.get("api_key"),
+            api_key_id=result.get("api_key_id"),
+            api_key_expires_at=result.get("api_key_expires_at"),
+            password=result.get("password"),
+        )
+
     result = await users_service.register_user(request)
 
     # Determine status code based on result
@@ -331,11 +379,9 @@ async def create_registration_token(
 
     if request.scope.value == "user":
         if not (has_full_permission or has_user_permission):
-            from hydra.api.v1.core.exceptions import AuthorizationError
             raise AuthorizationError("tokens:create:user")
     elif request.scope.value == "node":
         if not (has_full_permission or has_node_permission):
-            from hydra.api.v1.core.exceptions import AuthorizationError
             raise AuthorizationError("tokens:create:node")
 
     result = await auth_service.create_registration_token(
@@ -349,6 +395,66 @@ async def create_registration_token(
         used_count=result["used_count"],
         allowed_roles=result.get("allowed_roles"),
         created_by=result["created_by"],
+    )
+
+
+@router.get(
+    "/tokens",
+    response_model=RegistrationTokenListResponse,
+    summary="List Registration Tokens",
+    description="""List registration tokens created by the current user.
+
+**Filters:**
+- `scope`: Filter by token scope (`user` or `node`)
+- `activeOnly`: Only return tokens that are still usable (default: true)
+
+**Note:** For security, actual token values are masked (only last 8 characters shown).
+""",
+)
+async def list_registration_tokens(
+    auth_service: AuthServiceDep,
+    current_user: CurrentUser,
+    scope: TokenScope | None = Query(default=None, description="Filter by scope"),
+    active_only: bool = Query(default=True, alias="activeOnly", description="Only show active tokens"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> RegistrationTokenListResponse:
+    """List registration tokens created by the current user."""
+    result = await auth_service.list_registration_tokens(
+        user_id=current_user["user_id"],
+        scope=scope.value if scope else None,
+        active_only=active_only,
+        limit=limit,
+        offset=offset,
+    )
+
+    return RegistrationTokenListResponse(
+        tokens=[
+            RegistrationTokenListItem(
+                token_id=t["token_id"],
+                scope=TokenScope(t["scope"]),
+                description=t.get("description"),
+                expires_at=t["expires_at"],
+                max_uses=t.get("max_uses"),
+                used_count=t["used_count"],
+                used_by=[
+                    RegistrationTokenUsage(
+                        entity_id=u["entityId"],
+                        entity_type=u["entityType"],
+                        used_at=u["usedAt"],
+                    )
+                    for u in t.get("used_by", [])
+                ],
+                allowed_roles=[Role(r) for r in t["allowed_roles"]] if t.get("allowed_roles") else None,
+                created_by=t["created_by"],
+                created_at=t["created_at"],
+                is_active=t["is_active"],
+            )
+            for t in result["tokens"]
+        ],
+        total=result["total"],
+        limit=result["limit"],
+        offset=result["offset"],
     )
 
 
@@ -366,10 +472,21 @@ async def create_registration_token(
 async def create_api_key(
     request: CreateApiKeyRequest,
     auth_service: AuthServiceDep,
+    users_service: UsersServiceDep,
     current_user: CurrentUser,
+    sub_account_user_id: str | None = Query(default=None, alias="subAccountUserId"),
 ) -> ApiKeyResponse:
     """Create a new API key."""
-    result = await auth_service.create_api_key(request, current_user["user_id"])
+    owner_id = current_user["user_id"]
+    if sub_account_user_id:
+        if current_user.get("role") == Role.ADMIN.value:
+            owner_id = sub_account_user_id
+        elif await users_service.is_parent_of(current_user["user_id"], sub_account_user_id):
+            owner_id = sub_account_user_id
+        else:
+            raise AuthorizationError()
+
+    result = await auth_service.create_api_key(request, owner_id)
     return ApiKeyResponse(
         key_id=result["key_id"],
         key=result["key"],
@@ -390,10 +507,21 @@ async def create_api_key(
 )
 async def list_api_keys(
     auth_service: AuthServiceDep,
+    users_service: UsersServiceDep,
     current_user: CurrentUser,
+    sub_account_user_id: str | None = Query(default=None, alias="subAccountUserId"),
 ) -> ApiKeyListResponse:
     """List API keys for the current user."""
-    result = await auth_service.list_api_keys(current_user["user_id"])
+    owner_id = current_user["user_id"]
+    if sub_account_user_id:
+        if current_user.get("role") == Role.ADMIN.value:
+            owner_id = sub_account_user_id
+        elif await users_service.is_parent_of(current_user["user_id"], sub_account_user_id):
+            owner_id = sub_account_user_id
+        else:
+            raise AuthorizationError()
+
+    result = await auth_service.list_api_keys(owner_id)
     return ApiKeyListResponse(
         api_keys=[
             {
@@ -422,7 +550,11 @@ async def revoke_api_key(
     keyId: str = Path(description="API key ID"),
 ) -> ApiKeyRevokeResponse:
     """Revoke an API key."""
-    result = await auth_service.revoke_api_key(keyId, current_user["user_id"])
+    result = await auth_service.revoke_api_key(
+        keyId,
+        current_user["user_id"],
+        current_user.get("role"),
+    )
     return ApiKeyRevokeResponse(
         key_id=result["key_id"],
         revoked=result["revoked"],
@@ -477,3 +609,72 @@ async def create_user(
         email=result["email"],
         role=result["role"],
     )
+
+
+# ==================== Sub-Account Management ====================
+
+
+@router.post(
+    "/register/sub/{userId}",
+    response_model=SubAccountLinkResponse,
+    status_code=201,
+    summary="Link Sub-Account",
+    description="""Link an existing user as a sub-account of the current user.
+
+**Requirements:**
+- Current user must be admin or operator
+- Target user must have family, viewer, or agent role
+- Target user must not already have a parent
+- Target user's password is required for verification
+
+**Options:**
+- `resetPassword`: If true, resets sub-account password to match parent's password
+""",
+)
+async def link_sub_account(
+    request: SubAccountLinkRequest,
+    users_service: UsersServiceDep,
+    current_user: CurrentUser,
+    userId: str = Path(description="User ID of the account to link as sub-account"),
+) -> SubAccountLinkResponse:
+    """Link an existing user as a sub-account."""
+    result = await users_service.link_sub_account(
+        parent_user_id=current_user["user_id"],
+        target_user_id=userId,
+        target_password=request.password,
+        reset_password=request.reset_password,
+    )
+    return SubAccountLinkResponse(
+        parent_user_id=result["parent_user_id"],
+        sub_account_user_id=result["sub_account_user_id"],
+        sub_account_username=result["sub_account_username"],
+        sub_account_role=Role(result["sub_account_role"]),
+        linked_at=result["linked_at"],
+        password_reset=result["password_reset"],
+    )
+
+
+@router.delete(
+    "/sub/{userId}",
+    summary="Unlink Sub-Account",
+    description="Unlink a sub-account from the current user.",
+)
+async def unlink_sub_account(
+    users_service: UsersServiceDep,
+    current_user: CurrentUser,
+    userId: str = Path(description="User ID of the sub-account to unlink"),
+) -> dict:
+    """Unlink a sub-account."""
+    result = await users_service.unlink_sub_account(
+        parent_user_id=current_user["user_id"],
+        sub_account_user_id=userId,
+    )
+    return {
+        "parentUserId": result["parent_user_id"],
+        "subAccountUserId": result["sub_account_user_id"],
+        "unlinkedAt": result["unlinked_at"],
+        "message": "Sub-account unlinked successfully",
+    }
+
+
+# ==================== Agent Registration ====================

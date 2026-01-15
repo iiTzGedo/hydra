@@ -69,6 +69,8 @@ def mock_mongodb():
     mock.networks = create_mock_collection()
     mock.topologies = create_mock_collection()
     mock.users = create_mock_collection()
+    mock.users_pending = create_mock_collection()
+    mock.password_reset_tokens = create_mock_collection()
     mock.tokens = create_mock_collection()
     mock.api_keys = create_mock_collection()
     mock.commands = create_mock_collection()

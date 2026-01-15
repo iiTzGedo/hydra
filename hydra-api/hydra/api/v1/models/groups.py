@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from hydra.api.v1.core.validators import TAG_PATTERN, validate_tag
+
 
 class GroupEntityType(str, Enum):
     """Types of entities that can be in a group."""
@@ -38,6 +40,16 @@ class TagsSelector(BaseModel):
 
     is_any: list[str] | None = Field(default=None, alias="isAny")
     is_all: list[str] | None = Field(default=None, alias="isAll")
+
+    @field_validator("is_any", "is_all")
+    @classmethod
+    def validate_tags(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        for tag in v:
+            if not validate_tag(tag):
+                raise ValueError(f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}")
+        return v
 
 
 class GroupSelectors(BaseModel):
@@ -169,8 +181,8 @@ class CreateGroupRequest(BaseModel):
     def validate_tags(cls, v: list[str] | None) -> list[str] | None:
         if v is not None:
             for tag in v:
-                if not tag or len(tag) > 64:
-                    raise ValueError(f"Invalid tag: {tag}")
+                if not validate_tag(tag):
+                    raise ValueError(f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}")
         return v
 
 
@@ -190,8 +202,8 @@ class UpdateGroupRequest(BaseModel):
     def validate_tags(cls, v: list[str] | None) -> list[str] | None:
         if v is not None:
             for tag in v:
-                if not tag or len(tag) > 64:
-                    raise ValueError(f"Invalid tag: {tag}")
+                if not validate_tag(tag):
+                    raise ValueError(f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}")
         return v
 
 

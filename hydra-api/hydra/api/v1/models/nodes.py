@@ -6,6 +6,13 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from hydra.api.v1.core.validators import (
+    NETWORK_ID_PATTERN,
+    TAG_PATTERN,
+    validate_network_id,
+    validate_tag,
+)
+
 
 class NodeClass(str, Enum):
     """Node class types."""
@@ -70,6 +77,7 @@ class NodeResponse(BaseModel):
     tags: list[str] = Field(default_factory=list)
     parent_node_id: str | None = Field(default=None, alias="parentNodeId")
     network_ids: list[str] = Field(default_factory=list, alias="networkIds")
+    registered_by: str | None = Field(default=None, alias="registeredBy")
     registered_at: datetime = Field(alias="registeredAt")
     last_updated: datetime = Field(alias="lastUpdated")
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
@@ -85,8 +93,42 @@ class NodeSummary(BaseModel):
     kind: NodeKind | None = None
     display_name: str = Field(alias="displayName")
     tags: list[str] = Field(default_factory=list)
+    registered_by: str | None = Field(default=None, alias="registeredBy")
     status: NodeStatus
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
+
+
+# Agent Models
+class AgentInfo(BaseModel):
+    """Agent information for a registered node."""
+
+    node_id: str = Field(alias="nodeId")
+    node_class: NodeClass = Field(alias="class")
+    node_type: NodeType = Field(alias="type")
+    kind: NodeKind | None = None
+    display_name: str = Field(alias="displayName")
+    tags: list[str] = Field(default_factory=list)
+    registered_by: str | None = Field(default=None, alias="registeredBy")
+    registered_at: datetime = Field(alias="registeredAt")
+    status: NodeStatus
+    last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
+    profile_count: int = Field(default=0, alias="profileCount")
+    last_profile_version: str | None = Field(default=None, alias="lastProfileVersion")
+    is_healthy: bool = Field(alias="isHealthy", description="True if profiled within last 24 hours")
+
+    model_config = {"populate_by_name": True}
+
+
+class AgentListResponse(BaseModel):
+    """List of registered agents response."""
+
+    agents: list[AgentInfo]
+    total: int
+    active: int = Field(description="Number of agents with recent profiles")
+    limit: int
+    offset: int
+
+    model_config = {"populate_by_name": True}
 
 
 # Request Models
@@ -103,10 +145,14 @@ class UpdateNodeRequest(BaseModel):
     @field_validator("tags")
     @classmethod
     def validate_tags(cls, v: list[str] | None) -> list[str] | None:
+        """Validate tags match the required pattern."""
         if v is not None:
             for tag in v:
-                if not tag or len(tag) > 64:
-                    raise ValueError(f"Invalid tag: {tag}")
+                if not validate_tag(tag):
+                    raise ValueError(
+                        f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN} "
+                        f"and be max 64 characters."
+                    )
         return v
 
 
@@ -135,3 +181,12 @@ class NodeListParams(BaseModel):
         Field(default="lastUpdated", alias="sortBy")
     )
     sort_order: Literal["asc", "desc"] = Field(default="desc", alias="sortOrder")
+
+    @field_validator("network_id")
+    @classmethod
+    def validate_network_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not validate_network_id(v):
+            raise ValueError(f"Invalid network ID format. Must match pattern: {NETWORK_ID_PATTERN}")
+        return v
