@@ -130,19 +130,12 @@ pub enum ConfigCommand {
     /// Show the configuration file path
     Path,
 
-    /// Initialize a new configuration file
+    /// Initialize a new configuration file with optional key=value pairs
     Init {
-        /// Node ID for this agent
-        #[arg(long)]
-        node_id: String,
-
-        /// API URL
-        #[arg(long, default_value = "https://hydra.local/api/v1")]
-        api_url: String,
-
-        /// Node class (compute, networking, iot)
-        #[arg(long, default_value = "compute")]
-        class: String,
+        /// Initial configuration values in section.key=value format
+        /// Example: api.url=https://hydra.local/api/v1 node.node_id=my-server
+        #[arg(value_name = "KEY=VALUE")]
+        values: Vec<String>,
 
         /// Force overwrite existing config
         #[arg(long)]
@@ -168,12 +161,7 @@ pub async fn execute(args: &ConfigArgs, ctx: &ConfigContext<'_>) -> Result<()> {
         ConfigCommand::Unset { key, value } => unset_value(ctx.config_path, key, value.as_deref()),
         ConfigCommand::List => list_values(ctx.config_path),
         ConfigCommand::Path => show_path(ctx.config_path),
-        ConfigCommand::Init {
-            node_id,
-            api_url,
-            class,
-            force,
-        } => init_config(ctx.config_path, node_id, api_url, class, *force),
+        ConfigCommand::Init { values, force } => init_config(ctx.config_path, values, *force),
         ConfigCommand::Validate => validate_config(ctx.config_path),
     }
 }
@@ -473,14 +461,20 @@ fn show_path(config_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Initialize a new configuration file
-fn init_config(
-    config_path: &PathBuf,
-    node_id: &str,
-    api_url: &str,
-    class: &str,
-    force: bool,
-) -> Result<()> {
+/// Parse a KEY=VALUE string into (key, value) tuple
+fn parse_key_value(s: &str) -> Result<(String, String)> {
+    let parts: Vec<&str> = s.splitn(2, '=').collect();
+    if parts.len() != 2 {
+        return Err(anyhow!(
+            "Invalid format '{}'. Expected section.key=value (e.g., api.url=https://hydra.local/api/v1)",
+            s
+        ));
+    }
+    Ok((parts[0].to_string(), parts[1].to_string()))
+}
+
+/// Initialize a new configuration file with optional key=value pairs
+fn init_config(config_path: &PathBuf, values: &[String], force: bool) -> Result<()> {
     if config_path.exists() && !force {
         return Err(anyhow!(
             "Config file already exists at {}. Use --force to overwrite.",
@@ -488,15 +482,67 @@ fn init_config(
         ));
     }
 
+    // Parse provided values
+    let mut api_url = "https://hydra.local/api/v1".to_string();
+    let mut node_id = String::new();
+    let mut node_class = "compute".to_string();
+    let mut node_type = "physical".to_string();
+    let mut display_name: Option<String> = None;
+    let mut description: Option<String> = None;
+    let mut tags: Vec<String> = Vec::new();
+
+    for value_str in values {
+        let (key, value) = parse_key_value(value_str)?;
+
+        // Validate the key exists
+        let (section, field, _) = parse_key(&key)?;
+
+        match (section.as_str(), field.as_str()) {
+            ("api", "url") => api_url = value,
+            ("node", "node_id") => node_id = value,
+            ("node", "class") => node_class = value,
+            ("node", "node_type") => node_type = value,
+            ("node", "display_name") => display_name = Some(value),
+            ("node", "description") => description = Some(value),
+            ("node", "tags") => tags = parse_list_values(&value),
+            _ => {
+                warn!("Ignoring unsupported init key '{}' - set it after init with 'config set'", key);
+            }
+        }
+    }
+
+    // Validate required fields
+    if node_id.is_empty() {
+        return Err(anyhow!(
+            "node.node_id is required. Example: hydra-agent config init node.node_id=my-server api.url=https://hydra.local/api/v1"
+        ));
+    }
+
     // Validate node class
     let valid_classes = ["compute", "networking", "iot"];
-    if !valid_classes.contains(&class) {
+    if !valid_classes.contains(&node_class.as_str()) {
         return Err(anyhow!(
-            "Invalid node class '{}'. Must be one of: {}",
-            class,
+            "Invalid node.class '{}'. Must be one of: {}",
+            node_class,
             valid_classes.join(", ")
         ));
     }
+
+    // Build optional fields
+    let display_name_line = display_name
+        .map(|n| format!("display_name = \"{}\"", n))
+        .unwrap_or_else(|| "# display_name = \"My Server\"".to_string());
+
+    let description_line = description
+        .map(|d| format!("description = \"{}\"", d))
+        .unwrap_or_else(|| "# description = \"\"".to_string());
+
+    let tags_line = if tags.is_empty() {
+        "# tags = [\"production\"]".to_string()
+    } else {
+        let tags_str: Vec<String> = tags.iter().map(|t| format!("\"{}\"", t)).collect();
+        format!("tags = [{}]", tags_str.join(", "))
+    };
 
     let config = format!(
         r#"# Hydra Agent Configuration
@@ -504,11 +550,12 @@ fn init_config(
 
 [node]
 node_id = "{node_id}"
-class = "{class}"
-node_type = "physical"
+class = "{node_class}"
+node_type = "{node_type}"
 # kind = "bare-metal"
-# display_name = "My Server"
-# tags = ["production"]
+{display_name_line}
+{description_line}
+{tags_line}
 
 [api]
 url = "{api_url}"
@@ -545,8 +592,13 @@ on_startup = true
     info!("Created config file at {}", config_path.display());
     println!("✓ Created configuration file: {}", config_path.display());
     println!();
+    println!("Configuration summary:");
+    println!("  node.node_id = {}", node_id);
+    println!("  node.class = {}", node_class);
+    println!("  api.url = {}", api_url);
+    println!();
     println!("Next steps:");
-    println!("  1. Review and customize the configuration");
+    println!("  1. Review and customize: hydra-agent config list");
     println!("  2. Run 'hydra-agent login' to authenticate");
     println!("  3. Run 'hydra-agent register' to create an agent account");
 

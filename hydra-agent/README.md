@@ -269,7 +269,7 @@ Subcommands:
   unset <KEY> [VALUE]    Remove/clear a configuration value
   list                   List all configuration values
   path                   Show configuration file path
-  init                   Initialize a new configuration file
+  init [KEY=VALUE...]    Initialize a new config file with optional values
   validate               Validate configuration syntax and values
 
 Key Format: <section>.<key>
@@ -300,8 +300,8 @@ Examples:
   # List all
   hydra-agent config list
 
-  # Initialize new config
-  hydra-agent config init --node-id my-server --api-url https://hydra.local/api/v1
+  # Initialize new config (using section.key=value pattern)
+  hydra-agent config init api.url=https://hydra.local/api/v1 node.node_id=my-server
 
   # Validate config
   hydra-agent config validate

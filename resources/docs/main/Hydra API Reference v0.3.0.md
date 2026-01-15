@@ -1,31 +1,98 @@
+# Hydra API Reference
 
-> **Version:** 0.3.0  
-> **Base URL:** `https://hydra.local/api/v1`  
-> **Last Updated:** 2025-12-31
+> **Version:** 0.3.0
+> **Base URL:** `https://hydra.local/api/v1`
+> **Last Updated:** 2026-01-15
+> **Total Endpoints:** 128
 
 ---
 
-## Overview
+## Table of Contents
+
+1. [Introduction](#introduction)
+   - [Base URL](#base-url)
+   - [Authentication](#authentication)
+   - [Request Format](#request-format)
+   - [Response Format](#response-format)
+   - [Pagination](#pagination)
+   - [Rate Limits](#rate-limits)
+   - [Error Handling](#error-handling)
+2. [Health & System](#health--system)
+3. [Authentication](#authentication-endpoints)
+4. [Users](#users)
+5. [Nodes](#nodes)
+6. [Profiles](#profiles)
+7. [Services](#services)
+8. [Groups](#groups)
+9. [Networks](#networks)
+10. [Topologies](#topologies)
+11. [Time Machine](#time-machine)
+12. [Commands](#commands)
+13. [Home Assistant](#home-assistant)
+14. [AI Models](#ai-models)
+15. [Chat](#chat)
+16. [MCP Servers](#mcp-servers)
+17. [Documentation](#documentation)
+18. [Query & Analytics](#query--analytics)
+19. [Search](#search)
+20. [Settings](#settings)
+21. [Agent Installation](#agent-installation)
+22. [Appendices](#appendices)
+
+---
+
+## Introduction
 
 ### Base URL
 
-All API endpoints are prefixed with `/api/v1`. The base URL depends on your deployment:
+All API endpoints are prefixed with `/api/v1`:
 
-- Local development: `http://localhost:8080/api/v1`
-- Production: `https://hydra.yourdomain.com/api/v1`
+| Environment | Base URL |
+|-------------|----------|
+| Local Development | `http://localhost:8080/api/v1` |
+| Production | `https://hydra.yourdomain.com/api/v1` |
+
+### Authentication
+
+All endpoints except `/health`, `/info`, and `/auth/register` (first user bootstrap) require authentication.
+
+#### Methods
+
+**Bearer Token (JWT)**
+```http
+Authorization: Bearer <access_token>
+```
+
+**API Key**
+```http
+X-API-Key: <api_key>
+```
+
+**Registration Token** (for node registration)
+```http
+X-Registration-Token: <registration_token>
+```
+
+#### Roles & Permissions
+
+| Role | Level | Max Accounts | Permissions |
+|------|-------|--------------|-------------|
+| `admin` | 100 | 2 | `*:*` (full access) |
+| `operator` | 50 | 10 | `nodes:*`, `profiles:*`, `services:*`, `groups:*`, `networks:*`, `topologies:read`, `docs:*`, `commands:execute`, `ha:*` |
+| `viewer` | 25 | Unlimited | `nodes:read`, `profiles:read`, `services:read`, `groups:read`, `networks:read`, `topologies:read`, `docs:read`, `ha:read` |
+| `family` | 10 | Unlimited | `iot:read`, `iot:control`, `ha:read`, `ha:control` |
+| `agent` | 0 | Unlimited | `profiles:write` (own node), `commands:poll` (own node), `apikeys:refresh` (own key) |
 
 ### Request Format
 
-- All request bodies must be JSON with `Content-Type: application/json`
-- Query parameters use standard URL encoding
-- Dates use ISO 8601 format: `2025-12-16T10:00:00Z`
+- Content-Type: `application/json`
+- Character encoding: UTF-8
+- Dates: ISO 8601 format (`2025-12-16T10:00:00Z`)
 
 ### Response Format
 
-All responses follow this structure:
-
+**Success Response**
 ```json
-// Success response
 {
   "data": { ... },
   "meta": {
@@ -34,8 +101,10 @@ All responses follow this structure:
     "offset": 0
   }
 }
+```
 
-// Error response
+**Error Response**
+```json
 {
   "error": {
     "code": "ERROR_CODE",
@@ -48,94 +117,97 @@ All responses follow this structure:
 
 ### Pagination
 
-List endpoints support pagination via query parameters:
+List endpoints support pagination:
 
-|Parameter|Type|Default|Description|
-|---|---|---|---|
-|`limit`|integer|50|Max results (1-200)|
-|`offset`|integer|0|Skip N results|
-|`sort`|string|varies|Sort field (prefix `-` for desc)|
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | integer | 50 | Maximum results (1-200) |
+| `offset` | integer | 0 | Number of results to skip |
+| `sort` | string | varies | Sort field (prefix `-` for descending) |
+
+### Rate Limits
+
+| Category | Limit | Window |
+|----------|-------|--------|
+| Authentication | 10 req | 1 min |
+| Profile submission | 100 req | 1 min |
+| Read operations | 300 req | 1 min |
+| Write operations | 30 req | 1 min |
+| Query endpoints | 30 req | 1 min |
+| Topology generation | 5 req | 1 min |
+| Command execution | 20 req | 1 min |
+| HA control | 60 req | 1 min |
+
+**Rate Limit Headers**
+```http
+X-RateLimit-Limit: 300
+X-RateLimit-Remaining: 287
+X-RateLimit-Reset: 1703851200
+```
+
+### Error Handling
+
+| HTTP | Code | Description |
+|------|------|-------------|
+| 400 | `INVALID_REQUEST` | Malformed request body |
+| 400 | `VALIDATION_ERROR` | Schema validation failed |
+| 401 | `AUTH_INVALID_TOKEN` | JWT token invalid or expired |
+| 401 | `AUTH_MISSING_TOKEN` | No authorization header |
+| 401 | `AUTH_INVALID_CREDENTIALS` | Wrong username/password |
+| 403 | `AUTH_INSUFFICIENT_PERMISSIONS` | Lacks required permissions |
+| 404 | `*_NOT_FOUND` | Resource does not exist |
+| 409 | `*_ALREADY_EXISTS` | Duplicate resource |
+| 422 | `ROLE_LIMIT_EXCEEDED` | Maximum accounts for role reached |
+| 429 | `RATE_LIMIT_EXCEEDED` | Too many requests |
+| 500 | `INTERNAL_ERROR` | Server error |
+| 503 | `SERVICE_UNAVAILABLE` | Service temporarily unavailable |
 
 ---
 
-## Authentication
+## Health & System
 
-All endpoints except `/health` and `/auth/register` require authentication via JWT bearer token or API key.
+### GET /health
 
-### Account Limits
+Health check endpoint. No authentication required.
 
-| Role       | Maximum Accounts | Notes                                            | Permissions                                                                              |
-| ---------- | ---------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `admin`    | 2                | Full system access                               | `*:*`                                                                                    |
-| `operator` | 10               | Infrastructure management                        | `nodes:*`, `services:*`, `groups:*`, `networks:*`, `topologies:read`, `commands:execute` |
-| `viewer`   | Unlimited        | Read-only access                                 | `nodes:read`, `services:read`, `groups:read`, `networks:read`, `topologies:read`         |
-| `family`   | Unlimited        | IoT/smart home controls                          | `iot:read`, `iot:control`, `ha:control`                                                  |
-| `agent`    | Unlimited        | Node-specific, auto-created on node registration | `profiles:write` (own node), `commands:poll`                                             |
-
-### Registration Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         USER REGISTRATION FLOW                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  FIRST USER (Bootstrap)                                                      │
-│  ═══════════════════════                                                     │
-│  ┌──────────┐     ┌──────────────┐     ┌─────────────┐                      │
-│  │ New User │────▶│ POST /auth/  │────▶│ Auto-Admin  │  (No approval needed) │
-│  │          │     │   register   │     │  Created    │                      │
-│  └──────────┘     └──────────────┘     └─────────────┘                      │
-│                                                                              │
-│  SUBSEQUENT USERS (Two paths)                                                │
-│  ════════════════════════════                                                │
-│                                                                              │
-│  Path A: With Registration Token                                             │
-│  ┌──────────┐     ┌──────────────┐     ┌─────────────┐                      │
-│  │ New User │────▶│ POST /auth/  │────▶│   User      │  (Instant activation) │
-│  │ + token  │     │   register   │     │  Created    │                      │
-│  └──────────┘     └──────────────┘     └─────────────┘                      │
-│                                                                              │
-│  Path B: Without Token (Approval Required)                                   │
-│  ┌──────────┐     ┌──────────────┐     ┌─────────────┐     ┌─────────────┐  │
-│  │ New User │────▶│ POST /auth/  │────▶│ users_      │────▶│ Admin       │  │
-│  │          │     │   register   │     │ pending     │     │ Approval    │  │
-│  └──────────┘     └──────────────┘     └─────────────┘     └──────┬──────┘  │
-│                                                                    │         │
-│                                            ┌─────────────┐         │         │
-│                                            │   User      │◀────────┘         │
-│                                            │  Created    │                   │
-│                                            └─────────────┘                   │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-
-### System Rules
-
-1. **First Registration Bootstrap:** If no users exist in the system, the first registration MUST be an `admin` account and requires no approval or token
-2. **Username Uniqueness:** Usernames must be unique across both `users` and `users_pending` collections
-3. **Role Limits Enforced:** Registration fails if role limits are exceeded
-
-
-### Headers
-
-```
-Authorization: Bearer <access_token>
-```
-
-or
-
-```
-X-API-Key: <api_key>
+**Response:** `200 OK`
+```json
+{
+  "status": "healthy",
+  "version": "0.3.0",
+  "timestamp": "2025-12-16T10:00:00Z"
+}
 ```
 
 ---
+
+### GET /info
+
+System information. No authentication required.
+
+**Response:** `200 OK`
+```json
+{
+  "name": "hydra-api",
+  "version": "0.3.0",
+  "environment": "production",
+  "features": {
+    "ha_integration": true,
+    "smtp_enabled": true,
+    "object_storage": true
+  }
+}
+```
+
+---
+
+## Authentication Endpoints
 
 ### POST /auth/register
 
-Register a new user account. Open endpoint - no authentication required.
+Register a new user account. No authentication required for first user (bootstrap).
 
 **Request Body:**
-
 ```json
 {
   "username": "newuser",
@@ -146,16 +218,15 @@ Register a new user account. Open endpoint - no authentication required.
 }
 ```
 
-| Field               | Type   | Required | Description                                                                |
-| ------------------- | ------ | -------- | -------------------------------------------------------------------------- |
-| `username`          | string | Yes      | Unique username (3-32 chars, lowercase alphanumeric, hyphens, underscores) |
-| `email`             | string | Yes      | Valid email address                                                        |
-| `password`          | string | Yes      | Password (min 8 chars)                                                     |
-| `role`              | enum   | Yes      | `admin`, `operator`, `viewer`, or `family`                                 |
-| `registrationToken` | string | No       | Admin-provided token for instant activation                                |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `username` | string | Yes | Unique username (3-32 chars, lowercase alphanumeric, hyphens, underscores) |
+| `email` | string | Yes | Valid email address |
+| `password` | string | Yes | Password (min 8 chars) |
+| `role` | enum | Yes | `admin`, `operator`, `viewer`, or `family` |
+| `registrationToken` | string | No | Token for instant activation |
 
-**Response (With Valid Token):** `201 Created`
-
+**Response (With Token):** `201 Created`
 ```json
 {
   "userId": "user_abc123",
@@ -167,53 +238,28 @@ Register a new user account. Open endpoint - no authentication required.
 }
 ```
 
-**Response (Without Token - Pending Approval):** `202 Accepted`
-
+**Response (Without Token):** `202 Accepted`
 ```json
 {
   "userId": "user_pending_xyz789",
   "username": "newuser",
-  "email": "newuser@example.com",
-  "role": "operator",
   "status": "pending_approval",
-  "message": "Registration submitted. Awaiting admin approval.",
-  "createdAt": "2025-12-16T10:00:00Z"
+  "message": "Registration submitted. Awaiting admin approval."
 }
 ```
 
-**Response (First User Bootstrap):** `201 Created`
-
-```json
-{
-  "userId": "user_admin001",
-  "username": "admin",
-  "email": "admin@example.com",
-  "role": "admin",
-  "status": "active",
-  "isBootstrap": true,
-  "createdAt": "2025-12-16T10:00:00Z"
-}
-```
-
-**Error Responses:**
-
-|HTTP|Code|Condition|
-|---|---|---|
-|400|`BOOTSTRAP_REQUIRES_ADMIN`|First user must register as admin|
-|409|`USERNAME_ALREADY_EXISTS`|Username taken (in users or pending)|
-|409|`EMAIL_ALREADY_EXISTS`|Email already registered|
-|422|`ROLE_LIMIT_EXCEEDED`|Max accounts for role reached|
-|401|`AUTH_REGISTRATION_TOKEN_INVALID`|Token invalid|
-|401|`AUTH_REGISTRATION_TOKEN_EXPIRED`|Token expired|
+**Errors:**
+- `400 BOOTSTRAP_REQUIRES_ADMIN` - First user must be admin
+- `409 USERNAME_ALREADY_EXISTS` - Username taken
+- `422 ROLE_LIMIT_EXCEEDED` - Max accounts for role reached
 
 ---
 
 ### POST /auth/login
 
-Authenticate a user and obtain tokens.
+Authenticate and obtain tokens.
 
 **Request Body:**
-
 ```json
 {
   "username": "admin",
@@ -222,7 +268,6 @@ Authenticate a user and obtain tokens.
 ```
 
 **Response:** `200 OK`
-
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1NiIs...",
@@ -241,21 +286,123 @@ Authenticate a user and obtain tokens.
 
 ---
 
+### POST /auth/refresh
+
+Refresh an expired access token.
+
+**Request Body:**
+```json
+{
+  "refreshToken": "dGhpcyBpcyBhIHJlZnJlc2g..."
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+  "expiresIn": 3600
+}
+```
+
+---
+
+### POST /auth/password/forgot
+
+Request password reset email.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "message": "If account exists, reset email sent"
+}
+```
+
+---
+
+### POST /auth/password/reset
+
+Reset password with token.
+
+**Request Body:**
+```json
+{
+  "token": "reset_token_abc123",
+  "newPassword": "newSecurePassword123"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Password reset successfully"
+}
+```
+
+---
+
+### POST /auth/password/change
+
+Change password for authenticated user.
+
+**Request Body:**
+```json
+{
+  "currentPassword": "oldPassword123",
+  "newPassword": "newSecurePassword123"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Password changed successfully"
+}
+```
+
+**Required Permission:** Authenticated user
+
+---
+
+### GET /auth/me
+
+Get current authenticated user.
+
+**Response:** `200 OK`
+```json
+{
+  "userId": "user_abc123",
+  "username": "admin",
+  "email": "admin@example.com",
+  "role": "admin",
+  "temporaryRoles": [],
+  "createdAt": "2025-12-01T10:00:00Z",
+  "lastLoginAt": "2025-12-16T08:00:00Z"
+}
+```
+
+---
 
 ### GET /auth/approvals
 
-List pending user registrations awaiting approval.
+List pending user registrations.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`role`|enum|Filter by requested role|
-|`limit`|integer|Max results (default: 50)|
-|`offset`|integer|Pagination offset|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `role` | enum | Filter by requested role |
+| `limit` | integer | Max results (default: 50) |
+| `offset` | integer | Pagination offset |
 
 **Response:** `200 OK`
-
 ```json
 {
   "pendingUsers": [
@@ -265,289 +412,130 @@ List pending user registrations awaiting approval.
       "email": "newoperator@example.com",
       "role": "operator",
       "requestedAt": "2025-12-16T09:00:00Z"
-    },
-    {
-      "userId": "user_pending_abc456",
-      "username": "familymember",
-      "email": "family@example.com",
-      "role": "family",
-      "requestedAt": "2025-12-16T08:30:00Z"
     }
   ],
-  "total": 2,
-  "limit": 50,
-  "offset": 0
+  "total": 1
 }
 ```
 
-**Required Permission:** `admin` role only
+**Required Permission:** `admin` role
 
 ---
-
-
 
 ### POST /auth/approvals
 
 Approve a pending user registration.
 
 **Request Body:**
-
 ```json
 {
   "userId": "user_pending_xyz789"
 }
 ```
 
-or
-
-```json
-{
-  "username": "newoperator"
-}
-```
-
-|Field|Type|Required|Description|
-|---|---|---|---|
-|`userId`|string|One of|Pending user ID|
-|`username`|string|One of|Pending username (alternative to ID)|
-
 **Response:** `200 OK`
-
 ```json
 {
-  "userId": "user_xyz789",
+  "userId": "user_abc123",
   "username": "newoperator",
-  "email": "newoperator@example.com",
-  "role": "operator",
   "status": "active",
-  "approvedBy": "user_admin001",
-  "approvedAt": "2025-12-16T10:30:00Z"
+  "approvedBy": "admin",
+  "approvedAt": "2025-12-16T10:00:00Z"
 }
 ```
 
-**Required Permission:** `admin` role only
+**Required Permission:** `admin` role
 
 ---
-
-
 
 ### DELETE /auth/approvals/{userId}
 
-Reject and delete a pending user registration.
+Reject a pending user registration.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `userId` | string | Pending user ID |
 
 **Response:** `200 OK`
-
 ```json
 {
-  "userId": "user_pending_xyz789",
-  "rejected": true,
-  "rejectedBy": "user_admin001",
-  "rejectedAt": "2025-12-16T10:30:00Z"
+  "message": "Registration rejected",
+  "userId": "user_pending_xyz789"
 }
 ```
 
-**Required Permission:** `admin` role only
+**Required Permission:** `admin` role
 
 ---
-
-
-
-### POST /auth/refresh
-
-Refresh an access token.
-
-**Request Body:**
-
-```json
-{
-  "refreshToken": "dGhpcyBpcyBhIHJlZnJlc2g..."
-}
-```
-
-**Response:** `200 OK`
-
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-  "expiresIn": 3600,
-  "tokenType": "Bearer"
-}
-```
-
----
-
-
 
 ### POST /auth/tokens
 
-Create a new registration token for user or node registration.
+Create a registration token.
 
 **Request Body:**
-
 ```json
 {
-  "scope": "node",
-  "description": "Token for server deployment",
+  "scope": "user",
+  "allowedRoles": ["operator", "viewer"],
+  "maxUses": 5,
   "expiresIn": 604800,
-  "maxUses": 10,
-  "allowedRoles": ["operator", "viewer"]
+  "description": "Operator onboarding"
 }
 ```
 
-|Field|Type|Required|Description|
-|---|---|---|---|
-|`scope`|enum|No|Token scope: `user` (default) or `node`|
-|`description`|string|No|Token description|
-|`expiresIn`|integer|No|Expiry in seconds (default: 604800 = 7 days)|
-|`maxUses`|integer|No|Max uses (null = unlimited)|
-|`allowedRoles`|string[]|No|Restrict token to specific roles (only for `user` scope)|
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `scope` | enum | Yes | `user` or `node` |
+| `allowedRoles` | array | No | Roles that can be assigned (user scope only) |
+| `maxUses` | integer | No | Maximum uses (default: 1) |
+| `expiresIn` | integer | No | Seconds until expiry (default: 604800 = 7 days) |
+| `description` | string | No | Token description |
 
 **Response:** `201 Created`
-
 ```json
 {
-  "token": "reg_a1b2c3d4e5f6...",
-  "scope": "node",
-  "expiresAt": "2025-12-23T00:00:00Z",
-  "maxUses": 10,
+  "token": "reg_a1b2c3d4e5f6g7h8i9j0...",
+  "tokenId": "token_abc123",
+  "scope": "user",
+  "allowedRoles": ["operator", "viewer"],
+  "maxUses": 5,
   "usedCount": 0,
-  "allowedRoles": null,
-  "createdBy": "user_admin001"
+  "expiresAt": "2025-12-23T10:00:00Z",
+  "createdBy": "admin"
 }
 ```
 
-**Required Permission:** `tokens:create` (admin) OR `tokens:create:user`/`tokens:create:node`
+**Required Permission:** `tokens:create` or higher role level
 
 ---
 
 ### GET /auth/tokens
 
-List registration tokens created by the current user.
+List registration tokens.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`scope`|enum|Filter by scope: `user` or `node`|
-|`activeOnly`|boolean|Only return active tokens (default: true)|
-|`limit`|integer|Max results (default: 50, max: 200)|
-|`offset`|integer|Pagination offset|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `scope` | enum | Filter by scope (`user`, `node`) |
+| `active` | boolean | Only active (not expired/exhausted) |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
 
 **Response:** `200 OK`
-
 ```json
 {
   "tokens": [
     {
-      "tokenId": "...abc12345",
-      "scope": "node",
-      "description": "Q1 server rollout",
-      "expiresAt": "2025-12-23T00:00:00Z",
-      "maxUses": 10,
-      "usedCount": 3,
-      "usedBy": [
-        {
-          "entityId": "proxmox-01",
-          "entityType": "node",
-          "usedAt": "2025-12-16T10:00:00Z"
-        },
-        {
-          "entityId": "docker-host-01",
-          "entityType": "node",
-          "usedAt": "2025-12-16T11:00:00Z"
-        }
-      ],
-      "allowedRoles": null,
-      "createdBy": "user_admin001",
-      "createdAt": "2025-12-16T09:00:00Z",
-      "isActive": true
-    }
-  ],
-  "total": 5,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-**Note:** For security, actual token values are masked (only last 8 characters shown as `tokenId`).
-
-**Required Permission:** Authenticated user (returns only tokens created by the current user)
-
----
-
-
-### GET /auth/me
-
-Get current authenticated user/agent info.
-
-**Response:** `200 OK`
-
-```json
-{
-  "type": "user",
-  "userId": "user_abc123",
-  "username": "admin",
-  "email": "admin@example.com",
-  "role": "admin",
-  "permissions": ["*:*"]
-}
-```
-
----
-
-
-### POST /auth/apikeys
-
-Create an API key for automation. API Key access control is determined by roles and/or permissions. Roles defined must not include any role higher than current user role, same with permissions.
-
-**Request Body:**
-
-```json
-{
-  "name": "CI/CD Pipeline",
-  "roles": ["agent"],
-  "permissions": ["nodes:read", "profiles:read"],
-  "expiresAt": "2026-12-31T23:59:59Z"
-}
-```
-
-**Response:** `201 Created`
-
-```json
-{
-  "keyId": "key_abc123",
-  "key": "hyk_live_abc123...",
-  "name": "CI/CD Pipeline",
-  "roles": ["agent"],
-  "permissions": ["nodes:read", "profiles:read"],
-  "expiresAt": "2026-12-31T23:59:59Z",
-  "createdBy": "user_abc123",
-  "createdAt": "2025-12-16T10:00:00Z"
-}
-```
-
-**Note:** The `key` value is only returned once at creation time. Only registered users can create API keys.
-
-**Required Permission:** `tokens:create`
-
----
-
-
-### GET /auth/apikeys
-
-List API keys owned by the current user.
-
-**Response:** `200 OK`
-
-```json
-{
-  "apiKeys": [
-    {
-      "keyId": "key_abc123",
-      "name": "CI/CD Pipeline",
-      "permissions": ["nodes:read", "profiles:read"],
-      "expiresAt": "2026-12-31T23:59:59Z",
-      "lastUsedAt": "2025-12-16T09:00:00Z",
+      "tokenId": "token_abc123",
+      "scope": "user",
+      "allowedRoles": ["operator", "viewer"],
+      "maxUses": 5,
+      "usedCount": 2,
+      "expiresAt": "2025-12-23T10:00:00Z",
+      "createdBy": "admin",
       "createdAt": "2025-12-16T10:00:00Z"
     }
   ],
@@ -555,87 +543,131 @@ List API keys owned by the current user.
 }
 ```
 
+**Required Permission:** `tokens:read`
+
+---
+
+### POST /auth/apikeys
+
+Create an API key.
+
+**Request Body:**
+```json
+{
+  "name": "CI/CD Pipeline",
+  "expiresIn": 7776000,
+  "permissions": ["nodes:read", "profiles:read"]
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "apiKey": "hk_live_a1b2c3d4e5f6...",
+  "keyId": "key_abc123",
+  "name": "CI/CD Pipeline",
+  "permissions": ["nodes:read", "profiles:read"],
+  "expiresAt": "2026-03-16T10:00:00Z"
+}
+```
+
+**Note:** The full API key is only shown once at creation.
+
 **Required Permission:** Authenticated user
 
 ---
 
+### GET /auth/apikeys
+
+List API keys for current user.
+
+**Response:** `200 OK`
+```json
+{
+  "apiKeys": [
+    {
+      "keyId": "key_abc123",
+      "name": "CI/CD Pipeline",
+      "prefix": "hk_live_a1b2",
+      "permissions": ["nodes:read", "profiles:read"],
+      "lastUsedAt": "2025-12-16T09:00:00Z",
+      "expiresAt": "2026-03-16T10:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
 
 ### DELETE /auth/apikeys/{keyId}
 
 Revoke an API key.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "keyId": "key_abc123",
-  "revoked": true,
-  "revokedAt": "2025-12-16T10:00:00Z"
+  "message": "API key revoked",
+  "keyId": "key_abc123"
 }
 ```
 
-**Required Permission:** Key owner or `admin`
-
 ---
 
+### POST /auth/users
 
-## Health & System
+Create a user directly (admin only).
 
-### GET /health
-
-Health check endpoint (no authentication required).
-
-**Response:** `200 OK`
-
+**Request Body:**
 ```json
 {
-  "status": "healthy",
-  "version": "0.3.0",
-  "timestamp": "2025-12-16T10:00:00Z",
-  "checks": {
-    "database": "ok",
-    "redis": "ok",
-    "disk": "ok"
-  },
-  "uptime_seconds": 86400
+  "username": "newuser",
+  "email": "newuser@example.com",
+  "password": "securepassword123",
+  "role": "operator"
 }
 ```
 
-|Status|HTTP Code|
-|---|---|
-|Healthy|200|
-|Degraded|200 (with failing checks)|
-|Unhealthy|503|
+**Response:** `201 Created`
+```json
+{
+  "userId": "user_abc123",
+  "username": "newuser",
+  "email": "newuser@example.com",
+  "role": "operator",
+  "status": "active"
+}
+```
+
+**Required Permission:** `admin` role
 
 ---
 
-### GET /info
+### POST /auth/register/sub/{userId}
 
-Service information and statistics.
+Link a sub-account to current user.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "name": "hydra-api",
-  "version": "0.3.0",
-  "apiVersion": "v1",
-  "stats": {
-    "nodes": { "total": 15, "active": 14, "byClass": { "compute": 10, "networking": 2, "iot": 3 } },
-    "services": { "total": 47, "running": 42 },
-    "networks": { "total": 3 },
-    "groups": { "total": 5 },
-    "profiles": { "total": 150 },
-    "users": { "total": 5 }
-  },
-  "features": {
-    "topologyGeneration": true,
-    "timeMachine": true,
-    "autoNetworkCreation": true,
-    "rbac": true,
-    "writeOperations": false,
-    "homeAssistant": true
-  }
+  "message": "Sub-account linked",
+  "subAccountId": "user_agent123",
+  "parentUserId": "user_abc123"
+}
+```
+
+**Required Permission:** Authenticated user with sufficient role level
+
+---
+
+### DELETE /auth/sub/{userId}
+
+Unlink a sub-account.
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Sub-account unlinked"
 }
 ```
 
@@ -649,16 +681,14 @@ List all users.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`role`|enum|Filter by role|
-|`status`|enum|Filter by status|
-|`search`|string|Search username/email|
-|`limit`|integer|Max results|
-|`offset`|integer|Pagination offset|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `role` | enum | Filter by role |
+| `status` | enum | Filter by status (`active`, `inactive`) |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
 
 **Response:** `200 OK`
-
 ```json
 {
   "users": [
@@ -668,13 +698,11 @@ List all users.
       "email": "admin@example.com",
       "role": "admin",
       "status": "active",
-      "lastLogin": "2025-12-16T05:00:00Z",
-      "createdAt": "2025-12-01T00:00:00Z"
+      "createdAt": "2025-12-01T10:00:00Z",
+      "lastLoginAt": "2025-12-16T08:00:00Z"
     }
   ],
-  "total": 5,
-  "limit": 50,
-  "offset": 0
+  "total": 5
 }
 ```
 
@@ -682,69 +710,23 @@ List all users.
 
 ---
 
-### POST /users
+### GET /users/{userId}/subs
 
-Create a new user.
-
-**Request Body:**
-
-```json
-{
-  "username": "operator1",
-  "email": "operator1@example.com",
-  "password": "securepassword123",
-  "role": "operator",
-  "permissions": [],
-  "preferences": {
-    "dashboardType": "admin",
-    "theme": "dark"
-  }
-}
-```
-
-**Response:** `201 Created`
-
-```json
-{
-  "userId": "user_def456",
-  "username": "operator1",
-  "email": "operator1@example.com",
-  "role": "operator",
-  "status": "active",
-  "createdAt": "2025-12-16T10:00:00Z"
-}
-```
-
-**Required Permission:** `users:create`
-
----
-
-### GET /users/{userId}
-
-Get user details.
+List sub-accounts of a user.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "userId": "user_abc123",
-  "username": "admin",
-  "email": "admin@example.com",
-  "role": "admin",
-  "permissions": [],
-  "resourcePermissions": [],
-  "preferences": {
-    "dashboardType": "admin",
-    "theme": "dark",
-    "notifications": {
-      "email": true,
-      "push": true
+  "subAccounts": [
+    {
+      "userId": "user_agent123",
+      "username": "agent-proxmox01",
+      "role": "agent",
+      "linkedAt": "2025-12-10T10:00:00Z",
+      "nodeId": "proxmox-01"
     }
-  },
-  "status": "active",
-  "lastLogin": "2025-12-16T05:00:00Z",
-  "createdAt": "2025-12-01T00:00:00Z",
-  "updatedAt": "2025-12-16T10:00:00Z"
+  ],
+  "total": 1
 }
 ```
 
@@ -752,57 +734,27 @@ Get user details.
 
 ---
 
-### PATCH /users/{userId}
-
-Update user details.
-
-**Request Body:**
-
-```json
-{
-  "email": "newemail@example.com",
-  "role": "viewer",
-  "permissions": ["nodes:read"],
-  "status": "active"
-}
-```
-
-**Response:** `200 OK`
-
-```json
-{
-  "userId": "user_abc123",
-  "updatedAt": "2025-12-16T10:00:00Z"
-}
-```
-
-**Required Permission:** `users:update` or own user (limited fields)
-
----
-
 ### DELETE /users/{userId}
 
-Delete a user.
+Archive a user account.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "userId": "user_abc123",
-  "deleted": true
+  "message": "User archived",
+  "userId": "user_abc123"
 }
 ```
 
-**Required Permission:** `users:delete`
+**Required Permission:** `admin` role
 
 ---
 
 ### POST /users/{userId}/roles/elevate
 
-Permanently elevate a user's role (admin only).
+Permanently elevate user role.
 
 **Request Body:**
-
 ```json
 {
   "newRole": "operator"
@@ -810,85 +762,58 @@ Permanently elevate a user's role (admin only).
 ```
 
 **Response:** `200 OK`
-
 ```json
 {
-  "userId": "user_xyz789",
+  "userId": "user_abc123",
   "previousRole": "viewer",
-  "newRole": "operator",
-  "elevatedBy": "user_admin001",
-  "elevatedAt": "2025-12-16T10:00:00Z"
+  "newRole": "operator"
 }
 ```
 
-**Required Permission:** `admin` role only
-
-**Notes:**
-
-- Cannot elevate to `admin` if 2 admins already exist
-- Cannot elevate to `operator` if 10 operators already exist
-- `agent` role cannot be elevated (system-managed)
+**Required Permission:** `admin` role
 
 ---
 
 ### POST /users/{userId}/roles/grant-temporary
 
-Grant temporary additional role to a user.
+Grant temporary role.
 
 **Request Body:**
-
 ```json
 {
   "role": "operator",
-  "expiresAt": "2025-12-17T10:00:00Z",
-  "reason": "Emergency maintenance access"
+  "duration": 86400,
+  "reason": "Emergency maintenance"
 }
 ```
-
-|Field|Type|Required|Description|
-|---|---|---|---|
-|`role`|enum|Yes|Role to grant temporarily|
-|`expiresAt`|datetime|Yes|When the temporary role expires|
-|`reason`|string|No|Audit reason for the grant|
 
 **Response:** `200 OK`
-
 ```json
 {
-  "userId": "user_xyz789",
-  "baseRole": "viewer",
-  "temporaryRoles": [
-    {
-      "role": "operator",
-      "expiresAt": "2025-12-17T10:00:00Z",
-      "grantedBy": "user_admin001",
-      "grantedAt": "2025-12-16T10:00:00Z",
-      "reason": "Emergency maintenance access"
-    }
-  ]
+  "userId": "user_abc123",
+  "temporaryRole": "operator",
+  "expiresAt": "2025-12-17T10:00:00Z",
+  "reason": "Emergency maintenance"
 }
 ```
 
-**Required Permission:** `admin` role only
+**Required Permission:** `admin` role
 
 ---
 
 ### DELETE /users/{userId}/roles/temporary/{role}
 
-Revoke a temporary role grant early.
+Revoke temporary role.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "userId": "user_xyz789",
-  "revokedRole": "operator",
-  "revokedBy": "user_admin001",
-  "revokedAt": "2025-12-16T11:00:00Z"
+  "message": "Temporary role revoked",
+  "role": "operator"
 }
 ```
 
-**Required Permission:** `admin` role only
+**Required Permission:** `admin` role
 
 ---
 
@@ -896,22 +821,9 @@ Revoke a temporary role grant early.
 
 ### POST /node/register
 
-Register a new node. Requires authentication as `admin` or `operator` user.
-
-**Use Cases:**
-
-- Agent installation script calls this endpoint with user credentials
-- Manual registration for node types that don't run agents (IoT, networking)
-
-**Headers:**
-
-```
-Authorization: Bearer <user_access_token>
-Content-Type: application/json
-```
+Register a new node.
 
 **Request Body:**
-
 ```json
 {
   "nodeId": "proxmox-01",
@@ -921,95 +833,81 @@ Content-Type: application/json
   "displayName": "Proxmox Host 01",
   "description": "Primary hypervisor",
   "tags": ["production", "hypervisor"],
-  "parentNodeId": null,
-  "location": {
-    "site": "home",
-    "rack": "main",
-    "position": 1
-  }
+  "parentNodeId": null
 }
 ```
 
-|Field|Type|Required|Description|
-|---|---|---|---|
-|`nodeId`|string|Yes|Unique identifier (3-64 chars, lowercase alphanumeric, hyphens, dots)|
-|`class`|enum|Yes|`compute`, `networking`, `iot`|
-|`type`|enum|Yes|`physical`, `logical`|
-|`kind`|enum|No|Node subtype (see schema)|
-|`displayName`|string|Yes|Human-readable name (max 128 chars)|
-|`description`|string|No|Description (max 1024 chars)|
-|`tags`|string[]|No|Tags for categorization|
-|`parentNodeId`|string|No|Parent node ID (for logical nodes)|
-|`location`|object|No|Physical location metadata|
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `nodeId` | string | Yes | Unique node ID (pattern: `^[a-z0-9][a-z0-9.-]{2,63}$`) |
+| `class` | enum | Yes | `compute`, `networking`, or `iot` |
+| `type` | enum | Yes | `physical` or `logical` |
+| `kind` | string | No | Node kind (varies by class) |
+| `displayName` | string | No | Human-readable name |
+| `description` | string | No | Node description |
+| `tags` | array | No | String tags for grouping |
+| `parentNodeId` | string | No | Parent node for logical nodes |
+
+**Node Kinds by Class:**
+- `compute`: `bare-metal`, `vm`, `lxc`, `docker`, `kubernetes-pod`
+- `networking`: `router`, `switch`, `access-point`, `firewall`, `load-balancer`
+- `iot`: `sensor`, `actuator`, `controller`, `hub`, `bridge`, `appliance`
 
 **Response:** `201 Created`
-
 ```json
 {
   "nodeId": "proxmox-01",
-  "apiKey": "hyk_node_abc123def456...",
-  "apiKeyId": "key_node_abc123",
+  "class": "compute",
+  "type": "physical",
+  "kind": "bare-metal",
+  "displayName": "Proxmox Host 01",
+  "status": "active",
   "registeredBy": "user_abc123",
-  "registeredAt": "2025-12-16T10:00:00Z",
-  "status": "active"
+  "registeredAt": "2025-12-16T10:00:00Z"
 }
 ```
 
-**Node API Key Details:**
-
-- The `apiKey` is only returned once at registration
-- Node uses this API key for all subsequent API interactions via the agent
-- API key has `agent` role permissions scoped to this node only
-- API key can be refreshed via `POST /node/{nodeId}/apikey/refresh`
-
-**Required Permission:** `admin` or `operator` role
+**Required Permission:** `nodes:create` or valid registration token
 
 ---
 
 ### POST /node/{nodeId}/apikey/refresh
 
-Refresh the API key for a registered node. Can be called by the node itself (using current API key) or by an admin/operator user.
+Refresh API key for a node.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "nodeId": "proxmox-01",
-  "apiKeyId": "key_node_xyz789",
-  "apiKey": "hyk_node_newkey789...",
-  "previousKeyRevoked": true,
-  "refreshedAt": "2025-12-16T10:00:00Z"
+  "apiKey": "hk_agent_newkey...",
+  "expiresAt": "2026-03-16T10:00:00Z"
 }
 ```
 
-**Note:** The `apiKey` value is only returned once. Previous API key is immediately revoked.
-
-**Required Permission:** Node's own API key, `admin`, or `operator`
+**Required Permission:** `agent` role (own node) or `admin`
 
 ---
 
 ### GET /nodes
 
-List all registered nodes.
+List all nodes.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`class`|enum|Filter by class: `compute`, `networking`, `iot`|
-|`type`|enum|Filter by type: `physical`, `logical`|
-|`kind`|enum|Filter by kind|
-|`status`|enum|Filter by status: `active`, `inactive`, `archived`, `pending`|
-|`tags`|string|Comma-separated tags (AND logic)|
-|`networkId`|string|Filter by network membership|
-|`parentNodeId`|string|Filter by parent node|
-|`search`|string|Text search on displayName/description|
-|`limit`|integer|Max results (default: 50, max: 200)|
-|`offset`|integer|Pagination offset|
-|`sort`|string|Sort field (prefix `-` for desc)|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `class` | enum | Filter by class (`compute`, `networking`, `iot`) |
+| `type` | enum | Filter by type (`physical`, `logical`) |
+| `kind` | string | Filter by kind |
+| `status` | enum | Filter by status (`active`, `inactive`, `archived`, `pending`) |
+| `tags` | string | Comma-separated tags (AND logic) |
+| `networkId` | string | Filter by network membership |
+| `parentNodeId` | string | Filter by parent node |
+| `search` | string | Text search on displayName/description |
+| `limit` | integer | Max results (default: 50, max: 200) |
+| `offset` | integer | Pagination offset |
+| `sort` | string | Sort field (prefix `-` for desc) |
 
 **Response:** `200 OK`
-
 ```json
 {
   "nodes": [
@@ -1026,9 +924,7 @@ List all registered nodes.
       "lastProfileAt": "2025-12-16T06:00:00Z"
     }
   ],
-  "total": 15,
-  "limit": 50,
-  "offset": 0
+  "total": 15
 }
 ```
 
@@ -1038,94 +934,35 @@ List all registered nodes.
 
 ### GET /nodes/agents
 
-List all registered agents (nodes with active hydra-agent installations).
-
-An agent is a node that has submitted at least one profile. Agents are considered "healthy" if they have submitted a profile within the last 24 hours.
-
-**Use Cases:**
-- Monitor agent deployment status across infrastructure
-- Identify agents that have stopped reporting
-- Track agent health and profile submission frequency
+List nodes with active agents.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`status`|enum|Filter by status: `active`, `inactive`, `archived`, `pending`|
-|`healthyOnly`|boolean|Only return healthy agents (default: false)|
-|`limit`|integer|Max results (default: 50, max: 200)|
-|`offset`|integer|Pagination offset|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `status` | enum | Filter by status |
+| `healthyOnly` | boolean | Only healthy agents (profile within 24h) |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
 
 **Response:** `200 OK`
-
 ```json
 {
   "agents": [
     {
       "nodeId": "proxmox-01",
-      "class": "compute",
-      "type": "physical",
-      "kind": "bare-metal",
       "displayName": "Proxmox Host 01",
-      "tags": ["production", "hypervisor"],
-      "registeredBy": "user_admin001",
-      "registeredAt": "2025-12-01T10:30:00Z",
       "status": "active",
       "lastProfileAt": "2025-12-16T06:00:00Z",
       "profileCount": 1452,
       "lastProfileVersion": "E0-0.1.2.45",
       "isHealthy": true
-    },
-    {
-      "nodeId": "nas-01",
-      "class": "compute",
-      "type": "physical",
-      "kind": "bare-metal",
-      "displayName": "TrueNAS Server",
-      "tags": ["storage"],
-      "registeredBy": "user_operator01",
-      "registeredAt": "2025-12-05T14:00:00Z",
-      "status": "active",
-      "lastProfileAt": "2025-12-14T12:00:00Z",
-      "profileCount": 856,
-      "lastProfileVersion": "E0-0.0.5.12",
-      "isHealthy": false
     }
   ],
   "total": 12,
-  "active": 10,
-  "limit": 50,
-  "offset": 0
+  "active": 10
 }
 ```
-
-**Response Fields:**
-
-|Field|Type|Description|
-|---|---|---|
-|`agents`|array|List of agent info objects|
-|`total`|integer|Total number of agents (nodes with profiles)|
-|`active`|integer|Number of healthy agents (profiled within 24h)|
-|`limit`|integer|Pagination limit|
-|`offset`|integer|Pagination offset|
-
-**Agent Info Fields:**
-
-|Field|Type|Description|
-|---|---|---|
-|`nodeId`|string|Unique node identifier|
-|`class`|enum|Node class: `compute`, `networking`, `iot`|
-|`type`|enum|Node type: `physical`, `logical`|
-|`kind`|string|Node kind (e.g., `bare-metal`, `vm`, `lxc`)|
-|`displayName`|string|Human-readable node name|
-|`tags`|string[]|Node tags|
-|`registeredBy`|string|User ID who registered the node|
-|`registeredAt`|datetime|Registration timestamp|
-|`status`|enum|Node status|
-|`lastProfileAt`|datetime|Last profile submission timestamp|
-|`profileCount`|integer|Total profiles submitted by this agent|
-|`lastProfileVersion`|string|Version of the most recent profile|
-|`isHealthy`|boolean|True if profiled within last 24 hours|
 
 **Required Permission:** `nodes:read`
 
@@ -1133,18 +970,9 @@ An agent is a node that has submitted at least one profile. Agents are considere
 
 ### GET /nodes/{nodeId}
 
-Get detailed information for a specific node.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`includeChildren`|boolean|Include child nodes (default: true)|
-|`includeServices`|boolean|Include services (default: true)|
-|`includeLatestProfile`|boolean|Include latest profile summary (default: false)|
+Get node details.
 
 **Response:** `200 OK`
-
 ```json
 {
   "nodeId": "proxmox-01",
@@ -1152,37 +980,42 @@ Get detailed information for a specific node.
   "type": "physical",
   "kind": "bare-metal",
   "displayName": "Proxmox Host 01",
-  "description": "Primary hypervisor running LXCs and VMs",
-  "tags": ["production", "hypervisor"],
-  "parentNodeId": null,
-  "networkIds": ["homenet-lan"],
-  "location": {
-    "site": "home",
-    "rack": "main",
-    "position": 1
-  },
-  "registeredBy": "user_admin001",
-  "registeredAt": "2025-12-01T10:30:00Z",
-  "lastUpdated": "2025-12-16T08:15:00Z",
-  "lastProfileAt": "2025-12-16T06:00:00Z",
+  "description": "Primary hypervisor",
   "status": "active",
+  "tags": ["production", "hypervisor"],
+  "registeredBy": "user_admin001",
+  "registeredAt": "2025-12-01T10:00:00Z",
+  "networkIds": ["homenet-lan"],
+  "parentNodeId": null,
+  "childCount": 5,
+  "serviceCount": 12,
+  "lastProfileAt": "2025-12-16T06:00:00Z",
+  "lastProfileVersion": "E0-0.1.2.45"
+}
+```
+
+**Required Permission:** `nodes:read`
+
+---
+
+### GET /nodes/{nodeId}/children
+
+Get child nodes.
+
+**Response:** `200 OK`
+```json
+{
   "children": [
     {
-      "nodeId": "docker-host-01",
+      "nodeId": "vm-webserver",
       "class": "compute",
       "type": "logical",
-      "kind": "lxc",
-      "displayName": "Docker Host LXC",
+      "kind": "vm",
+      "displayName": "Web Server VM",
       "status": "active"
     }
   ],
-  "services": [
-    {
-      "serviceId": "svc::systemd::pveproxy",
-      "name": "pveproxy",
-      "status": "running"
-    }
-  ]
+  "total": 5
 }
 ```
 
@@ -1192,31 +1025,24 @@ Get detailed information for a specific node.
 
 ### PATCH /nodes/{nodeId}
 
-Update node metadata.
+Update node properties.
 
 **Request Body:**
-
 ```json
 {
-  "displayName": "Proxmox Host 01 (Updated)",
-  "description": "Primary hypervisor - 128GB RAM",
-  "tags": ["production", "hypervisor", "upgraded"],
-  "location": {
-    "site": "home",
-    "rack": "main",
-    "position": 2
-  },
-  "status": "active"
+  "displayName": "Updated Display Name",
+  "description": "Updated description",
+  "tags": ["production", "web"],
+  "status": "inactive"
 }
 ```
 
 **Response:** `200 OK`
-
 ```json
 {
   "nodeId": "proxmox-01",
-  "displayName": "Proxmox Host 01 (Updated)",
-  "lastUpdated": "2025-12-16T10:00:00Z"
+  "displayName": "Updated Display Name",
+  "updatedAt": "2025-12-16T10:00:00Z"
 }
 ```
 
@@ -1230,18 +1056,15 @@ Archive a node (soft delete).
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`cascade`|boolean|Also archive child nodes (default: false)|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `cascade` | boolean | Also archive child nodes (default: false) |
 
 **Response:** `200 OK`
-
 ```json
 {
-  "nodeId": "proxmox-01",
-  "status": "archived",
-  "archivedAt": "2025-12-16T10:00:00Z",
-  "childrenArchived": 0
+  "message": "Node archived",
+  "nodeId": "proxmox-01"
 }
 ```
 
@@ -1253,117 +1076,72 @@ Archive a node (soft delete).
 
 ### POST /profiles
 
-Submit a new profile for a node.
+Submit a profile for a node.
 
 **Request Body:**
-
 ```json
 {
   "nodeId": "proxmox-01",
   "collectedAt": "2025-12-16T06:00:00Z",
-  "agentVersion": "0.1.0",
-  "collectionLevel": "neutral",
-  "hardware": { "..." },
-  "network": { "..." },
-  "storage": { "..." },
-  "software": { "..." },
-  "virtualization": { "..." },
-  "users": { "..." },
-  "configs": { "..." }
+  "collector": {
+    "name": "hydra-agent",
+    "version": "0.3.0"
+  },
+  "hardware": {
+    "cpu": { ... },
+    "memory": { ... },
+    "gpu": [ ... ]
+  },
+  "network": {
+    "interfaces": [ ... ],
+    "routes": [ ... ]
+  },
+  "storage": {
+    "disks": [ ... ],
+    "filesystems": [ ... ]
+  },
+  "software": {
+    "os": { ... },
+    "packages": [ ... ],
+    "users": [ ... ]
+  },
+  "services": [ ... ]
 }
 ```
-
-See Profile Schema sections in Technical Documentation for full field details.
 
 **Response:** `201 Created`
-
 ```json
 {
-  "profileId": "prof-proxmox-01-1703145600",
+  "profileId": "prof_abc123",
   "nodeId": "proxmox-01",
-  "version": "E0-0.0.1.4",
-  "previousVersion": "E0-0.0.1.3",
-  "submittedAt": "2025-12-16T06:00:02Z",
-  "changes": {
-    "sectionsChanged": ["software.services", "users.accounts"],
-    "changeLevel": "minor",
-    "diffPercentage": 2.5,
-    "servicesDiscovered": 3,
-    "networksCreated": 0
-  }
+  "version": "E0-0.1.2.46",
+  "submittedAt": "2025-12-16T06:00:00Z",
+  "servicesExtracted": 12,
+  "networksUpdated": 1
 }
 ```
 
-**Required Permission:** `profiles:write` (agents only submit own node)
-
----
-
-### GET /profiles
-
-Query profiles across all nodes.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`nodeId`|string|Filter by node|
-|`since`|datetime|Profiles after timestamp|
-|`until`|datetime|Profiles before timestamp|
-|`latest`|boolean|Only latest per node|
-|`minVersion`|string|Minimum version|
-|`limit`|integer|Max results (default: 50)|
-|`offset`|integer|Pagination offset|
-
-**Response:** `200 OK`
-
-```json
-{
-  "profiles": [
-    {
-      "profileId": "prof-proxmox-01-1703145600",
-      "nodeId": "proxmox-01",
-      "version": "E0-0.0.1.4",
-      "collectedAt": "2025-12-16T06:00:00Z",
-      "submittedAt": "2025-12-16T06:00:02Z",
-      "collectionLevel": "neutral"
-    }
-  ],
-  "total": 150,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-**Required Permission:** `profiles:read`
+**Required Permission:** `profiles:write` (agent, own node)
 
 ---
 
 ### GET /profiles/{profileId}
 
-Get a specific profile by ID.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`sections`|string|Comma-separated sections to include|
+Get profile by ID.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "profileId": "prof-proxmox-01-1703145600",
+  "profileId": "prof_abc123",
   "nodeId": "proxmox-01",
-  "version": "E0-0.0.1.4",
+  "version": "E0-0.1.2.46",
   "collectedAt": "2025-12-16T06:00:00Z",
-  "submittedAt": "2025-12-16T06:00:02Z",
-  "agentVersion": "0.1.0",
-  "collectionLevel": "neutral",
-  "serviceIds": ["svc::systemd::pveproxy"],
-  "hardware": { "..." },
-  "network": { "..." },
-  "storage": { "..." },
-  "software": { "..." }
+  "submittedAt": "2025-12-16T06:00:05Z",
+  "hardware": { ... },
+  "network": { ... },
+  "storage": { ... },
+  "software": { ... },
+  "services": [ ... ]
 }
 ```
 
@@ -1373,34 +1151,28 @@ Get a specific profile by ID.
 
 ### GET /nodes/{nodeId}/profiles
 
-Get all profiles for a node.
+List profiles for a node.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`since`|datetime|Profiles after timestamp|
-|`until`|datetime|Profiles before timestamp|
-|`limit`|integer|Max results (default: 20)|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | integer | Max results (default: 50) |
+| `offset` | integer | Pagination offset |
+| `from` | datetime | Start date filter |
+| `to` | datetime | End date filter |
 
 **Response:** `200 OK`
-
 ```json
 {
-  "nodeId": "proxmox-01",
   "profiles": [
     {
-      "profileId": "prof-proxmox-01-1703145600",
-      "version": "E0-0.0.1.4",
-      "submittedAt": "2025-12-16T06:00:02Z"
-    },
-    {
-      "profileId": "prof-proxmox-01-1703059200",
-      "version": "E0-0.0.1.3",
-      "submittedAt": "2025-12-15T06:00:02Z"
+      "profileId": "prof_abc123",
+      "version": "E0-0.1.2.46",
+      "collectedAt": "2025-12-16T06:00:00Z"
     }
   ],
-  "total": 45
+  "total": 1452
 }
 ```
 
@@ -1410,24 +1182,19 @@ Get all profiles for a node.
 
 ### GET /nodes/{nodeId}/profiles/latest
 
-Get the latest profile for a node.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`sections`|string|Comma-separated sections to include|
+Get latest profile for a node.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "profileId": "prof-proxmox-01-1703145600",
+  "profileId": "prof_abc123",
   "nodeId": "proxmox-01",
-  "version": "E0-0.0.1.4",
+  "version": "E0-0.1.2.46",
   "collectedAt": "2025-12-16T06:00:00Z",
-  "hardware": { "..." },
-  "network": { "..." }
+  "hardware": { ... },
+  "network": { ... },
+  "storage": { ... },
+  "software": { ... }
 }
 ```
 
@@ -1437,45 +1204,37 @@ Get the latest profile for a node.
 
 ### GET /nodes/{nodeId}/profiles/diff
 
-Compare two profiles for a node.
+Compare two profiles.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`from`|string|From version or profileId|
-|`to`|string|To version or profileId (default: latest)|
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `from` | string | No | Profile ID or version (default: previous) |
+| `to` | string | No | Profile ID or version (default: latest) |
 
 **Response:** `200 OK`
-
 ```json
 {
   "nodeId": "proxmox-01",
-  "from": {
-    "profileId": "prof-proxmox-01-1703059200",
-    "version": "E0-0.0.1.3",
-    "submittedAt": "2025-12-15T06:00:02Z"
+  "fromProfile": {
+    "profileId": "prof_abc122",
+    "version": "E0-0.1.2.45"
   },
-  "to": {
-    "profileId": "prof-proxmox-01-1703145600",
-    "version": "E0-0.0.1.4",
-    "submittedAt": "2025-12-16T06:00:02Z"
+  "toProfile": {
+    "profileId": "prof_abc123",
+    "version": "E0-0.1.2.46"
   },
-  "diffPercentage": 2.5,
   "changes": {
-    "sectionsChanged": ["software.services", "users.accounts"],
-    "changeLevel": "minor",
-    "details": {
-      "software.services": {
-        "added": ["svc::systemd::nginx"],
-        "removed": [],
-        "modified": []
-      },
-      "users.accounts": {
-        "added": [],
-        "removed": [],
-        "modified": ["admin"]
+    "hardware": {
+      "memory": {
+        "total": { "from": "32GB", "to": "64GB" }
       }
+    },
+    "services": {
+      "added": ["svc-newservice-a1b2"],
+      "removed": [],
+      "modified": ["svc-nginx-c3d4"]
     }
   }
 }
@@ -1493,41 +1252,32 @@ List all services.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`nodeId`|string|Filter by node|
-|`runtime`|enum|Filter by runtime|
-|`status`|enum|Filter by status|
-|`name`|string|Filter by service name (partial match)|
-|`tags`|string|Comma-separated tags|
-|`port`|integer|Filter by exposed port|
-|`search`|string|Text search|
-|`limit`|integer|Max results (default: 50)|
-|`offset`|integer|Pagination offset|
-|`sort`|string|Sort field|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `nodeId` | string | Filter by node |
+| `runtime` | string | Filter by runtime (`systemd`, `docker`, etc.) |
+| `status` | enum | Filter by status (`running`, `stopped`, `unknown`) |
+| `search` | string | Search by name |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
 
 **Response:** `200 OK`
-
 ```json
 {
   "services": [
     {
-      "serviceId": "svc::docker::mongodb",
-      "name": "mongodb",
-      "displayName": "MongoDB Database",
-      "runtime": "docker",
+      "serviceId": "svc-nginx-c3d4",
+      "nodeId": "proxmox-01",
+      "runtime": "systemd",
+      "name": "nginx",
+      "displayName": "NGINX Web Server",
       "status": "running",
-      "version": "7.0.2",
-      "nodeId": "docker-host-01",
-      "exposure": {
-        "ports": [{ "port": 27017, "protocol": "tcp" }]
-      },
-      "lastSeen": "2025-12-16T06:00:00Z"
+      "enabled": true,
+      "ports": [80, 443],
+      "lastSeenAt": "2025-12-16T06:00:00Z"
     }
   ],
-  "total": 47,
-  "limit": 50,
-  "offset": 0
+  "total": 156
 }
 ```
 
@@ -1537,51 +1287,24 @@ List all services.
 
 ### GET /services/{serviceId}
 
-Get detailed information for a service.
+Get service details.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "serviceId": "svc::docker::mongodb",
-  "runtime": "docker",
-  "name": "mongodb",
-  "displayName": "MongoDB Database",
-  "description": "Primary MongoDB instance",
+  "serviceId": "svc-nginx-c3d4",
+  "nodeId": "proxmox-01",
+  "runtime": "systemd",
+  "name": "nginx",
+  "displayName": "NGINX Web Server",
+  "description": "HTTP and reverse proxy server",
   "status": "running",
-  "version": "7.0.2",
-  "image": "mongo:7.0.2",
-  "profileId": "prof-docker-host-01-1703145600",
-  "nodeId": "docker-host-01",
-  "exposure": {
-    "ports": [
-      { "port": 27017, "protocol": "tcp", "hostPort": 27017 }
-    ],
-    "endpoints": [
-      { "url": "mongodb://docker-host-01:27017", "type": "tcp", "internal": true }
-    ]
-  },
-  "resources": {
-    "memoryLimitBytes": 4294967296
-  },
-  "attachments": {
-    "volumes": [
-      { "name": "mongo-data", "source": "/data/mongodb", "destination": "/data/db", "mode": "rw" }
-    ],
-    "networks": ["backend"]
-  },
-  "origin": {
-    "nativeId": "a1b2c3d4e5f6",
-    "discoveredBy": "agent",
-    "collectedAt": "2025-12-14T10:00:00Z"
-  },
-  "health": {
-    "status": "healthy",
-    "lastCheck": "2025-12-16T06:00:00Z"
-  },
-  "tags": ["database", "production"],
-  "firstSeen": "2025-12-14T10:00:00Z",
-  "lastSeen": "2025-12-16T06:00:00Z"
+  "enabled": true,
+  "ports": [80, 443],
+  "configFiles": ["/etc/nginx/nginx.conf"],
+  "dependencies": ["network.target"],
+  "firstSeenAt": "2025-12-01T10:00:00Z",
+  "lastSeenAt": "2025-12-16T06:00:00Z"
 }
 ```
 
@@ -1591,24 +1314,22 @@ Get detailed information for a service.
 
 ### PATCH /services/{serviceId}
 
-Update service metadata (user-managed fields only).
+Update service metadata.
 
 **Request Body:**
-
 ```json
 {
-  "displayName": "MongoDB Database (Primary)",
-  "description": "Primary MongoDB instance for production",
-  "tags": ["database", "production", "critical"]
+  "displayName": "Updated Name",
+  "description": "Updated description",
+  "tags": ["web", "production"]
 }
 ```
 
 **Response:** `200 OK`
-
 ```json
 {
-  "serviceId": "svc::docker::mongodb",
-  "displayName": "MongoDB Database (Primary)",
+  "serviceId": "svc-nginx-c3d4",
+  "displayName": "Updated Name",
   "updatedAt": "2025-12-16T10:00:00Z"
 }
 ```
@@ -1619,15 +1340,13 @@ Update service metadata (user-managed fields only).
 
 ### DELETE /services/{serviceId}
 
-Archive a service (removes from active tracking).
+Archive a service.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "serviceId": "svc::docker::mongodb",
-  "archived": true,
-  "archivedAt": "2025-12-16T10:00:00Z"
+  "message": "Service archived",
+  "serviceId": "svc-nginx-c3d4"
 }
 ```
 
@@ -1635,73 +1354,22 @@ Archive a service (removes from active tracking).
 
 ---
 
-### POST /services/{serviceId}/control
-
-Control a service (start, stop, restart).
-
-**Request Body:**
-
-```json
-{
-  "action": "restart",
-  "force": false,
-  "timeoutSeconds": 60
-}
-```
-
-|Field|Type|Required|Description|
-|---|---|---|---|
-|`action`|enum|Yes|`start`, `stop`, `restart`, `reload`|
-|`force`|boolean|No|Force action (default: false)|
-|`timeoutSeconds`|integer|No|Timeout (default: 60)|
-
-**Response:** `202 Accepted`
-
-```json
-{
-  "commandId": "cmd-abc123",
-  "serviceId": "svc::docker::mongodb",
-  "action": "restart",
-  "status": "queued",
-  "queuedAt": "2025-12-16T10:00:00Z"
-}
-```
-
-**Required Permission:** `services:control`
-
----
-
 ### GET /nodes/{nodeId}/services
 
-Get all services for a specific node.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`runtime`|enum|Filter by runtime|
-|`status`|enum|Filter by status|
+Get services for a specific node.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "nodeId": "docker-host-01",
   "services": [
     {
-      "serviceId": "svc::docker::mongodb",
-      "name": "mongodb",
-      "status": "running",
-      "runtime": "docker"
-    },
-    {
-      "serviceId": "svc::docker::redis",
-      "name": "redis",
-      "status": "running",
-      "runtime": "docker"
+      "serviceId": "svc-nginx-c3d4",
+      "runtime": "systemd",
+      "name": "nginx",
+      "status": "running"
     }
   ],
-  "total": 8
+  "total": 12
 }
 ```
 
@@ -1717,36 +1385,26 @@ List all groups.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`types`|string|Comma-separated types: `node`, `service`|
-|`tags`|string|Comma-separated tags|
-|`parentGroupId`|string|Filter by parent group|
-|`search`|string|Text search|
-|`limit`|integer|Max results (default: 50)|
-|`offset`|integer|Pagination offset|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | string | Filter by group type |
+| `tags` | string | Filter by tags |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
 
 **Response:** `200 OK`
-
 ```json
 {
   "groups": [
     {
       "groupId": "production-servers",
-      "name": "Production Servers",
-      "description": "All production infrastructure",
-      "types": ["node", "service"],
-      "memberCount": {
-        "nodes": 8,
-        "services": 42,
-        "lastComputed": "2025-12-16T00:00:00Z"
-      },
-      "tags": ["production"]
+      "displayName": "Production Servers",
+      "type": "environment",
+      "memberCount": 8,
+      "createdAt": "2025-12-01T10:00:00Z"
     }
   ],
-  "total": 5,
-  "limit": 50,
-  "offset": 0
+  "total": 5
 }
 ```
 
@@ -1756,49 +1414,35 @@ List all groups.
 
 ### POST /groups
 
-Create a new group.
+Create a group.
 
 **Request Body:**
-
 ```json
 {
-  "groupId": "database-servers",
-  "name": "Database Servers",
-  "description": "All nodes and services related to databases",
-  "types": ["node", "service"],
-  "selectors": {
-    "tags": {
-      "isAny": ["database", "db"]
-    },
-    "runtime": {
-      "isAny": ["docker", "systemd"]
-    }
+  "groupId": "production-servers",
+  "displayName": "Production Servers",
+  "description": "All production infrastructure",
+  "type": "environment",
+  "selector": {
+    "type": "tag",
+    "tags": ["production"]
   },
-  "parentGroupIds": [],
-  "tags": ["databases"]
+  "tags": ["critical"]
 }
 ```
 
-**Selector Options:**
-
-|Selector|Type|Logic|
-|---|---|---|
-|`id.isAll`|string[]|Explicit entity IDs|
-|`network.isAny`|string[]|In any listed network|
-|`status.isAny`|string[]|Has any listed status|
-|`kind.isAny`|string[]|Node class matches|
-|`tags.isAny`|string[]|Has any listed tag|
-|`tags.isAll`|string[]|Has all listed tags|
-|`runtime.isAny`|string[]|Service runtime matches|
-|`location.site`|string|At site|
-|`location.rack`|string|In rack|
+**Selector Types:**
+- `tag`: Match nodes by tags
+- `class`: Match nodes by class
+- `network`: Match nodes by network
+- `manual`: Explicit node list
 
 **Response:** `201 Created`
-
 ```json
 {
-  "groupId": "database-servers",
-  "name": "Database Servers",
+  "groupId": "production-servers",
+  "displayName": "Production Servers",
+  "memberCount": 8,
   "createdAt": "2025-12-16T10:00:00Z"
 }
 ```
@@ -1811,40 +1455,21 @@ Create a new group.
 
 Get group details.
 
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`resolveMembers`|boolean|Include resolved members (default: false)|
-|`memberLimit`|integer|Max members to return (default: 20)|
-
 **Response:** `200 OK`
-
 ```json
 {
   "groupId": "production-servers",
-  "name": "Production Servers",
+  "displayName": "Production Servers",
   "description": "All production infrastructure",
-  "types": ["node", "service"],
-  "selectors": {
-    "tags": { "isAny": ["production", "prod"] }
+  "type": "environment",
+  "selector": {
+    "type": "tag",
+    "tags": ["production"]
   },
-  "memberCount": {
-    "nodes": 8,
-    "services": 42,
-    "lastComputed": "2025-12-16T00:00:00Z"
-  },
-  "members": {
-    "nodes": [
-      { "nodeId": "proxmox-01", "displayName": "Proxmox Host 01" }
-    ],
-    "services": [
-      { "serviceId": "svc::docker::mongodb", "name": "mongodb" }
-    ]
-  },
-  "tags": ["production"],
-  "createdAt": "2025-12-10T00:00:00Z",
-  "updatedAt": "2025-12-16T00:00:00Z"
+  "memberCount": 8,
+  "tags": ["critical"],
+  "createdBy": "admin",
+  "createdAt": "2025-12-01T10:00:00Z"
 }
 ```
 
@@ -1857,21 +1482,22 @@ Get group details.
 Update a group.
 
 **Request Body:**
-
 ```json
 {
-  "name": "Production Servers (Updated)",
-  "selectors": {
-    "tags": { "isAny": ["production", "prod", "live"] }
+  "displayName": "Updated Name",
+  "selector": {
+    "type": "tag",
+    "tags": ["production", "tier1"]
   }
 }
 ```
 
 **Response:** `200 OK`
-
 ```json
 {
   "groupId": "production-servers",
+  "displayName": "Updated Name",
+  "memberCount": 6,
   "updatedAt": "2025-12-16T10:00:00Z"
 }
 ```
@@ -1885,11 +1511,10 @@ Update a group.
 Delete a group.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "groupId": "production-servers",
-  "deleted": true
+  "message": "Group deleted",
+  "groupId": "production-servers"
 }
 ```
 
@@ -1899,39 +1524,20 @@ Delete a group.
 
 ### GET /groups/{groupId}/members
 
-Get resolved group members.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`type`|enum|Filter by type: `node`, `service`|
-|`limit`|integer|Max results|
-|`offset`|integer|Pagination offset|
+Get group members.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "groupId": "production-servers",
-  "members": {
-    "nodes": [
-      {
-        "nodeId": "proxmox-01",
-        "displayName": "Proxmox Host 01",
-        "matchedSelectors": ["tags.isAny"]
-      }
-    ],
-    "services": [
-      {
-        "serviceId": "svc::docker::mongodb",
-        "name": "mongodb",
-        "nodeId": "docker-host-01",
-        "matchedSelectors": ["tags.isAny"]
-      }
-    ]
-  },
-  "total": { "nodes": 8, "services": 42 }
+  "members": [
+    {
+      "nodeId": "proxmox-01",
+      "displayName": "Proxmox Host 01",
+      "class": "compute",
+      "status": "active"
+    }
+  ],
+  "total": 8
 }
 ```
 
@@ -1941,28 +1547,24 @@ Get resolved group members.
 
 ### POST /groups/{groupId}/resolve
 
-Force re-resolution of group membership.
+Resolve group selector to get current members.
 
 **Response:** `200 OK`
-
 ```json
 {
   "groupId": "production-servers",
-  "memberCount": {
-    "nodes": 8,
-    "services": 43,
-    "lastComputed": "2025-12-16T10:00:00Z"
-  },
-  "changes": {
-    "nodesAdded": [],
-    "nodesRemoved": [],
-    "servicesAdded": ["svc::docker::new-service"],
-    "servicesRemoved": []
-  }
+  "resolvedAt": "2025-12-16T10:00:00Z",
+  "members": [
+    {
+      "nodeId": "proxmox-01",
+      "matchedBy": "tag:production"
+    }
+  ],
+  "total": 8
 }
 ```
 
-**Required Permission:** `groups:update`
+**Required Permission:** `groups:read`
 
 ---
 
@@ -1974,36 +1576,27 @@ List all networks.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`type`|enum|Filter by type|
-|`parentNetworkId`|string|Filter by parent network|
-|`routerNodeId`|string|Filter by router node|
-|`cidr`|string|Filter by CIDR (exact or contains)|
-|`tags`|string|Comma-separated tags|
-|`search`|string|Text search|
-|`limit`|integer|Max results (default: 50)|
-|`offset`|integer|Pagination offset|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | enum | Filter by type (`lan`, `vlan`, `wan`, `vpn`) |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
 
 **Response:** `200 OK`
-
 ```json
 {
   "networks": [
     {
       "networkId": "homenet-lan",
-      "type": "physical",
-      "name": "HomeNET LAN",
-      "cidr": "192.168.0.0/24",
-      "gatewayV4": "192.168.0.1",
-      "routerNodeId": "opnsense-gw",
+      "displayName": "Home Network LAN",
+      "type": "lan",
+      "cidr": "192.168.1.0/24",
+      "gateway": "192.168.1.1",
       "nodeCount": 15,
-      "tags": ["primary"]
+      "isAutoDiscovered": true
     }
   ],
-  "total": 3,
-  "limit": 50,
-  "offset": 0
+  "total": 3
 }
 ```
 
@@ -2013,36 +1606,28 @@ List all networks.
 
 ### POST /networks
 
-Create a new network (manual).
+Create a network.
 
 **Request Body:**
-
 ```json
 {
-  "networkId": "guest-vlan",
+  "networkId": "iot-vlan",
+  "displayName": "IoT VLAN",
   "type": "vlan",
-  "name": "Guest VLAN",
-  "description": "Isolated guest network",
-  "cidr": "192.168.20.0/24",
-  "gatewayV4": "192.168.20.1",
-  "vlanId": 20,
-  "parentNetworkId": "homenet-lan",
-  "routerNodeId": "opnsense-gw",
-  "dhcp": {
-    "enabled": true,
-    "rangeStart": "192.168.20.100",
-    "rangeEnd": "192.168.20.250"
-  },
-  "tags": ["guest", "isolated"]
+  "cidr": "192.168.100.0/24",
+  "gateway": "192.168.100.1",
+  "vlanId": 100,
+  "description": "Isolated IoT network"
 }
 ```
 
 **Response:** `201 Created`
-
 ```json
 {
-  "networkId": "guest-vlan",
-  "name": "Guest VLAN",
+  "networkId": "iot-vlan",
+  "displayName": "IoT VLAN",
+  "type": "vlan",
+  "cidr": "192.168.100.0/24",
   "createdAt": "2025-12-16T10:00:00Z"
 }
 ```
@@ -2055,51 +1640,18 @@ Create a new network (manual).
 
 Get network details.
 
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`includeNodes`|boolean|Include nodes in network (default: false)|
-|`includeSubnets`|boolean|Include child subnets (default: true)|
-
 **Response:** `200 OK`
-
 ```json
 {
   "networkId": "homenet-lan",
-  "type": "physical",
-  "name": "HomeNET LAN",
-  "description": "Primary home network LAN segment",
-  "cidr": "192.168.0.0/24",
-  "gatewayV4": "192.168.0.1",
-  "vlanId": null,
-  "subnetIds": ["iot-vlan", "guest-vlan"],
-  "parentNetworkId": null,
-  "routerNodeId": "opnsense-gw",
-  "dhcp": {
-    "enabled": true,
-    "rangeStart": "192.168.0.100",
-    "rangeEnd": "192.168.0.250",
-    "serverNodeId": "opnsense-gw"
-  },
-  "dns": {
-    "servers": ["192.168.0.1", "1.1.1.1"],
-    "domain": "home.lan"
-  },
+  "displayName": "Home Network LAN",
+  "type": "lan",
+  "cidr": "192.168.1.0/24",
+  "gateway": "192.168.1.1",
+  "dns": ["192.168.1.1", "8.8.8.8"],
   "nodeCount": 15,
-  "origin": {
-    "createdBy": "auto",
-    "sourceNodeId": "proxmox-01"
-  },
-  "nodes": [
-    { "nodeId": "proxmox-01", "displayName": "Proxmox Host 01", "ipAddresses": ["192.168.0.10"] }
-  ],
-  "subnets": [
-    { "networkId": "iot-vlan", "name": "IoT VLAN", "cidr": "192.168.10.0/24" }
-  ],
-  "tags": ["primary"],
-  "createdAt": "2025-12-01T00:00:00Z",
-  "updatedAt": "2025-12-16T00:00:00Z"
+  "isAutoDiscovered": true,
+  "discoveredAt": "2025-12-01T10:00:00Z"
 }
 ```
 
@@ -2112,22 +1664,18 @@ Get network details.
 Update a network.
 
 **Request Body:**
-
 ```json
 {
-  "name": "HomeNET LAN (Updated)",
-  "description": "Primary home network - 50 device capacity",
-  "dhcp": {
-    "rangeEnd": "192.168.0.200"
-  }
+  "displayName": "Updated Name",
+  "description": "Updated description"
 }
 ```
 
 **Response:** `200 OK`
-
 ```json
 {
   "networkId": "homenet-lan",
+  "displayName": "Updated Name",
   "updatedAt": "2025-12-16T10:00:00Z"
 }
 ```
@@ -2140,20 +1688,15 @@ Update a network.
 
 Delete a network.
 
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`force`|boolean|Delete even if nodes reference it (default: false)|
-
 **Response:** `200 OK`
-
 ```json
 {
-  "networkId": "guest-vlan",
-  "deleted": true
+  "message": "Network deleted",
+  "networkId": "iot-vlan"
 }
 ```
+
+**Error:** `422 NETWORK_HAS_NODES` if network has associated nodes.
 
 **Required Permission:** `networks:delete`
 
@@ -2161,25 +1704,16 @@ Delete a network.
 
 ### GET /networks/{networkId}/nodes
 
-Get all nodes in a network.
+Get nodes in a network.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "networkId": "homenet-lan",
   "nodes": [
     {
       "nodeId": "proxmox-01",
       "displayName": "Proxmox Host 01",
-      "class": "compute",
-      "ipAddresses": ["192.168.0.10"]
-    },
-    {
-      "nodeId": "opnsense-gw",
-      "displayName": "OPNsense Gateway",
-      "class": "networking",
-      "ipAddresses": ["192.168.0.1"]
+      "ipAddresses": ["192.168.1.10"]
     }
   ],
   "total": 15
@@ -2198,34 +1732,26 @@ List topology snapshots.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`mode`|enum|Filter by mode: `network`, `infrastructure`|
-|`since`|datetime|Topologies after timestamp|
-|`until`|datetime|Topologies before timestamp|
-|`limit`|integer|Max results (default: 20)|
-|`offset`|integer|Pagination offset|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `mode` | enum | Filter by mode (`network`, `infrastructure`) |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
 
 **Response:** `200 OK`
-
 ```json
 {
   "topologies": [
     {
-      "topologyId": "topo::network::20251216T120000Z",
-      "mode": "network",
-      "version": 42,
-      "generatedAt": "2025-12-16T12:00:00Z",
-      "stats": {
-        "nodeCount": 18,
-        "edgeCount": 24,
-        "networkCount": 3
-      }
+      "topologyId": "topo::infrastructure::20251216T120000Z",
+      "mode": "infrastructure",
+      "validFrom": "2025-12-16T12:00:00Z",
+      "validUntil": null,
+      "nodeCount": 15,
+      "edgeCount": 24
     }
   ],
-  "total": 84,
-  "limit": 20,
-  "offset": 0
+  "total": 50
 }
 ```
 
@@ -2235,56 +1761,37 @@ List topology snapshots.
 
 ### GET /topologies/latest
 
-Get the latest topology snapshot.
+Get latest topology.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`mode`|enum|Required: `network` or `infrastructure`|
-|`includeGraph`|boolean|Include full graph data (default: true)|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `mode` | enum | Topology mode (`network`, `infrastructure`) |
 
 **Response:** `200 OK`
-
 ```json
 {
-  "topologyId": "topo::network::20251216T120000Z",
-  "mode": "network",
-  "version": 42,
-  "generatedAt": "2025-12-16T12:00:00Z",
+  "topologyId": "topo::infrastructure::20251216T120000Z",
+  "mode": "infrastructure",
   "validFrom": "2025-12-16T12:00:00Z",
-  "validUntil": null,
-  "graph": {
-    "nodes": [
-      {
-        "id": "net::homenet-lan",
-        "type": "network",
-        "label": "HomeNET LAN (192.168.0.0/24)",
-        "data": { "entityId": "homenet-lan", "cidr": "192.168.0.0/24" },
-        "position": { "x": 400, "y": 100 }
-      },
-      {
-        "id": "node::proxmox-01",
-        "type": "compute-physical",
-        "label": "Proxmox Host 01",
-        "data": { "entityId": "proxmox-01", "status": "active" },
-        "position": { "x": 200, "y": 300 }
-      }
-    ],
-    "edges": [
-      {
-        "id": "edge::proxmox-01::homenet-lan",
-        "source": "node::proxmox-01",
-        "target": "net::homenet-lan",
-        "type": "network-connection"
-      }
-    ]
-  },
-  "stats": {
-    "nodeCount": 18,
-    "edgeCount": 24,
-    "computeTime": 245
-  }
+  "nodes": [
+    {
+      "id": "proxmox-01",
+      "label": "Proxmox Host 01",
+      "class": "compute",
+      "status": "active",
+      "x": 100,
+      "y": 200
+    }
+  ],
+  "edges": [
+    {
+      "source": "proxmox-01",
+      "target": "vm-webserver",
+      "type": "parent-child"
+    }
+  ]
 }
 ```
 
@@ -2294,9 +1801,11 @@ Get the latest topology snapshot.
 
 ### GET /topologies/{topologyId}
 
-Get a specific topology snapshot.
+Get specific topology.
 
-**Response:** Same structure as `/topologies/latest`.
+**Response:** `200 OK`
+
+Same format as `/topologies/latest`.
 
 **Required Permission:** `topologies:read`
 
@@ -2304,88 +1813,71 @@ Get a specific topology snapshot.
 
 ### POST /topologies/generate
 
-Trigger topology generation.
+Trigger topology regeneration.
 
 **Request Body:**
-
 ```json
 {
-  "mode": "network",
-  "scope": {
-    "networkIds": ["homenet-lan"]
-  }
+  "mode": "infrastructure"
 }
 ```
 
-|Field|Type|Required|Description|
-|---|---|---|---|
-|`mode`|enum|Yes|`network` or `infrastructure`|
-|`scope`|object|No|Limit scope (null = all)|
-|`scope.networkIds`|string[]|No|Filter to networks|
-|`scope.groupIds`|string[]|No|Filter to groups|
-|`scope.nodeIds`|string[]|No|Filter to nodes|
-
 **Response:** `202 Accepted`
-
 ```json
 {
   "message": "Topology generation started",
-  "mode": "network",
-  "jobId": "job-abc123"
+  "topologyId": "topo::infrastructure::20251216T130000Z"
 }
 ```
 
-**Required Permission:** `topologies:create`
+**Required Permission:** `topologies:write`
 
 ---
 
 ### GET /topologies/diff
 
-Compare two topology snapshots.
+Compare two topologies.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`from`|string|From topologyId or timestamp|
-|`to`|string|To topologyId or timestamp (default: latest)|
-|`mode`|enum|Required if using timestamps|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `from` | string | From topology ID |
+| `to` | string | To topology ID |
 
 **Response:** `200 OK`
-
 ```json
 {
-  "from": {
-    "topologyId": "topo::network::20251215T120000Z",
-    "generatedAt": "2025-12-15T12:00:00Z"
-  },
-  "to": {
-    "topologyId": "topo::network::20251216T120000Z",
-    "generatedAt": "2025-12-16T12:00:00Z"
-  },
-  "diff": {
-    "nodesAdded": [
-      { "id": "node::new-server", "type": "compute-physical", "label": "New Server" }
-    ],
+  "from": "topo::infrastructure::20251215T120000Z",
+  "to": "topo::infrastructure::20251216T120000Z",
+  "changes": {
+    "nodesAdded": ["new-node"],
     "nodesRemoved": [],
-    "nodesModified": [
-      { "id": "node::proxmox-01", "changes": ["data.serviceCount"] }
-    ],
-    "edgesAdded": [
-      { "id": "edge::new-server::homenet-lan", "type": "network-connection" }
-    ],
-    "edgesRemoved": []
-  },
-  "summary": {
-    "totalChanges": 3,
-    "nodesAdded": 1,
-    "nodesRemoved": 0,
-    "nodesModified": 1,
-    "edgesAdded": 1,
+    "edgesAdded": 2,
     "edgesRemoved": 0
   }
 }
 ```
+
+**Required Permission:** `topologies:read`
+
+---
+
+### GET /topologies/subgraph
+
+Get subgraph centered on a node.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `nodeId` | string | Yes | Center node |
+| `depth` | integer | No | Traversal depth (default: 2) |
+| `mode` | enum | No | Topology mode |
+
+**Response:** `200 OK`
+
+Returns a filtered topology containing only nodes within the specified depth.
 
 **Required Permission:** `topologies:read`
 
@@ -2399,45 +1891,32 @@ Get node state at a specific point in time.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`timestamp`|datetime|Required: Point in time|
-|`sections`|string|Comma-separated profile sections|
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `at` | datetime | Yes | Target timestamp |
 
 **Response:** `200 OK`
-
 ```json
 {
   "nodeId": "proxmox-01",
-  "timestamp": "2025-12-15T12:00:00Z",
+  "timestamp": "2025-12-15T10:00:00Z",
   "state": {
-    "node": {
-      "nodeId": "proxmox-01",
-      "displayName": "Proxmox Host 01",
-      "status": "active"
-    },
+    "status": "active",
     "profile": {
-      "profileId": "prof-proxmox-01-1703059200",
-      "version": "E0-0.0.1.3",
-      "submittedAt": "2025-12-15T06:00:02Z",
-      "hardware": { "..." },
-      "network": { "..." }
+      "profileId": "prof_abc120",
+      "version": "E0-0.1.2.42"
     },
     "services": [
       {
-        "serviceId": "svc::systemd::pveproxy",
+        "serviceId": "svc-nginx-c3d4",
         "status": "running"
       }
     ]
-  },
-  "closestSnapshot": {
-    "profileAt": "2025-12-15T06:00:02Z",
-    "deltaMinutes": 360
   }
 }
 ```
 
-**Required Permission:** `nodes:read`, `profiles:read`
+**Required Permission:** `profiles:read`
 
 ---
 
@@ -2447,12 +1926,14 @@ Get topology at a specific point in time.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`mode`|enum|Required: `network` or `infrastructure`|
-|`timestamp`|datetime|Required: Point in time|
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `at` | datetime | Yes | Target timestamp |
+| `mode` | enum | No | Topology mode |
 
-**Response:** Returns topology snapshot valid at the specified timestamp (same structure as `/topologies/{topologyId}`).
+**Response:** `200 OK`
+
+Returns the topology that was valid at the specified timestamp.
 
 **Required Permission:** `topologies:read`
 
@@ -2460,51 +1941,36 @@ Get topology at a specific point in time.
 
 ### GET /timemachine/timeline
 
-Get timeline events for Time Machine visualization.
+Get timeline of changes for a node or the system.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`since`|datetime|Start of timeline|
-|`until`|datetime|End of timeline|
-|`nodeId`|string|Filter to specific node|
-|`types`|string|Comma-separated event types|
-|`limit`|integer|Max events (default: 100)|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `nodeId` | string | Filter by node |
+| `from` | datetime | Start date |
+| `to` | datetime | End date |
+| `limit` | integer | Max results |
 
 **Response:** `200 OK`
-
 ```json
 {
-  "timeline": {
-    "since": "2025-12-10T00:00:00Z",
-    "until": "2025-12-16T12:00:00Z"
-  },
   "events": [
     {
-      "timestamp": "2025-12-16T12:00:00Z",
-      "type": "topology",
-      "description": "Network topology updated",
-      "metadata": { "topologyId": "topo::network::20251216T120000Z" }
-    },
-    {
-      "timestamp": "2025-12-16T06:00:02Z",
-      "type": "profile",
-      "description": "proxmox-01 profile updated",
-      "metadata": { "nodeId": "proxmox-01", "version": "E0-0.0.1.4" }
-    },
-    {
-      "timestamp": "2025-12-15T10:30:00Z",
-      "type": "service",
-      "description": "nginx service started",
-      "metadata": { "serviceId": "svc::systemd::nginx", "nodeId": "web-server-01" }
+      "timestamp": "2025-12-16T06:00:00Z",
+      "type": "profile_submitted",
+      "nodeId": "proxmox-01",
+      "details": {
+        "version": "E0-0.1.2.46",
+        "changes": ["hardware.memory"]
+      }
     }
   ],
-  "total": 45
+  "total": 100
 }
 ```
 
-**Required Permission:** `nodes:read`
+**Required Permission:** `profiles:read`
 
 ---
 
@@ -2515,42 +1981,24 @@ Get timeline events for Time Machine visualization.
 Queue a command for execution.
 
 **Request Body:**
-
 ```json
 {
-  "type": "service",
-  "target": {
-    "nodeId": "docker-host-01",
-    "serviceId": "svc::docker::nginx"
-  },
-  "action": "restart",
-  "parameters": {},
-  "timeoutSeconds": 60
+  "nodeId": "proxmox-01",
+  "command": "systemctl restart nginx",
+  "timeout": 30,
+  "priority": "normal"
 }
 ```
 
-|Field|Type|Required|Description|
-|---|---|---|---|
-|`type`|enum|Yes|`service`, `package`, `config`, `system`, `custom`|
-|`target.nodeId`|string|Yes|Target node|
-|`target.serviceId`|string|No|Target service (for service commands)|
-|`action`|string|Yes|Action to execute|
-|`parameters`|object|No|Action parameters|
-|`timeoutSeconds`|integer|No|Timeout (default: 60)|
-
-**Response:** `202 Accepted`
-
+**Response:** `201 Created`
 ```json
 {
-  "commandId": "cmd-abc123",
-  "type": "service",
-  "target": {
-    "nodeId": "docker-host-01",
-    "serviceId": "svc::docker::nginx"
-  },
-  "action": "restart",
+  "commandId": "cmd_abc123",
+  "nodeId": "proxmox-01",
+  "command": "systemctl restart nginx",
   "status": "queued",
-  "queuedAt": "2025-12-16T10:00:00Z"
+  "queuedAt": "2025-12-16T10:00:00Z",
+  "queuedBy": "admin"
 }
 ```
 
@@ -2558,38 +2006,34 @@ Queue a command for execution.
 
 ---
 
-### GET /commands/{commandId}
+### GET /commands
 
-Get command status and result.
+List commands.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `nodeId` | string | Filter by node |
+| `status` | enum | Filter by status (`queued`, `executing`, `completed`, `failed`, `cancelled`) |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
 
 **Response:** `200 OK`
-
 ```json
 {
-  "commandId": "cmd-abc123",
-  "type": "service",
-  "target": {
-    "nodeId": "docker-host-01",
-    "serviceId": "svc::docker::nginx"
-  },
-  "action": "restart",
-  "parameters": {},
-  "status": "completed",
-  "result": {
-    "success": true,
-    "output": "Service nginx restarted successfully",
-    "exitCode": 0,
-    "error": null
-  },
-  "requestedBy": {
-    "userId": "user_abc123",
-    "source": "web"
-  },
-  "timeoutSeconds": 60,
-  "createdAt": "2025-12-16T10:00:00Z",
-  "queuedAt": "2025-12-16T10:00:01Z",
-  "startedAt": "2025-12-16T10:00:02Z",
-  "completedAt": "2025-12-16T10:00:05Z"
+  "commands": [
+    {
+      "commandId": "cmd_abc123",
+      "nodeId": "proxmox-01",
+      "command": "systemctl restart nginx",
+      "status": "completed",
+      "queuedAt": "2025-12-16T10:00:00Z",
+      "completedAt": "2025-12-16T10:00:05Z",
+      "exitCode": 0
+    }
+  ],
+  "total": 50
 }
 ```
 
@@ -2597,38 +2041,23 @@ Get command status and result.
 
 ---
 
-### GET /commands
+### GET /commands/{commandId}
 
-List commands (history).
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`nodeId`|string|Filter by target node|
-|`type`|enum|Filter by command type|
-|`status`|enum|Filter by status|
-|`since`|datetime|Commands after timestamp|
-|`limit`|integer|Max results (default: 50)|
-|`offset`|integer|Pagination offset|
+Get command details.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "commands": [
-    {
-      "commandId": "cmd-abc123",
-      "type": "service",
-      "target": { "nodeId": "docker-host-01" },
-      "action": "restart",
-      "status": "completed",
-      "createdAt": "2025-12-16T10:00:00Z"
-    }
-  ],
-  "total": 25,
-  "limit": 50,
-  "offset": 0
+  "commandId": "cmd_abc123",
+  "nodeId": "proxmox-01",
+  "command": "systemctl restart nginx",
+  "status": "completed",
+  "queuedAt": "2025-12-16T10:00:00Z",
+  "startedAt": "2025-12-16T10:00:02Z",
+  "completedAt": "2025-12-16T10:00:05Z",
+  "exitCode": 0,
+  "stdout": "Service restarted successfully",
+  "stderr": ""
 }
 ```
 
@@ -2638,17 +2067,17 @@ List commands (history).
 
 ### POST /commands/{commandId}/cancel
 
-Cancel a pending or queued command.
+Cancel a queued command.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "commandId": "cmd-abc123",
-  "status": "cancelled",
-  "cancelledAt": "2025-12-16T10:00:10Z"
+  "commandId": "cmd_abc123",
+  "status": "cancelled"
 }
 ```
+
+**Error:** `422 COMMAND_NOT_CANCELLABLE` if already executing/completed.
 
 **Required Permission:** `commands:execute`
 
@@ -2659,224 +2088,44 @@ Cancel a pending or queued command.
 Poll for pending commands (agent endpoint).
 
 **Response:** `200 OK`
-
 ```json
 {
   "commands": [
     {
-      "commandId": "cmd-abc123",
-      "type": "service",
-      "action": "restart",
-      "parameters": { "serviceId": "svc::docker::nginx" },
-      "timeoutSeconds": 60
+      "commandId": "cmd_abc123",
+      "command": "systemctl restart nginx",
+      "timeout": 30
     }
   ]
 }
 ```
 
-**Required Permission:** `commands:poll` (agent only)
+**Required Permission:** `commands:poll` (agent)
 
 ---
 
 ### POST /nodes/{nodeId}/commands/{commandId}/result
 
-Submit command execution result (agent endpoint).
+Submit command result (agent endpoint).
 
 **Request Body:**
-
 ```json
 {
-  "success": true,
-  "output": "Service nginx restarted successfully",
   "exitCode": 0,
-  "error": null
+  "stdout": "Service restarted successfully",
+  "stderr": "",
+  "executionTime": 3000
 }
 ```
 
 **Response:** `200 OK`
-
 ```json
 {
-  "commandId": "cmd-abc123",
-  "status": "completed",
-  "completedAt": "2025-12-16T10:00:05Z"
+  "message": "Result recorded"
 }
 ```
 
-**Required Permission:** `commands:poll` (agent only)
-
----
-
-## Documentations
-
-### GET /docs
-
-List documentation.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`type`|enum|Filter by type|
-|`status`|enum|Filter by status|
-|`category`|string|Filter by category|
-|`entityType`|enum|Filter by linked entity type|
-|`entityId`|string|Filter by linked entity ID|
-|`tags`|string|Comma-separated tags|
-|`search`|string|Full-text search|
-|`limit`|integer|Max results (default: 20)|
-|`offset`|integer|Pagination offset|
-
-**Response:** `200 OK`
-
-```json
-{
-  "docs": [
-    {
-      "docId": "doc::proxmox-setup-guide",
-      "title": "Proxmox Cluster Setup Guide",
-      "type": "guide",
-      "category": "infrastructure",
-      "status": "published",
-      "linkedEntities": [
-        { "entityType": "node", "entityId": "proxmox-01" }
-      ],
-      "version": 3,
-      "updatedAt": "2025-12-16T00:00:00Z"
-    }
-  ],
-  "total": 12,
-  "limit": 20,
-  "offset": 0
-}
-```
-
-**Required Permission:** `docs:read`
-
----
-
-### POST /docs
-
-Create new documentation.
-
-**Request Body:**
-
-```json
-{
-  "docId": "doc::network-architecture",
-  "title": "Home Network Architecture",
-  "description": "Overview of network segmentation and VLANs",
-  "type": "architecture",
-  "format": "markdown",
-  "content": "# Home Network Architecture\n\n## Overview\n\n...",
-  "linkedEntities": [
-    { "entityType": "network", "entityId": "homenet-lan" }
-  ],
-  "category": "network",
-  "tags": ["network", "architecture", "vlan"]
-}
-```
-
-**Response:** `201 Created`
-
-```json
-{
-  "docId": "doc::network-architecture",
-  "title": "Home Network Architecture",
-  "version": 1,
-  "createdAt": "2025-12-16T10:00:00Z"
-}
-```
-
-**Required Permission:** `docs:create`
-
----
-
-### GET /docs/{docId}
-
-Get documentation content.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`version`|integer|Specific version (default: latest)|
-
-**Response:** `200 OK`
-
-```json
-{
-  "docId": "doc::proxmox-setup-guide",
-  "title": "Proxmox Cluster Setup Guide",
-  "description": "Step-by-step guide for setting up the Proxmox cluster",
-  "type": "guide",
-  "format": "markdown",
-  "content": "# Proxmox Cluster Setup\n\n## Overview\n\n...",
-  "linkedEntities": [
-    { "entityType": "node", "entityId": "proxmox-01" },
-    { "entityType": "node", "entityId": "proxmox-02" }
-  ],
-  "category": "infrastructure",
-  "tags": ["proxmox", "setup", "cluster"],
-  "version": 3,
-  "author": "admin",
-  "status": "published",
-  "createdAt": "2025-12-10T00:00:00Z",
-  "updatedAt": "2025-12-16T00:00:00Z"
-}
-```
-
-**Required Permission:** `docs:read`
-
----
-
-### PUT /docs/{docId}
-
-Update documentation.
-
-**Request Body:**
-
-```json
-{
-  "title": "Proxmox Cluster Setup Guide (v2)",
-  "content": "# Proxmox Cluster Setup\n\n## Updated Overview\n\n..."
-}
-```
-
-**Response:** `200 OK`
-
-```json
-{
-  "docId": "doc::proxmox-setup-guide",
-  "version": 4,
-  "updatedAt": "2025-12-16T10:00:00Z"
-}
-```
-
-**Required Permission:** `docs:update`
-
----
-
-### DELETE /docs/{docId}
-
-Delete documentation.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`permanent`|boolean|Permanently delete (default: false = archive)|
-
-**Response:** `200 OK`
-
-```json
-{
-  "docId": "doc::proxmox-setup-guide",
-  "status": "archived"
-}
-```
-
-**Required Permission:** `docs:delete`
+**Required Permission:** `commands:poll` (agent)
 
 ---
 
@@ -2884,18 +2133,17 @@ Delete documentation.
 
 ### GET /ha/status
 
-Get Home Assistant integration status.
+Get Home Assistant connection status.
 
 **Response:** `200 OK`
-
 ```json
 {
-  "enabled": true,
   "connected": true,
+  "version": "2024.12.0",
   "url": "http://homeassistant.local:8123",
-  "lastSync": "2025-12-16T09:45:00Z",
-  "entityCount": 145,
-  "mappedNodes": 23
+  "lastSyncAt": "2025-12-16T09:00:00Z",
+  "deviceCount": 45,
+  "areaCount": 8
 }
 ```
 
@@ -2905,43 +2153,35 @@ Get Home Assistant integration status.
 
 ### GET /ha/devices
 
-List Home Assistant devices mapped to Hydra nodes.
+List Home Assistant devices.
 
 **Query Parameters:**
 
-|Parameter|Type|Description|
-|---|---|---|
-|`domain`|string|Filter by HA domain (climate, light, etc.)|
-|`area`|string|Filter by HA area|
-|`mapped`|boolean|Filter by mapping status|
-|`limit`|integer|Max results|
-|`offset`|integer|Pagination offset|
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `area` | string | Filter by area |
+| `domain` | string | Filter by domain (`light`, `switch`, `sensor`, etc.) |
+| `search` | string | Search by name |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
 
 **Response:** `200 OK`
-
 ```json
 {
   "devices": [
     {
-      "entityId": "climate.living_room_thermostat",
-      "name": "Living Room Thermostat",
-      "domain": "climate",
+      "entityId": "light.living_room",
+      "name": "Living Room Light",
+      "domain": "light",
       "area": "Living Room",
-      "state": "heat",
+      "state": "on",
       "attributes": {
-        "current_temperature": 21.5,
-        "temperature": 22.0
-      },
-      "hydraNode": {
-        "nodeId": "ha-climate-living-room-thermostat",
-        "displayName": "Living Room Thermostat"
-      },
-      "lastUpdated": "2025-12-16T10:00:00Z"
+        "brightness": 255,
+        "color_temp": 370
+      }
     }
   ],
-  "total": 23,
-  "limit": 50,
-  "offset": 0
+  "total": 45
 }
 ```
 
@@ -2951,24 +2191,16 @@ List Home Assistant devices mapped to Hydra nodes.
 
 ### POST /ha/sync
 
-Trigger sync from Home Assistant.
+Sync devices from Home Assistant.
 
-**Request Body:**
-
+**Response:** `200 OK`
 ```json
 {
-  "domains": ["climate", "light", "switch"],
-  "createNodes": true
-}
-```
-
-**Response:** `202 Accepted`
-
-```json
-{
-  "jobId": "job-ha-sync-123",
-  "status": "started",
-  "startedAt": "2025-12-16T10:00:00Z"
+  "message": "Sync completed",
+  "devicesAdded": 2,
+  "devicesUpdated": 10,
+  "devicesRemoved": 0,
+  "syncedAt": "2025-12-16T10:00:00Z"
 }
 ```
 
@@ -2981,30 +2213,24 @@ Trigger sync from Home Assistant.
 Control a Home Assistant device.
 
 **Request Body:**
-
 ```json
 {
-  "entityId": "climate.living_room_thermostat",
-  "service": "set_temperature",
-  "data": {
-    "temperature": 22
+  "entityId": "light.living_room",
+  "action": "turn_on",
+  "parameters": {
+    "brightness": 200,
+    "color_temp": 400
   }
 }
 ```
 
 **Response:** `200 OK`
-
 ```json
 {
-  "entityId": "climate.living_room_thermostat",
-  "service": "set_temperature",
+  "entityId": "light.living_room",
+  "action": "turn_on",
   "success": true,
-  "newState": {
-    "state": "heat",
-    "attributes": {
-      "temperature": 22
-    }
-  }
+  "newState": "on"
 }
 ```
 
@@ -3017,21 +2243,13 @@ Control a Home Assistant device.
 List Home Assistant areas.
 
 **Response:** `200 OK`
-
 ```json
 {
   "areas": [
     {
       "areaId": "living_room",
       "name": "Living Room",
-      "deviceCount": 5,
-      "entityCount": 12
-    },
-    {
-      "areaId": "bedroom",
-      "name": "Bedroom",
-      "deviceCount": 3,
-      "entityCount": 8
+      "deviceCount": 8
     }
   ],
   "total": 8
@@ -3042,742 +2260,378 @@ List Home Assistant areas.
 
 ---
 
-## Query & Analytics
-
-### POST /query
-
-Execute a structured query across collections.
-
-**Request Body:**
-
-```json
-{
-  "collection": "nodes",
-  "filter": {
-    "class": "compute",
-    "status": "active"
-  },
-  "projection": {
-    "nodeId": 1,
-    "displayName": 1,
-    "lastProfileAt": 1
-  },
-  "sort": { "lastProfileAt": -1 },
-  "limit": 10
-}
-```
-
-|Field|Type|Required|Description|
-|---|---|---|---|
-|`collection`|enum|Yes|`nodes`, `profiles`, `services`, `groups`, `networks`|
-|`filter`|object|No|MongoDB-style filter|
-|`projection`|object|No|Fields to include (1) or exclude (0)|
-|`sort`|object|No|Sort specification|
-|`limit`|integer|No|Max results (default: 50, max: 200)|
-|`skip`|integer|No|Skip N results|
-
-**Response:** `200 OK`
-
-```json
-{
-  "collection": "nodes",
-  "results": [
-    {
-      "nodeId": "proxmox-01",
-      "displayName": "Proxmox Host 01",
-      "lastProfileAt": "2025-12-16T06:00:00Z"
-    }
-  ],
-  "total": 14,
-  "returned": 10
-}
-```
-
-**Required Permission:** Read permission for target collection
-
----
-
-### GET /capacity
-
-Get infrastructure capacity summary.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`groupBy`|enum|Group results: `node`, `class`, `location`, `network`, `group`|
-|`includeLogical`|boolean|Include logical nodes (may double-count resources)|
-|`groupId`|string|Filter to group members|
-|`networkId`|string|Filter to network|
-
-**Response:** `200 OK`
-
-```json
-{
-  "summary": {
-    "totalNodes": 15,
-    "physicalNodes": 3,
-    "logicalNodes": 12,
-    "totalCores": 96,
-    "totalMemoryGB": 384,
-    "totalStorageTB": 12.5
-  },
-  "byClass": {
-    "compute": {
-      "nodes": 12,
-      "cores": 88,
-      "memoryGB": 352,
-      "storageTB": 10.0
-    },
-    "networking": {
-      "nodes": 2
-    },
-    "iot": {
-      "nodes": 1
-    }
-  },
-  "byLocation": {
-    "home/main": {
-      "nodes": 10,
-      "cores": 72,
-      "memoryGB": 288
-    }
-  }
-}
-```
-
-**Required Permission:** `nodes:read`, `profiles:read`
-
----
-
-### GET /audit
-
-Get audit log entries.
-
-**Query Parameters:**
-
-|Parameter|Type|Description|
-|---|---|---|
-|`action`|enum|Filter by action|
-|`resourceType`|string|Filter by resource type|
-|`resourceId`|string|Filter by resource ID|
-|`actorId`|string|Filter by actor ID|
-|`since`|datetime|Entries after timestamp|
-|`until`|datetime|Entries before timestamp|
-|`limit`|integer|Max results (default: 100)|
-|`offset`|integer|Pagination offset|
-
-**Response:** `200 OK`
-
-```json
-{
-  "entries": [
-    {
-      "entryId": "audit-abc123",
-      "timestamp": "2025-12-16T10:00:00Z",
-      "action": "update",
-      "resource": {
-        "type": "node",
-        "id": "proxmox-01"
-      },
-      "actor": {
-        "type": "user",
-        "id": "user_abc123",
-        "ip": "192.168.0.100"
-      },
-      "details": {
-        "field": "displayName",
-        "oldValue": "Proxmox Host 01",
-        "newValue": "Proxmox Host 01 (Updated)"
-      },
-      "result": {
-        "success": true
-      }
-    }
-  ],
-  "total": 500,
-  "limit": 100,
-  "offset": 0
-}
-```
-
-**Required Permission:** `audit:read`
-
----
-
 ## AI Models
 
-Configure LLM providers (Anthropic Claude, OpenAI GPT, Ollama) for AI-powered infrastructure management.
+### GET /ai/models
 
-### List LLM Providers
+List configured LLM providers.
 
-```
-GET /ai/models
-```
-
-**Query Parameters:**
-
-| Parameter | Type    | Default | Description       |
-| --------- | ------- | ------- | ----------------- |
-| `limit`   | integer | 50      | Max results       |
-| `offset`  | integer | 0       | Skip N results    |
-
-**Response:**
-
+**Response:** `200 OK`
 ```json
 {
   "providers": [
     {
-      "provider_id": "llm_abc123",
-      "name": "Claude API",
+      "providerId": "anthropic-main",
+      "name": "Anthropic Claude",
       "type": "anthropic",
-      "api_key_last4": "ab12",
-      "api_key_set": true,
-      "base_url": null,
       "model": "claude-3-5-sonnet-20241022",
-      "is_default": true,
-      "is_valid": true,
-      "last_validated_at": "2025-01-07T10:00:00Z",
-      "created_by": "user_abc123",
-      "created_at": "2025-01-01T10:00:00Z",
-      "updated_at": "2025-01-07T10:00:00Z"
+      "isDefault": true,
+      "isValid": true
     }
   ],
-  "total": 1
+  "total": 2
 }
 ```
 
-**Required Permission:** `ai:read`
+**Required Permission:** Authenticated user
 
 ---
 
-### Create LLM Provider
+### POST /ai/models
 
-```
-POST /ai/models
-```
+Create LLM provider configuration.
 
 **Request Body:**
-
 ```json
 {
-  "name": "Claude API",
+  "name": "Anthropic Claude",
   "type": "anthropic",
-  "api_key": "sk-ant-...",
   "model": "claude-3-5-sonnet-20241022",
-  "is_default": true
+  "apiKey": "sk-ant-...",
+  "isDefault": false
 }
 ```
 
-| Field       | Type    | Required | Description                                      |
-| ----------- | ------- | -------- | ------------------------------------------------ |
-| `name`      | string  | Yes      | Display name for the provider                    |
-| `type`      | string  | Yes      | Provider type: `anthropic`, `openai`, `ollama`   |
-| `api_key`   | string  | No       | API key (required for anthropic/openai)          |
-| `base_url`  | string  | No       | Custom base URL (required for ollama)            |
-| `model`     | string  | Yes      | Model identifier                                 |
-| `is_default`| boolean | No       | Set as default provider                          |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Display name |
+| `type` | enum | Yes | `anthropic`, `openai`, `ollama` |
+| `model` | string | Yes | Model identifier |
+| `apiKey` | string | Conditional | Required for anthropic/openai |
+| `baseUrl` | string | No | Custom endpoint (for ollama) |
+| `isDefault` | boolean | No | Set as default provider |
 
-**Response:** Returns created provider object.
-
-**Required Permission:** `ai:create`
-
----
-
-### Get LLM Provider
-
-```
-GET /ai/models/{providerId}
-```
-
-**Required Permission:** `ai:read`
-
----
-
-### Update LLM Provider
-
-```
-PUT /ai/models/{providerId}
-```
-
-**Request Body:** Partial update with same fields as create.
-
-**Required Permission:** `ai:update`
-
----
-
-### Delete LLM Provider
-
-```
-DELETE /ai/models/{providerId}
-```
-
-**Required Permission:** `ai:delete`
-
----
-
-### Validate LLM Provider
-
-```
-POST /ai/models/{providerId}/validate
-```
-
-Tests the API connection to verify credentials.
-
-**Response:**
-
+**Response:** `201 Created`
 ```json
 {
-  "provider_id": "llm_abc123",
-  "is_valid": true,
-  "message": "API key is valid",
-  "validated_at": "2025-01-07T10:00:00Z",
-  "models": ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229"]
+  "providerId": "provider_abc123",
+  "name": "Anthropic Claude",
+  "type": "anthropic",
+  "model": "claude-3-5-sonnet-20241022",
+  "isDefault": false
 }
 ```
 
-**Required Permission:** `ai:read`
+**Required Permission:** Authenticated user
+
+---
+
+### GET /ai/models/{providerId}
+
+Get LLM provider details.
+
+**Response:** `200 OK`
+
+Same as list item format.
+
+---
+
+### PUT /ai/models/{providerId}
+
+Update LLM provider.
+
+**Request Body:** Same as POST (all fields optional).
+
+**Response:** `200 OK`
+
+---
+
+### DELETE /ai/models/{providerId}
+
+Delete LLM provider.
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Provider deleted"
+}
+```
+
+---
+
+### POST /ai/models/{providerId}/validate
+
+Validate LLM provider configuration.
+
+**Response:** `200 OK`
+```json
+{
+  "valid": true,
+  "message": "Connection successful",
+  "responseTime": 450
+}
+```
 
 ---
 
 ## Chat
 
-Persistent chat sessions with MCP tool integration.
+### GET /chat/projects
 
-### List Chat Projects
+List chat projects.
 
-```
-GET /chat/projects
-```
-
-Projects organize related chat sessions.
-
-**Response:**
-
+**Response:** `200 OK`
 ```json
 {
   "projects": [
     {
-      "project_id": "proj_abc123",
+      "projectId": "proj_abc123",
       "name": "Infrastructure Analysis",
-      "description": "Ongoing infrastructure review sessions",
-      "session_count": 5,
-      "created_at": "2025-01-01T10:00:00Z",
-      "updated_at": "2025-01-07T10:00:00Z"
+      "sessionCount": 5,
+      "createdAt": "2025-12-01T10:00:00Z"
     }
   ],
-  "total": 1
+  "total": 3
 }
 ```
 
 ---
 
-### Create Chat Project
+### POST /chat/projects
 
-```
-POST /chat/projects
-```
+Create chat project.
 
 **Request Body:**
-
 ```json
 {
-  "name": "Infrastructure Analysis",
-  "description": "Ongoing infrastructure review sessions"
+  "name": "New Project",
+  "description": "Project description"
 }
 ```
 
----
-
-### Update Chat Project
-
-```
-PUT /chat/projects/{projectId}
-```
+**Response:** `201 Created`
 
 ---
 
-### Delete Chat Project
+### GET /chat/projects/{projectId}
 
-```
-DELETE /chat/projects/{projectId}?cascade=true
-```
-
-Use `cascade=true` to delete all sessions within the project.
+Get chat project.
 
 ---
 
-### List Chat Sessions
+### PUT /chat/projects/{projectId}
 
-```
-GET /chat/sessions
-```
+Update chat project.
+
+---
+
+### DELETE /chat/projects/{projectId}
+
+Delete chat project.
+
+---
+
+### GET /chat/sessions
+
+List chat sessions.
 
 **Query Parameters:**
 
-| Parameter   | Type    | Default | Description                    |
-| ----------- | ------- | ------- | ------------------------------ |
-| `projectId` | string  | -       | Filter by project              |
-| `limit`     | integer | 50      | Max results                    |
-| `offset`    | integer | 0       | Skip N results                 |
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `projectId` | string | Filter by project |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
 
-**Response:**
-
+**Response:** `200 OK`
 ```json
 {
   "sessions": [
     {
-      "session_id": "sess_abc123",
-      "project_id": "proj_abc123",
-      "name": "Network Troubleshooting",
-      "message_count": 12,
-      "created_at": "2025-01-07T10:00:00Z",
-      "updated_at": "2025-01-07T11:30:00Z"
+      "sessionId": "sess_abc123",
+      "projectId": "proj_abc123",
+      "title": "Network troubleshooting",
+      "messageCount": 12,
+      "createdAt": "2025-12-16T09:00:00Z",
+      "lastMessageAt": "2025-12-16T10:00:00Z"
     }
   ],
-  "total": 1
+  "total": 5
 }
 ```
 
 ---
 
-### Create Chat Session
+### POST /chat/sessions
 
-```
-POST /chat/sessions
-```
+Create chat session.
 
 **Request Body:**
-
 ```json
 {
-  "project_id": "proj_abc123",
-  "name": "Network Troubleshooting"
+  "projectId": "proj_abc123",
+  "title": "New Session",
+  "providerId": "anthropic-main",
+  "mcpServers": ["hydra-mcp"]
 }
 ```
 
----
-
-### Get Chat Session
-
-```
-GET /chat/sessions/{sessionId}
-```
+**Response:** `201 Created`
 
 ---
 
-### Update Chat Session
+### GET /chat/sessions/{sessionId}
 
-```
-PUT /chat/sessions/{sessionId}
-```
+Get chat session.
 
 ---
 
-### Delete Chat Session
+### PUT /chat/sessions/{sessionId}
 
-```
-DELETE /chat/sessions/{sessionId}
-```
+Update chat session.
 
 ---
 
-### List Session Messages
+### DELETE /chat/sessions/{sessionId}
 
-```
-GET /chat/sessions/{sessionId}/messages
-```
+Delete chat session.
+
+---
+
+### GET /chat/sessions/{sessionId}/messages
+
+List messages in a session.
 
 **Query Parameters:**
 
-| Parameter | Type    | Default | Description                    |
-| --------- | ------- | ------- | ------------------------------ |
-| `limit`   | integer | 50      | Max messages                   |
-| `offset`  | integer | 0       | Skip N messages                |
-| `order`   | string  | `asc`   | Sort order: `asc` or `desc`    |
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
+| `order` | enum | `asc` or `desc` (default: asc) |
 
-**Response:**
-
+**Response:** `200 OK`
 ```json
 {
   "messages": [
     {
-      "message_id": "msg_abc123",
-      "session_id": "sess_abc123",
+      "messageId": "msg_abc123",
       "role": "user",
-      "content": "List all nodes with status active",
-      "tool_calls": null,
-      "error": false,
-      "created_at": "2025-01-07T10:00:00Z"
+      "content": "List all production servers",
+      "createdAt": "2025-12-16T10:00:00Z"
     },
     {
-      "message_id": "msg_def456",
-      "session_id": "sess_abc123",
+      "messageId": "msg_abc124",
       "role": "assistant",
-      "content": "Found 12 active nodes...",
-      "tool_calls": [
+      "content": "I found 8 production servers...",
+      "toolCalls": [
         {
-          "id": "call_abc123",
-          "name": "list_nodes",
-          "server_name": "hydra-mcp",
-          "arguments": {"status": "active"},
-          "result": {"nodes": [...]},
-          "status": "success"
+          "tool": "list_nodes",
+          "arguments": {"tags": ["production"]}
         }
       ],
-      "error": false,
-      "created_at": "2025-01-07T10:00:05Z"
+      "createdAt": "2025-12-16T10:00:05Z"
     }
   ],
-  "total": 2,
-  "has_more": false
+  "total": 12
 }
 ```
 
 ---
 
-### Create Message
+### POST /chat/sessions/{sessionId}/messages
 
-```
-POST /chat/sessions/{sessionId}/messages
-```
+Create a message (triggers AI response).
 
 **Request Body:**
-
 ```json
 {
-  "role": "user",
-  "content": "List all nodes with status active"
+  "content": "How many nodes are running?"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "userMessage": {
+    "messageId": "msg_abc125",
+    "role": "user",
+    "content": "How many nodes are running?"
+  },
+  "assistantMessage": {
+    "messageId": "msg_abc126",
+    "role": "assistant",
+    "content": "There are 15 active nodes..."
+  }
 }
 ```
 
 ---
 
-### Bulk Upsert Messages
+### POST /chat/sessions/{sessionId}/messages/bulk
 
-```
-POST /chat/sessions/{sessionId}/messages/bulk
-```
-
-Efficiently sync multiple messages (for autosave).
+Bulk upsert messages (for syncing).
 
 **Request Body:**
-
 ```json
 {
   "messages": [
     {
-      "message_id": "msg_abc123",
+      "messageId": "msg_abc123",
       "role": "user",
-      "content": "..."
+      "content": "Message content"
     }
   ]
 }
 ```
 
-**Response:**
+**Response:** `200 OK`
 
+---
+
+### WebSocket /chat/ws
+
+Real-time chat WebSocket connection.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `sessionId` | string | Yes | Chat session ID |
+
+**Message Format:**
 ```json
 {
-  "created": 5,
-  "updated": 2
+  "type": "message",
+  "content": "User message"
 }
 ```
+
+**Response Events:**
+- `message_start`: AI response started
+- `content_delta`: Streaming content chunk
+- `tool_call`: Tool invocation
+- `message_end`: AI response complete
 
 ---
 
 ## MCP Servers
 
-Configure MCP (Model Context Protocol) server connections.
+### GET /mcp/servers
 
-### List MCP Servers
+List configured MCP servers.
 
-```
-GET /mcp/servers
-```
-
-**Query Parameters:**
-
-| Parameter  | Type    | Default | Description                                         |
-| ---------- | ------- | ------- | --------------------------------------------------- |
-| `category` | string  | -       | Filter by category: `infrastructure`, `monitoring`, etc. |
-| `enabled`  | boolean | -       | Filter by enabled status                            |
-
-**Response:**
-
+**Response:** `200 OK`
 ```json
 {
   "servers": [
     {
-      "server_id": "mcp_abc123",
+      "serverId": "hydra-mcp",
       "name": "Hydra MCP",
+      "type": "builtin",
       "url": "http://localhost:8081",
-      "category": "infrastructure",
-      "enabled": true,
       "status": "connected",
-      "last_connected_at": "2025-01-07T10:00:00Z",
-      "tools": [
-        {
-          "name": "list_nodes",
-          "description": "List infrastructure nodes"
-        }
-      ],
-      "created_at": "2025-01-01T10:00:00Z",
-      "updated_at": "2025-01-07T10:00:00Z"
-    }
-  ],
-  "total": 1
-}
-```
-
----
-
-### Create MCP Server
-
-```
-POST /mcp/servers
-```
-
-**Request Body:**
-
-```json
-{
-  "name": "Custom MCP Server",
-  "url": "http://custom-mcp.local:8082",
-  "category": "development",
-  "enabled": true,
-  "config": {}
-}
-```
-
-| Field      | Type    | Required | Description                    |
-| ---------- | ------- | -------- | ------------------------------ |
-| `name`     | string  | Yes      | Server display name            |
-| `url`      | string  | Yes      | Server HTTP endpoint URL       |
-| `category` | string  | Yes      | Category for grouping          |
-| `enabled`  | boolean | No       | Enable/disable (default: true) |
-| `config`   | object  | No       | Additional configuration       |
-
----
-
-### Get MCP Server
-
-```
-GET /mcp/servers/{serverId}
-```
-
----
-
-### Update MCP Server
-
-```
-PUT /mcp/servers/{serverId}
-```
-
----
-
-### Delete MCP Server
-
-```
-DELETE /mcp/servers/{serverId}
-```
-
----
-
-### Check MCP Server Health
-
-```
-GET /mcp/servers/{serverId}/health
-```
-
-**Response:**
-
-```json
-{
-  "status": "healthy",
-  "latency_ms": 45,
-  "checked_at": "2025-01-07T10:00:00Z"
-}
-```
-
-Possible status values: `healthy`, `unhealthy`, `unknown`
-
----
-
-### List MCP Server Tools
-
-```
-GET /mcp/servers/{serverId}/tools
-```
-
-**Response:**
-
-```json
-{
-  "server_id": "mcp_abc123",
-  "tools": [
-    {
-      "name": "list_nodes",
-      "description": "List infrastructure nodes with optional filters",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "class": {"type": "string", "enum": ["compute", "networking", "iot"]},
-          "status": {"type": "string", "enum": ["active", "inactive", "archived"]}
-        }
-      }
-    }
-  ],
-  "fetched_at": "2025-01-07T10:00:00Z"
-}
-```
-
----
-
-## Global Search
-
-Full-text search across all infrastructure entities.
-
-### Search
-
-```
-GET /search
-```
-
-**Query Parameters:**
-
-| Parameter | Type    | Default | Description                                    |
-| --------- | ------- | ------- | ---------------------------------------------- |
-| `q`       | string  | -       | Search query (required)                        |
-| `types`   | string  | all     | Comma-separated: `node,service,network,group`  |
-| `limit`   | integer | 20      | Max results                                    |
-| `offset`  | integer | 0       | Skip N results                                 |
-
-**Response:**
-
-```json
-{
-  "query": "nginx",
-  "results": [
-    {
-      "type": "service",
-      "id": "svc-nginx-a1b2",
-      "name": "nginx",
-      "description": "Web server",
-      "score": 0.95,
-      "highlight": {
-        "name": ["<em>nginx</em>"]
-      }
-    },
-    {
-      "type": "node",
-      "id": "web-server-01",
-      "name": "web-server-01",
-      "description": "Hosts nginx reverse proxy",
-      "score": 0.72,
-      "highlight": {
-        "description": ["Hosts <em>nginx</em> reverse proxy"]
-      }
+      "toolCount": 19
     }
   ],
   "total": 2
@@ -3786,261 +2640,506 @@ GET /search
 
 ---
 
+### POST /mcp/servers
+
+Add MCP server.
+
+**Request Body:**
+```json
+{
+  "name": "Custom MCP",
+  "url": "http://custom-mcp:8080",
+  "apiKey": "optional-key"
+}
+```
+
+**Response:** `201 Created`
+
+---
+
+### GET /mcp/servers/{serverId}
+
+Get MCP server details.
+
+---
+
+### PUT /mcp/servers/{serverId}
+
+Update MCP server.
+
+---
+
+### DELETE /mcp/servers/{serverId}
+
+Remove MCP server.
+
+---
+
+### GET /mcp/servers/{serverId}/health
+
+Check MCP server health.
+
+**Response:** `200 OK`
+```json
+{
+  "serverId": "hydra-mcp",
+  "status": "healthy",
+  "responseTime": 45,
+  "checkedAt": "2025-12-16T10:00:00Z"
+}
+```
+
+---
+
+### GET /mcp/servers/{serverId}/tools
+
+List tools available on MCP server.
+
+**Response:** `200 OK`
+```json
+{
+  "tools": [
+    {
+      "name": "list_nodes",
+      "description": "List infrastructure nodes",
+      "parameters": {
+        "class": "Filter by node class",
+        "status": "Filter by status"
+      }
+    }
+  ],
+  "total": 19
+}
+```
+
+---
+
+## Documentation
+
+### GET /docs
+
+List documentation.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `category` | string | Filter by category |
+| `search` | string | Search by title/content |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
+
+**Response:** `200 OK`
+```json
+{
+  "docs": [
+    {
+      "docId": "doc_abc123",
+      "title": "Getting Started",
+      "category": "guides",
+      "createdAt": "2025-12-01T10:00:00Z",
+      "updatedAt": "2025-12-15T10:00:00Z"
+    }
+  ],
+  "total": 10
+}
+```
+
+**Required Permission:** `docs:read`
+
+---
+
+### POST /docs
+
+Create documentation.
+
+**Request Body:**
+```json
+{
+  "title": "New Document",
+  "category": "guides",
+  "content": "# Document Content\n\nMarkdown content here..."
+}
+```
+
+**Response:** `201 Created`
+
+**Required Permission:** `docs:create`
+
+---
+
+### GET /docs/{docId}
+
+Get documentation by ID.
+
+**Response:** `200 OK`
+```json
+{
+  "docId": "doc_abc123",
+  "title": "Getting Started",
+  "category": "guides",
+  "content": "# Getting Started\n\n...",
+  "createdBy": "admin",
+  "createdAt": "2025-12-01T10:00:00Z",
+  "updatedAt": "2025-12-15T10:00:00Z"
+}
+```
+
+**Required Permission:** `docs:read`
+
+---
+
+### PUT /docs/{docId}
+
+Update documentation.
+
+**Request Body:**
+```json
+{
+  "title": "Updated Title",
+  "content": "Updated content..."
+}
+```
+
+**Response:** `200 OK`
+
+**Required Permission:** `docs:update`
+
+---
+
+### DELETE /docs/{docId}
+
+Delete documentation.
+
+**Response:** `200 OK`
+
+**Required Permission:** `docs:delete`
+
+---
+
+## Query & Analytics
+
+### POST /query
+
+Execute a raw query (admin only).
+
+**Request Body:**
+```json
+{
+  "collection": "nodes",
+  "filter": {"status": "active"},
+  "projection": {"nodeId": 1, "displayName": 1},
+  "limit": 100
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "results": [...],
+  "count": 15,
+  "executionTime": 45
+}
+```
+
+**Required Permission:** `admin` role
+
+---
+
+### GET /capacity
+
+Get infrastructure capacity summary.
+
+**Response:** `200 OK`
+```json
+{
+  "summary": {
+    "totalNodes": 15,
+    "activeNodes": 14,
+    "totalServices": 156,
+    "runningServices": 148
+  },
+  "byClass": {
+    "compute": {"total": 10, "active": 9},
+    "networking": {"total": 3, "active": 3},
+    "iot": {"total": 2, "active": 2}
+  },
+  "resources": {
+    "totalCpuCores": 64,
+    "totalMemoryGb": 256,
+    "totalStorageTb": 24
+  }
+}
+```
+
+**Required Permission:** `nodes:read`
+
+---
+
+### GET /audit
+
+Get audit log.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `userId` | string | Filter by user |
+| `action` | string | Filter by action |
+| `resource` | string | Filter by resource type |
+| `from` | datetime | Start date |
+| `to` | datetime | End date |
+| `limit` | integer | Max results |
+| `offset` | integer | Pagination offset |
+
+**Response:** `200 OK`
+```json
+{
+  "entries": [
+    {
+      "entryId": "audit_abc123",
+      "timestamp": "2025-12-16T10:00:00Z",
+      "userId": "user_abc123",
+      "username": "admin",
+      "action": "create",
+      "resource": "node",
+      "resourceId": "proxmox-01",
+      "details": {...},
+      "ipAddress": "192.168.1.100"
+    }
+  ],
+  "total": 500
+}
+```
+
+**Required Permission:** `audit:read`
+
+---
+
+## Search
+
+### GET /search
+
+Global infrastructure search.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `q` | string | Yes | Search query |
+| `types` | string | No | Comma-separated: `nodes`, `services`, `groups`, `networks` |
+| `limit` | integer | No | Max results per type |
+
+**Response:** `200 OK`
+```json
+{
+  "query": "nginx",
+  "results": {
+    "nodes": [
+      {"nodeId": "nginx-server", "displayName": "NGINX Server", "score": 0.95}
+    ],
+    "services": [
+      {"serviceId": "svc-nginx-c3d4", "name": "nginx", "nodeId": "proxmox-01", "score": 1.0}
+    ],
+    "groups": [],
+    "networks": []
+  },
+  "totalResults": 2
+}
+```
+
+**Required Permission:** `nodes:read`
+
+---
+
 ## Settings
 
-User preferences and system settings.
+### GET /settings
 
-### Get User Settings
+Get user settings.
 
-```
-GET /settings
-```
-
-**Response:**
-
+**Response:** `200 OK`
 ```json
 {
-  "user_id": "user_abc123",
-  "ui": {
-    "theme": "system",
-    "sidebar_collapsed": false,
-    "animations_enabled": true
-  },
-  "views": {
-    "nodes": {
-      "layout": "list",
-      "sort_field": "name",
-      "sort_order": "asc",
-      "page_size": 20,
-      "filters": {}
-    },
-    "services": {
-      "layout": "grid",
-      "sort_field": "status",
-      "sort_order": "desc",
-      "page_size": 20,
-      "filters": {}
-    }
-  },
+  "theme": "dark",
+  "timezone": "America/New_York",
   "notifications": {
-    "email_enabled": true,
-    "push_enabled": false,
-    "digest_frequency": "daily"
+    "email": true,
+    "desktop": true
   },
-  "chat": {
-    "default_provider_id": "llm_abc123",
-    "auto_save": true,
-    "show_tool_calls": true
-  },
-  "updated_at": "2025-01-07T10:00:00Z"
-}
-```
-
----
-
-### Update User Settings
-
-```
-PUT /settings
-```
-
-**Request Body:** Partial update with same structure as response.
-
-```json
-{
-  "ui": {
-    "theme": "dark"
-  },
-  "chat": {
-    "show_tool_calls": false
+  "dashboard": {
+    "defaultView": "topology",
+    "refreshInterval": 30
   }
 }
 ```
 
 ---
 
-### Get System Settings (Admin)
+### PUT /settings
 
-```
-GET /settings/system
-```
+Update user settings.
 
-**Required Permission:** `admin:*`
-
-**Response:**
-
+**Request Body:**
 ```json
 {
-  "registration": {
+  "theme": "light",
+  "timezone": "UTC"
+}
+```
+
+**Response:** `200 OK`
+
+---
+
+### GET /settings/system
+
+Get system settings (admin only).
+
+**Response:** `200 OK`
+```json
+{
+  "smtp": {
     "enabled": true,
-    "require_approval": true,
-    "allowed_domains": ["company.com"]
+    "host": "smtp.example.com",
+    "port": 587
   },
-  "security": {
-    "password_min_length": 8,
-    "session_timeout_minutes": 60,
-    "max_failed_logins": 5
+  "objectStorage": {
+    "enabled": true,
+    "endpoint": "https://s3.example.com"
   },
-  "features": {
-    "mcp_enabled": true,
-    "chat_enabled": true,
-    "time_machine_enabled": true
+  "registration": {
+    "requireApproval": true,
+    "allowedDomains": ["example.com"]
   }
 }
 ```
 
----
-
-### Update System Settings (Admin)
-
-```
-PUT /settings/system
-```
-
-**Required Permission:** `admin:*`
+**Required Permission:** `admin` role
 
 ---
 
-## Error Codes
+### PUT /settings/system
 
-| HTTP | Code                              | Description                           |
-| ---- | --------------------------------- | ------------------------------------- |
-| 400  | `INVALID_REQUEST`                 | Malformed request body                |
-| 400  | `VALIDATION_ERROR`                | Schema validation failed              |
-| 400  | `INVALID_NODE_ID`                 | Invalid node ID format                |
-| 400  | `INVALID_SERVICE_ID`              | Invalid service ID format             |
-| 400  | `INVALID_GROUP_ID`                | Invalid group ID format               |
-| 400  | `INVALID_NETWORK_ID`              | Invalid network ID format             |
-| 400  | `SELECTOR_VALIDATION_ERROR`       | Invalid group selector                |
-| 401  | `AUTH_INVALID_TOKEN`              | JWT token invalid or expired          |
-| 401  | `AUTH_MISSING_TOKEN`              | No authorization header               |
-| 401  | `AUTH_REGISTRATION_TOKEN_INVALID` | Registration token invalid            |
-| 401  | `AUTH_REGISTRATION_TOKEN_EXPIRED` | Registration token expired            |
-| 401  | `AUTH_REGISTRATION_TOKEN_USED`    | Registration token already used       |
-| 401  | `AUTH_INVALID_CREDENTIALS`        | Wrong username/password               |
-| 403  | `AUTH_INSUFFICIENT_PERMISSIONS`   | Lacks required permissions            |
-| 404  | `NODE_NOT_FOUND`                  | Node does not exist                   |
-| 404  | `PROFILE_NOT_FOUND`               | Profile does not exist                |
-| 404  | `SERVICE_NOT_FOUND`               | Service does not exist                |
-| 404  | `GROUP_NOT_FOUND`                 | Group does not exist                  |
-| 404  | `NETWORK_NOT_FOUND`               | Network does not exist                |
-| 404  | `TOPOLOGY_NOT_FOUND`              | Topology does not exist               |
-| 404  | `USER_NOT_FOUND`                  | User does not exist                   |
-| 404  | `COMMAND_NOT_FOUND`               | Command does not exist                |
-| 409  | `NODE_ALREADY_EXISTS`             | Duplicate nodeId                      |
-| 409  | `GROUP_ALREADY_EXISTS`            | Duplicate groupId                     |
-| 409  | `NETWORK_ALREADY_EXISTS`          | Duplicate networkId                   |
-| 409  | `USER_ALREADY_EXISTS`             | Duplicate username/email              |
-| 422  | `NETWORK_HAS_NODES`               | Cannot delete network with nodes      |
-| 422  | `COMMAND_NOT_CANCELLABLE`         | Command already completed/executing   |
-| 429  | `RATE_LIMIT_EXCEEDED`             | Too many requests                     |
-| 500  | `INTERNAL_ERROR`                  | Server error                          |
-| 503  | `SERVICE_UNAVAILABLE`             | Service temporarily unavailable       |
-| 503  | `HA_UNAVAILABLE`                  | Home Assistant not reachable          |
-| 400  | `BOOTSTRAP_REQUIRES_ADMIN`        | First registration must be admin role |
-| 400  | `INVALID_ROLE_FOR_ELEVATION`      | Cannot elevate to requested role      |
-| 401  | `AUTH_PENDING_APPROVAL`           | User registered but not yet approved  |
-| 403  | `ADMIN_ONLY_OPERATION`            | Operation requires admin role         |
-| 404  | `PENDING_USER_NOT_FOUND`          | Pending user not found in approvals   |
-| 409  | `USERNAME_ALREADY_EXISTS`         | Username already taken                |
-| 409  | `NODE_ALREADY_REGISTERED`         | Node ID already exists                |
-| 422  | `ROLE_LIMIT_EXCEEDED`             | Maximum accounts for role reached     |
-| 422  | `CANNOT_ELEVATE_AGENT`            | Agent role is system-managed          |
-| 422  | `TEMP_ROLE_ALREADY_ACTIVE`        | User already has this temporary role  |
+Update system settings (admin only).
 
-**Error Response Format:**
+**Request Body:** Partial update of system settings.
 
+**Response:** `200 OK`
+
+**Required Permission:** `admin` role
+
+---
+
+## Agent Installation
+
+### GET /agent/install
+
+Get installation script.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `version` | string | Agent version (default: latest) |
+| `os` | string | Target OS (`linux`, `darwin`, `windows`) |
+
+**Response:** `200 OK`
+
+Returns shell script (bash or PowerShell).
+
+---
+
+### GET /agent/download
+
+Download agent binary or source bundle.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `version` | string | Version to download |
+| `target` | string | Target platform (`linux-amd64`, `darwin-arm64`, etc.) |
+| `source` | string | `obs` for source bundle |
+
+**Response:** Binary file or redirect to object storage.
+
+---
+
+### GET /agent/versions
+
+List available agent versions.
+
+**Response:** `200 OK`
 ```json
 {
-  "error": {
-    "code": "NODE_NOT_FOUND",
-    "message": "Node 'invalid-node' not found",
-    "details": {
-      "nodeId": "invalid-node"
+  "versions": [
+    {
+      "version": "0.3.1",
+      "releaseDate": "2025-12-15",
+      "targets": ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64"],
+      "changelog": "Bug fixes and performance improvements"
     }
-  },
-  "requestId": "req-abc123"
+  ],
+  "latest": "0.3.1"
 }
-```
-
----
-
-## Rate Limits
-
-|Category|Limit|Window|
-|---|---|---|
-|Authentication|10 req|1 min|
-|Profile submission|100 req|1 min|
-|Read operations|300 req|1 min|
-|Write operations|30 req|1 min|
-|Query endpoints|30 req|1 min|
-|Topology generation|5 req|1 min|
-|Command execution|20 req|1 min|
-|HA control|60 req|1 min|
-
-**Rate Limit Headers:**
-
-```
-X-RateLimit-Limit: 300
-X-RateLimit-Remaining: 287
-X-RateLimit-Reset: 1703851200
 ```
 
 ---
 
 ## Appendices
 
-### Version Format
+### Node ID Format
 
-```
-Ex-W.X.Y.Z
+Pattern: `^[a-z0-9][a-z0-9.-]{2,63}$`
 
-E = Epoch (0+) — Manual increment for breaking changes
-W = Massive (0-F) — >75% of sections changed
-X = Major (0-F) — >50% of sections changed
-Y = Moderate (0-F) — >25% of sections changed
-Z = Minor (0-F) — Any section changed
-
-All positions are hexadecimal (0-F with overflow carry)
-```
-
-**Examples:**
-
-- `E0-0.0.0.1` — First profile
-- `E0-0.0.0.F` → `E0-0.0.1.0` — Z overflow
-- `E0-0.1.0.0` — Major change (>50% sections)
-- `E1-0.0.0.1` — New epoch (breaking change)
+Examples:
+- `proxmox-01`
+- `opnsense.gw`
+- `ha-core`
 
 ---
 
 ### Service ID Format
 
-```
-svc::<runtime>::<name>
+Pattern: `svc-<name>-<hash>`
 
-runtime = systemd | docker | podman | kubernetes | rc | openrc | etc.
-name = service name (lowercase, alphanumeric, hyphens, underscores, dots)
-```
+- `name`: Sanitized service name (lowercase, max 40 chars)
+- `hash`: 4-character hash from `nodeId + runtime + name`
 
-**Examples:**
+Examples:
+- `svc-nginx-c3d4`
+- `svc-mongodb-a1b2`
+- `svc-api-gateway-e5f6`
 
-- `svc::systemd::nginx`
-- `svc::docker::mongodb`
-- `svc::kubernetes::api-gateway`
+---
+
+### Profile Version Format
+
+Pattern: `Ex-W.X.Y.Z` (hexadecimal)
+
+- `E`: Epoch (breaking changes)
+- `W`: Massive change (>75% sections)
+- `X`: Major change (>50% sections)
+- `Y`: Moderate change (>25% sections)
+- `Z`: Minor change (any section)
+
+Examples:
+- `E0-0.0.0.1` — First profile
+- `E0-0.0.1.0` — After 16 minor changes
+- `E0-0.1.0.0` — Major change
+- `E1-0.0.0.1` — New epoch
 
 ---
 
 ### Topology ID Format
 
-```
-topo::<mode>::<timestamp>
+Pattern: `topo::<mode>::<timestamp>`
 
-mode = network | infrastructure
-timestamp = ISO 8601 compact (YYYYMMDDTHHmmssZ)
-```
+- `mode`: `network` or `infrastructure`
+- `timestamp`: ISO 8601 compact (`YYYYMMDDTHHmmssZ`)
 
-**Examples:**
-
+Examples:
 - `topo::network::20251216T120000Z`
 - `topo::infrastructure::20251216T120000Z`
 
@@ -4048,17 +3147,15 @@ timestamp = ISO 8601 compact (YYYYMMDDTHHmmssZ)
 
 ### Permission Format
 
-```
-resource:action
+Pattern: `resource:action`
 
-Resources: nodes, profiles, services, groups, networks, topologies,
-           docs, users, tokens, commands, iot, ha, audit
+**Resources:**
+`nodes`, `profiles`, `services`, `groups`, `networks`, `topologies`, `docs`, `users`, `tokens`, `commands`, `iot`, `ha`, `audit`
 
-Actions: read, write, create, update, delete, execute, control, poll, sync, *
-```
+**Actions:**
+`read`, `write`, `create`, `update`, `delete`, `execute`, `control`, `poll`, `sync`, `*`
 
-**Examples:**
-
+Examples:
 - `nodes:read` — Read nodes
 - `services:*` — All service operations
 - `commands:execute` — Execute commands
@@ -4068,14 +3165,29 @@ Actions: read, write, create, update, delete, execute, control, poll, sync, *
 
 ### Built-in Roles
 
-| Role       | Permissions                                                                                                               | Notes                        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `admin`    | `*:*`                                                                                                                     | Max 2 accounts               |
-| `operator` | `nodes:*`, `profiles:*`, `services:*`, `groups:*`, `networks:*`, `topologies:read`, `docs:*`, `commands:execute`, `ha:*`  | Max 10 accounts              |
-| `viewer`   | `nodes:read`, `profiles:read`, `services:read`, `groups:read`, `networks:read`, `topologies:read`, `docs:read`, `ha:read` | Unlimited                    |
-| `family`   | `iot:read`, `iot:control`, `ha:read`, `ha:control`                                                                        | Unlimited                    |
-| `agent`    | `profiles:write` (own node), `commands:poll` (own node), `apikeys:refresh` (own key)                                      | System-managed, one per node |
+| Role | Level | Max | Key Permissions |
+|------|-------|-----|-----------------|
+| `admin` | 100 | 2 | `*:*` |
+| `operator` | 50 | 10 | `nodes:*`, `services:*`, `groups:*`, `networks:*`, `commands:execute` |
+| `viewer` | 25 | ∞ | `*:read` (all read operations) |
+| `family` | 10 | ∞ | `iot:*`, `ha:*` |
+| `agent` | 0 | ∞ | `profiles:write` (own), `commands:poll` (own) |
 
 ---
 
-_For complete schema definitions and technical details, see the Technical Documentation._
+### Supported Service Runtimes
+
+| Runtime | Description |
+|---------|-------------|
+| `systemd` | Linux systemd services |
+| `docker` | Docker containers |
+| `podman` | Podman containers |
+| `kubernetes` | Kubernetes pods |
+| `rc` | BSD rc.d services |
+| `openrc` | OpenRC services |
+| `launchd` | macOS launchd services |
+| `windows-service` | Windows services |
+
+---
+
+_For complete technical details, see the [Technical Documentation](Hydra%20Technical%20Documentation%20v0.3.0.md)._

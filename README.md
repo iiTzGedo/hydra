@@ -125,8 +125,8 @@ curl -sSL https://hydra.local/api/v1/install | bash -s -- \
 │  ┌──────────────────────────┐  ┌──────────────────────────┐     │
 │  │        hydra-api         │  │       hydra-mcp          │     │
 │  │    (Python/FastAPI)      │  │    (Python/MCP SDK)      │     │
-│  │  • Authentication        │  │  • 18 AI Tools           │     │
-│  │  • Node/Profile CRUD     │  │  • 8 Resources           │     │
+│  │  • 128 API Endpoints     │  │  • 19 AI Tools           │     │
+│  │  • 22 Routers            │  │  • 8 Resources           │     │
 │  │  • Topology Generation   │  │  • 6 Prompts             │     │
 │  │  • Time Machine          │  │  • TOON Formatting       │     │
 │  └──────────────────────────┘  └──────────────────────────┘     │
@@ -219,10 +219,10 @@ See [hydra-mcp/README.md](hydra-mcp/README.md) for full MCP documentation includ
 
 | Document | Description |
 |----------|-------------|
-| [Product Documentation](docs/Hydra%20Product%20Documentation%20v0.3.0.md) | Vision, user journeys, use cases |
-| [Technical Documentation](docs/Hydra%20Technical%20Documentation%20v0.3.0.md) | Architecture, schemas, implementation details |
-| [API Reference](docs/Hydra%20API%20Reference%20v0.3.0.md) | All endpoints with request/response examples |
-| [Development Roadmap](docs/Hydra%20Development%20Roadmap%20v0.3.0.md) | Phases and task breakdown |
+| [Product Documentation](resources/docs/main/Hydra%20Product%20Documentation%20v0.3.0.md) | Vision, user journeys, use cases |
+| [Technical Documentation](resources/docs/main/Hydra%20Technical%20Documentation%20v0.3.0.md) | Architecture, schemas, implementation details |
+| [API Reference](resources/docs/main/Hydra%20API%20Reference%20v0.3.0.md) | All 128 endpoints with request/response examples |
+
 
 ## Development
 
@@ -259,11 +259,13 @@ npm run lint && npm run typecheck
 
 ```
 hydra/
-├── hydra-api/           # FastAPI REST service
-├── hydra-agent/         # Rust profiling agent
-├── hydra-web/           # React dashboard
-├── hydra-mcp/           # MCP AI interface
-└── docs/                # Technical documentation
+├── hydra-api/           # FastAPI REST service (128 endpoints, 22 routers)
+├── hydra-agent/         # Rust profiling agent (cross-platform)
+├── hydra-web/           # React dashboard (31 pages)
+├── hydra-mcp/           # MCP AI interface (19 tools, 8 resources, 6 prompts)
+└── resources/
+    ├── assets/          # Logos and images
+    └── docs/main/       # Technical documentation
 ```
 
 ## Roadmap
@@ -276,7 +278,7 @@ hydra/
 - Topology generation (Infrastructure, Network, Service modes)
 - Time Machine
 - Web dashboard with AI chat integration
-- MCP service with 18 AI tools
+- MCP service with 19 AI tools, 8 resources, 6 prompts
 
 ### Planned
 
