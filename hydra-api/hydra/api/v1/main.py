@@ -1,17 +1,21 @@
 """Hydra API - Main application entry point."""
 
 import uuid
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 from hydra.api.v1 import __version__
 from hydra.core.config import get_settings
 from hydra.api.v1.core.exceptions import HydraError
 from hydra.api.v1.routers import ai, auth, chat, chat_ws, commands, docs, groups, ha, health, install, mcp, networks, nodes, profiles, query, search, services, settings as settings_router, timemachine, topologies, users
+
+# Static files directory (shared with root app)
+STATIC_DIR = Path(__file__).parent.parent.parent / "static"
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +31,7 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.is_development else None,
         redoc_url="/redoc" if settings.is_development else None,
         openapi_url="/openapi.json" if settings.is_development else None,
+        swagger_favicon_url="/static/favicon.ico",
     )
 
     # CORS middleware
@@ -122,6 +127,20 @@ def create_app() -> FastAPI:
                 "requestId": request_id,
             },
         )
+
+    # Favicon route for swagger docs (ensures proper favicon in API docs)
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        """Serve favicon for swagger docs."""
+        favicon_path = STATIC_DIR / "favicon.ico"
+        if favicon_path.exists():
+            return FileResponse(
+                favicon_path,
+                media_type="image/x-icon",
+                headers={"Cache-Control": "public, max-age=86400"}
+            )
+        # Return empty response if not found
+        return FileResponse(favicon_path, status_code=404)
 
     # Include routers at the v1 root (mounted by the parent app)
     app.include_router(health.router)

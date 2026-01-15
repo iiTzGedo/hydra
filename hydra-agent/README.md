@@ -1,10 +1,21 @@
-# Hydra Agent
+<p align="center">
+  <img src="../resources/assets/logos/hydra-logos-v1_dark_256.png" alt="Hydra Logo" width="128" height="128">
+</p>
 
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20FreeBSD-lightgrey.svg)](#platform-support)
+<h1 align="center">Hydra Agent</h1>
 
-Lightweight, cross-platform infrastructure profiling agent for the [Hydra](https://github.com/yourorg/hydra) platform. Written in Rust for minimal resource usage (<50MB RSS) and maximum portability.
+<p align="center">
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
+  <a href="#platform-support"><img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20FreeBSD-lightgrey.svg" alt="Platform"></a>
+</p>
+
+<p align="center">
+  Lightweight, cross-platform infrastructure profiling agent for the <a href="https://github.com/yourorg/hydra">Hydra</a> platform.<br>
+  Written in Rust for minimal resource usage (&lt;50MB RSS) and maximum portability.
+</p>
+
+---
 
 ## Table of Contents
 

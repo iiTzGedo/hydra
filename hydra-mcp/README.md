@@ -1,6 +1,50 @@
-# Hydra MCP Service
+<p align="center">
+  <img src="../resources/assets/logos/hydra-logos-v1_dark_256.png" alt="Hydra Logo" width="128" height="128">
+</p>
 
-AI interface layer for Hydra infrastructure management, exposing infrastructure data through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
+<h1 align="center">Hydra MCP</h1>
+
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python"></a>
+  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-1.0-purple.svg" alt="MCP"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
+</p>
+
+<p align="center">
+  AI interface layer for <a href="https://github.com/yourorg/hydra">Hydra</a> infrastructure management.<br>
+  Exposes infrastructure data through the <a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a>.
+</p>
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Configuration](#configuration)
+  - [API Connection](#api-connection)
+  - [Transport Settings](#transport-settings)
+  - [TOON Formatting](#toon-formatting)
+  - [Logging](#logging)
+- [Usage](#usage)
+  - [Transport Modes](#transport-modes)
+  - [HTTP API Endpoints](#http-api-endpoints)
+  - [Claude Desktop Integration](#claude-desktop-integration)
+- [Available Tools](#available-tools)
+  - [Infrastructure Queries](#infrastructure-queries)
+  - [Analytics](#analytics)
+  - [Time Machine](#time-machine)
+  - [Control](#control)
+- [Available Resources](#available-resources)
+- [Available Prompts](#available-prompts)
+- [TOON Output Format](#toon-output-format)
+- [Docker](#docker)
+- [Project Structure](#project-structure)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ## Overview
 
@@ -12,13 +56,41 @@ The Hydra MCP service enables LLMs to interact with your infrastructure through 
 
 All responses are formatted using [TOON](https://github.com/toon-format/toon-python) (Text-Oriented Object Notation) for 30-60% token reduction compared to JSON.
 
+## Features
+
+- **Multi-Transport**: stdio (local), streamable-http (remote), SSE (legacy), HTTP (API integration)
+- **Claude Desktop Compatible**: Works with Claude Desktop via stdio or streamable-http
+- **Infrastructure Tools**: Query nodes, services, networks, groups, and topologies
+- **Time Machine**: Historical state queries at any timestamp
+- **Control Operations**: Service and IoT device control
+- **Token Efficient**: TOON formatting reduces LLM token usage by 30-60%
+- **Configurable**: Environment-based configuration for all settings
+
+## Quick Start
+
+```bash
+# Install with uv
+cd hydra-mcp
+uv pip install -e .
+
+# Set environment variables
+export HYDRA_MCP_API_URL=http://localhost:8080/api/v1
+export HYDRA_MCP_API_KEY=your-api-key
+
+# Run with stdio (Claude Desktop local)
+hydra-mcp
+
+# Or with streamable-http (Claude Desktop remote)
+HYDRA_MCP_TRANSPORT=streamable-http hydra-mcp
+```
+
 ## Installation
 
 ```bash
 # From the hydra-mcp directory (using uv, recommended)
 uv pip install -e .
 
-# Or with pip (requires git for toon-format dependency)
+# Or with pip
 pip install -e .
 
 # With dev dependencies
@@ -43,7 +115,7 @@ Environment variables (prefix: `HYDRA_MCP_`):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `HYDRA_MCP_TRANSPORT` | Transport mode: `stdio`, `http`, `sse`, or `streamable-http` | `stdio` |
+| `HYDRA_MCP_TRANSPORT` | Transport mode | `stdio` |
 | `HYDRA_MCP_HTTP_HOST` | HTTP server host | `0.0.0.0` |
 | `HYDRA_MCP_HTTP_PORT` | HTTP server port | `8081` |
 | `HYDRA_MCP_CORS_ORIGINS` | CORS allowed origins (JSON array) | `["*"]` |
@@ -91,7 +163,7 @@ HYDRA_MCP_TRANSPORT=http hydra-mcp
 
 ### HTTP API Endpoints
 
-When running in HTTP mode, the following endpoints are available:
+When running in HTTP mode (`HYDRA_MCP_TRANSPORT=http`):
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -102,7 +174,7 @@ When running in HTTP mode, the following endpoints are available:
 | `/resources/read` | POST | Read a resource |
 | `/prompts` | GET | List available prompts |
 
-#### Example HTTP Requests
+**Example Requests:**
 
 ```bash
 # Health check
@@ -115,9 +187,6 @@ curl http://localhost:8081/tools
 curl -X POST http://localhost:8081/tools/call \
   -H "Content-Type: application/json" \
   -d '{"name": "list_nodes", "arguments": {"status": "active"}}'
-
-# List resources
-curl http://localhost:8081/resources
 
 # Read a resource
 curl -X POST http://localhost:8081/resources/read \
@@ -155,8 +224,9 @@ HYDRA_MCP_TRANSPORT=streamable-http \
 HYDRA_MCP_API_URL=http://localhost:8080/api/v1 \
 HYDRA_MCP_API_KEY=your-api-key \
 hydra-mcp
+```
 
-# Configure Claude Desktop
+```json
 {
   "mcpServers": {
     "hydra": {
@@ -165,26 +235,12 @@ hydra-mcp
     }
   }
 }
+```
 
+```bash
 # Or via Claude CLI
 claude mcp add hydra --transport streamable-http http://localhost:8081/mcp
 ```
-
-### Troubleshooting
-
-**Claude Desktop not connecting:**
-- Verify transport matches: config says `streamable-http`, server must use `streamable-http`
-- Check endpoint URL: `http://localhost:8081/mcp` for streamable-http
-- Test server: `curl http://localhost:8081/mcp`
-
-**"Address already in use":**
-- Stop old instance: `pkill hydra-mcp`
-- Or use different port: `HYDRA_MCP_HTTP_PORT=8082`
-
-**HTTP transport returns 404 from Claude Desktop:**
-- Expected! `http` transport is NOT MCP protocol compatible
-- Use `streamable-http` or `sse` for Claude Desktop
-- `http` transport is only for Hydra Web/API integration
 
 ## Available Tools
 
@@ -274,38 +330,22 @@ network:
   nodes[5]: srv1,srv2,srv3,srv4,srv5
 ```
 
-## Development
-
-```bash
-# Install dev dependencies
-uv pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Type checking
-mypy hydra
-
-# Linting
-ruff check hydra
-```
-
 ## Docker
 
 ### Building the Image
 
 ```bash
-docker build -t hydra-mcp .
+docker build -t hydra-mcp:latest .
 ```
 
 ### Running with HTTP Transport (Recommended for Docker)
 
 ```bash
-# Run with HTTP transport (default in Docker)
 docker run -d --name hydra-mcp \
   -p 8081:8081 \
   -e HYDRA_MCP_API_URL=http://host.docker.internal:8080/api/v1 \
-  hydra-mcp
+  -e HYDRA_MCP_API_KEY=your-api-key \
+  hydra-mcp:latest
 
 # Check health
 curl http://localhost:8081/health
@@ -318,12 +358,11 @@ curl http://localhost:8081/health
 docker run -it --rm \
   -e HYDRA_MCP_TRANSPORT=stdio \
   -e HYDRA_MCP_API_URL=http://host.docker.internal:8080/api/v1 \
-  hydra-mcp
+  -e HYDRA_MCP_API_KEY=your-api-key \
+  hydra-mcp:latest
 ```
 
 ### Docker Compose
-
-The service is included in the main `docker-compose.dev.yml`:
 
 ```bash
 # Start all services
@@ -336,7 +375,7 @@ docker-compose -f docker-compose.dev.yml up -d hydra-mcp
 docker-compose -f docker-compose.dev.yml logs -f hydra-mcp
 ```
 
-## Architecture
+## Project Structure
 
 ```
 hydra-mcp/
@@ -347,13 +386,58 @@ hydra-mcp/
 │   ├── client.py        # Async HTTP client for Hydra API
 │   ├── toon.py          # TOON formatter wrapper
 │   └── server.py        # MCP server (stdio + HTTP transport)
-├── tests/
+├── tests/               # Test suite
+│   ├── conftest.py      # Test fixtures
+│   └── test_*.py        # Test modules
 ├── .env.example         # Environment variable template
-├── pyproject.toml
-├── Dockerfile
-└── README.md
+├── pyproject.toml       # Project configuration
+├── Dockerfile           # Production Docker image
+└── README.md            # This file
 ```
+
+## Development
+
+```bash
+# Install dev dependencies
+uv pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Run with coverage
+pytest --cov=hydra --cov-report=html
+
+# Type checking
+mypy hydra
+
+# Linting
+ruff check hydra
+
+# Formatting
+ruff format hydra
+```
+
+## Troubleshooting
+
+**Claude Desktop not connecting:**
+- Verify transport matches: config says `streamable-http`, server must use `streamable-http`
+- Check endpoint URL: `http://localhost:8081/mcp` for streamable-http
+- Test server: `curl http://localhost:8081/mcp`
+
+**"Address already in use":**
+- Stop old instance: `pkill hydra-mcp`
+- Or use different port: `HYDRA_MCP_HTTP_PORT=8082`
+
+**HTTP transport returns 404 from Claude Desktop:**
+- Expected! `http` transport is NOT MCP protocol compatible
+- Use `streamable-http` or `sse` for Claude Desktop
+- `http` transport is only for Hydra Web/API integration
+
+**API connection errors:**
+- Verify `HYDRA_MCP_API_URL` points to running Hydra API
+- Check API key is valid: `HYDRA_MCP_API_KEY`
+- Test API directly: `curl $HYDRA_MCP_API_URL/health`
 
 ## License
 
-Apache-2.0
+Apache-2.0 - See [LICENSE](../LICENSE) for details.
