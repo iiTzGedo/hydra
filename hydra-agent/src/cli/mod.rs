@@ -3,6 +3,7 @@
 //! Provides a modular CLI structure with subcommands for various operations:
 //! - `login` - Authenticate as admin/operator
 //! - `register` - Register agent system account
+//! - `unregister` - Unregister agent from Hydra
 //! - `config` - Manage configuration
 //! - `node` - Node management operations
 //! - `service` - Service lifecycle management
@@ -11,6 +12,7 @@
 
 pub mod login;
 pub mod register;
+pub mod unregister;
 pub mod config;
 pub mod node;
 pub mod service;
@@ -29,51 +31,32 @@ pub enum OperatingMode {
 }
 
 /// Hydra Agent - Infrastructure profiling agent
+///
+/// Root options (--config, --mode, --aliased) are only available when calling
+/// hydra-agent directly. Subcommands have their own specific options.
 #[derive(Parser)]
 #[command(name = "hydra-agent")]
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
 pub struct Cli {
     /// Enable verbose output (debug logging)
-    #[arg(short = 'V', long, global = true)]
+    #[arg(short = 'v', long, global = true)]
     pub verbose: bool,
 
-    /// Create 'hydra' alias (symlink) during install
-    #[arg(short = 'a', long, global = true)]
+    /// Create 'hydra' alias (symlink) for hydra-agent
+    #[arg(short = 'a', long)]
     pub aliased: bool,
 
     /// Path to configuration file
-    #[arg(short, long, default_value = "/etc/hydra/agent.toml", global = true, env = "HYDRA_CONFIG")]
+    #[arg(short = 'c', long, default_value = "/etc/hydra/agent.toml", env = "HYDRA_CONFIG")]
     pub config: PathBuf,
 
-    /// Operating mode
-    #[arg(short, long, value_enum, default_value_t = OperatingMode::Live, global = true)]
+    /// Operating mode (live = API mode, dev = local output only)
+    #[arg(short = 'm', long, value_enum, default_value_t = OperatingMode::Live)]
     pub mode: OperatingMode,
 
     #[command(subcommand)]
     pub command: Option<Commands>,
-
-    // ==================== Legacy flags (hidden, for backward compatibility) ====================
-
-    /// Run once and exit (legacy, use 'run --once')
-    #[arg(long, hide = true)]
-    pub once: bool,
-
-    /// Register with the API (legacy, use 'register' command)
-    #[arg(long, hide = true)]
-    pub register: bool,
-
-    /// Registration token (legacy)
-    #[arg(long, hide = true)]
-    pub token: Option<String>,
-
-    /// Username (legacy)
-    #[arg(short, long, hide = true)]
-    pub username: Option<String>,
-
-    /// Password (legacy)
-    #[arg(short, long, hide = true)]
-    pub password: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -83,6 +66,9 @@ pub enum Commands {
 
     /// Register agent system account with the Hydra API
     Register(register::RegisterArgs),
+
+    /// Unregister agent from Hydra (removes agent account)
+    Unregister(unregister::UnregisterArgs),
 
     /// Manage agent configuration
     Config(config::ConfigArgs),

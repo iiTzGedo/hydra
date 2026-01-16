@@ -19,7 +19,7 @@ pub mod defaults {
     /// Default config directory
     pub const CONFIG_DIR: &str = "/etc/hydra";
 
-    /// Default vault directory
+    /// Default vault directory (credentials stored here via vault module)
     pub const VAULT_DIR: &str = "/var/cv/hydra";
 
     /// Default log directory
@@ -27,9 +27,6 @@ pub mod defaults {
 
     /// Default binary directory
     pub const BIN_DIR: &str = "/usr/local/bin";
-
-    /// Default credentials file path
-    pub const CREDENTIALS_FILE: &str = "/var/cv/hydra/credentials.json";
 }
 
 /// Default paths for Windows systems
@@ -41,7 +38,7 @@ pub mod defaults {
     /// Default config directory
     pub const CONFIG_DIR: &str = r"C:\ProgramData\Hydra";
 
-    /// Default vault directory
+    /// Default vault directory (credentials stored here via vault module)
     pub const VAULT_DIR: &str = r"C:\ProgramData\Hydra\vault";
 
     /// Default log directory
@@ -49,9 +46,6 @@ pub mod defaults {
 
     /// Default binary directory
     pub const BIN_DIR: &str = r"C:\Program Files\Hydra Agent";
-
-    /// Default credentials file path
-    pub const CREDENTIALS_FILE: &str = r"C:\ProgramData\Hydra\vault\credentials.json";
 }
 
 /// Paths structure for runtime path resolution
@@ -63,7 +57,7 @@ pub struct Paths {
     /// Configuration directory
     pub config_dir: PathBuf,
 
-    /// Vault directory for credentials
+    /// Vault directory for credentials (managed by vault module)
     pub vault_dir: PathBuf,
 
     /// Log directory
@@ -71,9 +65,6 @@ pub struct Paths {
 
     /// Binary installation directory
     pub bin_dir: PathBuf,
-
-    /// Credentials file path
-    pub credentials_file: PathBuf,
 }
 
 impl Default for Paths {
@@ -91,7 +82,6 @@ impl Paths {
             vault_dir: PathBuf::from(defaults::VAULT_DIR),
             log_dir: PathBuf::from(defaults::LOG_DIR),
             bin_dir: PathBuf::from(defaults::BIN_DIR),
-            credentials_file: PathBuf::from(defaults::CREDENTIALS_FILE),
         }
     }
 
@@ -103,7 +93,6 @@ impl Paths {
             vault_dir: base.join("vault"),
             log_dir: base.join("logs"),
             bin_dir: base.join("bin"),
-            credentials_file: base.join("vault").join("credentials.json"),
         }
     }
 
@@ -154,11 +143,6 @@ pub fn default_log_dir() -> PathBuf {
 /// Get the default binary directory for the current platform
 pub fn default_bin_dir() -> PathBuf {
     PathBuf::from(defaults::BIN_DIR)
-}
-
-/// Get the default credentials file path for the current platform
-pub fn default_credentials_file() -> PathBuf {
-    PathBuf::from(defaults::CREDENTIALS_FILE)
 }
 
 /// Resolve a path that may contain environment variables or special prefixes

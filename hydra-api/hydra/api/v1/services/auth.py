@@ -412,7 +412,7 @@ class AuthService:
             "class": request.node_class,
             "type": request.node_type,
             "kind": request.kind,
-            "displayName": request.display_name,
+            "displayName": request.display_name or request.node_id,
             "description": request.description,
             "tags": request.tags,
             "parentNodeId": request.parent_node_id,

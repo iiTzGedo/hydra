@@ -77,7 +77,7 @@ def create_app() -> FastAPI:
         if index_path.exists():
             return HTMLResponse(content=index_path.read_text(), status_code=200)
         return HTMLResponse(
-            content="<h1>Hydra API</h1><p>Visit <a href='/api/v1/docs'>/api/v1/docs</a></p>",
+            content="<h1>Hydra API</h1><p>Visit <a href='/api/v1/_docs'>/api/v1/_docs</a> for API documentation</p>",
             status_code=200
         )
 

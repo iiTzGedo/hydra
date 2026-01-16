@@ -423,13 +423,24 @@ async def get_install_script(
     """
     Generate and return the installation script.
 
+    The API URL in the generated script is derived from the request URL. Use HTTP for
+    local development/testing and HTTPS for production.
+
     For Unix systems (curl):
     ```bash
+    # Local development (HTTP)
+    curl -sSL http://localhost:8080/api/v1/agent/install?source=local | bash -s -- -v 0.3.1
+
+    # Production (HTTPS)
     curl -sSL https://hydra.local/api/v1/agent/install?source=local | bash -s -- -v 0.3.1
     ```
 
     For Windows (PowerShell):
     ```powershell
+    # Local development
+    iwr -useb http://localhost:8080/api/v1/agent/install | iex
+
+    # Production
     iwr -useb https://hydra.local/api/v1/agent/install | iex
     ```
 

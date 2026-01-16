@@ -28,9 +28,10 @@ def create_app() -> FastAPI:
         title="Hydra API",
         description="AI-powered infrastructure management platform API",
         version=__version__,
-        docs_url="/docs" if settings.is_development else None,
-        redoc_url="/redoc" if settings.is_development else None,
-        openapi_url="/openapi.json" if settings.is_development else None,
+        # Use /_docs to avoid conflict with /docs router (documentation endpoints)
+        docs_url="/_docs" if settings.is_development else None,
+        redoc_url="/_redoc" if settings.is_development else None,
+        openapi_url="/_openapi.json" if settings.is_development else None,
         swagger_favicon_url="/static/favicon.ico",
     )
 

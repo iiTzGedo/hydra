@@ -276,7 +276,7 @@ class NodeRegistrationRequest(BaseModel):
     node_class: Literal["compute", "networking", "iot"] = Field(alias="class")
     node_type: Literal["physical", "logical"] = Field(alias="type")
     kind: str | None = Field(default=None)
-    display_name: str = Field(alias="displayName", max_length=128)
+    display_name: str | None = Field(default=None, alias="displayName", max_length=128)
     description: str | None = Field(default=None, max_length=1024)
     tags: list[str] = Field(default_factory=list)
     parent_node_id: str | None = Field(default=None, alias="parentNodeId")

@@ -55,6 +55,37 @@ async def list_users(
 
 
 @router.get(
+    "/me/subs",
+    response_model=SubAccountListResponse,
+    summary="List My Sub-Accounts",
+    description="List sub-accounts for the currently authenticated user.",
+)
+async def list_my_sub_accounts(
+    users_service: UsersServiceDep,
+    current_user: CurrentUser,
+) -> SubAccountListResponse:
+    """List sub-accounts for the current user."""
+    if current_user.get("type") == "agent":
+        raise AuthorizationError()
+
+    user_id = current_user.get("user_id")
+    result = await users_service.list_sub_accounts(user_id)
+    return SubAccountListResponse(
+        parent_user_id=result["parent_user_id"],
+        sub_accounts=[
+            {
+                "user_id": sub["user_id"],
+                "username": sub["username"],
+                "role": Role(sub["role"]),
+                "created_at": sub["created_at"],
+            }
+            for sub in result["sub_accounts"]
+        ],
+        total=result["total"],
+    )
+
+
+@router.get(
     "/{userId}/subs",
     response_model=SubAccountListResponse,
     summary="List Sub-Accounts",

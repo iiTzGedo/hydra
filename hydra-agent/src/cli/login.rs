@@ -1,7 +1,12 @@
-//! Login command for authenticating as admin/operator.
+//! Login command for authenticating as admin/operator or agent.
 //!
 //! Authenticates with the Hydra API and stores the session in the vault.
 //! Used for performing privileged operations like agent registration.
+//!
+//! Flow:
+//! - Default login: Prompts for username/password (for admin/operator)
+//! - `--agent`: Uses agent credentials from vault (recovery after failed auto-login)
+//! - If agent is registered and no flags provided, prompts user to choose
 
 use anyhow::{anyhow, Context, Result};
 use clap::Args;
@@ -12,7 +17,7 @@ use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::config::AgentConfig;
-use crate::vault::{SessionData, Vault};
+use crate::vault::{ApiKeyData, SessionData, Vault};
 
 /// Login command arguments
 #[derive(Args, Debug)]
@@ -24,6 +29,14 @@ pub struct LoginArgs {
     /// Password
     #[arg(short, long)]
     pub password: Option<String>,
+
+    /// Login using agent credentials from vault (recovery for failed auto-login)
+    #[arg(short, long)]
+    pub agent: bool,
+
+    /// Force recreate API key even if a valid one exists (use with --agent)
+    #[arg(short, long)]
+    pub force: bool,
 
     /// Refresh existing session instead of new login
     #[arg(short, long)]
@@ -104,12 +117,228 @@ pub async fn execute(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> R
         return refresh_session(config, vault).await;
     }
 
-    // Perform login
-    login(args, config, vault).await
+    // Handle agent login (recovery mode)
+    if args.agent {
+        return login_with_agent_credentials(config, vault, args.force).await;
+    }
+
+    // Check if agent has credentials and prompt user (if no username provided)
+    if args.username.is_none() && vault.has_agent_credentials() {
+        return prompt_login_choice(args, config, vault).await;
+    }
+
+    // Perform normal user login
+    login_user(args, config, vault).await
 }
 
-/// Perform login with username/password
-async fn login(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
+/// Prompt user to choose between user login and agent login
+async fn prompt_login_choice(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
+    let creds = vault.load_agent_credentials()?.unwrap();
+
+    println!();
+    println!("Agent '{}' is registered with Hydra.", creds.username);
+    println!();
+    println!("Login as:");
+    println!("  [u] User (admin/operator) - for privileged operations");
+    println!("  [a] Agent - verify/renew API key for this agent");
+    println!();
+    print!("Choice (u/a): ");
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let choice = input.trim().to_lowercase();
+
+    match choice.as_str() {
+        "a" | "agent" => {
+            login_with_agent_credentials(config, vault, args.force).await
+        }
+        "u" | "user" | "" => {
+            // Default to user login
+            login_user(args, config, vault).await
+        }
+        _ => {
+            Err(anyhow!("Invalid choice. Use 'u' for user login or 'a' for agent login."))
+        }
+    }
+}
+
+/// Login using agent credentials stored in vault (recovery mode)
+async fn login_with_agent_credentials(config: &AgentConfig, vault: &Vault, force: bool) -> Result<()> {
+    let creds = vault.load_agent_credentials()?
+        .ok_or_else(|| anyhow!("No agent credentials found in vault. Register first with 'hydra-agent register'."))?;
+
+    // Check if we already have a valid (non-expired) API key
+    let has_valid_api_key = vault.has_api_key() && !vault.is_api_key_expired()?;
+
+    if has_valid_api_key && !force {
+        let api_key_data = vault.load_api_key()?.unwrap();
+        println!();
+        println!("Agent '{}' already has a valid API key.", creds.username);
+        println!("  API Key ID: {}", api_key_data.api_key_id);
+        if let Some(expires) = &api_key_data.expires_at {
+            println!("  Expires: {}", expires);
+        }
+        println!();
+        println!("The agent is ready to collect and submit profiles.");
+        println!("No new API key created (existing key is still valid).");
+        println!();
+        println!("To force recreate the API key, use: hydra-agent login -a -f");
+        return Ok(());
+    }
+
+    if force && has_valid_api_key {
+        info!("Force flag set - recreating API key");
+    }
+
+    let password = creds.password.as_ref()
+        .ok_or_else(|| anyhow!("Agent password not stored in vault. Cannot perform recovery login."))?;
+
+    info!("Logging in as agent '{}'...", creds.username);
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("Failed to create HTTP client")?;
+
+    // Use source=agent to allow system account login
+    let login_url = format!("{}/auth/login?source=agent", config.api.url);
+    let request = LoginRequest {
+        username: creds.username.clone(),
+        password: password.clone(),
+    };
+
+    debug!("Sending agent login request to {}", login_url);
+
+    let response = client
+        .post(&login_url)
+        .json(&request)
+        .send()
+        .await
+        .context("Failed to send login request")?;
+
+    if !response.status().is_success() {
+        let error: ApiError = response.json().await
+            .unwrap_or_else(|_| ApiError {
+                error: ApiErrorDetail {
+                    code: "UNKNOWN".to_string(),
+                    message: "Agent login failed".to_string(),
+                }
+            });
+        return Err(anyhow!(
+            "Agent login failed: {} - {}",
+            error.error.code,
+            error.error.message
+        ));
+    }
+
+    let login_response: LoginResponse = response.json().await
+        .context("Failed to parse login response")?;
+
+    info!("Agent logged in successfully, creating API key...");
+
+    // Create API key for the agent (only reached if API key is missing or expired)
+    let api_key = create_agent_api_key(&client, config, &creds.username, &login_response.access_token).await?;
+
+    // Save API key to vault
+    let api_key_data = ApiKeyData {
+        api_key: api_key.key,
+        api_key_id: api_key.key_id,
+        expires_at: api_key.expires_at,
+        node_id: Some(config.node.node_id.clone()),
+        stored_at: chrono::Utc::now().to_rfc3339(),
+    };
+    vault.save_api_key(&api_key_data)?;
+
+    println!();
+    println!("✓ Agent login successful!");
+    println!("  Agent: {}", creds.username);
+    println!("  API Key: {} (stored in vault)", api_key_data.api_key_id);
+    if let Some(expires) = &api_key_data.expires_at {
+        println!("  Expires: {}", expires);
+    }
+    println!();
+    println!("The agent is ready to collect and submit profiles.");
+
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateApiKeyRequest {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    roles: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    permissions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateApiKeyResponse {
+    key_id: String,
+    key: String,
+    expires_at: Option<String>,
+}
+
+const API_KEY_EXPIRY_DAYS: i64 = 90;
+
+/// Create API key for agent using its JWT
+async fn create_agent_api_key(
+    client: &Client,
+    config: &AgentConfig,
+    username: &str,
+    access_token: &str,
+) -> Result<CreateApiKeyResponse> {
+    let api_key_url = format!("{}/auth/apikeys", config.api.url);
+
+    let expires_at = (chrono::Utc::now() + chrono::Duration::days(API_KEY_EXPIRY_DAYS))
+        .to_rfc3339();
+
+    let request = CreateApiKeyRequest {
+        name: format!("{}-api-key", username),
+        roles: Some(vec!["agent".to_string()]),
+        permissions: vec![],
+        expires_at: Some(expires_at),
+    };
+
+    debug!("Creating API key for agent: {}", username);
+
+    let response = client
+        .post(&api_key_url)
+        .bearer_auth(access_token)
+        .json(&request)
+        .send()
+        .await
+        .context("Failed to send API key creation request")?;
+
+    if !response.status().is_success() {
+        let error: ApiError = response.json().await.unwrap_or_else(|_| ApiError {
+            error: ApiErrorDetail {
+                code: "UNKNOWN".to_string(),
+                message: "API key creation failed".to_string(),
+            },
+        });
+        return Err(anyhow!(
+            "API key creation failed: {} - {}",
+            error.error.code,
+            error.error.message
+        ));
+    }
+
+    let api_key_response: CreateApiKeyResponse = response
+        .json()
+        .await
+        .context("Failed to parse API key response")?;
+
+    info!("API key created successfully");
+    Ok(api_key_response)
+}
+
+/// Perform user login with username/password
+async fn login_user(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
     // Get username - prompt if not provided
     let username = match &args.username {
         Some(u) => u.clone(),

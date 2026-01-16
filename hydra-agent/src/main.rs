@@ -51,6 +51,13 @@ async fn main() -> Result<()> {
             let config = load_config(&cli.config)?;
             cli::register::execute(&args, &config, &vault).await
         }
+        Some(Commands::Unregister(args)) => {
+            if is_dev_mode {
+                return dev_mode_unregister(&args);
+            }
+            let config = load_config(&cli.config)?;
+            cli::unregister::execute(&args, &config, &vault).await
+        }
         Some(Commands::Config(args)) => {
             let ctx = cli::config::ConfigContext {
                 config_path: &cli.config,
@@ -83,39 +90,15 @@ async fn main() -> Result<()> {
         }) => install_service(&install_dir, &config_dir, &log_dir, no_systemd, no_start),
         Some(Commands::Uninstall { purge }) => uninstall_service(purge),
         None => {
-            // Legacy mode: check for legacy flags
-            if cli.register {
-                warn!("Using legacy --register flag. Consider using 'hydra-agent register' instead.");
-                let config = load_config(&cli.config)?;
-                if let Some(token) = cli.token {
-                    cli::register::execute(
-                        &cli::register::RegisterArgs {
-                            token: Some(token),
-                            username: None,
-                            password: None,
-                            status: false,
-                            clear: false,
-                        },
-                        &config,
-                        &vault,
-                    )
-                    .await
-                } else {
-                    // Legacy credential-based registration not directly supported,
-                    // they should use login + register workflow
-                    return Err(anyhow::anyhow!(
-                        "Please use 'hydra-agent login' followed by 'hydra-agent register'"
-                    ));
-                }
-            } else {
-                if cli.once {
-                    warn!("Using legacy --once flag. Consider using 'hydra-agent run --once' instead.");
-                }
-                if is_dev_mode {
-                    return dev_mode_run(&cli.config, cli.once).await;
-                }
-                run_agent(&cli.config, &vault, cli.once).await
+            if is_dev_mode {
+                // In dev mode with no subcommand, run profile collection
+                return dev_mode_run(&cli.config, true).await;
             }
+            // No subcommand - show help
+            use clap::CommandFactory;
+            Cli::command().print_help()?;
+            println!();
+            Ok(())
         }
     }
 }
@@ -317,26 +300,58 @@ fn dev_mode_register(args: &cli::register::RegisterArgs) -> Result<()> {
     Ok(())
 }
 
+/// Dev mode unregister - simulates unregistration without API call
+fn dev_mode_unregister(args: &cli::unregister::UnregisterArgs) -> Result<()> {
+    println!();
+    println!("[DEV MODE] Agent Unregistration");
+    println!("===============================");
+    println!();
+
+    if !args.force {
+        println!("Would prompt for confirmation (skipped in dev mode)");
+        println!();
+    }
+
+    println!("Agent ID: agent-DEV12345");
+    println!();
+    println!("[DEV MODE] Unregistration simulated (no API call)");
+    if args.keep_local {
+        println!("  Local credentials kept (--keep-local)");
+    } else {
+        println!("  Local credentials cleared (simulated)");
+    }
+    println!();
+    println!("In dev mode, unregistration is bypassed for local testing.");
+
+    Ok(())
+}
+
 /// Dev mode node - simulates node operations without API call
 fn dev_mode_node(args: &cli::node::NodeArgs) -> Result<()> {
     use cli::node::NodeCommand;
 
+    // Handle --update shorthand
+    if let Some(update) = &args.update {
+        println!("[DEV MODE] Node update simulated: {}", update);
+        return Ok(());
+    }
+
     match &args.command {
-        NodeCommand::Register { node_id, .. } => {
+        Some(NodeCommand::Register { node_id, .. }) => {
             let id = node_id.clone().unwrap_or_else(|| "dev-node".to_string());
             println!();
             println!("[DEV MODE] Node registration simulated (no API call)");
             println!("  Node ID: {}", id);
             println!("  Status: active");
         }
-        NodeCommand::Status => {
+        Some(NodeCommand::Status) | None => {
             println!();
             println!("[DEV MODE] Node Status");
             println!("======================");
             println!("  Status: Simulated registered");
             println!("  Node ID: dev-node");
         }
-        NodeCommand::Info => {
+        Some(NodeCommand::Info) => {
             println!();
             println!("[DEV MODE] Node Information");
             println!("===========================");
@@ -345,10 +360,10 @@ fn dev_mode_node(args: &cli::node::NodeArgs) -> Result<()> {
             println!("  Type: physical");
             println!("  Status: active");
         }
-        NodeCommand::Unregister => {
+        Some(NodeCommand::Unregister) => {
             println!("[DEV MODE] Node unregistered (simulated)");
         }
-        NodeCommand::Update { .. } => {
+        Some(NodeCommand::Update { .. }) => {
             println!("[DEV MODE] Node updated (simulated)");
         }
     }
@@ -358,6 +373,18 @@ fn dev_mode_node(args: &cli::node::NodeArgs) -> Result<()> {
 
 /// Dev mode run - collects profile but outputs locally instead of submitting
 async fn dev_mode_run(config_path: &PathBuf, once: bool) -> Result<()> {
+    let home_dir = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let output_dir = PathBuf::from(&home_dir).join("hydra").join("profiles");
+
+    println!();
+    println!("╔═══════════════════════════════════════════════════════════╗");
+    println!("║                  HYDRA AGENT - DEV MODE                   ║");
+    println!("╠═══════════════════════════════════════════════════════════╣");
+    println!("║  No API connectivity - profiles saved locally            ║");
+    println!("║  Output: ~/hydra/profiles/                               ║");
+    println!("╚═══════════════════════════════════════════════════════════╝");
+    println!();
+
     info!("[DEV MODE] Starting hydra-agent v{}", env!("CARGO_PKG_VERSION"));
 
     // Load configuration
@@ -369,10 +396,10 @@ async fn dev_mode_run(config_path: &PathBuf, once: bool) -> Result<()> {
     let profile = collectors::collect_profile(&config).await?;
     info!(sections = ?profile.sections(), "[DEV MODE] Profile collected");
 
-    // In dev mode, output profile to stdout as JSON
+    // In dev mode, output profile summary
     println!();
-    println!("[DEV MODE] Profile collected (not submitted to API)");
-    println!("================================================");
+    println!("[DEV MODE] Profile collected successfully");
+    println!("=========================================");
     println!();
 
     // Pretty print profile summary
@@ -385,8 +412,6 @@ async fn dev_mode_run(config_path: &PathBuf, once: bool) -> Result<()> {
         println!("  - {}", section);
     }
 
-    let home_dir = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let output_dir = PathBuf::from(home_dir).join("hydra").join("profiles");
     std::fs::create_dir_all(&output_dir).context("Failed to create dev mode output directory")?;
 
     let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");

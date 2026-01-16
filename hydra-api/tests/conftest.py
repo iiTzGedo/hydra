@@ -46,9 +46,14 @@ def create_mock_collection() -> MagicMock:
     """Create a mock MongoDB collection with common async methods."""
     collection = MagicMock()
     collection.find_one = AsyncMock(return_value=None)
+    collection.find_one_and_update = AsyncMock(return_value=None)
+    collection.find_one_and_delete = AsyncMock(return_value=None)
     collection.insert_one = AsyncMock()
+    collection.insert_many = AsyncMock()
     collection.update_one = AsyncMock()
+    collection.update_many = AsyncMock()
     collection.delete_one = AsyncMock()
+    collection.delete_many = AsyncMock()
     collection.count_documents = AsyncMock(return_value=0)
     collection.find = MagicMock(return_value=create_mock_cursor([]))
     collection.aggregate = MagicMock(return_value=create_mock_cursor([]))
@@ -75,6 +80,13 @@ def mock_mongodb():
     mock.api_keys = create_mock_collection()
     mock.commands = create_mock_collection()
     mock.audit_log = create_mock_collection()
+    mock.docs = create_mock_collection()
+    mock.ai_models = create_mock_collection()
+    mock.chat_sessions = create_mock_collection()
+    mock.chat_messages = create_mock_collection()
+    mock.mcp_servers = create_mock_collection()
+    mock.user_settings = create_mock_collection()
+    mock.system_settings = create_mock_collection()
 
     # Health check
     mock.health_check = AsyncMock(return_value=True)

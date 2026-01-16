@@ -27,7 +27,6 @@ enum ConfigValueType {
 fn config_value_type(section: &str, key: &str) -> Option<ConfigValueType> {
     match (section, key) {
         ("api", "url") => Some(ConfigValueType::String),
-        ("api", "credentials_file") => Some(ConfigValueType::String),
         ("api", "timeout_seconds") => Some(ConfigValueType::Integer),
         ("api", "retries") => Some(ConfigValueType::Integer),
         ("node", "node_id") => Some(ConfigValueType::String),

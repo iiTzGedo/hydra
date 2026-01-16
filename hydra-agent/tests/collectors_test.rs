@@ -409,7 +409,6 @@ fn test_software_collector() {
     let config = AgentConfig {
         api: ApiConfig {
             url: "http://localhost:8080/api/v1".to_string(),
-            credentials_file: "/tmp/credentials.json".to_string(),
             timeout_seconds: 30,
             retries: 3,
         },
@@ -453,7 +452,6 @@ fn test_software_profile_serialization() {
     let config = AgentConfig {
         api: ApiConfig {
             url: "http://localhost:8080/api/v1".to_string(),
-            credentials_file: "/tmp/credentials.json".to_string(),
             timeout_seconds: 30,
             retries: 3,
         },
@@ -499,7 +497,6 @@ fn test_software_with_packages() {
     let config = AgentConfig {
         api: ApiConfig {
             url: "http://localhost:8080/api/v1".to_string(),
-            credentials_file: "/tmp/credentials.json".to_string(),
             timeout_seconds: 30,
             retries: 3,
         },

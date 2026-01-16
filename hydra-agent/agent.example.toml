@@ -1,22 +1,15 @@
 # Hydra Agent Configuration
-# Copy this file to /etc/hydra/agent.toml and adjust for your environment
-
-[api]
-# Base URL of the Hydra API
-url = "http://localhost:8080/api/v1"
-
-# Path to credentials file (created during registration)
-credentials_file = "/etc/hydra/credentials.json"
-
-# Request timeout in seconds
-timeout_seconds = 30
-
-# Number of retries for failed requests
-retries = 3
+# Copy this file to /etc/hydra/agent.toml (Unix) or C:\ProgramData\Hydra\agent.toml (Windows)
+#
+# Credentials are stored separately in the secure vault:
+#   - Unix: /var/cv/hydra/
+#   - Windows: C:\ProgramData\Hydra\vault\
+#
+# Use 'hydra-agent login' and 'hydra-agent register' to set up credentials.
 
 [node]
 # Unique node identifier (required)
-# Pattern: ^[a-z0-9][a-z0-9.-]{2,63}$
+# Pattern: ^[a-z]+([._-][a-z0-9]+){0,2}$
 node_id = "my-server-01"
 
 # Node class: compute, networking, or iot
@@ -29,25 +22,37 @@ node_type = "physical"
 # Compute: bare-metal, vm, lxc, docker, kubernetes-pod
 # Networking: router, switch, access-point, firewall, load-balancer
 # IoT: sensor, actuator, controller, hub, bridge, appliance
-kind = "bare-metal"
+# kind = "bare-metal"
 
 # Display name for the node (defaults to node_id)
-display_name = "My Server 01"
+# display_name = "My Server 01"
 
 # Description (optional)
-description = "Primary compute node"
+# description = "Primary compute node"
 
-# Tags for grouping
-tags = ["production", "web-server"]
+# Tags for grouping (optional)
+# tags = ["production", "web-server"]
 
 # Parent node ID for VMs/containers (optional)
 # parent_node_id = "hypervisor-01"
+
+[api]
+# Base URL of the Hydra API
+# Use HTTP for local development, HTTPS for production
+url = "http://localhost:8080/api/v1"
+
+# Request timeout in seconds
+timeout_seconds = 30
+
+# Number of retries for failed requests
+retries = 3
 
 [collection]
 # Collection level: shallow, neutral, or deep
 level = "neutral"
 
-# Enabled collectors
+# Enabled collectors (default: all)
+# Available: hardware, network, storage, software, services
 collectors = ["hardware", "network", "storage", "software", "services"]
 
 # Include package list (can be slow on systems with many packages)
@@ -56,18 +61,18 @@ include_packages = true
 # Include user list
 include_users = true
 
-# Config files to track (paths to hash)
-config_files = [
-    "/etc/nginx/nginx.conf",
-    "/etc/ssh/sshd_config",
-]
+# Config files to track (paths to hash, optional)
+# config_files = [
+#     "/etc/nginx/nginx.conf",
+#     "/etc/ssh/sshd_config",
+# ]
 
 [schedule]
 # Enable scheduled collection
 enabled = true
 
-# Collection interval in seconds (default: 24 hours)
-interval_seconds = 86400
+# Collection interval in seconds (default: 6 hours)
+interval_seconds = 21600
 
 # Collect on startup
 on_startup = true

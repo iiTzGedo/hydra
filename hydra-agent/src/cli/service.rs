@@ -11,8 +11,12 @@ use tracing::info;
 /// Service command arguments
 #[derive(Args, Debug)]
 pub struct ServiceArgs {
+    /// Define and register a cron job schedule (e.g., "0 */6 * * *")
+    #[arg(short = 'c', long, value_name = "CRON_EXPR")]
+    pub cron: Option<String>,
+
     #[command(subcommand)]
-    pub command: ServiceCommand,
+    pub command: Option<ServiceCommand>,
 }
 
 /// Service runtime mode
@@ -30,6 +34,7 @@ pub enum ServiceRuntime {
 #[derive(Subcommand, Debug)]
 pub enum ServiceCommand {
     /// Activate (install) the agent as a system service
+    #[command(alias = "a")]
     Activate {
         /// Installation directory for the binary
         #[arg(long, default_value = "/usr/local/bin")]
@@ -98,14 +103,20 @@ pub enum ServiceCommand {
 
 /// Execute the service command
 pub fn execute(args: &ServiceArgs, config_path: &PathBuf) -> Result<()> {
+    // Handle --cron / -c option (shorthand for setting up cron job)
+    if let Some(cron_expr) = &args.cron {
+        let default_install_dir = PathBuf::from("/usr/local/bin");
+        return setup_cron_job(&default_install_dir, config_path, cron_expr);
+    }
+
     match &args.command {
-        ServiceCommand::Activate {
+        Some(ServiceCommand::Activate {
             install_dir,
             no_start,
             with_alias,
             docker,
             cron,
-        } => {
+        }) => {
             // Determine runtime mode
             let runtime = if *docker {
                 ServiceRuntime::Docker
@@ -116,15 +127,15 @@ pub fn execute(args: &ServiceArgs, config_path: &PathBuf) -> Result<()> {
             };
             activate_service(install_dir, config_path, *no_start, *with_alias, runtime, cron.as_deref())
         }
-        ServiceCommand::Deactivate { purge } => deactivate_service(*purge),
-        ServiceCommand::Start => start_service(),
-        ServiceCommand::Stop => stop_service(),
-        ServiceCommand::Restart => restart_service(),
-        ServiceCommand::Status => show_status(),
-        ServiceCommand::Enable => enable_service(),
-        ServiceCommand::Disable => disable_service(),
-        ServiceCommand::Logs { lines, follow } => show_logs(*lines, *follow),
-        ServiceCommand::Run { once: _ } => {
+        Some(ServiceCommand::Deactivate { purge }) => deactivate_service(*purge),
+        Some(ServiceCommand::Start) => start_service(),
+        Some(ServiceCommand::Stop) => stop_service(),
+        Some(ServiceCommand::Restart) => restart_service(),
+        Some(ServiceCommand::Status) | None => show_status(),
+        Some(ServiceCommand::Enable) => enable_service(),
+        Some(ServiceCommand::Disable) => disable_service(),
+        Some(ServiceCommand::Logs { lines, follow }) => show_logs(*lines, *follow),
+        Some(ServiceCommand::Run { once: _ }) => {
             // This is a placeholder - actual run logic is in main.rs
             // This just signals that we want to run
             Err(anyhow!("Use 'hydra-agent run' instead of 'hydra-agent service run'"))

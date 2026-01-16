@@ -40,11 +40,15 @@ pub struct RegisterArgs {
     #[arg(long, alias = "pwd")]
     pub password: Option<String>,
 
+    /// Override existing registration (unregister and re-register)
+    #[arg(short, long)]
+    pub override_registration: bool,
+
     /// Show current registration status
     #[arg(long)]
     pub status: bool,
 
-    /// Clear registration (reset agent)
+    /// Clear registration (reset agent) - local only, doesn't delete from API
     #[arg(long)]
     pub clear: bool,
 }
@@ -87,6 +91,9 @@ struct LoginRequest {
 #[serde(rename_all = "camelCase")]
 struct CreateApiKeyRequest {
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    roles: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     permissions: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     expires_at: Option<String>,
@@ -179,18 +186,46 @@ pub async fn execute(args: &RegisterArgs, config: &AgentConfig, vault: &Vault) -
         return show_status(vault);
     }
 
-    // Handle clear
+    // Handle clear (local only)
     if args.clear {
         return clear_registration(vault);
+    }
+
+    // Handle override registration
+    if args.override_registration {
+        return override_registration(config, vault, args).await;
     }
 
     // Check if already registered
     if vault.has_agent_credentials() {
         let creds = vault.load_agent_credentials()?.unwrap();
-        return Err(anyhow!(
-            "Agent is already registered as '{}'. Use --clear to reset.",
-            creds.username
-        ));
+        let has_valid_api_key = vault.has_api_key() && !vault.is_api_key_expired()?;
+
+        println!();
+        println!("Agent is already registered.");
+        println!("  Agent ID: {}", creds.username);
+        println!("  User ID: {}", creds.user_id);
+        if has_valid_api_key {
+            println!("  API Key: Valid");
+        } else if vault.has_api_key() {
+            println!("  API Key: Expired - run 'hydra-agent login -a' to renew");
+        } else {
+            println!("  API Key: Missing - run 'hydra-agent login -a' to create");
+        }
+
+        // Show login suggestion if no valid API key
+        if !has_valid_api_key {
+            println!();
+            println!("To authenticate this agent, run:");
+            println!("  hydra-agent login -a");
+        }
+
+        println!();
+        println!("To override this registration and re-register, run:");
+        println!("  hydra-agent register -o");
+        println!();
+
+        return Ok(());
     }
 
     // Perform registration
@@ -199,6 +234,301 @@ pub async fn execute(args: &RegisterArgs, config: &AgentConfig, vault: &Vault) -
     } else {
         register_with_session(config, vault, args).await
     }
+}
+
+/// Override existing registration (unregister from API and re-register)
+/// Requires admin/operator login
+async fn override_registration(config: &AgentConfig, vault: &Vault, args: &RegisterArgs) -> Result<()> {
+    use std::io::{self, Write};
+
+    println!();
+    println!("Override Registration");
+    println!("=====================");
+    println!();
+    println!("This will:");
+    println!("  1. Delete the current agent account from Hydra API");
+    println!("  2. Clear local credentials and API keys");
+    println!("  3. Create a new agent account");
+    println!();
+    println!("This operation requires admin/operator privileges.");
+    println!();
+
+    // Check if we have a valid admin/operator session
+    let needs_login = if vault.has_session() {
+        let session = vault.load_session()?;
+        if let Some(s) = session {
+            // Check if it's an admin/operator session (not agent)
+            if s.role == "agent" {
+                println!("Currently logged in as agent. Admin/operator login required.");
+                vault.delete_session()?;
+                true
+            } else if !vault.is_session_valid()? {
+                println!("Session expired. Please login again.");
+                true
+            } else {
+                println!("Using existing session: {} ({})", s.username, s.role);
+                false
+            }
+        } else {
+            true
+        }
+    } else {
+        true
+    };
+
+    // Prompt for admin/operator login if needed
+    let session = if needs_login {
+        println!();
+        prompt_admin_login(config, vault).await?
+    } else {
+        vault.load_session()?.unwrap()
+    };
+
+    // Confirm action
+    print!("Proceed with override? (y/N): ");
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    if !input.trim().eq_ignore_ascii_case("y") {
+        println!("Cancelled.");
+        return Ok(());
+    }
+
+    // Step 1: Delete agent account from API if it exists
+    if vault.has_agent_credentials() {
+        let creds = vault.load_agent_credentials()?.unwrap();
+        info!("Deleting agent account '{}' from API...", creds.username);
+
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .context("Failed to create HTTP client")?;
+
+        let delete_url = format!("{}/auth/users/{}", config.api.url, creds.user_id);
+        let response = client
+            .delete(&delete_url)
+            .header("Authorization", format!("Bearer {}", session.access_token))
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) if resp.status().is_success() => {
+                info!("Agent account deleted from API");
+            }
+            Ok(resp) => {
+                // Log but don't fail - account might already be deleted
+                debug!("Failed to delete agent account (status {}), continuing...", resp.status());
+            }
+            Err(e) => {
+                debug!("Failed to contact API for deletion: {}, continuing...", e);
+            }
+        }
+    }
+
+    // Step 2: Clear local credentials
+    if vault.has_agent_credentials() {
+        vault.delete_agent_credentials()?;
+    }
+    if vault.has_api_key() {
+        vault.delete_api_key()?;
+    }
+    info!("Local credentials cleared");
+
+    println!();
+    println!("✓ Previous registration cleared. Proceeding with new registration...");
+    println!();
+
+    // Step 3: Re-register (session is still valid)
+    if let Some(token) = &args.token {
+        register_with_token(token, config, vault, args).await
+    } else {
+        // Use the existing session for registration
+        register_with_existing_session(&session, config, vault, args).await
+    }
+}
+
+/// Prompt for admin/operator login
+async fn prompt_admin_login(config: &AgentConfig, vault: &Vault) -> Result<crate::vault::SessionData> {
+    use std::io::{self, Write};
+
+    print!("Admin/Operator Username: ");
+    io::stdout().flush()?;
+    let mut username = String::new();
+    io::stdin().read_line(&mut username)?;
+    let username = username.trim().to_string();
+
+    if username.is_empty() {
+        return Err(anyhow!("Username is required"));
+    }
+
+    let password = rpassword::prompt_password("Password: ")
+        .context("Failed to read password")?;
+
+    if password.is_empty() {
+        return Err(anyhow!("Password is required"));
+    }
+
+    info!("Logging in as {}...", username);
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("Failed to create HTTP client")?;
+
+    let login_url = format!("{}/auth/login", config.api.url);
+    let request = LoginRequest {
+        username: username.clone(),
+        password,
+    };
+
+    let response = client
+        .post(&login_url)
+        .json(&request)
+        .send()
+        .await
+        .context("Failed to send login request")?;
+
+    if !response.status().is_success() {
+        let error: ApiError = response.json().await.unwrap_or_else(|_| ApiError {
+            error: ApiErrorDetail {
+                code: "UNKNOWN".to_string(),
+                message: "Login failed".to_string(),
+            },
+        });
+        return Err(anyhow!(
+            "Login failed: {} - {}",
+            error.error.code,
+            error.error.message
+        ));
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FullLoginResponse {
+        access_token: String,
+        refresh_token: String,
+        token_type: String,
+        expires_in: u64,
+        user: UserInfo,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct UserInfo {
+        user_id: String,
+        username: String,
+        role: String,
+    }
+
+    let login_response: FullLoginResponse = response.json().await
+        .context("Failed to parse login response")?;
+
+    // Verify it's an admin or operator
+    if login_response.user.role != "admin" && login_response.user.role != "operator" {
+        return Err(anyhow!(
+            "Admin or operator role required. Current role: {}",
+            login_response.user.role
+        ));
+    }
+
+    let expires_at = chrono::Utc::now().timestamp() + login_response.expires_in as i64;
+
+    let session = crate::vault::SessionData {
+        access_token: login_response.access_token,
+        refresh_token: login_response.refresh_token,
+        token_type: login_response.token_type,
+        expires_at,
+        username: login_response.user.username,
+        user_id: login_response.user.user_id,
+        role: login_response.user.role,
+    };
+
+    vault.save_session(&session)?;
+    println!("✓ Logged in as {} ({})", session.username, session.role);
+
+    Ok(session)
+}
+
+/// Register using an existing valid session (for override flow)
+async fn register_with_existing_session(
+    session: &crate::vault::SessionData,
+    config: &AgentConfig,
+    vault: &Vault,
+    args: &RegisterArgs,
+) -> Result<()> {
+    info!("Registering agent using session for {}...", session.username);
+
+    // Generate credentials locally if not provided
+    let username = args.username.clone().unwrap_or_else(|| {
+        let generated = generate_username();
+        info!("Generated agent username: {}", generated);
+        generated
+    });
+    let password = args.password.clone().unwrap_or_else(|| {
+        let generated = generate_password();
+        info!("Generated secure password for agent");
+        generated
+    });
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("Failed to create HTTP client")?;
+
+    // Register agent with API
+    let register_url = format!("{}/auth/register", config.api.url);
+    let request = AgentRegisterRequest {
+        role: "agent".to_string(),
+        username: Some(username.clone()),
+        password: Some(password.clone()),
+        registration_token: None,
+    };
+
+    let response = client
+        .post(&register_url)
+        .header("Authorization", format!("Bearer {}", session.access_token))
+        .json(&request)
+        .send()
+        .await
+        .context("Failed to send registration request")?;
+
+    if !response.status().is_success() {
+        let error: ApiError = response.json().await.unwrap_or_else(|_| ApiError {
+            error: ApiErrorDetail {
+                code: "UNKNOWN".to_string(),
+                message: "Registration failed".to_string(),
+            },
+        });
+        return Err(anyhow!(
+            "Registration failed: {} - {}",
+            error.error.code,
+            error.error.message
+        ));
+    }
+
+    let register_response: RegisterResponse = response
+        .json()
+        .await
+        .context("Failed to parse registration response")?;
+
+    info!("Agent registered successfully, logging in...");
+
+    // Login as agent to get JWT
+    let access_token = login_as_agent(&client, config, &username, &password).await?;
+
+    // Create API key
+    let api_key_response = create_api_key(&client, config, &username, &access_token).await?;
+
+    // Save credentials to vault
+    save_credentials(vault, &register_response, &password)?;
+    save_api_key_from_response(vault, config, &api_key_response)?;
+
+    // Clear admin/operator session - agent now operates with API key
+    vault.delete_session()?;
+    info!("Cleared admin/operator session - agent now operates with API key");
+
+    print_success(&register_response, &password, Some(&session.username));
+    Ok(())
 }
 
 /// Register using a registration token (no session required)
@@ -394,7 +724,8 @@ async fn login_as_agent(
     username: &str,
     password: &str,
 ) -> Result<String> {
-    let login_url = format!("{}/auth/login", config.api.url);
+    // Use source=agent to allow system account login from CLI
+    let login_url = format!("{}/auth/login?source=agent", config.api.url);
     let request = LoginRequest {
         username: username.to_string(),
         password: password.to_string(),
@@ -446,7 +777,8 @@ async fn create_api_key(
 
     let request = CreateApiKeyRequest {
         name: format!("{}-api-key", username),
-        permissions: vec![], // Agent role already has correct permissions
+        roles: Some(vec!["agent".to_string()]),
+        permissions: vec![],
         expires_at: Some(expires_at),
     };
 

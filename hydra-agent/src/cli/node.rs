@@ -15,13 +15,18 @@ use crate::vault::{NodeRegistrationData, Vault};
 /// Node command arguments
 #[derive(Args, Debug)]
 pub struct NodeArgs {
+    /// Update node details (shorthand for 'update' subcommand)
+    #[arg(short = 'u', long, value_name = "KEY=VALUE")]
+    pub update: Option<String>,
+
     #[command(subcommand)]
-    pub command: NodeCommand,
+    pub command: Option<NodeCommand>,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum NodeCommand {
     /// Register this node with the Hydra API
+    #[command(alias = "r")]
     Register {
         /// Registration token (optional, uses agent credentials if not provided)
         #[arg(short, long)]
@@ -143,8 +148,19 @@ struct ApiErrorDetail {
 
 /// Execute the node command
 pub async fn execute(args: &NodeArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
+    // Handle --update / -u option (shorthand for update subcommand)
+    if let Some(update_value) = &args.update {
+        // Parse KEY=VALUE format
+        if let Some((key, value)) = update_value.split_once('=') {
+            return update_node_field(config, vault, key.trim(), value.trim()).await;
+        } else {
+            return Err(anyhow!("Invalid update format. Use: --update key=value"));
+        }
+    }
+
+    // Handle subcommand
     match &args.command {
-        NodeCommand::Register {
+        Some(NodeCommand::Register {
             token,
             node_id,
             class,
@@ -153,7 +169,7 @@ pub async fn execute(args: &NodeArgs, config: &AgentConfig, vault: &Vault) -> Re
             display_name,
             tags,
             force,
-        } => {
+        }) => {
             register_node(
                 config,
                 vault,
@@ -168,11 +184,34 @@ pub async fn execute(args: &NodeArgs, config: &AgentConfig, vault: &Vault) -> Re
             )
             .await
         }
-        NodeCommand::Status => show_status(vault),
-        NodeCommand::Unregister => unregister_node(vault),
-        NodeCommand::Info => show_info(config, vault).await,
-        NodeCommand::Update { display_name, tags } => {
+        Some(NodeCommand::Status) => show_status(vault),
+        Some(NodeCommand::Unregister) => unregister_node(vault),
+        Some(NodeCommand::Info) => show_info(config, vault).await,
+        Some(NodeCommand::Update { display_name, tags }) => {
             update_node(config, vault, display_name.as_deref(), tags.as_deref()).await
+        }
+        None => {
+            // No subcommand - show node status by default
+            show_status(vault)
+        }
+    }
+}
+
+/// Update a single node field (for --update / -u shorthand)
+async fn update_node_field(config: &AgentConfig, vault: &Vault, key: &str, value: &str) -> Result<()> {
+    match key {
+        "display_name" | "displayName" => {
+            update_node(config, vault, Some(value), None).await
+        }
+        "tags" => {
+            update_node(config, vault, None, Some(value)).await
+        }
+        "kind" => {
+            // Update kind via API - need to implement
+            Err(anyhow!("Updating 'kind' is not yet supported via shorthand. Use config to update."))
+        }
+        _ => {
+            Err(anyhow!("Unknown node field: '{}'. Valid fields: display_name, tags", key))
         }
     }
 }

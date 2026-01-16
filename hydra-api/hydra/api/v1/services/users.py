@@ -629,6 +629,21 @@ class UsersService:
             {"$set": {"status": "archived", "updatedAt": now}},
         )
 
+        # Remove from all parent users' subAccounts lists
+        result = await self.db.users.update_many(
+            {"subAccounts.userId": user_id},
+            {
+                "$pull": {"subAccounts": {"userId": user_id}},
+                "$set": {"updatedAt": now},
+            },
+        )
+        if result.modified_count > 0:
+            logger.info(
+                "user_removed_from_parent_subaccounts",
+                user_id=user_id,
+                parents_updated=result.modified_count,
+            )
+
         logger.info("user_archived", user_id=user_id)
 
         user["status"] = "archived"

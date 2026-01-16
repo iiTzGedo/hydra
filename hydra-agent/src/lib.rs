@@ -22,6 +22,6 @@ pub mod vault;
 
 // Re-export commonly used types
 pub use collectors::{collect_profile, Profile};
-pub use config::{AgentConfig, Credentials};
+pub use config::AgentConfig;
 pub use platform::{paths::Paths, Platform};
 pub use vault::Vault;

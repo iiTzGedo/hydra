@@ -61,14 +61,25 @@ logger = structlog.get_logger(__name__)
     "/login",
     response_model=LoginResponse,
     summary="User Login",
-    description="Authenticate a user with username and password.",
+    description="""Authenticate a user with username and password.
+
+Use `source=agent` query parameter to allow system/agent account login (for CLI use).
+By default, system accounts are blocked from web login.""",
 )
 async def login(
     request: LoginRequest,
     auth_service: AuthServiceDep,
+    source: str | None = Query(
+        default=None,
+        description="Login source. Use 'agent' to allow system account login from CLI.",
+    ),
 ) -> LoginResponse:
     """Authenticate a user and return tokens."""
-    result = await auth_service.authenticate_user(request.username, request.password)
+    # Allow system accounts when source=agent (CLI programmatic login)
+    allow_system_accounts = source == "agent"
+    result = await auth_service.authenticate_user(
+        request.username, request.password, allow_system_accounts=allow_system_accounts
+    )
 
     # Convert temporary roles to response format
     temp_roles = [

@@ -261,7 +261,7 @@ async def get_registration_auth(
                 "*:*" in permissions
                 or "nodes:*" in permissions
                 or "nodes:create" in permissions
-                or any(r in ["admin", "operator"] for r in roles)
+                or any(r in ["admin", "operator", "agent"] for r in roles)
             )
             if not has_permission:
                 raise HTTPException(

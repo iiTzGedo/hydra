@@ -9,8 +9,6 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::platform::paths;
-
 /// Agent configuration loaded from TOML file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
@@ -33,10 +31,6 @@ pub struct AgentConfig {
 pub struct ApiConfig {
     /// Base URL of the Hydra API
     pub url: String,
-
-    /// Path to credentials file (contains access/refresh tokens)
-    #[serde(default = "default_credentials_path")]
-    pub credentials_file: String,
 
     /// Request timeout in seconds
     #[serde(default = "default_timeout")]
@@ -116,12 +110,6 @@ pub struct ScheduleConfig {
 }
 
 // Default value functions
-fn default_credentials_path() -> String {
-    paths::default_credentials_file()
-        .to_string_lossy()
-        .to_string()
-}
-
 fn default_timeout() -> u64 {
     30
 }
@@ -265,42 +253,6 @@ impl AgentConfig {
             }
         }
 
-        Ok(())
-    }
-}
-
-/// Credentials stored after registration.
-/// Uses API key authentication instead of JWT tokens.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Credentials {
-    /// API key for authentication (sent as X-API-Key header)
-    pub api_key: String,
-    /// API key ID for reference
-    pub api_key_id: String,
-    /// Node ID this key is associated with
-    pub node_id: String,
-    /// When the key was created
-    pub created_at: String,
-}
-
-impl Credentials {
-    /// Load credentials from a JSON file.
-    pub fn load(path: &str) -> Result<Self> {
-        let contents = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read credentials file: {}", path))?;
-
-        let creds: Self = serde_json::from_str(&contents)
-            .with_context(|| format!("Failed to parse credentials file: {}", path))?;
-
-        Ok(creds)
-    }
-
-    /// Save credentials to a JSON file.
-    pub fn save(&self, path: &str) -> Result<()> {
-        let contents = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, contents)
-            .with_context(|| format!("Failed to write credentials file: {}", path))?;
         Ok(())
     }
 }

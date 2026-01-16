@@ -97,22 +97,26 @@ class ProfileService:
             existing = await self.db.profiles.find_one({"profileId": previous["profileId"]})
             return self._format_profile(existing)
 
-        # Calculate expected version and enforce agent-provided version
+        # Calculate version based on diff from previous profile
         if previous:
-            expected_version = self._calculate_version(
+            calculated_version = self._calculate_version(
                 previous.get("version", "E0-0.0.0.0"),
                 previous.get("sectionFingerprints", {}),
                 fingerprints,
             )
         else:
-            expected_version = "E0-0.0.0.1"
+            calculated_version = "E0-0.0.0.1"
 
-        if submission.version != expected_version:
-            raise ValidationError(
-                f"Profile version mismatch. Expected {expected_version}, got {submission.version}"
+        # Use calculated version (agent-provided version is ignored - server is authoritative)
+        if submission.version and submission.version != calculated_version:
+            logger.debug(
+                "version_override",
+                node_id=submission.node_id,
+                agent_version=submission.version,
+                calculated_version=calculated_version,
             )
 
-        version = submission.version
+        version = calculated_version
 
         # Create profile document
         now = datetime.now(timezone.utc)

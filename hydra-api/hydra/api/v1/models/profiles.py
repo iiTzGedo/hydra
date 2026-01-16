@@ -244,7 +244,7 @@ class ProfileSubmission(BaseModel):
     """Profile submission from agent."""
 
     node_id: str = Field(alias="nodeId")
-    version: str = Field(alias="version")
+    version: str | None = Field(default=None, alias="version")
     collected_at: datetime = Field(alias="collectedAt")
     agent_version: str = Field(alias="agentVersion")
     collection_level: CollectionLevel = Field(default=CollectionLevel.NEUTRAL, alias="collectionLevel")
@@ -259,8 +259,9 @@ class ProfileSubmission(BaseModel):
 
     @field_validator("version")
     @classmethod
-    def validate_version(cls, v: str) -> str:
-        if not validate_profile_version(v):
+    def validate_version(cls, v: str | None) -> str | None:
+        # Version is optional - API will calculate if not provided
+        if v is not None and not validate_profile_version(v):
             raise ValueError(
                 f"Invalid profile version format. Must match pattern: {PROFILE_VERSION_PATTERN}"
             )
