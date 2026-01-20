@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -16,7 +17,9 @@ import {
   Server,
   Wifi,
   Cpu,
+  AlertTriangle,
 } from 'lucide-react';
+import { EmptyState } from '@/components/common/empty-state';
 import { useNodes, useRegisterNode } from '@/api/nodes';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -80,6 +83,8 @@ const classColors: Record<string, string> = {
 };
 
 export default function NodesPage() {
+  useDocumentTitle('Node Explorer');
+
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState<NodeClass | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<NodeStatus | 'all'>('all');
@@ -95,7 +100,7 @@ export default function NodesPage() {
   const [showRegisterForm, setShowRegisterForm] = useState(false);
 
   // API data
-  const { data: nodesData, isLoading, refetch } = useNodes({
+  const { data: nodesData, isLoading, error, refetch } = useNodes({
     search: search || undefined,
     class: classFilter !== 'all' ? classFilter : undefined,
     status: statusFilter !== 'all' ? statusFilter : undefined,
@@ -399,6 +404,48 @@ export default function NodesPage() {
         </CardContent>
       </Card>
 
+      {/* Error State */}
+      {error && !isLoading && (
+        <Card className="border-destructive">
+          <CardContent className="p-8 text-center">
+            <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
+            <h3 className="mt-4 text-lg font-semibold">Failed to load nodes</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              There was a problem fetching the node list. Please try again.
+            </p>
+            <Button variant="outline" className="mt-4" onClick={() => refetch()}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Empty State */}
+      {!isLoading && !error && filteredNodes.length === 0 && (
+        <EmptyState
+          icon={Server}
+          title="No nodes found"
+          description={
+            search || classFilter !== 'all' || statusFilter !== 'all'
+              ? 'Try adjusting your filters'
+              : 'Nodes will appear here once agents report them'
+          }
+          action={
+            search || classFilter !== 'all' || statusFilter !== 'all'
+              ? {
+                  label: 'Clear Filters',
+                  onClick: () => {
+                    setSearch('');
+                    setClassFilter('all');
+                    setStatusFilter('all');
+                  },
+                }
+              : undefined
+          }
+        />
+      )}
+
       {/* Results */}
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -416,7 +463,7 @@ export default function NodesPage() {
             </Card>
           ))}
         </div>
-      ) : viewMode === 'grid' ? (
+      ) : !error && filteredNodes.length > 0 && viewMode === 'grid' ? (
         <motion.div
           variants={staggerContainerVariants}
           initial="hidden"
@@ -485,7 +532,7 @@ export default function NodesPage() {
             );
           })}
         </motion.div>
-      ) : (
+      ) : !isLoading && !error && filteredNodes.length > 0 ? (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
             <Table className={cn(tableDensity === 'compact' && 'table-compact')}>
@@ -572,7 +619,7 @@ export default function NodesPage() {
             </Table>
           </div>
         </Card>
-      )}
+      ) : null}
 
       {/* Register Node Modal */}
       <Dialog open={showRegisterForm} onOpenChange={setShowRegisterForm}>

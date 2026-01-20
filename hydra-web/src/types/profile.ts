@@ -1,226 +1,247 @@
 import { ListParams } from './api';
 
-// Profile collection level
-export type CollectionLevel = 'minimal' | 'standard' | 'full';
+// Profile collection level - matches API CollectionLevel enum
+export type CollectionLevel = 'shallow' | 'neutral' | 'deep';
 
-// Profile metadata
-export interface ProfileMetadata {
-  agentVersion: string;
-  collectionDuration: number;
-  collectionTimestamp: string;
+// ============================================
+// Hardware Profile Types (matches API HardwareProfile)
+// ============================================
+
+export interface CpuInfo {
+  model?: string;
+  vendor?: string;
+  coresPhysical?: number;
+  coresLogical?: number;
+  frequencyMhz?: number;
+  architecture?: string;
+  features?: string[];
 }
 
-// Hardware section
-export interface HardwareSection {
-  system?: {
-    manufacturer?: string;
-    model?: string;
-    serial?: string;
-    uuid?: string;
-    formFactor?: string;
-  };
-  cpu?: {
-    model: string;
-    vendor: string;
-    cores: number;
-    threads: number;
-    frequency: number;
-    cache?: Record<string, number>;
-    architecture?: string;
-    flags?: string[];
-  };
-  memory?: {
-    total: number;
-    available?: number;
-    type?: string;
-    speed?: number;
-    slots?: number;
-    modules?: Array<{
-      slot: string;
-      size: number;
-      type?: string;
-      speed?: number;
-    }>;
-  };
-  gpu?: Array<{
-    model: string;
-    vendor: string;
-    memory?: number;
-    driver?: string;
-  }>;
-  bios?: {
-    vendor?: string;
-    version?: string;
-    date?: string;
-  };
+export interface MemoryInfo {
+  totalBytes?: number;
+  type?: string;
+  speedMhz?: number;
+  slotsUsed?: number;
+  slotsTotal?: number;
 }
 
-// Network section
-export interface NetworkSection {
+export interface GpuInfo {
+  model?: string;
+  vendor?: string;
+  memoryBytes?: number;
+  driverVersion?: string;
+}
+
+export interface HardwareProfile {
+  systemManufacturer?: string;
+  systemModel?: string;
+  systemSerial?: string;
+  biosVendor?: string;
+  biosVersion?: string;
+  cpu?: CpuInfo;
+  memory?: MemoryInfo;
+  gpus?: GpuInfo[];
+}
+
+// ============================================
+// Network Profile Types (matches API NetworkProfile)
+// ============================================
+
+export interface NetworkInterface {
+  name: string;
+  macAddress?: string;
+  ipv4Addresses?: string[];
+  ipv6Addresses?: string[];
+  netmask?: string;
+  gateway?: string;
+  mtu?: number;
+  state: 'up' | 'down' | 'unknown';
+  type?: string;
+  speedMbps?: number;
+}
+
+export interface NetworkRoute {
+  destination: string;
+  gateway?: string;
+  interface?: string;
+  metric?: number;
+}
+
+export interface NetworkProfile {
   hostname?: string;
   domain?: string;
-  interfaces?: Array<{
-    name: string;
-    type: string;
-    mac?: string;
-    state: string;
-    speed?: number;
-    mtu?: number;
-    addresses?: Array<{
-      address: string;
-      prefix: number;
-      family: 'ipv4' | 'ipv6';
-    }>;
-  }>;
-  routes?: Array<{
-    destination: string;
-    gateway?: string;
-    interface: string;
-    metric?: number;
-  }>;
-  dns?: {
-    servers: string[];
-    search?: string[];
-  };
-  firewall?: {
-    enabled: boolean;
-    rules?: number;
-  };
+  fqdn?: string;
+  interfaces?: NetworkInterface[];
+  dnsServers?: string[];
+  dnsSearch?: string[];
+  defaultGateway?: string;
+  routes?: NetworkRoute[];
 }
 
-// Storage section
-export interface StorageSection {
-  disks?: Array<{
-    name: string;
-    model?: string;
-    serial?: string;
-    size: number;
-    type: string;
-    rotational?: boolean;
-    partitions?: Array<{
-      name: string;
-      size: number;
-      filesystem?: string;
-      mountpoint?: string;
-    }>;
-  }>;
-  filesystems?: Array<{
-    device: string;
-    mountpoint: string;
-    type: string;
-    size: number;
-    used: number;
-    available: number;
-  }>;
-  volumes?: Array<{
-    name: string;
-    type: string;
-    size: number;
-    path?: string;
-  }>;
+// ============================================
+// Storage Profile Types (matches API StorageProfile)
+// ============================================
+
+export interface BlockDevice {
+  name: string;
+  sizeBytes?: number;
+  type?: string;
+  model?: string;
+  serial?: string;
+  rotational?: boolean;
+  transport?: string;
 }
 
-// Software section
-export interface SoftwareSection {
-  os?: {
-    name: string;
-    version: string;
-    kernel?: string;
-    architecture: string;
-    distribution?: string;
-  };
-  packages?: {
-    manager?: string;
-    count?: number;
-    installed?: Array<{
-      name: string;
-      version: string;
-      source?: string;
-    }>;
-  };
-  runtimes?: Array<{
-    name: string;
-    version: string;
-    path?: string;
-  }>;
+export interface Filesystem {
+  mountPoint: string;
+  device: string;
+  fsType: string;
+  sizeBytes?: number;
+  usedBytes?: number;
+  options?: string[];
 }
 
-// Services section (in profile)
-export interface ProfileServicesSection {
-  services?: Array<{
-    serviceId: string;
-    name: string;
-    runtime: string;
-    status: string;
-    ports?: number[];
-  }>;
+export interface StorageProfile {
+  blockDevices?: BlockDevice[];
+  filesystems?: Filesystem[];
+  totalCapacityBytes?: number;
 }
 
-// Users section
-export interface UsersSection {
-  users?: Array<{
-    username: string;
-    uid: number;
-    gid: number;
-    home?: string;
-    shell?: string;
-    groups?: string[];
-  }>;
-  groups?: Array<{
-    name: string;
-    gid: number;
-    members?: string[];
-  }>;
+// ============================================
+// Software Profile Types (matches API SoftwareProfile)
+// ============================================
+
+export interface OsInfo {
+  name: string;
+  version?: string;
+  kernelVersion?: string;
+  architecture?: string;
+  family?: string;
 }
 
-// Profile sections
-export interface ProfileSections {
-  hardware?: HardwareSection;
-  network?: NetworkSection;
-  storage?: StorageSection;
-  software?: SoftwareSection;
-  services?: ProfileServicesSection;
-  users?: UsersSection;
+export interface Package {
+  name: string;
+  version?: string;
+  manager?: string;
 }
 
-// Profile summary (for list views)
+export interface SoftwareProfile {
+  os?: OsInfo;
+  packages?: Package[];
+  packageCount?: number;
+}
+
+// ============================================
+// Services Profile Types (matches API ServicesProfile)
+// ============================================
+
+export interface ServiceInfo {
+  name: string;
+  runtime: string;
+  status: string;
+  version?: string;
+  image?: string;
+  ports?: Array<Record<string, unknown>>;
+  endpoints?: Array<Record<string, unknown>>;
+  resources?: Record<string, unknown>;
+  attachments?: Record<string, unknown>;
+}
+
+export interface ServicesProfile {
+  services?: ServiceInfo[];
+}
+
+// ============================================
+// Users Profile Types (matches API UsersProfile)
+// ============================================
+
+export interface UserInfo {
+  username: string;
+  uid?: number;
+  gid?: number;
+  home?: string;
+  shell?: string;
+  groups?: string[];
+}
+
+export interface SshKey {
+  username: string;
+  keyType: string;
+  fingerprint: string;
+  comment?: string;
+}
+
+export interface UsersProfile {
+  users?: UserInfo[];
+  sshKeys?: SshKey[];
+}
+
+// ============================================
+// Configs Profile Types (matches API ConfigsProfile)
+// ============================================
+
+export interface ConfigFile {
+  path: string;
+  hash: string;
+  sizeBytes?: number;
+  modifiedAt?: string;
+}
+
+export interface ConfigsProfile {
+  files?: ConfigFile[];
+}
+
+// ============================================
+// Profile Summary (for list views)
+// ============================================
+
 export interface ProfileSummary {
   profileId: string;
-  id?: string; // Alias for profileId for component convenience
   nodeId: string;
   version: string;
+  collectedAt: string;
   submittedAt: string;
   collectionLevel: CollectionLevel;
-  sectionsIncluded: string[];
+  serviceCount?: number;
 }
 
-// Full profile
+// ============================================
+// Full Profile Response (matches API ProfileResponse)
+// ============================================
+
 export interface Profile extends ProfileSummary {
-  sections: ProfileSections;
-  metadata: ProfileMetadata;
+  agentVersion: string;
+  serviceIds?: string[];
+  hardware?: HardwareProfile;
+  network?: NetworkProfile;
+  storage?: StorageProfile;
+  software?: SoftwareProfile;
+  // Note: API returns serviceIds, not services section.
+  // Services are stored separately and fetched via the services API.
+  users?: UsersProfile;
+  configs?: ConfigsProfile;
+  metadata?: Record<string, unknown>;
 }
 
-// Profile list params
+// ============================================
+// Profile List Params
+// ============================================
+
 export interface ProfileListParams extends ListParams {
   since?: string;
   until?: string;
 }
 
-// Profile diff
+// ============================================
+// Profile Diff (matches API ProfileDiff)
+// ============================================
+
 export interface ProfileDiff {
-  fromProfileId: string;
-  toProfileId: string;
   fromVersion: string;
   toVersion: string;
-  changes: {
-    section: string;
-    type: 'added' | 'removed' | 'modified';
-    path: string;
-    oldValue?: unknown;
-    newValue?: unknown;
-  }[];
-  summary: {
-    totalChanges: number;
-    bySection: Record<string, number>;
-  };
+  fromProfileId: string;
+  toProfileId: string;
+  changedSections: string[];
+  changeSummary: Record<string, unknown>;
+  diffPercentage: number;
 }

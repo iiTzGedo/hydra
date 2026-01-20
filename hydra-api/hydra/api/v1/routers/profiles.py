@@ -30,6 +30,7 @@ ProfileServiceDep = Annotated[ProfileService, Depends(get_profile_service)]
 @router.post(
     "",
     response_model=SuccessResponse[ProfileResponse],
+    response_model_by_alias=True,
     summary="Submit Profile",
     description="Submit a new profile from an agent. Automatically calculates version and extracts services.",
     dependencies=[Depends(require_permission("profiles:write"))],
@@ -46,6 +47,7 @@ async def submit_profile(
 @router.get(
     "/{profile_id}",
     response_model=SuccessResponse[ProfileResponse],
+    response_model_by_alias=True,
     summary="Get Profile",
     description="Get a specific profile by ID.",
     dependencies=[Depends(require_permission("profiles:read"))],
@@ -66,6 +68,7 @@ nodes_router = APIRouter(prefix="/nodes", tags=["Profiles"])
 @nodes_router.get(
     "/{node_id}/profiles",
     response_model=SuccessResponse[list[ProfileSummary]],
+    response_model_by_alias=True,
     summary="List Node Profiles",
     description="Get profile history for a node.",
     dependencies=[Depends(require_permission("profiles:read"))],
@@ -87,6 +90,7 @@ async def list_node_profiles(
 @nodes_router.get(
     "/{node_id}/profiles/latest",
     response_model=SuccessResponse[ProfileResponse],
+    response_model_by_alias=True,
     summary="Get Latest Profile",
     description="Get the most recent profile for a node.",
     dependencies=[Depends(require_permission("profiles:read"))],
@@ -103,6 +107,7 @@ async def get_latest_profile(
 @nodes_router.get(
     "/{node_id}/profiles/diff",
     response_model=SuccessResponse[ProfileDiff],
+    response_model_by_alias=True,
     summary="Diff Profiles",
     description="Compare two profiles for a node. If versions not specified, compares the latest two.",
     dependencies=[Depends(require_permission("profiles:read"))],

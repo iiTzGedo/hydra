@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -13,8 +14,6 @@ import {
   Trash2,
   MoreHorizontal,
   AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
   X,
   Loader2,
   CheckCircle2,
@@ -36,6 +35,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Pagination } from '@/components/ui/pagination';
 import {
   Select,
   SelectContent,
@@ -86,6 +86,8 @@ type ViewMode = 'table' | 'grid';
 type GroupColumnKey = 'group' | 'types' | 'nodes' | 'services' | 'tags' | 'actions';
 
 export default function GroupsPage() {
+  useDocumentTitle('Groups');
+
   const [filters, setFilters] = useState<FilterState>({
     search: '',
   });
@@ -510,29 +512,11 @@ export default function GroupsPage() {
                 </Table>
 
                 {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-2 p-4 border-t">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setPage(p => Math.max(0, p - 1))}
-                      disabled={page === 0}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <span className="text-sm text-muted-foreground px-4">
-                      Page {page + 1} of {totalPages}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                      disabled={page >= totalPages - 1}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
+                <Pagination
+                  page={page}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                />
               </Card>
             ) : (
               <div>
@@ -546,29 +530,13 @@ export default function GroupsPage() {
                     <GroupGridCard key={group.id} group={group} />
                   ))}
                 </div>
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-2 mt-6">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setPage(p => Math.max(0, p - 1))}
-                      disabled={page === 0}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <span className="text-sm text-muted-foreground px-4">
-                      Page {page + 1} of {totalPages}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                      disabled={page >= totalPages - 1}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
+                <Pagination
+                  page={page}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  showBorder={false}
+                  className="mt-6"
+                />
               </div>
             )}
           </motion.div>

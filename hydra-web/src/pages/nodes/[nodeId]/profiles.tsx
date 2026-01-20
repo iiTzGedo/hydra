@@ -114,9 +114,11 @@ export default function NodeProfilesPage() {
             {/* Timeline line */}
             <div className="absolute left-[23px] top-0 bottom-0 w-0.5 bg-border" />
 
-            {profiles.items.map((profile, index) => (
+            {profiles.items.map((profile, index) => {
+              const profileKey = profile.profileId;
+              return (
               <motion.div
-                key={profile.id}
+                key={profileKey}
                 variants={staggerItemVariants}
                 className="relative pl-12 pb-6 last:pb-0"
               >
@@ -131,7 +133,7 @@ export default function NodeProfilesPage() {
                 <div
                   className={cn(
                     'rounded-xl border bg-card p-4 shadow-sm transition-all',
-                    selectedProfiles.includes(profile.id)
+                    selectedProfiles.includes(profileKey)
                       ? 'ring-2 ring-primary'
                       : 'hover:border-primary/50'
                   )}
@@ -139,15 +141,15 @@ export default function NodeProfilesPage() {
                   <div className="flex items-start gap-4">
                     {/* Checkbox */}
                     <button
-                      onClick={() => toggleProfileSelection(profile.id)}
+                      onClick={() => toggleProfileSelection(profileKey)}
                       className={cn(
                         'mt-1 h-5 w-5 rounded border-2 flex items-center justify-center transition-colors',
-                        selectedProfiles.includes(profile.id)
+                        selectedProfiles.includes(profileKey)
                           ? 'bg-primary border-primary'
                           : 'border-muted-foreground hover:border-primary'
                       )}
                     >
-                      {selectedProfiles.includes(profile.id) && (
+                      {selectedProfiles.includes(profileKey) && (
                         <svg
                           className="h-3 w-3 text-white"
                           fill="none"
@@ -180,24 +182,17 @@ export default function NodeProfilesPage() {
                         <span>{formatRelativeTime(new Date(profile.submittedAt))}</span>
                       </div>
 
-                      {/* Sections summary */}
-                      {profile.sectionsIncluded && profile.sectionsIncluded.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {profile.sectionsIncluded.map((section) => (
-                            <span
-                              key={section}
-                              className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize"
-                            >
-                              {section}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      {/* Collection level badge */}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize">
+                          {profile.collectionLevel || 'neutral'}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Actions */}
                     <Link
-                      to={`${ROUTES.NODES}/${nodeId}/profiles/${profile.id}`}
+                      to={`${ROUTES.NODES}/${nodeId}/profile/${profileKey}`}
                       className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm hover:bg-muted transition-colors"
                     >
                       <Eye className="h-4 w-4" />
@@ -207,7 +202,8 @@ export default function NodeProfilesPage() {
                   </div>
                 </div>
               </motion.div>
-            ))}
+              );
+            })}
           </div>
         )}
       </motion.div>

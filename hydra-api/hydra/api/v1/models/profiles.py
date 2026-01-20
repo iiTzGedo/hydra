@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hydra.api.v1.core.validators import (
     IPV4_PATTERN,
@@ -26,6 +26,8 @@ class CollectionLevel(str, Enum):
 class CpuInfo(BaseModel):
     """CPU information."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     model: str | None = None
     vendor: str | None = None
     cores_physical: int | None = Field(default=None, alias="coresPhysical")
@@ -38,6 +40,8 @@ class CpuInfo(BaseModel):
 class MemoryInfo(BaseModel):
     """Memory information."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     total_bytes: int | None = Field(default=None, alias="totalBytes")
     type: str | None = None
     speed_mhz: int | None = Field(default=None, alias="speedMhz")
@@ -48,6 +52,8 @@ class MemoryInfo(BaseModel):
 class GpuInfo(BaseModel):
     """GPU information."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     model: str | None = None
     vendor: str | None = None
     memory_bytes: int | None = Field(default=None, alias="memoryBytes")
@@ -56,6 +62,8 @@ class GpuInfo(BaseModel):
 
 class HardwareProfile(BaseModel):
     """Hardware profile section."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     system_manufacturer: str | None = Field(default=None, alias="systemManufacturer")
     system_model: str | None = Field(default=None, alias="systemModel")
@@ -70,6 +78,8 @@ class HardwareProfile(BaseModel):
 # Network Profile Components
 class NetworkInterface(BaseModel):
     """Network interface information."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     name: str
     mac_address: str | None = Field(default=None, alias="macAddress")
@@ -96,6 +106,8 @@ class NetworkInterface(BaseModel):
 class NetworkRoute(BaseModel):
     """Network route."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     destination: str
     gateway: str | None = None
     interface: str | None = None
@@ -104,6 +116,8 @@ class NetworkRoute(BaseModel):
 
 class NetworkProfile(BaseModel):
     """Network profile section."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     hostname: str | None = None
     domain: str | None = None
@@ -119,6 +133,8 @@ class NetworkProfile(BaseModel):
 class BlockDevice(BaseModel):
     """Block device information."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     size_bytes: int | None = Field(default=None, alias="sizeBytes")
     type: str | None = None  # disk, partition, lvm, etc.
@@ -131,6 +147,8 @@ class BlockDevice(BaseModel):
 class Filesystem(BaseModel):
     """Filesystem information."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     mount_point: str = Field(alias="mountPoint")
     device: str
     fs_type: str = Field(alias="fsType")
@@ -142,6 +160,8 @@ class Filesystem(BaseModel):
 class StorageProfile(BaseModel):
     """Storage profile section."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     block_devices: list[BlockDevice] = Field(default_factory=list, alias="blockDevices")
     filesystems: list[Filesystem] = Field(default_factory=list)
     total_capacity_bytes: int | None = Field(default=None, alias="totalCapacityBytes")
@@ -150,6 +170,8 @@ class StorageProfile(BaseModel):
 # Software Profile Components
 class OsInfo(BaseModel):
     """Operating system information."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     name: str
     version: str | None = None
@@ -161,6 +183,8 @@ class OsInfo(BaseModel):
 class Package(BaseModel):
     """Installed package."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     version: str | None = None
     manager: str | None = None  # apt, yum, pacman, brew, etc.
@@ -168,6 +192,8 @@ class Package(BaseModel):
 
 class SoftwareProfile(BaseModel):
     """Software profile section."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     os: OsInfo | None = None
     packages: list[Package] = Field(default_factory=list)
@@ -177,6 +203,8 @@ class SoftwareProfile(BaseModel):
 # Service Components (for extraction)
 class ServiceInfo(BaseModel):
     """Discovered service information."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     name: str
     runtime: str  # systemd, docker, kubernetes, etc.
@@ -192,12 +220,16 @@ class ServiceInfo(BaseModel):
 class ServicesProfile(BaseModel):
     """Services discovered on the node."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     services: list[ServiceInfo] = Field(default_factory=list)
 
 
 # User Profile Components
 class UserInfo(BaseModel):
     """User account information."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     username: str
     uid: int | None = None
@@ -210,6 +242,8 @@ class UserInfo(BaseModel):
 class SshKey(BaseModel):
     """SSH key information."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     username: str
     key_type: str = Field(alias="keyType")
     fingerprint: str
@@ -219,6 +253,8 @@ class SshKey(BaseModel):
 class UsersProfile(BaseModel):
     """Users profile section."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     users: list[UserInfo] = Field(default_factory=list)
     ssh_keys: list[SshKey] = Field(default_factory=list, alias="sshKeys")
 
@@ -226,6 +262,8 @@ class UsersProfile(BaseModel):
 # Config Profile Components
 class ConfigFile(BaseModel):
     """Configuration file metadata."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     path: str
     hash: str
@@ -236,12 +274,16 @@ class ConfigFile(BaseModel):
 class ConfigsProfile(BaseModel):
     """Configuration files profile section."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     files: list[ConfigFile] = Field(default_factory=list)
 
 
 # Full Profile Request/Response
 class ProfileSubmission(BaseModel):
     """Profile submission from agent."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     node_id: str = Field(alias="nodeId")
     version: str | None = Field(default=None, alias="version")
@@ -271,6 +313,8 @@ class ProfileSubmission(BaseModel):
 class ProfileResponse(BaseModel):
     """Full profile response."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     profile_id: str = Field(alias="profileId")
     node_id: str = Field(alias="nodeId")
     version: str
@@ -291,6 +335,8 @@ class ProfileResponse(BaseModel):
 class ProfileSummary(BaseModel):
     """Abbreviated profile for lists."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     profile_id: str = Field(alias="profileId")
     node_id: str = Field(alias="nodeId")
     version: str
@@ -302,6 +348,8 @@ class ProfileSummary(BaseModel):
 
 class ProfileDiff(BaseModel):
     """Profile diff response."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     from_version: str = Field(alias="fromVersion")
     to_version: str = Field(alias="toVersion")

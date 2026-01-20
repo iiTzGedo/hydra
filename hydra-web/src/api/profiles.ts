@@ -61,21 +61,24 @@ export function useLatestProfile(nodeId: string) {
 }
 
 // Diff profiles
-export function useProfileDiff(nodeId: string, fromId?: string, toId?: string) {
+// Note: API accepts fromVersion/toVersion (version strings like "E0-0.0.0.1")
+// If not provided, it compares the latest two profiles
+export function useProfileDiff(nodeId: string, fromVersion?: string, toVersion?: string) {
   return useQuery({
-    queryKey: queryKeys.profiles.diff(nodeId, fromId, toId),
+    queryKey: queryKeys.profiles.diff(nodeId, fromVersion, toVersion),
     queryFn: async () => {
       const response = await apiClient.get<ApiResponse<ProfileDiff>>(
         `/nodes/${nodeId}/profiles/diff`,
         {
           params: {
-            fromId,
-            toId,
+            fromVersion,
+            toVersion,
           },
         }
       );
       return response.data.data;
     },
-    enabled: !!nodeId && (!!fromId || !!toId),
+    // Enable if we have nodeId AND either both versions or neither (for auto-compare latest two)
+    enabled: !!nodeId && ((!!fromVersion && !!toVersion) || (!fromVersion && !toVersion)),
   });
 }

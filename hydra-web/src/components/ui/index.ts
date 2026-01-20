@@ -1,4 +1,5 @@
 // UI Components barrel export
+export * from './action-menu';
 export * from './avatar';
 export * from './badge';
 export * from './button';
@@ -10,6 +11,7 @@ export * from './dialog';
 export * from './dropdown-menu';
 export * from './input';
 export * from './label';
+export * from './pagination';
 export * from './popover';
 export * from './progress';
 export * from './scroll-area';
@@ -17,6 +19,7 @@ export * from './select';
 export * from './separator';
 export * from './skeleton';
 export * from './slider';
+export * from './status-badge';
 export * from './switch';
 export * from './table';
 export * from './tabs';

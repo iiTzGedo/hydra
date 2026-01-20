@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import { Link } from 'react-router-dom';
 import {
   Boxes,
@@ -11,8 +12,6 @@ import {
   RefreshCw,
   HelpCircle,
   Server,
-  ChevronLeft,
-  ChevronRight,
   Filter,
   X,
   CheckCircle2,
@@ -30,6 +29,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Pagination } from '@/components/ui/pagination';
 import {
   Select,
   SelectContent,
@@ -98,6 +98,8 @@ type ViewMode = 'table' | 'grid';
 type ServiceColumnKey = 'service' | 'host' | 'runtime' | 'ports' | 'status' | 'lastSeen';
 
 export default function ServicesPage() {
+  useDocumentTitle('Service Explorer');
+
   const [filters, setFilters] = useState<FilterState>({
     search: '',
     runtime: 'all',
@@ -602,31 +604,11 @@ export default function ServicesPage() {
             </Table>
 
             {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 p-4 border-t border-border">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setPage(p => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                  className="text-muted-foreground"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm text-muted-foreground px-4">
-                  Page {page + 1} of {totalPages}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                  disabled={page >= totalPages - 1}
-                  className="text-muted-foreground"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+            />
           </Card>
         )}
       </div>

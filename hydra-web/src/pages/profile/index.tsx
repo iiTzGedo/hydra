@@ -1,4 +1,8 @@
 import { useState } from 'react';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useAuthStore } from '@/stores/auth-store';
+import { useApiKeys, useCreateApiKey, useRevokeApiKey, useChangePassword } from '@/api/auth';
+import { formatRelativeTime, formatDateTime } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,14 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
   DialogContent,
@@ -23,106 +20,101 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
   User,
   Mail,
   Shield,
   Key,
   Clock,
-  Save,
   Plus,
   Trash2,
   Copy,
   Check,
-  Eye,
-  EyeOff,
   AlertTriangle,
+  Fingerprint,
+  Loader2,
 } from 'lucide-react';
-import { useAuthStore } from '@/stores/auth-store';
-
-// Mock personal API tokens
-const personalTokens = [
-  {
-    id: 'pt-001',
-    name: 'CLI Access',
-    prefix: 'hyd_cli_',
-    created_at: '2024-05-01T10:00:00Z',
-    last_used: new Date().toISOString(),
-    expires_at: '2025-05-01T10:00:00Z',
-    scopes: ['read:nodes', 'read:services'],
-  },
-  {
-    id: 'pt-002',
-    name: 'VS Code Extension',
-    prefix: 'hyd_vsc_',
-    created_at: '2024-06-15T08:00:00Z',
-    last_used: new Date(Date.now() - 86400000).toISOString(),
-    expires_at: null,
-    scopes: ['read:all'],
-  },
-];
-
-// Mock sessions
-const activeSessions = [
-  {
-    id: 'sess-001',
-    device: 'Chrome on macOS',
-    ip: '192.168.1.100',
-    location: 'San Francisco, CA',
-    last_active: new Date().toISOString(),
-    current: true,
-  },
-  {
-    id: 'sess-002',
-    device: 'Firefox on Windows',
-    ip: '10.0.0.50',
-    location: 'New York, NY',
-    last_active: new Date(Date.now() - 3600000).toISOString(),
-    current: false,
-  },
-];
-
-const availableScopes = [
-  { id: 'read:nodes', label: 'Read Nodes', description: 'View node information' },
-  { id: 'write:nodes', label: 'Write Nodes', description: 'Modify node configuration' },
-  { id: 'read:services', label: 'Read Services', description: 'View service information' },
-  { id: 'write:services', label: 'Write Services', description: 'Manage services' },
-  { id: 'read:networks', label: 'Read Networks', description: 'View network information' },
-  { id: 'read:all', label: 'Read All', description: 'Full read access' },
-  { id: 'write:all', label: 'Write All', description: 'Full write access' },
-];
 
 export default function ProfilePage() {
+  useDocumentTitle('Profile');
+
   const { user } = useAuthStore();
+  const { data: apiKeys, isLoading: isLoadingKeys, error: keysError } = useApiKeys();
+  const createMutation = useCreateApiKey();
+  const revokeMutation = useRevokeApiKey();
+  const changePasswordMutation = useChangePassword();
+
   const [showCreateTokenModal, setShowCreateTokenModal] = useState(false);
   const [showTokenResult, setShowTokenResult] = useState(false);
   const [generatedToken, setGeneratedToken] = useState('');
   const [copiedToken, setCopiedToken] = useState(false);
-  const [showToken, setShowToken] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Token creation form state
   const [tokenName, setTokenName] = useState('');
-  const [tokenExpiry, setTokenExpiry] = useState('90');
-  const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
+  const [tokenExpiryDays, setTokenExpiryDays] = useState('90');
 
-  const handleCreateToken = () => {
-    // Simulate token creation
-    const newToken = `hyd_${tokenName.toLowerCase().replace(/\s/g, '_')}_${Math.random().toString(36).substring(2, 15)}`;
-    setGeneratedToken(newToken);
-    setShowCreateTokenModal(false);
-    setShowTokenResult(true);
-    // Reset form
-    setTokenName('');
-    setTokenExpiry('90');
-    setSelectedScopes([]);
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+
+  const handleCreateToken = async () => {
+    try {
+      const days = tokenExpiryDays === 'never' ? null : parseInt(tokenExpiryDays);
+      const expiresAt = days ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : undefined;
+
+      const result = await createMutation.mutateAsync({
+        name: tokenName,
+        expiresAt,
+      });
+
+      if (result.key) {
+        setGeneratedToken(result.key);
+        setShowCreateTokenModal(false);
+        setShowTokenResult(true);
+      }
+      // Reset form
+      setTokenName('');
+      setTokenExpiryDays('90');
+    } catch {
+      // Error handled by mutation
+    }
+  };
+
+  const handleRevokeKey = async (keyId: string) => {
+    try {
+      await revokeMutation.mutateAsync(keyId);
+    } catch {
+      // Error handled by mutation
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError(null);
+    setPasswordSuccess(false);
+
+    if (!currentPassword || !newPassword) {
+      setPasswordError('Please fill in both fields');
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters');
+      return;
+    }
+
+    try {
+      await changePasswordMutation.mutateAsync({
+        currentPassword,
+        newPassword,
+      });
+      setPasswordSuccess(true);
+      setCurrentPassword('');
+      setNewPassword('');
+    } catch {
+      setPasswordError('Failed to change password. Please check your current password.');
+    }
   };
 
   const copyToken = async (token: string, id?: string) => {
@@ -134,12 +126,6 @@ export default function ProfilePage() {
       setCopiedToken(true);
       setTimeout(() => setCopiedToken(false), 2000);
     }
-  };
-
-  const toggleScope = (scope: string) => {
-    setSelectedScopes((prev) =>
-      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]
-    );
   };
 
   return (
@@ -164,18 +150,18 @@ export default function ProfilePage() {
             <div className="flex flex-col sm:flex-row sm:items-center gap-6">
               <Avatar className="h-20 w-20">
                 <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
-                  {user?.username?.charAt(0)?.toUpperCase() || 'A'}
+                  {user?.username?.charAt(0)?.toUpperCase() || 'U'}
                 </AvatarFallback>
               </Avatar>
               <div className="space-y-1">
                 <h3 className="text-xl font-semibold text-foreground">
-                  {user?.username || 'Admin User'}
+                  {user?.username || 'User'}
                 </h3>
-                <p className="text-muted-foreground">@{user?.username || 'admin'}</p>
+                <p className="text-muted-foreground">@{user?.username || 'user'}</p>
                 <div className="flex items-center gap-2 mt-2">
                   <Badge variant="destructive" className="gap-1">
                     <Shield className="mr-1 h-3 w-3" />
-                    {user?.role || 'admin'}
+                    {user?.role || 'viewer'}
                   </Badge>
                   <Badge variant="outline" className="border-success/30 text-success">
                     Active
@@ -190,7 +176,7 @@ export default function ProfilePage() {
               <div className="space-y-2">
                 <Label className="text-foreground">Username</Label>
                 <Input
-                  defaultValue={user?.username || 'admin'}
+                  value={user?.username || ''}
                   disabled
                   className="bg-muted border-border text-muted-foreground"
                 />
@@ -198,7 +184,7 @@ export default function ProfilePage() {
               <div className="space-y-2">
                 <Label className="text-foreground">User ID</Label>
                 <Input
-                  defaultValue={user?.userId || 'usr-001'}
+                  value={user?.userId || ''}
                   disabled
                   className="bg-muted border-border text-muted-foreground font-mono text-sm"
                 />
@@ -208,8 +194,9 @@ export default function ProfilePage() {
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    defaultValue={user?.email || 'admin@example.com'}
-                    className="bg-background border-border text-foreground pl-9"
+                    value={user?.email || ''}
+                    disabled
+                    className="bg-muted border-border text-muted-foreground pl-9"
                   />
                 </div>
               </div>
@@ -218,24 +205,17 @@ export default function ProfilePage() {
                 <div className="relative">
                   <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    defaultValue={new Date(user?.createdAt || '2024-01-01').toLocaleDateString()}
+                    value={user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'}
                     disabled
                     className="bg-muted border-border text-muted-foreground pl-9"
                   />
                 </div>
               </div>
             </div>
-
-            <div className="flex justify-end">
-              <Button>
-                <Save className="mr-2 h-4 w-4" />
-                Save Changes
-              </Button>
-            </div>
           </CardContent>
         </Card>
 
-        {/* Security Settings - in same grid row */}
+        {/* Security Settings */}
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-foreground flex items-center gap-2">
@@ -250,36 +230,50 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-foreground font-medium">Two-factor authentication</p>
-                <p className="text-sm text-muted-foreground">Add an extra layer of security to your account</p>
+                <p className="text-sm text-muted-foreground">Add an extra layer of security</p>
               </div>
               <Button
                 variant="outline"
-                className="border-border text-foreground bg-transparent hover:bg-muted hover:text-foreground"
+                className="border-border text-foreground bg-transparent hover:bg-muted"
+                disabled
               >
-                Enable 2FA
+                Coming Soon
               </Button>
             </div>
 
             <Separator className="bg-border" />
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label className="text-foreground">Change Password</Label>
-              <div className="space-y-2">
-                <Input
-                  type="password"
-                  placeholder="Current password"
-                  className="bg-background border-border text-foreground"
-                />
-                <Input
-                  type="password"
-                  placeholder="New password"
-                  className="bg-background border-border text-foreground"
-                />
-              </div>
+              <Input
+                type="password"
+                placeholder="Current password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="bg-background border-border text-foreground"
+              />
+              <Input
+                type="password"
+                placeholder="New password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="bg-background border-border text-foreground"
+              />
+              {passwordError && (
+                <p className="text-sm text-destructive">{passwordError}</p>
+              )}
+              {passwordSuccess && (
+                <p className="text-sm text-success">Password changed successfully</p>
+              )}
               <Button
                 variant="outline"
-                className="border-border text-foreground bg-transparent hover:bg-muted hover:text-foreground mt-2"
+                onClick={handleChangePassword}
+                disabled={changePasswordMutation.isPending}
+                className="border-border text-foreground bg-transparent hover:bg-muted"
               >
+                {changePasswordMutation.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
                 Update Password
               </Button>
             </div>
@@ -287,167 +281,119 @@ export default function ProfilePage() {
         </Card>
       </div>
 
-      {/* Full Width Section - API Tokens & Sessions */}
-      <div className="grid gap-6 xl:grid-cols-2">
-        {/* Personal API Tokens */}
-        <Card className="bg-card border-border overflow-hidden xl:col-span-2">
-          <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <CardTitle className="text-foreground flex items-center gap-2">
-                <Key className="h-5 w-5 text-warning" />
-                Personal API Tokens
-              </CardTitle>
-              <CardDescription className="text-muted-foreground">
-                Tokens for personal CLI and integration use
-              </CardDescription>
-            </div>
-            <Button onClick={() => setShowCreateTokenModal(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Token
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-border hover:bg-transparent">
-                    <TableHead className="text-muted-foreground">Name</TableHead>
-                    <TableHead className="text-muted-foreground">Token</TableHead>
-                    <TableHead className="text-muted-foreground">Last Used</TableHead>
-                    <TableHead className="text-muted-foreground">Expires</TableHead>
-                    <TableHead className="text-muted-foreground w-[80px]">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {personalTokens.map((token) => (
-                    <TableRow key={token.id} className="border-border hover:bg-muted/60">
-                      <TableCell className="text-foreground font-medium">{token.name}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <code className="text-muted-foreground text-sm">
-                            {showToken === token.id
-                              ? `${token.prefix}••••••••••••`
-                              : `${token.prefix}••••••`}
-                          </code>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                            onClick={() => setShowToken(showToken === token.id ? null : token.id)}
-                          >
-                            {showToken === token.id ? (
-                              <EyeOff className="h-3 w-3" />
-                            ) : (
-                              <Eye className="h-3 w-3" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                            onClick={() => copyToken(`${token.prefix}secret-value`, token.id)}
-                          >
-                            {copiedId === token.id ? (
-                              <Check className="h-3 w-3 text-success" />
-                            ) : (
-                              <Copy className="h-3 w-3" />
-                            )}
-                          </Button>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                        {new Date(token.last_used).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        {token.expires_at ? (
-                          <span className="text-muted-foreground text-sm whitespace-nowrap">
-                            {new Date(token.expires_at).toLocaleDateString()}
-                          </span>
-                        ) : (
-                          <Badge variant="outline" className="border-border text-muted-foreground">
-                            Never
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-        </CardContent>
-        </Card>
-
-        {/* Active Sessions */}
-        <Card className="bg-card border-border xl:col-span-2">
-          <CardHeader>
+      {/* API Keys Section */}
+      <Card className="bg-card border-border">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
             <CardTitle className="text-foreground flex items-center gap-2">
-              <Clock className="h-5 w-5 text-info" />
-              Active Sessions
+              <Key className="h-5 w-5 text-warning" />
+              API Keys
             </CardTitle>
             <CardDescription className="text-muted-foreground">
-              Devices where you're currently logged in
+              Manage your personal API keys for programmatic access
             </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {activeSessions.map((session) => (
-              <div
-                key={session.id}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-lg bg-muted/60"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-foreground font-medium">{session.device}</p>
-                    {session.current && (
-                      <Badge className="bg-success/10 text-success border-success/20">
-                        Current
-                      </Badge>
-                    )}
+          </div>
+          <Button onClick={() => setShowCreateTokenModal(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create API Key
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {isLoadingKeys ? (
+            <div className="space-y-4">
+              {[...Array(2)].map((_, i) => (
+                <div key={i} className="flex items-center gap-4 p-4 rounded-lg bg-muted/30">
+                  <Skeleton className="h-10 w-10 rounded-lg" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {session.ip} • {session.location}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Last active: {new Date(session.last_active).toLocaleString()}
-                  </p>
                 </div>
-                {!session.current && (
+              ))}
+            </div>
+          ) : keysError ? (
+            <div className="p-8 text-center">
+              <p className="text-destructive">Failed to load API keys</p>
+            </div>
+          ) : !apiKeys?.length ? (
+            <div className="p-8 text-center">
+              <Fingerprint className="mx-auto h-12 w-12 text-muted-foreground" />
+              <h3 className="mt-4 text-lg font-semibold text-foreground">No API keys</h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Create an API key for CLI access or integrations
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {apiKeys.map((key) => (
+                <div
+                  key={key.keyId}
+                  className="flex items-center gap-4 p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors group"
+                >
+                  <div className="rounded-lg bg-warning/20 p-2.5">
+                    <Fingerprint className="h-5 w-5 text-warning" />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-foreground">{key.name}</div>
+                    <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
+                      <span className="font-mono">{key.keyId.slice(0, 12)}...</span>
+                      <span>Created {formatRelativeTime(new Date(key.createdAt))}</span>
+                    </div>
+                  </div>
+
+                  <div className="hidden md:flex items-center gap-2 text-sm text-muted-foreground">
+                    <Clock className="h-4 w-4" />
+                    <span>
+                      {key.expiresAt
+                        ? `Expires ${formatDateTime(key.expiresAt)}`
+                        : 'Never expires'}
+                    </span>
+                  </div>
+
                   <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-destructive/30 text-destructive bg-transparent hover:bg-destructive/10 hover:text-destructive shrink-0"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => copyToken(key.keyId, key.keyId)}
+                    className="text-muted-foreground hover:text-foreground"
                   >
-                    Revoke
+                    {copiedId === key.keyId ? (
+                      <Check className="h-4 w-4 text-success" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
                   </Button>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleRevokeKey(key.keyId)}
+                    disabled={revokeMutation.isPending}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Create Token Modal */}
       <Dialog open={showCreateTokenModal} onOpenChange={setShowCreateTokenModal}>
-        <DialogContent className="bg-popover border-border text-foreground max-w-lg">
+        <DialogContent className="bg-popover border-border text-foreground max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Personal API Token</DialogTitle>
+            <DialogTitle>Create API Key</DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Generate a new token for CLI access or integrations.
+              Generate a new API key for CLI access or integrations.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="tokenName" className="text-foreground">
-                Token Name
+                Name <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="tokenName"
@@ -460,37 +406,22 @@ export default function ProfilePage() {
 
             <div className="space-y-2">
               <Label className="text-foreground">Expiration</Label>
-              <Select value={tokenExpiry} onValueChange={setTokenExpiry}>
-                <SelectTrigger className="bg-background border-border text-foreground">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-popover border-border">
-                  <SelectItem value="30">30 days</SelectItem>
-                  <SelectItem value="90">90 days</SelectItem>
-                  <SelectItem value="365">1 year</SelectItem>
-                  <SelectItem value="never">No expiration</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-foreground">Scopes</Label>
-              <div className="grid grid-cols-2 gap-2 p-3 rounded-lg bg-muted/60 max-h-[200px] overflow-y-auto">
-                {availableScopes.map((scope) => (
-                  <label
-                    key={scope.id}
-                    className="flex items-start gap-2 cursor-pointer p-2 rounded hover:bg-muted/60"
+              <div className="flex gap-2 flex-wrap">
+                {['30', '90', '365', 'never'].map((days) => (
+                  <Button
+                    key={days}
+                    type="button"
+                    variant={tokenExpiryDays === days ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTokenExpiryDays(days)}
+                    className={
+                      tokenExpiryDays !== days
+                        ? 'border-border text-foreground hover:bg-muted bg-transparent'
+                        : ''
+                    }
                   >
-                    <Checkbox
-                      checked={selectedScopes.includes(scope.id)}
-                      onCheckedChange={() => toggleScope(scope.id)}
-                      className="mt-0.5 border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                    />
-                    <div>
-                      <p className="text-sm text-foreground">{scope.label}</p>
-                      <p className="text-xs text-muted-foreground">{scope.description}</p>
-                    </div>
-                  </label>
+                    {days === 'never' ? 'Never' : `${days} days`}
+                  </Button>
                 ))}
               </div>
             </div>
@@ -506,10 +437,11 @@ export default function ProfilePage() {
             </Button>
             <Button
               onClick={handleCreateToken}
-              disabled={!tokenName || selectedScopes.length === 0}
+              disabled={!tokenName.trim() || createMutation.isPending}
             >
+              {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               <Key className="mr-2 h-4 w-4" />
-              Generate Token
+              Generate
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -521,17 +453,17 @@ export default function ProfilePage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Check className="h-5 w-5 text-success" />
-              Token Created Successfully
+              API Key Created
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Copy your token now. You won't be able to see it again.
+              Copy your key now. You won't be able to see it again.
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-4">
             <div className="p-4 rounded-lg bg-muted/60 border border-border">
               <div className="flex items-center justify-between gap-2">
-                <code className="text-success text-sm break-all">{generatedToken}</code>
+                <code className="text-success text-sm break-all flex-1">{generatedToken}</code>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -552,17 +484,14 @@ export default function ProfilePage() {
               <div>
                 <p className="text-sm text-warning font-medium">Important</p>
                 <p className="text-xs text-warning/80">
-                  Make sure to copy your token now. For security reasons, it won't be shown again.
+                  Make sure to copy your key now. For security reasons, it won't be shown again.
                 </p>
               </div>
             </div>
           </div>
 
           <DialogFooter>
-            <Button
-              onClick={() => setShowTokenResult(false)}
-              className="w-full"
-            >
+            <Button onClick={() => setShowTokenResult(false)} className="w-full">
               Done
             </Button>
           </DialogFooter>

@@ -77,6 +77,8 @@ async def login(
     """Authenticate a user and return tokens."""
     # Allow system accounts when source=agent (CLI programmatic login)
     allow_system_accounts = source == "agent"
+    logger.info(request.username)
+    print(request.password)
     result = await auth_service.authenticate_user(
         request.username, request.password, allow_system_accounts=allow_system_accounts
     )

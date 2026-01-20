@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import {
   ReactFlow,
   Background,
@@ -80,6 +81,8 @@ const modeOptions: { value: TopologyMode; label: string; icon: typeof Server; de
 ];
 
 export default function TopologyPage() {
+  useDocumentTitle('Topology');
+
   const { topologyMode, setTopologyMode } = useUiStore();
   const { data: topology, isLoading, refetch } = useLatestTopology(topologyMode);
   const generateMutation = useGenerateTopology();

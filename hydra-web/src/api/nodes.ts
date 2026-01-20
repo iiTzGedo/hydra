@@ -57,7 +57,9 @@ export function useNode(nodeId: string) {
     queryKey: queryKeys.nodes.detail(nodeId),
     queryFn: async () => {
       const response = await apiClient.get<ApiResponse<Node>>(`/nodes/${nodeId}`);
-      return response.data.data;
+      const node = response.data.data;
+      // Add id alias for convenience
+      return { ...node, id: node.nodeId };
     },
     enabled: !!nodeId,
   });

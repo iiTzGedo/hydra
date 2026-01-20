@@ -1,5 +1,13 @@
 import { TopologyGraph, TopologyMode } from './topology';
-import { ProfileSections } from './profile';
+import type {
+  HardwareProfile,
+  NetworkProfile,
+  StorageProfile,
+  SoftwareProfile,
+  ServicesProfile,
+  UsersProfile,
+  ConfigsProfile,
+} from './profile';
 
 // Timeline event type
 export type TimelineEventType =
@@ -31,6 +39,19 @@ export interface TimelineResponse {
   total: number;
 }
 
+// Profile data at a point in time (matches API structure)
+export interface HistoricalProfile {
+  profileId: string;
+  version: string;
+  hardware?: HardwareProfile;
+  network?: NetworkProfile;
+  storage?: StorageProfile;
+  software?: SoftwareProfile;
+  services?: ServicesProfile;
+  users?: UsersProfile;
+  configs?: ConfigsProfile;
+}
+
 // Node state at a point in time
 export interface HistoricalNodeState {
   nodeId: string;
@@ -40,11 +61,7 @@ export interface HistoricalNodeState {
   class: string;
   type: string;
   kind?: string;
-  profile?: {
-    profileId: string;
-    version: string;
-    sections: ProfileSections;
-  };
+  profile?: HistoricalProfile;
   services?: Array<{
     serviceId: string;
     name: string;

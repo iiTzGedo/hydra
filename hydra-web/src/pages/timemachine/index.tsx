@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import { motion } from 'framer-motion';
 import {
   History,
@@ -56,6 +57,20 @@ const DATE_PRESETS: { value: DateRangePreset; label: string }[] = [
   { value: '30d', label: '30 Days' },
   { value: '90d', label: '90 Days' },
 ];
+
+// Helper functions to handle local dates properly (avoid timezone issues with date inputs)
+function formatDateForInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateInput(value: string): Date | null {
+  const [year, month, day] = value.split('-').map(Number);
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+  return new Date(year, month - 1, day);
+}
 
 // Event type categories for Atlas view
 const EVENT_CATEGORIES = [
@@ -136,10 +151,10 @@ function DateRangeSelector({
       <div className="flex items-center gap-1.5 text-sm">
         <Input
           type="date"
-          value={startDate.toISOString().split('T')[0]}
+          value={formatDateForInput(startDate)}
           onChange={(e) => {
-            const date = new Date(e.target.value);
-            if (!isNaN(date.getTime())) {
+            const date = parseDateInput(e.target.value);
+            if (date) {
               onStartChange(date);
               onPresetChange('custom');
             }
@@ -149,10 +164,10 @@ function DateRangeSelector({
         <span className="text-muted-foreground text-xs">to</span>
         <Input
           type="date"
-          value={endDate.toISOString().split('T')[0]}
+          value={formatDateForInput(endDate)}
           onChange={(e) => {
-            const date = new Date(e.target.value);
-            if (!isNaN(date.getTime())) {
+            const date = parseDateInput(e.target.value);
+            if (date) {
               onEndChange(date);
               onPresetChange('custom');
             }
@@ -428,6 +443,8 @@ function EventTimeline({
 }
 
 export default function TimeMachinePage() {
+  useDocumentTitle('Time Machine');
+
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [selectedTimestamp, setSelectedTimestamp] = useState<Date | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -763,6 +780,11 @@ export default function TimeMachinePage() {
                 selectedDate={selectedTimestamp}
                 onSelectDate={selectDate}
                 range={timeRange}
+                onRangeChange={(start, end) => {
+                  setStartDate(start);
+                  setEndDate(end);
+                  setDateRangePreset('custom');
+                }}
               />
             )}
           </motion.div>

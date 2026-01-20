@@ -4,29 +4,20 @@
  */
 
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import { Link } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare,
-  Send,
   Loader2,
   Bot,
-  User,
   Sparkles,
   Zap,
-  Copy,
-  Check,
-  Settings,
   Server,
   Plus,
   AlertCircle,
   ChevronDown,
   ChevronRight,
   FolderOpen,
-  Trash2,
-  MoreHorizontal,
-  Pencil,
-  Download,
   Store,
   Globe,
   Terminal,
@@ -34,21 +25,17 @@ import {
   AlertTriangle,
   Boxes,
   Wrench,
+  Menu,
+  X,
 } from 'lucide-react';
-import { cn, formatRelativeTime } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { useMCPStore } from '@/stores/mcp-store';
 import { ROUTES } from '@/lib/constants';
-import type { MCPChatMessage, MCPToolCall, ChatProject } from '@/types/mcp';
 import { useMCPChat } from '@/hooks/use-mcp-chat';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Tooltip,
@@ -56,28 +43,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+
+import { ChatHeader, ChatInput, MessageBubble } from './components';
+import { NewProjectModal, MCPConfigModal, LLMConfigModal } from './modals';
 
 // Suggested queries for users
 const suggestedPrompts = [
@@ -101,6 +69,8 @@ const useInfrastructureContext = () => {
 };
 
 export default function ChatPage() {
+  useDocumentTitle('Chat');
+
   const {
     servers,
     sessions,
@@ -111,7 +81,6 @@ export default function ChatPage() {
     createSession,
     deleteSession,
     setCurrentSession,
-    renameSession,
     createProject,
     addMessage,
     getCurrentSession,
@@ -133,6 +102,7 @@ export default function ChatPage() {
   const [showLLMConfigModal, setShowLLMConfigModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [streamingContent, setStreamingContent] = useState('');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const infraContext = useInfrastructureContext();
@@ -269,13 +239,6 @@ export default function ChatPage() {
     wsSendMessage(messageText);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
   const toggleProjectExpand = (projectId: string) => {
     setExpandedProjects((prev) =>
       prev.includes(projectId) ? prev.filter((p) => p !== projectId) : [...prev, projectId]
@@ -292,17 +255,46 @@ export default function ChatPage() {
 
   const handleSelectSession = (sessionId: string) => {
     setCurrentSession(sessionId);
+    setMobileSidebarOpen(false);
   };
 
   const handleNewChat = (projectId?: string) => {
     createSession('New Chat', projectId);
+    setMobileSidebarOpen(false);
   };
 
   return (
     <TooltipProvider>
-      <div className="h-[calc(100vh-3.5rem)] flex gap-4 p-4 bg-background">
+      <div className="h-[calc(100vh-3.5rem)] flex gap-4 p-4 bg-background relative">
+        {/* Mobile sidebar toggle */}
+        <Button
+          variant="outline"
+          size="icon"
+          className="fixed bottom-4 left-4 z-50 md:hidden shadow-lg"
+          onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+          aria-label={mobileSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+        >
+          {mobileSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </Button>
+
+        {/* Mobile overlay */}
+        {mobileSidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/50 z-30 md:hidden"
+            onClick={() => setMobileSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+
         {/* Left Sidebar - Chats & Tools */}
-        <div className="w-72 flex flex-col bg-card border border-border rounded-lg overflow-hidden shrink-0 min-h-0">
+        <div
+          className={cn(
+            'flex flex-col bg-card border border-border rounded-lg overflow-hidden min-h-0',
+            'fixed inset-y-0 left-0 z-40 w-72 m-4 transition-transform duration-200 ease-in-out',
+            'md:static md:translate-x-0 md:shrink-0',
+            mobileSidebarOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)]'
+          )}
+        >
           <Tabs
             value={sidebarTab}
             onValueChange={(v) => setSidebarTab(v as 'chats' | 'tools')}
@@ -478,7 +470,6 @@ export default function ChatPage() {
                     </div>
                     <div className="space-y-2">
                       {servers.map((mcp) => {
-                        // Status LED colors: green=connected, red=error, grey=disconnected
                         const statusColor = mcp.status === 'connected'
                           ? 'bg-emerald-500'
                           : mcp.status === 'error'
@@ -685,83 +676,16 @@ export default function ChatPage() {
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col bg-card border border-border rounded-lg overflow-hidden min-w-0">
           {/* Chat Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <MessageSquare className="h-5 w-5 text-blue-500 shrink-0" />
-              <div className="min-w-0">
-                <h2 className="font-medium text-foreground truncate">
-                  {currentSession?.name || 'Chat'}
-                </h2>
-                <p className="text-xs text-muted-foreground">
-                  Using {activeLLMProvider?.name || 'No LLM'} &bull; {activeTools.length} tools
-                  available
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {/* LLM Selector */}
-              <Select
-                value={activeLLMProviderId || ''}
-                onValueChange={(v) => setActiveLLMProvider(v)}
-              >
-                <SelectTrigger className="w-40 h-8 text-xs bg-muted border-border text-foreground">
-                  <Bot className="h-3 w-3 mr-2" />
-                  <SelectValue placeholder="Select LLM" />
-                </SelectTrigger>
-                <SelectContent className="bg-muted border-border">
-                  {llmProviders
-                    .filter((l) => l.isConfigured)
-                    .map((llm) => (
-                      <SelectItem key={llm.id} value={llm.id} className="text-foreground">
-                        {llm.name}
-                      </SelectItem>
-                    ))}
-                  {llmProviders.filter((l) => l.isConfigured).length === 0 && (
-                    <div className="p-2 text-xs text-muted-foreground">No LLMs configured</div>
-                  )}
-                </SelectContent>
-              </Select>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                onClick={() => setShowLLMConfigModal(true)}
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem className="text-foreground focus:bg-muted focus:text-foreground">
-                    <Pencil className="h-4 w-4 mr-2" />
-                    Rename Chat
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="text-foreground focus:bg-muted focus:text-foreground">
-                    <Copy className="h-4 w-4 mr-2" />
-                    Duplicate
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="text-foreground focus:bg-muted focus:text-foreground">
-                    <Download className="h-4 w-4 mr-2" />
-                    Export
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-red-400 focus:bg-red-500/10 focus:text-red-400"
-                    onClick={() => currentSessionId && deleteSession(currentSessionId)}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
+          <ChatHeader
+            currentSession={currentSession}
+            activeLLMProvider={activeLLMProvider}
+            activeLLMProviderId={activeLLMProviderId}
+            llmProviders={llmProviders}
+            activeToolsCount={activeTools.length}
+            onLLMProviderChange={setActiveLLMProvider}
+            onOpenLLMConfig={() => setShowLLMConfigModal(true)}
+            onDeleteSession={() => currentSessionId && deleteSession(currentSessionId)}
+          />
 
           {/* MCP Warning */}
           {!isHydraMcpConnected && (
@@ -845,379 +769,40 @@ export default function ChatPage() {
           </div>
 
           {/* Input Area */}
-          <div className="border-t border-border p-4 shrink-0">
-            <div className="max-w-4xl mx-auto">
-              <div className="flex gap-2">
-                <Textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask about your infrastructure..."
-                  className="min-h-[44px] max-h-32 resize-none bg-muted border-border text-foreground placeholder:text-muted-foreground"
-                  disabled={isStreaming}
-                  rows={1}
-                />
-                <Button
-                  onClick={() => handleSend()}
-                  disabled={!input.trim() || isStreaming}
-                  className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  {isStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                </Button>
-              </div>
-              <p className="text-[10px] text-muted-foreground mt-2 text-center">
-                Press Enter to send, Shift+Enter for new line
-              </p>
-            </div>
-          </div>
+          <ChatInput
+            value={input}
+            onChange={setInput}
+            onSend={() => handleSend()}
+            isStreaming={isStreaming}
+          />
         </div>
 
-        {/* New Project Modal */}
-        <Dialog open={showNewProjectModal} onOpenChange={setShowNewProjectModal}>
-          <DialogContent className="bg-card border-border text-foreground max-w-md">
-            <DialogHeader>
-              <DialogTitle>Create New Project</DialogTitle>
-              <DialogDescription className="text-muted-foreground">
-                Projects help you organize your chat conversations by topic or purpose.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              <Label htmlFor="projectName" className="text-foreground">
-                Project Name
-              </Label>
-              <Input
-                id="projectName"
-                value={newProjectName}
-                onChange={(e) => setNewProjectName(e.target.value)}
-                placeholder="e.g., Production Monitoring"
-                className="mt-2 bg-muted border-border text-foreground"
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setShowNewProjectModal(false)}
-                className="border-border text-foreground hover:bg-muted bg-transparent"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleCreateProject}
-                disabled={!newProjectName.trim()}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                <Check className="h-4 w-4 mr-2" />
-                Create Project
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {/* Modals */}
+        <NewProjectModal
+          open={showNewProjectModal}
+          onOpenChange={setShowNewProjectModal}
+          projectName={newProjectName}
+          onProjectNameChange={setNewProjectName}
+          onCreateProject={handleCreateProject}
+        />
 
-        {/* MCP Configuration Modal */}
-        <Dialog open={showMCPConfigModal} onOpenChange={setShowMCPConfigModal}>
-          <DialogContent className="bg-card border-border text-foreground max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
-            <DialogHeader>
-              <DialogTitle>MCP Configuration</DialogTitle>
-              <DialogDescription className="text-muted-foreground">
-                Manage connected MCP servers and browse available tools.
-              </DialogDescription>
-            </DialogHeader>
-            <ScrollArea className="flex-1 -mx-6 px-6">
-              <div className="space-y-4 py-4">
-                {servers.map((mcp) => (
-                  <Card key={mcp.id} className="bg-muted/60 border-border">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-card">
-                            {mcp.type === 'builtin' ? (
-                              <Terminal className="h-5 w-5 text-violet-500" />
-                            ) : (
-                              <Globe className="h-5 w-5 text-cyan-500" />
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium text-foreground">{mcp.name}</h4>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  mcp.status === 'connected'
-                                    ? 'border-emerald-500/30 text-emerald-400'
-                                    : 'border-border text-muted-foreground'
-                                )}
-                              >
-                                {mcp.status}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground">{(mcp.tools || []).length} tools</p>
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            mcp.status === 'connected'
-                              ? disconnectServer(mcp.id)
-                              : connectServer(mcp.id)
-                          }
-                          className={cn(
-                            mcp.status === 'connected'
-                              ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
-                              : 'text-blue-400 hover:text-blue-300 hover:bg-blue-500/10'
-                          )}
-                        >
-                          {mcp.status === 'connected' ? 'Disconnect' : 'Connect'}
-                        </Button>
-                      </div>
-                      {(mcp.tools || []).length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1">
-                          {(mcp.tools || []).slice(0, 8).map((tool) => (
-                            <Badge
-                              key={typeof tool === 'string' ? tool : tool.name}
-                              variant="secondary"
-                              className="text-[10px] bg-card text-muted-foreground"
-                            >
-                              {typeof tool === 'string' ? tool : tool.name}
-                            </Badge>
-                          ))}
-                          {(mcp.tools || []).length > 8 && (
-                            <Badge variant="secondary" className="text-[10px] bg-card text-muted-foreground">
-                              +{(mcp.tools || []).length - 8} more
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </ScrollArea>
-            <DialogFooter className="border-t border-border pt-4">
-              <Button
-                variant="outline"
-                onClick={() => setShowMCPConfigModal(false)}
-                className="border-border text-foreground hover:bg-muted bg-transparent"
-              >
-                Close
-              </Button>
-              <Link to={ROUTES.MCP_MARKETPLACE}>
-                <Button className="bg-blue-600 hover:bg-blue-700 text-white">
-                  <Store className="h-4 w-4 mr-2" />
-                  Browse Marketplace
-                </Button>
-              </Link>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <MCPConfigModal
+          open={showMCPConfigModal}
+          onOpenChange={setShowMCPConfigModal}
+          servers={servers}
+          onConnectServer={connectServer}
+          onDisconnectServer={disconnectServer}
+        />
 
-        {/* LLM Configuration Modal */}
-        <Dialog open={showLLMConfigModal} onOpenChange={setShowLLMConfigModal}>
-          <DialogContent className="bg-card border-border text-foreground max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
-            <DialogHeader>
-              <DialogTitle>LLM Providers</DialogTitle>
-              <DialogDescription className="text-muted-foreground">
-                Configure language models for the chat interface.
-              </DialogDescription>
-            </DialogHeader>
-            <ScrollArea className="flex-1 -mx-6 px-6">
-              <div className="space-y-4 py-4">
-                {llmProviders.map((llm) => (
-                  <Card key={llm.id} className="bg-muted/60 border-border">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-card">
-                            <Bot className="h-5 w-5 text-amber-500" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium text-foreground">{llm.name}</h4>
-                              {activeLLMProviderId === llm.id && (
-                                <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20">
-                                  Active
-                                </Badge>
-                              )}
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  llm.isConfigured
-                                    ? 'border-emerald-500/30 text-emerald-400'
-                                    : 'border-border text-muted-foreground'
-                                )}
-                              >
-                                {llm.isConfigured ? 'Configured' : 'Not configured'}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {llm.type} / {llm.model}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {!llm.isConfigured && llm.type !== 'ollama' && (
-                            <Input
-                              type="password"
-                              placeholder="API Key"
-                              className="h-8 w-32 text-xs bg-card border-border text-foreground"
-                              onChange={(e) =>
-                                updateLLMProvider(llm.id, { apiKey: e.target.value })
-                              }
-                            />
-                          )}
-                          {llm.isConfigured && activeLLMProviderId !== llm.id && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setActiveLLMProvider(llm.id)}
-                              className="border-border text-foreground hover:bg-muted bg-transparent"
-                            >
-                              Set Active
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </ScrollArea>
-            <DialogFooter className="border-t border-border pt-4">
-              <Button
-                variant="outline"
-                onClick={() => setShowLLMConfigModal(false)}
-                className="border-border text-foreground hover:bg-muted bg-transparent"
-              >
-                Close
-              </Button>
-              <Button className="bg-blue-600 hover:bg-blue-700 text-white">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Provider
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <LLMConfigModal
+          open={showLLMConfigModal}
+          onOpenChange={setShowLLMConfigModal}
+          llmProviders={llmProviders}
+          activeLLMProviderId={activeLLMProviderId}
+          onSetActiveProvider={setActiveLLMProvider}
+          onUpdateProvider={updateLLMProvider}
+        />
       </div>
     </TooltipProvider>
-  );
-}
-
-// Message Bubble Component
-function MessageBubble({ message }: { message: MCPChatMessage }) {
-  const [copied, setCopied] = useState(false);
-  const isUser = message.role === 'user';
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(message.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className={cn('flex gap-3', isUser && 'justify-end')}>
-      {!isUser && (
-        <div
-          className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-            message.role === 'system' ? 'bg-blue-600' : 'bg-muted'
-          )}
-        >
-          {message.role === 'system' ? (
-            <Zap className="h-4 w-4 text-white" />
-          ) : (
-            <Bot className="h-4 w-4 text-muted-foreground" />
-          )}
-        </div>
-      )}
-
-      <div className={cn('flex-1 max-w-[80%]', isUser && 'flex justify-end')}>
-        <div
-          className={cn(
-            'rounded-lg p-4',
-            isUser
-              ? 'bg-blue-600 text-white'
-              : message.role === 'system'
-                ? 'bg-blue-500/10 border border-blue-500/30 text-foreground'
-                : 'bg-muted text-foreground',
-            message.error && 'border border-red-500/30 bg-red-500/10'
-          )}
-        >
-          <div className="text-sm whitespace-pre-wrap break-words">{message.content}</div>
-
-          {/* Tool Calls */}
-          {message.toolCalls && message.toolCalls.length > 0 && (
-            <div className="mt-3 space-y-2">
-              {message.toolCalls.map((tool) => (
-                <ToolCallDisplay key={tool.id} toolCall={tool} />
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 mt-1 px-1">
-          <span className="text-[10px] text-muted-foreground">
-            {formatRelativeTime(message.timestamp)}
-          </span>
-          {!isUser && (
-            <button
-              onClick={handleCopy}
-              className="rounded p-1 hover:bg-muted transition-colors"
-            >
-              {copied ? (
-                <Check className="h-3 w-3 text-emerald-500" />
-              ) : (
-                <Copy className="h-3 w-3 text-muted-foreground" />
-              )}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {isUser && (
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600">
-          <User className="h-4 w-4 text-white" />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Tool Call Display Component
-function ToolCallDisplay({ toolCall }: { toolCall: MCPToolCall }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <Collapsible open={expanded} onOpenChange={setExpanded}>
-      <CollapsibleTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-between h-auto py-2 px-3 bg-card/60 hover:bg-card text-muted-foreground"
-        >
-          <div className="flex items-center gap-2">
-            <Wrench className="h-3 w-3" />
-            <span className="text-xs font-mono">{toolCall.name}</span>
-          </div>
-          <ChevronDown
-            className={cn('h-3 w-3 transition-transform', expanded && 'rotate-180')}
-          />
-        </Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="mt-2 p-3 rounded bg-card text-xs font-mono overflow-auto max-h-48">
-          <p className="text-muted-foreground mb-1">Arguments:</p>
-          <pre className="text-foreground">{JSON.stringify(toolCall.arguments, null, 2)}</pre>
-          {toolCall.result && (
-            <>
-              <p className="text-muted-foreground mt-2 mb-1">Result:</p>
-              <pre className="text-emerald-400">
-                {JSON.stringify(toolCall.result, null, 2).slice(0, 500)}
-              </pre>
-            </>
-          )}
-          {toolCall.error && <p className="mt-1 text-red-400">{toolCall.error}</p>}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
   );
 }

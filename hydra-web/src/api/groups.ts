@@ -158,3 +158,49 @@ export function useResolveGroup() {
     },
   });
 }
+
+// Get groups that contain a specific node
+// This queries all groups and checks membership via selectors
+export function useNodeGroups(nodeId: string) {
+  return useQuery({
+    queryKey: [...queryKeys.groups.list(), 'node', nodeId],
+    queryFn: async () => {
+      // First, fetch all groups
+      const groupsResponse = await apiClient.get<ApiResponse<GroupSummary[]>>('/groups', {
+        params: { limit: 100 },
+      });
+      const allGroups = groupsResponse.data.data;
+
+      // For each group that might contain nodes, check if this node is a member
+      const groupsWithNode: GroupWithId[] = [];
+
+      for (const group of allGroups) {
+        // Only check groups that support node membership
+        if (group.types?.includes('node') || !group.types || group.types.length === 0) {
+          try {
+            const membersResponse = await apiClient.get<ApiResponse<GroupMembersResponse>>(
+              `/groups/${group.groupId}/members`,
+              { params: { entityType: 'node', limit: 200 } }
+            );
+            const nodeIds = membersResponse.data.data.nodes.map(n => n.nodeId);
+            if (nodeIds.includes(nodeId)) {
+              groupsWithNode.push({
+                ...group,
+                id: group.groupId,
+              });
+            }
+          } catch {
+            // If we can't fetch members, skip this group
+          }
+        }
+      }
+
+      return {
+        items: groupsWithNode,
+        total: groupsWithNode.length,
+      };
+    },
+    enabled: !!nodeId,
+    staleTime: 60 * 1000, // Cache for 1 minute since this is expensive
+  });
+}
