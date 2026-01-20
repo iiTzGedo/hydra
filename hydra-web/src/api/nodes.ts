@@ -11,10 +11,8 @@ import type {
   NodeRegistrationResponse,
 } from '@/types/node';
 
-// Extended NodeSummary with id alias for component convenience
 type NodeSummaryWithId = NodeSummary & { id: string };
 
-// List nodes
 export function useNodes(params?: NodeListParams) {
   return useQuery({
     queryKey: queryKeys.nodes.list(params),
@@ -35,7 +33,6 @@ export function useNodes(params?: NodeListParams) {
           sortOrder: params?.sortOrder,
         },
       });
-      // Transform to PaginatedResponse with id alias
       const items: NodeSummaryWithId[] = response.data.data.map(node => ({
         ...node,
         id: node.nodeId,
@@ -51,21 +48,18 @@ export function useNodes(params?: NodeListParams) {
   });
 }
 
-// Get single node
 export function useNode(nodeId: string) {
   return useQuery({
     queryKey: queryKeys.nodes.detail(nodeId),
     queryFn: async () => {
       const response = await apiClient.get<ApiResponse<Node>>(`/nodes/${nodeId}`);
       const node = response.data.data;
-      // Add id alias for convenience
       return { ...node, id: node.nodeId };
     },
     enabled: !!nodeId,
   });
 }
 
-// Get node children
 export function useNodeChildren(nodeId: string) {
   return useQuery({
     queryKey: queryKeys.nodes.children(nodeId),
@@ -73,13 +67,12 @@ export function useNodeChildren(nodeId: string) {
       const response = await apiClient.get<ApiResponse<NodeSummary[]>>(
         `/nodes/${nodeId}/children`
       );
-      return response.data.data; // Return the array directly
+      return response.data.data;
     },
     enabled: !!nodeId,
   });
 }
 
-// Update node
 export function useUpdateNode() {
   const queryClient = useQueryClient();
 
@@ -95,7 +88,6 @@ export function useUpdateNode() {
   });
 }
 
-// Archive node
 export function useArchiveNode() {
   const queryClient = useQueryClient();
 
@@ -111,17 +103,13 @@ export function useArchiveNode() {
   });
 }
 
-// Register node (returns API key credentials)
 export function useRegisterNode() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (data: NodeRegistrationRequest) => {
-      const response = await apiClient.post<ApiResponse<NodeRegistrationResponse>>(
-        '/node/register',
-        data
-      );
-      return response.data.data;
+      const response = await apiClient.post<NodeRegistrationResponse>('/node/register', data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.nodes.list() });

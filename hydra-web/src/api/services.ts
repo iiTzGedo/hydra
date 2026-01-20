@@ -9,10 +9,8 @@ import type {
   UpdateServiceRequest,
 } from '@/types/service';
 
-// Extended ServiceSummary with id alias for component convenience
 type ServiceSummaryWithId = ServiceSummary & { id: string };
 
-// List services
 export function useServices(params?: ServiceListParams) {
   return useQuery({
     queryKey: queryKeys.services.list(params),
@@ -32,7 +30,6 @@ export function useServices(params?: ServiceListParams) {
           sortOrder: params?.sortOrder,
         },
       });
-      // Transform to PaginatedResponse with id alias
       const items: ServiceSummaryWithId[] = response.data.data.map(service => ({
         ...service,
         id: service.serviceId,
@@ -48,19 +45,18 @@ export function useServices(params?: ServiceListParams) {
   });
 }
 
-// Get single service
 export function useService(serviceId: string) {
   return useQuery({
     queryKey: queryKeys.services.detail(serviceId),
     queryFn: async () => {
       const response = await apiClient.get<ApiResponse<Service>>(`/services/${serviceId}`);
-      return response.data.data;
+      const service = response.data.data;
+      return { ...service, id: service.serviceId };
     },
     enabled: !!serviceId,
   });
 }
 
-// Get services for a node
 export function useNodeServices(
   nodeId: string,
   params?: { runtime?: string; status?: string; limit?: number; offset?: number }
@@ -72,10 +68,13 @@ export function useNodeServices(
         `/nodes/${nodeId}/services`,
         { params }
       );
-      // Transform to expected paginated format
+      const items: ServiceSummaryWithId[] = response.data.data.map((service) => ({
+        ...service,
+        id: service.serviceId,
+      }));
       return {
-        items: response.data.data,
-        total: response.data.meta?.total ?? response.data.data.length,
+        items,
+        total: response.data.meta?.total ?? items.length,
         limit: response.data.meta?.limit ?? params?.limit ?? 50,
         offset: response.data.meta?.offset ?? params?.offset ?? 0,
       };
@@ -84,7 +83,6 @@ export function useNodeServices(
   });
 }
 
-// Update service
 export function useUpdateService() {
   const queryClient = useQueryClient();
 
@@ -109,7 +107,6 @@ export function useUpdateService() {
   });
 }
 
-// Archive service
 export function useArchiveService() {
   const queryClient = useQueryClient();
 

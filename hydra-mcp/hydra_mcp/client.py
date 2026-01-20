@@ -12,7 +12,13 @@ logger = structlog.get_logger(__name__)
 
 
 class HydraAPIError(Exception):
-    """Exception for Hydra API errors."""
+    """Exception raised when the Hydra API returns an error.
+
+    Attributes:
+        code: Error code from the API (e.g., 'NOT_FOUND', 'UNAUTHORIZED').
+        message: Human-readable error message.
+        details: Optional dictionary with additional error context.
+    """
 
     def __init__(self, code: str, message: str, details: dict | None = None):
         self.code = code
@@ -22,20 +28,41 @@ class HydraAPIError(Exception):
 
 
 class HydraClient:
-    """Async client for Hydra API."""
+    """Async HTTP client for interacting with the Hydra API.
+
+    Provides methods for querying infrastructure entities (nodes, services,
+    networks, groups), accessing historical data via Time Machine, and
+    executing control commands.
+
+    The client automatically manages connection pooling and handles API
+    authentication via API key or JWT token.
+
+    Args:
+        settings: Optional Settings instance. If not provided, uses the
+            default settings from get_settings().
+
+    Example:
+        Basic usage::
+
+            client = HydraClient()
+            nodes, _ = await client.list_nodes(node_class="compute")
+            await client.close()
+
+        As async context manager::
+
+            async with HydraClient() as client:
+                node = await client.get_node("proxmox-01")
+    """
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
         if self._client is None or self._client.is_closed:
             headers = {"Content-Type": "application/json"}
-
             if self.settings.api_key:
                 headers["X-API-Key"] = self.settings.api_key
-
             self._client = httpx.AsyncClient(
                 base_url=self.settings.api_url,
                 headers=headers,
@@ -50,9 +77,7 @@ class HydraClient:
         params: dict | None = None,
         json_data: dict | None = None,
     ) -> dict[str, Any]:
-        """Make an API request."""
         client = await self._get_client()
-
         try:
             response = await client.request(
                 method,
@@ -60,9 +85,7 @@ class HydraClient:
                 params=params,
                 json=json_data,
             )
-
             data = response.json()
-
             if response.status_code >= 400:
                 error = data.get("error", {})
                 raise HydraAPIError(
@@ -70,19 +93,15 @@ class HydraClient:
                     message=error.get("message", "Unknown error"),
                     details=error.get("details"),
                 )
-
             return data.get("data", data)
-
         except httpx.RequestError as e:
             logger.error("api_request_error", error=str(e), endpoint=endpoint)
             raise HydraAPIError("CONNECTION_ERROR", f"Failed to connect to API: {e}")
 
-    async def close(self):
-        """Close the HTTP client."""
+    async def close(self) -> None:
+        """Close the HTTP client and release resources."""
         if self._client and not self._client.is_closed:
             await self._client.aclose()
-
-    # ==================== Nodes ====================
 
     async def list_nodes(
         self,
@@ -93,7 +112,19 @@ class HydraClient:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
-        """List infrastructure nodes."""
+        """List infrastructure nodes with optional filtering.
+
+        Args:
+            node_class: Filter by node class (compute, networking, iot).
+            node_type: Filter by node type (physical, logical).
+            status: Filter by status (active, inactive, archived).
+            tags: Filter by tags using AND logic.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip for pagination.
+
+        Returns:
+            Tuple of (list of node dictionaries, total count).
+        """
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if node_class:
             params["class"] = node_class
@@ -103,7 +134,6 @@ class HydraClient:
             params["status"] = status
         if tags:
             params["tags"] = ",".join(tags)
-
         result = await self._request("GET", "/nodes", params=params)
         return result if isinstance(result, list) else result, 0
 
@@ -113,7 +143,16 @@ class HydraClient:
         include_children: bool = True,
         include_services: bool = True,
     ) -> dict:
-        """Get node details."""
+        """Get detailed information about a specific node.
+
+        Args:
+            node_id: The unique node identifier.
+            include_children: Include child nodes in the response.
+            include_services: Include services running on the node.
+
+        Returns:
+            Node details including metadata, status, and optional children/services.
+        """
         params = {
             "includeChildren": include_children,
             "includeServices": include_services,
@@ -125,13 +164,20 @@ class HydraClient:
         node_id: str,
         sections: list[str] | None = None,
     ) -> dict:
-        """Get latest profile for a node."""
+        """Get the latest profile snapshot for a node.
+
+        Args:
+            node_id: The unique node identifier.
+            sections: Specific profile sections to include
+                (hardware, network, storage, software, configs).
+
+        Returns:
+            Profile data with hardware, network, storage, and software details.
+        """
         params = {}
         if sections:
             params["sections"] = ",".join(sections)
         return await self._request("GET", f"/nodes/{node_id}/profiles/latest", params=params)
-
-    # ==================== Services ====================
 
     async def list_services(
         self,
@@ -141,7 +187,18 @@ class HydraClient:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
-        """List services."""
+        """List services across the infrastructure.
+
+        Args:
+            node_id: Filter services by node.
+            runtime: Filter by runtime (systemd, docker, podman, kubernetes).
+            status: Filter by status (running, stopped, failed).
+            limit: Maximum number of results to return.
+            offset: Number of results to skip for pagination.
+
+        Returns:
+            Tuple of (list of service dictionaries, total count).
+        """
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if node_id:
             params["nodeId"] = node_id
@@ -149,15 +206,19 @@ class HydraClient:
             params["runtime"] = runtime
         if status:
             params["status"] = status
-
         result = await self._request("GET", "/services", params=params)
         return result if isinstance(result, list) else result, 0
 
     async def get_service(self, service_id: str) -> dict:
-        """Get service details."""
-        return await self._request("GET", f"/services/{service_id}")
+        """Get detailed information about a specific service.
 
-    # ==================== Groups ====================
+        Args:
+            service_id: The unique service identifier (e.g., svc-nginx-a1b2).
+
+        Returns:
+            Service details including runtime, status, and metadata.
+        """
+        return await self._request("GET", f"/services/{service_id}")
 
     async def list_groups(
         self,
@@ -166,22 +227,37 @@ class HydraClient:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
-        """List groups."""
+        """List logical groups.
+
+        Args:
+            types: Filter by group types (node, service).
+            tags: Filter by tags.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip for pagination.
+
+        Returns:
+            Tuple of (list of group dictionaries, total count).
+        """
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if types:
             params["types"] = ",".join(types)
         if tags:
             params["tags"] = ",".join(tags)
-
         result = await self._request("GET", "/groups", params=params)
         return result if isinstance(result, list) else result, 0
 
     async def get_group(self, group_id: str, resolve_members: bool = False) -> dict:
-        """Get group details."""
+        """Get detailed information about a specific group.
+
+        Args:
+            group_id: The unique group identifier.
+            resolve_members: Include resolved member entities in the response.
+
+        Returns:
+            Group details including selectors and optionally resolved members.
+        """
         params = {"resolveMembers": resolve_members}
         return await self._request("GET", f"/groups/{group_id}", params=params)
-
-    # ==================== Networks ====================
 
     async def list_networks(
         self,
@@ -189,11 +265,19 @@ class HydraClient:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
-        """List networks."""
+        """List networks in the infrastructure.
+
+        Args:
+            network_type: Filter by network type (physical, vlan, overlay, virtual).
+            limit: Maximum number of results to return.
+            offset: Number of results to skip for pagination.
+
+        Returns:
+            Tuple of (list of network dictionaries, total count).
+        """
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if network_type:
             params["type"] = network_type
-
         result = await self._request("GET", "/networks", params=params)
         return result if isinstance(result, list) else result, 0
 
@@ -202,18 +286,32 @@ class HydraClient:
         network_id: str,
         include_nodes: bool = False,
     ) -> dict:
-        """Get network details."""
+        """Get detailed information about a specific network.
+
+        Args:
+            network_id: The unique network identifier.
+            include_nodes: Include nodes connected to this network.
+
+        Returns:
+            Network details including CIDR, gateway, and optionally nodes.
+        """
         params = {"includeNodes": include_nodes}
         return await self._request("GET", f"/networks/{network_id}", params=params)
-
-    # ==================== Topologies ====================
 
     async def get_topology(
         self,
         mode: str = "network",
         scope: dict | None = None,
     ) -> dict:
-        """Get latest topology."""
+        """Get the current infrastructure or network topology graph.
+
+        Args:
+            mode: Topology mode ('network' or 'infrastructure').
+            scope: Optional scope filter for the topology.
+
+        Returns:
+            Topology graph with nodes, edges, and metadata.
+        """
         params = {"mode": mode}
         return await self._request("GET", "/topologies/latest", params=params)
 
@@ -222,14 +320,20 @@ class HydraClient:
         mode: str,
         timestamp: datetime,
     ) -> dict:
-        """Get topology at a specific time."""
+        """Get the topology at a specific historical point in time.
+
+        Args:
+            mode: Topology mode ('network' or 'infrastructure').
+            timestamp: The point in time to query.
+
+        Returns:
+            Historical topology graph as it existed at the specified time.
+        """
         params = {
             "mode": mode,
             "timestamp": timestamp.isoformat(),
         }
         return await self._request("GET", "/timemachine/topology", params=params)
-
-    # ==================== Time Machine ====================
 
     async def get_node_at_time(
         self,
@@ -237,13 +341,20 @@ class HydraClient:
         timestamp: datetime,
         sections: list[str] | None = None,
     ) -> dict:
-        """Get node state at a specific time."""
+        """Get a node's state at a specific historical point in time.
+
+        Args:
+            node_id: The unique node identifier.
+            timestamp: The point in time to query.
+            sections: Specific profile sections to include.
+
+        Returns:
+            Reconstructed node state as it existed at the specified time.
+        """
         params: dict[str, Any] = {"timestamp": timestamp.isoformat()}
         if sections:
             params["sections"] = ",".join(sections)
         return await self._request("GET", f"/timemachine/node/{node_id}", params=params)
-
-    # ==================== Profiles ====================
 
     async def compare_profiles(
         self,
@@ -251,7 +362,16 @@ class HydraClient:
         from_version: str | None = None,
         to_version: str | None = None,
     ) -> dict:
-        """Compare two profiles."""
+        """Compare two profile versions to see what changed.
+
+        Args:
+            node_id: The unique node identifier.
+            from_version: Starting version for comparison (default: previous).
+            to_version: Ending version for comparison (default: latest).
+
+        Returns:
+            Diff showing added, removed, and modified sections between versions.
+        """
         params: dict[str, Any] = {}
         if from_version:
             params["from"] = from_version
@@ -259,14 +379,20 @@ class HydraClient:
             params["to"] = to_version
         return await self._request("GET", f"/nodes/{node_id}/profiles/diff", params=params)
 
-    # ==================== Query & Analytics ====================
-
     async def get_capacity(
         self,
         group_by: str | None = None,
         include_logical: bool = False,
     ) -> dict:
-        """Get capacity summary."""
+        """Get infrastructure capacity summary.
+
+        Args:
+            group_by: Group results by dimension (node, class, location, network, group).
+            include_logical: Include logical nodes (may double-count resources).
+
+        Returns:
+            Capacity summary with CPU, memory, and storage totals.
+        """
         params: dict[str, Any] = {"includeLogical": include_logical}
         if group_by:
             params["groupBy"] = group_by
@@ -281,7 +407,19 @@ class HydraClient:
         limit: int = 50,
         skip: int = 0,
     ) -> dict:
-        """Execute a raw query."""
+        """Execute a raw query against infrastructure data.
+
+        Args:
+            collection: Collection to query (nodes, profiles, services, groups, networks).
+            filter_query: MongoDB-style filter document.
+            projection: Fields to include or exclude.
+            sort: Sort specification.
+            limit: Maximum number of results.
+            skip: Number of results to skip.
+
+        Returns:
+            Query results matching the filter criteria.
+        """
         body = {
             "collection": collection,
             "filter": filter_query,
@@ -298,12 +436,20 @@ class HydraClient:
         types: list[str] | None = None,
         limit: int = 20,
     ) -> list[dict]:
-        """Search across infrastructure entities."""
-        # Search nodes
+        """Search across nodes and services by name or ID.
+
+        Args:
+            query: Search query string.
+            types: Entity types to search (node, service).
+            limit: Maximum number of results.
+
+        Returns:
+            List of matching entities with their type annotation.
+        """
         nodes, _ = await self.list_nodes(limit=limit)
         results = []
-
         query_lower = query.lower()
+
         for node in nodes if isinstance(nodes, list) else []:
             if (
                 query_lower in node.get("nodeId", "").lower()
@@ -322,8 +468,6 @@ class HydraClient:
 
         return results[:limit]
 
-    # ==================== Commands ====================
-
     async def control_service(
         self,
         node_id: str,
@@ -331,7 +475,17 @@ class HydraClient:
         action: str,
         parameters: dict | None = None,
     ) -> dict:
-        """Control a service."""
+        """Execute a control action on a service.
+
+        Args:
+            node_id: The node hosting the service.
+            service_id: The unique service identifier.
+            action: Action to perform (start, stop, restart, reload).
+            parameters: Optional parameters for the action.
+
+        Returns:
+            Command execution result with status and output.
+        """
         body = {
             "type": "service",
             "target": {"nodeId": node_id, "serviceId": service_id},
@@ -340,15 +494,22 @@ class HydraClient:
         }
         return await self._request("POST", "/commands", json_data=body)
 
-    # ==================== Home Assistant ====================
-
     async def control_device(
         self,
         entity_id: str,
         service: str,
         data: dict | None = None,
     ) -> dict:
-        """Control a Home Assistant device."""
+        """Control an IoT device via Home Assistant integration.
+
+        Args:
+            entity_id: Home Assistant entity ID (e.g., light.living_room).
+            service: Service to call (e.g., turn_on, set_temperature).
+            data: Optional service parameters.
+
+        Returns:
+            Command execution result.
+        """
         body = {
             "entityId": entity_id,
             "service": service,
@@ -357,15 +518,25 @@ class HydraClient:
         return await self._request("POST", "/ha/control", json_data=body)
 
     async def get_ha_status(self) -> dict:
-        """Get Home Assistant integration status."""
+        """Get Home Assistant integration status.
+
+        Returns:
+            Integration status including connection state and entity counts.
+        """
         return await self._request("GET", "/ha/status")
 
-    # ==================== Health ====================
-
     async def health_check(self) -> dict:
-        """Check API health."""
+        """Check API health status.
+
+        Returns:
+            Health check result with service status and uptime.
+        """
         return await self._request("GET", "/health")
 
     async def get_info(self) -> dict:
-        """Get API info and stats."""
+        """Get API information and statistics.
+
+        Returns:
+            API version, build info, and usage statistics.
+        """
         return await self._request("GET", "/info")

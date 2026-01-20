@@ -10,15 +10,16 @@ from hydra.core.config import Settings
 
 
 def configure_logging(settings: Settings) -> None:
-    """Configure structured logging for the application."""
+    """Configure structured logging for the application.
 
-    # Determine processors based on format
+    Args:
+        settings: Application settings containing log level and format.
+    """
     if settings.log_format == "json":
         renderer = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer(colors=True)
 
-    # Configure structlog
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -36,18 +37,24 @@ def configure_logging(settings: Settings) -> None:
         cache_logger_on_first_use=True,
     )
 
-    # Configure standard library logging to use structlog
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
         level=getattr(logging, settings.log_level),
     )
 
-    # Suppress noisy loggers
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("motor").setLevel(logging.WARNING)
 
 
 def get_request_logger(request_id: str, **kwargs: Any) -> structlog.BoundLogger:
-    """Get a logger bound with request context."""
+    """Get a logger bound with request context.
+
+    Args:
+        request_id: Unique request identifier.
+        **kwargs: Additional context to bind to the logger.
+
+    Returns:
+        BoundLogger instance with request context.
+    """
     return structlog.get_logger().bind(request_id=request_id, **kwargs)

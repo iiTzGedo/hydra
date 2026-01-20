@@ -30,9 +30,6 @@ class SortOrder(str, Enum):
     DESC = "desc"
 
 
-# ==================== UI Settings ====================
-
-
 class UISettings(BaseModel):
     """User interface settings."""
 
@@ -79,9 +76,6 @@ class NotificationSettings(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-# ==================== User Settings ====================
-
-
 class UserSettingsUpdate(BaseModel):
     """Request to update user settings."""
 
@@ -102,9 +96,6 @@ class UserSettingsResponse(BaseModel):
     updated_at: datetime = Field(alias="updatedAt")
 
     model_config = {"populate_by_name": True}
-
-
-# ==================== System Settings (Admin Only) ====================
 
 
 class SmtpSettings(BaseModel):

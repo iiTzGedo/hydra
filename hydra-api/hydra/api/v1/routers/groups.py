@@ -40,21 +40,36 @@ GroupsServiceDep = Annotated[GroupsService, Depends(get_groups_service)]
 )
 async def list_groups(
     groups_service: GroupsServiceDep,
-    # Filter params
     types: list[GroupEntityType] | None = Query(default=None),
     parent_group_id: str | None = Query(default=None, alias="parentGroupId"),
     tags: list[str] | None = Query(default=None),
     search: str | None = None,
-    # Pagination
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    # Sorting
     sort_by: Literal["groupId", "name", "createdAt", "updatedAt"] = Query(
         default="updatedAt", alias="sortBy"
     ),
     sort_order: Literal["asc", "desc"] = Query(default="desc", alias="sortOrder"),
 ) -> SuccessResponse[list[GroupSummary]]:
-    """List groups with filters."""
+    """Retrieve a paginated list of logical groups.
+
+    Args:
+        groups_service: Groups service instance.
+        types: Filter by entity types the group can contain.
+        parent_group_id: Filter by parent group ID.
+        tags: Filter by tags (groups must have all specified tags).
+        search: Search query for group name or ID.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+        sort_by: Field to sort by.
+        sort_order: Sort direction (ascending or descending).
+
+    Returns:
+        Paginated list of group summaries with metadata.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     params = GroupListParams(
         types=types,
         parent_group_id=parent_group_id,
@@ -86,7 +101,19 @@ async def create_group(
     request: CreateGroupRequest,
     groups_service: GroupsServiceDep,
 ) -> SuccessResponse[GroupResponse]:
-    """Create a new group."""
+    """Create a new logical group with dynamic membership.
+
+    Args:
+        request: Group configuration including selectors for membership.
+        groups_service: Groups service instance.
+
+    Returns:
+        Created group details with resolved member counts.
+
+    Raises:
+        HTTPException 400: Invalid group configuration or selectors.
+        HTTPException 403: Insufficient permissions.
+    """
     group = await groups_service.create_group(request)
     return SuccessResponse(data=GroupResponse(**group))
 
@@ -104,7 +131,21 @@ async def get_group(
     resolve_members: bool = Query(default=False, alias="resolveMembers"),
     member_limit: int = Query(default=20, alias="memberLimit", ge=1, le=100),
 ) -> SuccessResponse[GroupResponse]:
-    """Get a single group by ID."""
+    """Retrieve detailed information for a single group.
+
+    Args:
+        group_id: Unique identifier of the group.
+        groups_service: Groups service instance.
+        resolve_members: Include resolved member entities in response.
+        member_limit: Maximum members to include when resolving.
+
+    Returns:
+        Complete group details including selectors and optionally members.
+
+    Raises:
+        HTTPException 404: Group not found.
+        HTTPException 403: Insufficient permissions.
+    """
     group = await groups_service.get_group(
         group_id,
         resolve_members=resolve_members,
@@ -125,7 +166,20 @@ async def update_group(
     request: UpdateGroupRequest,
     groups_service: GroupsServiceDep,
 ) -> SuccessResponse[GroupResponse]:
-    """Update a group."""
+    """Update configuration for an existing group.
+
+    Args:
+        group_id: Unique identifier of the group.
+        request: Fields to update including selectors.
+        groups_service: Groups service instance.
+
+    Returns:
+        Updated group details with recalculated member counts.
+
+    Raises:
+        HTTPException 404: Group not found.
+        HTTPException 403: Insufficient permissions.
+    """
     group = await groups_service.update_group(group_id, request)
     return SuccessResponse(data=GroupResponse(**group))
 
@@ -141,7 +195,19 @@ async def delete_group(
     group_id: str,
     groups_service: GroupsServiceDep,
 ) -> SuccessResponse[GroupResponse]:
-    """Delete a group."""
+    """Delete a logical group.
+
+    Args:
+        group_id: Unique identifier of the group.
+        groups_service: Groups service instance.
+
+    Returns:
+        Deleted group details.
+
+    Raises:
+        HTTPException 404: Group not found.
+        HTTPException 403: Insufficient permissions.
+    """
     group = await groups_service.delete_group(group_id)
     return SuccessResponse(data=GroupResponse(**group))
 
@@ -160,7 +226,22 @@ async def get_group_members(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> SuccessResponse[GroupMembers]:
-    """Get resolved members of a group."""
+    """Retrieve resolved members of a group by evaluating selectors.
+
+    Args:
+        group_id: Unique identifier of the group.
+        groups_service: Groups service instance.
+        entity_type: Filter by entity type (nodes or services).
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+
+    Returns:
+        Paginated list of group members with entity details.
+
+    Raises:
+        HTTPException 404: Group not found.
+        HTTPException 403: Insufficient permissions.
+    """
     members, totals = await groups_service.get_group_members(
         group_id,
         entity_type=entity_type,
@@ -188,6 +269,18 @@ async def resolve_group(
     group_id: str,
     groups_service: GroupsServiceDep,
 ) -> SuccessResponse[GroupResolveResult]:
-    """Force re-resolution of group membership."""
+    """Force re-evaluation of group membership selectors.
+
+    Args:
+        group_id: Unique identifier of the group.
+        groups_service: Groups service instance.
+
+    Returns:
+        Updated membership counts after re-resolution.
+
+    Raises:
+        HTTPException 404: Group not found.
+        HTTPException 403: Insufficient permissions.
+    """
     result = await groups_service.resolve_group(group_id)
     return SuccessResponse(data=GroupResolveResult(**result))

@@ -714,14 +714,18 @@ function NetworkGridCard({ network }: { network: NetworkListItem }) {
                     View Details
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit Network
+                <DropdownMenuItem asChild>
+                  <Link to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}?edit=1`}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit Network
+                  </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-destructive">
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
+                <DropdownMenuItem asChild className="text-destructive">
+                  <Link to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}?delete=1`}>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -893,14 +897,18 @@ function NetworkRow({
                   View Details
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Network
+              <DropdownMenuItem asChild>
+                <Link to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}?edit=1`}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Network
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
+              <DropdownMenuItem asChild className="text-destructive">
+                <Link to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}?delete=1`}>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Link>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

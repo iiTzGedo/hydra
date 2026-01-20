@@ -1,8 +1,3 @@
-/**
- * Command Palette / Global Search
- * Provides keyboard-driven search across all entities
- */
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -59,7 +54,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch data for search (with debounce built into the query)
   const { data: nodesData, isLoading: nodesLoading } = useNodes({ limit: 10 });
   const { data: servicesData, isLoading: servicesLoading } = useServices({ limit: 10 });
   const { data: networksData, isLoading: networksLoading } = useNetworks({ limit: 10 });
@@ -67,7 +61,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
   const isLoading = nodesLoading || servicesLoading || networksLoading || groupsLoading;
 
-  // Build search results
   const searchResults = useCallback((): SearchResult[] => {
     const lowerQuery = query.toLowerCase().trim();
 
@@ -77,7 +70,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
     const results: SearchResult[] = [];
 
-    // Filter quick actions
     quickActions.forEach((action) => {
       if (action.title.toLowerCase().includes(lowerQuery) ||
           action.subtitle?.toLowerCase().includes(lowerQuery)) {
@@ -85,7 +77,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       }
     });
 
-    // Filter nodes
     nodesData?.items.forEach((node) => {
       if (node.displayName.toLowerCase().includes(lowerQuery) ||
           node.nodeId.toLowerCase().includes(lowerQuery) ||
@@ -101,7 +92,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       }
     });
 
-    // Filter services
     servicesData?.items.forEach((service) => {
       if (service.name.toLowerCase().includes(lowerQuery) ||
           service.id.toLowerCase().includes(lowerQuery)) {
@@ -116,7 +106,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       }
     });
 
-    // Filter networks
     networksData?.items.forEach((network) => {
       if (network.name.toLowerCase().includes(lowerQuery) ||
           network.networkId.toLowerCase().includes(lowerQuery) ||
@@ -132,7 +121,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       }
     });
 
-    // Filter groups
     groupsData?.items.forEach((group) => {
       if (group.name.toLowerCase().includes(lowerQuery) ||
           group.id.toLowerCase().includes(lowerQuery)) {
@@ -147,12 +135,11 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       }
     });
 
-    return results.slice(0, 12); // Limit results
+    return results.slice(0, 12);
   }, [query, nodesData, servicesData, networksData, groupsData]);
 
   const results = searchResults();
 
-  // Reset state when opening
   useEffect(() => {
     if (isOpen) {
       setQuery('');
@@ -161,7 +148,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     }
   }, [isOpen]);
 
-  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;
@@ -217,7 +203,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="rounded-xl border bg-popover shadow-2xl overflow-hidden">
-            {/* Search input */}
             <div className="flex items-center gap-3 border-b px-4 py-3">
               <Search className="h-5 w-5 text-muted-foreground" />
               <input
@@ -244,7 +229,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
               </kbd>
             </div>
 
-            {/* Results */}
             <div className="max-h-80 overflow-auto p-2">
               {isLoading && query ? (
                 <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -303,7 +287,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
               )}
             </div>
 
-            {/* Footer hint */}
             <div className="border-t px-4 py-2 flex items-center gap-4 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <kbd className="rounded border bg-muted px-1">↑</kbd>
@@ -322,13 +305,11 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   );
 }
 
-// Hook for managing command palette
 export function useCommandPalette() {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Open with Cmd+K or Ctrl+K
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         setIsOpen((open) => !open);

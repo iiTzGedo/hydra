@@ -10,7 +10,6 @@ const classIcons = {
   iot: Cpu,
 };
 
-// Data structure passed to ReactFlow nodes
 export interface TopologyNodeData {
   label: string;
   class?: string;
@@ -23,7 +22,6 @@ export interface TopologyNodeData {
   [key: string]: unknown;
 }
 
-// Custom node type for ReactFlow
 export type TopologyFlowNode = Node<TopologyNodeData, 'topology'>;
 
 export const TopologyNodeComponent = memo(({ data, selected }: NodeProps<TopologyFlowNode>) => {
@@ -49,13 +47,11 @@ export const TopologyNodeComponent = memo(({ data, selected }: NodeProps<Topolog
           'cursor-pointer'
         )}
       >
-        {/* Header with icon */}
         <div className={cn('flex items-center gap-2 rounded-t-lg px-3 py-2', colors?.bg || 'bg-muted')}>
           <Icon className="h-4 w-4 text-white" />
           <span className="text-xs font-medium text-white capitalize">{nodeClass}</span>
         </div>
 
-        {/* Content */}
         <div className="px-3 py-2">
           <div className="flex items-center justify-between gap-2">
             <span className="font-medium text-sm truncate">{data.label}</span>

@@ -12,10 +12,8 @@ import type {
   UpdateGroupRequest,
 } from '@/types/group';
 
-// Extended Group summary with id alias for component convenience
 type GroupWithId = GroupSummary & { id: string };
 
-// List groups
 export function useGroups(params?: GroupListParams) {
   return useQuery({
     queryKey: queryKeys.groups.list(params),
@@ -32,7 +30,6 @@ export function useGroups(params?: GroupListParams) {
           sortOrder: params?.sortOrder,
         },
       });
-      // Transform to PaginatedResponse with id alias
       const items: GroupWithId[] = response.data.data.map(group => ({
         ...group,
         id: group.groupId,
@@ -48,7 +45,6 @@ export function useGroups(params?: GroupListParams) {
   });
 }
 
-// Get single group
 export function useGroup(groupId: string) {
   return useQuery({
     queryKey: queryKeys.groups.detail(groupId),
@@ -60,7 +56,6 @@ export function useGroup(groupId: string) {
   });
 }
 
-// Get group members
 export function useGroupMembers(
   groupId: string,
   params?: { limit?: number; offset?: number; entityType?: 'node' | 'service' }
@@ -97,7 +92,6 @@ export function useGroupMembers(
   });
 }
 
-// Create group
 export function useCreateGroup() {
   const queryClient = useQueryClient();
 
@@ -112,7 +106,6 @@ export function useCreateGroup() {
   });
 }
 
-// Update group
 export function useUpdateGroup() {
   const queryClient = useQueryClient();
 
@@ -128,7 +121,6 @@ export function useUpdateGroup() {
   });
 }
 
-// Delete group
 export function useDeleteGroup() {
   const queryClient = useQueryClient();
 
@@ -143,7 +135,6 @@ export function useDeleteGroup() {
   });
 }
 
-// Resolve group members
 export function useResolveGroup() {
   const queryClient = useQueryClient();
 
@@ -159,23 +150,19 @@ export function useResolveGroup() {
   });
 }
 
-// Get groups that contain a specific node
-// This queries all groups and checks membership via selectors
+// Queries all groups and checks membership via selectors
 export function useNodeGroups(nodeId: string) {
   return useQuery({
     queryKey: [...queryKeys.groups.list(), 'node', nodeId],
     queryFn: async () => {
-      // First, fetch all groups
       const groupsResponse = await apiClient.get<ApiResponse<GroupSummary[]>>('/groups', {
         params: { limit: 100 },
       });
       const allGroups = groupsResponse.data.data;
 
-      // For each group that might contain nodes, check if this node is a member
       const groupsWithNode: GroupWithId[] = [];
 
       for (const group of allGroups) {
-        // Only check groups that support node membership
         if (group.types?.includes('node') || !group.types || group.types.length === 0) {
           try {
             const membersResponse = await apiClient.get<ApiResponse<GroupMembersResponse>>(
@@ -190,7 +177,7 @@ export function useNodeGroups(nodeId: string) {
               });
             }
           } catch {
-            // If we can't fetch members, skip this group
+            // Skip groups where we can't fetch members
           }
         }
       }
@@ -201,6 +188,6 @@ export function useNodeGroups(nodeId: string) {
       };
     },
     enabled: !!nodeId,
-    staleTime: 60 * 1000, // Cache for 1 minute since this is expensive
+    staleTime: 60 * 1000,
   });
 }

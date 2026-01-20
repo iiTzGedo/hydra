@@ -8,13 +8,11 @@ import type {
   NetworkListParams,
   CreateNetworkRequest,
   UpdateNetworkRequest,
+  NetworkNodeInfo,
 } from '@/types/network';
-import type { NodeSummary } from '@/types/node';
 
-// Extended NetworkSummary with id alias for component convenience
 type NetworkSummaryWithId = NetworkSummary & { id: string };
 
-// List networks
 export function useNetworks(params?: NetworkListParams) {
   return useQuery({
     queryKey: queryKeys.networks.list(params),
@@ -33,7 +31,6 @@ export function useNetworks(params?: NetworkListParams) {
           sortOrder: params?.sortOrder,
         },
       });
-      // Transform to PaginatedResponse with id alias
       const items: NetworkSummaryWithId[] = response.data.data.map(network => ({
         ...network,
         id: network.networkId,
@@ -49,7 +46,6 @@ export function useNetworks(params?: NetworkListParams) {
   });
 }
 
-// Get single network
 export function useNetwork(networkId: string) {
   return useQuery({
     queryKey: queryKeys.networks.detail(networkId),
@@ -61,15 +57,13 @@ export function useNetwork(networkId: string) {
   });
 }
 
-// Get nodes in network
 export function useNetworkNodes(networkId: string) {
   return useQuery({
     queryKey: queryKeys.networks.nodes(networkId),
     queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<NodeSummary[]>>(
+      const response = await apiClient.get<ApiResponse<NetworkNodeInfo[]>>(
         `/networks/${networkId}/nodes`
       );
-      // Transform to expected paginated format
       return {
         items: response.data.data,
         total: response.data.meta?.total ?? response.data.data.length,
@@ -79,7 +73,6 @@ export function useNetworkNodes(networkId: string) {
   });
 }
 
-// Create network
 export function useCreateNetwork() {
   const queryClient = useQueryClient();
 
@@ -94,7 +87,6 @@ export function useCreateNetwork() {
   });
 }
 
-// Update network
 export function useUpdateNetwork() {
   const queryClient = useQueryClient();
 
@@ -119,7 +111,6 @@ export function useUpdateNetwork() {
   });
 }
 
-// Delete network
 export function useDeleteNetwork() {
   const queryClient = useQueryClient();
 

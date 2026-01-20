@@ -1,15 +1,5 @@
 import { TopologyGraph, TopologyMode } from './topology';
-import type {
-  HardwareProfile,
-  NetworkProfile,
-  StorageProfile,
-  SoftwareProfile,
-  ServicesProfile,
-  UsersProfile,
-  ConfigsProfile,
-} from './profile';
 
-// Timeline event type
 export type TimelineEventType =
   | 'profile_submitted'
   | 'service_discovered'
@@ -20,7 +10,6 @@ export type TimelineEventType =
   | 'network_created'
   | 'group_created';
 
-// Timeline event
 export interface TimelineEvent {
   eventId: string;
   eventType: TimelineEventType;
@@ -31,7 +20,6 @@ export interface TimelineEvent {
   metadata?: Record<string, unknown>;
 }
 
-// Timeline response
 export interface TimelineResponse {
   events: TimelineEvent[];
   since: string;
@@ -39,38 +27,53 @@ export interface TimelineResponse {
   total: number;
 }
 
-// Profile data at a point in time (matches API structure)
-export interface HistoricalProfile {
-  profileId: string;
-  version: string;
-  hardware?: HardwareProfile;
-  network?: NetworkProfile;
-  storage?: StorageProfile;
-  software?: SoftwareProfile;
-  services?: ServicesProfile;
-  users?: UsersProfile;
-  configs?: ConfigsProfile;
-}
-
-// Node state at a point in time
-export interface HistoricalNodeState {
+export interface NodeStateSnapshot {
   nodeId: string;
-  timestamp: string;
   displayName: string;
-  status: string;
   class: string;
   type: string;
   kind?: string;
-  profile?: HistoricalProfile;
-  services?: Array<{
-    serviceId: string;
-    name: string;
-    runtime: string;
-    status: string;
-  }>;
+  status: string;
+  tags?: string[];
+  registeredAt: string;
 }
 
-// Historical topology
+export interface ProfileStateSnapshot {
+  profileId: string;
+  version: string;
+  submittedAt: string;
+  hardware?: Record<string, unknown>;
+  network?: Record<string, unknown>;
+  storage?: Record<string, unknown>;
+  software?: Record<string, unknown>;
+}
+
+export interface ServiceStateSnapshot {
+  serviceId: string;
+  name: string;
+  runtime: string;
+  status: string;
+  version?: string;
+}
+
+export interface NodeTimeMachineState {
+  node?: NodeStateSnapshot;
+  profile?: ProfileStateSnapshot;
+  services: ServiceStateSnapshot[];
+}
+
+export interface ClosestSnapshot {
+  profileAt?: string | null;
+  deltaMinutes: number;
+}
+
+export interface NodeTimeMachineResponse {
+  nodeId: string;
+  timestamp: string;
+  state: NodeTimeMachineState;
+  closestSnapshot: ClosestSnapshot;
+}
+
 export interface HistoricalTopology {
   timestamp: string;
   mode: TopologyMode;
@@ -78,11 +81,10 @@ export interface HistoricalTopology {
   version: number;
   generatedAt: string;
   graph?: TopologyGraph;
-  stats?: Record<string, unknown>;
+  stats: Record<string, unknown>;
   note?: string;
 }
 
-// Time machine query params
 export interface NodeStateParams {
   timestamp: string;
   sections?: string[];

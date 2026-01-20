@@ -89,7 +89,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     // Convert http(s) to ws(s)
     const wsProtocol = apiUrl.startsWith('https') ? 'wss' : 'ws';
     const wsBase = apiUrl.replace(/^https?/, wsProtocol);
-    return `${wsBase}/chat/ws?accessToken=${accessToken}`;
+    return `${wsBase}/chat/ws?token=${accessToken}`;
   }, [accessToken]);
 
   const connect = useCallback(() => {

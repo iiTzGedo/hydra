@@ -43,12 +43,22 @@ async def search(
     ),
     limit: int = Query(default=20, ge=1, le=100, description="Max results per entity type"),
 ) -> SearchResponse:
-    """
-    Search across infrastructure entities.
+    """Search across all infrastructure entities.
 
-    Returns results grouped by entity type, sorted by relevance.
+    Args:
+        current_user: Authenticated user making the request.
+        search_service: Search service instance.
+        q: Search query string.
+        types: Entity types to search (searches all if not specified).
+        tags: Filter results by tags (entities must have all specified tags).
+        limit: Maximum results per entity type.
+
+    Returns:
+        Search results grouped by entity type with relevance scores.
+
+    Raises:
+        HTTPException 403: Agents cannot perform searches.
     """
-    # Agents have limited search access
     if current_user.get("type") == "agent":
         raise AuthorizationError("search:read")
 

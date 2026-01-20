@@ -51,7 +51,7 @@ export function ServicesTab({ nodeId }: ServicesTabProps) {
           {services.total} service{services.total !== 1 ? 's' : ''} on this node
         </p>
         <Link
-          to={ROUTES.SERVICES + '?node=' + nodeId}
+          to={`${ROUTES.SERVICES}?nodeId=${encodeURIComponent(nodeId)}`}
           className="text-sm text-primary hover:underline"
         >
           View all in Service Explorer

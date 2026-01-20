@@ -9,23 +9,24 @@ from hydra.core.config import get_settings
 
 
 def _get_fernet_key() -> bytes:
-    """Derive a Fernet key from the JWT secret."""
+    """Derive a Fernet key from the JWT secret.
+
+    Returns:
+        Base64-encoded 32-byte key suitable for Fernet encryption.
+    """
     settings = get_settings()
-    # Use SHA256 to derive a 32-byte key from the JWT secret
     key_bytes = hashlib.sha256(settings.jwt_secret.encode()).digest()
-    # Fernet requires base64-encoded 32-byte key
     return base64.urlsafe_b64encode(key_bytes)
 
 
 def encrypt_value(plaintext: str) -> str:
-    """
-    Encrypt a string value using Fernet symmetric encryption.
+    """Encrypt a string value using Fernet symmetric encryption.
 
     Args:
-        plaintext: The value to encrypt
+        plaintext: The value to encrypt.
 
     Returns:
-        Base64-encoded encrypted value
+        Base64-encoded encrypted value.
     """
     fernet = Fernet(_get_fernet_key())
     encrypted = fernet.encrypt(plaintext.encode())
@@ -33,14 +34,13 @@ def encrypt_value(plaintext: str) -> str:
 
 
 def decrypt_value(ciphertext: str) -> str:
-    """
-    Decrypt a Fernet-encrypted value.
+    """Decrypt a Fernet-encrypted value.
 
     Args:
-        ciphertext: Base64-encoded encrypted value
+        ciphertext: Base64-encoded encrypted value.
 
     Returns:
-        Decrypted plaintext string
+        Decrypted plaintext string.
     """
     fernet = Fernet(_get_fernet_key())
     decrypted = fernet.decrypt(ciphertext.encode())
@@ -48,15 +48,14 @@ def decrypt_value(ciphertext: str) -> str:
 
 
 def mask_api_key(api_key: str, visible_chars: int = 4) -> str:
-    """
-    Mask an API key, showing only the last N characters.
+    """Mask an API key, showing only the last N characters.
 
     Args:
-        api_key: The API key to mask
-        visible_chars: Number of characters to show at the end
+        api_key: The API key to mask.
+        visible_chars: Number of characters to show at the end.
 
     Returns:
-        Masked API key (e.g., "sk-...abcd")
+        Masked API key (e.g., "sk-...abcd").
     """
     if len(api_key) <= visible_chars:
         return "*" * len(api_key)

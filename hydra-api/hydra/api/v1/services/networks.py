@@ -51,7 +51,18 @@ class NetworksService:
         self.db = mongodb
 
     async def get_network(self, network_id: str, include_nodes: bool = False) -> dict:
-        """Get a single network by ID."""
+        """Retrieve a single network by its identifier.
+
+        Args:
+            network_id: The unique network identifier.
+            include_nodes: Whether to include the list of nodes in this network.
+
+        Returns:
+            The formatted network document, optionally with nodes.
+
+        Raises:
+            NetworkNotFoundError: If no network exists with the given ID.
+        """
         network = await self.db.networks.find_one({"networkId": network_id})
         if not network:
             raise NetworkNotFoundError(network_id)
@@ -65,13 +76,15 @@ class NetworksService:
         return result
 
     async def list_networks(self, params: NetworkListParams) -> tuple[list[dict], int]:
-        """
-        List networks with filters and pagination.
+        """List networks with optional filtering, sorting, and pagination.
+
+        Args:
+            params: Query parameters including filters (type, parent_network_id,
+                router_node_id, cidr, tags, search), sorting, and pagination.
 
         Returns:
-            Tuple of (networks list, total count)
+            A tuple of (list of network summaries, total count).
         """
-        # Build filter
         filter_query: dict[str, Any] = {}
 
         if params.type:
@@ -91,7 +104,6 @@ class NetworksService:
                 {"cidr": {"$regex": params.search, "$options": "i"}},
             ]
 
-        # Sort
         sort_field_map = {
             "networkId": "networkId",
             "name": "name",
@@ -102,7 +114,6 @@ class NetworksService:
         sort_field = sort_field_map.get(params.sort_by, "updatedAt")
         sort_direction = DESCENDING if params.sort_order == "desc" else ASCENDING
 
-        # Execute queries
         total = await self.db.networks.count_documents(filter_query)
 
         cursor = (
@@ -130,13 +141,23 @@ class NetworksService:
         request: CreateNetworkRequest,
         created_by: str = "manual",
     ) -> dict:
-        """Create a new network."""
-        # Check if network already exists
+        """Create a new network.
+
+        Args:
+            request: Network creation payload with network_id, type, name, cidr, etc.
+            created_by: Origin of the creation (manual, auto, etc.).
+
+        Returns:
+            The created network document.
+
+        Raises:
+            NetworkAlreadyExistsError: If a network with the same ID already exists.
+            ValidationError: If parent network or router node does not exist.
+        """
         existing = await self.db.networks.find_one({"networkId": request.network_id})
         if existing:
             raise NetworkAlreadyExistsError(request.network_id)
 
-        # Validate parent network if specified
         if request.parent_network_id:
             parent = await self.db.networks.find_one({"networkId": request.parent_network_id})
             if not parent:
@@ -145,7 +166,6 @@ class NetworksService:
                     {"parentNetworkId": request.parent_network_id},
                 )
 
-        # Validate router node if specified
         if request.router_node_id:
             router = await self.db.nodes.find_one({"nodeId": request.router_node_id})
             if not router:
@@ -184,7 +204,6 @@ class NetworksService:
 
         await self.db.networks.insert_one(network_doc)
 
-        # Update parent's subnetIds if specified
         if request.parent_network_id:
             await self.db.networks.update_one(
                 {"networkId": request.parent_network_id},
@@ -196,12 +215,24 @@ class NetworksService:
         return self._format_network(network_doc)
 
     async def update_network(self, network_id: str, request: UpdateNetworkRequest) -> dict:
-        """Update network metadata."""
+        """Update network metadata.
+
+        Args:
+            network_id: The unique network identifier.
+            request: Update payload with optional name, description, gateways,
+                router_node_id, dhcp, dns, and tags.
+
+        Returns:
+            The updated network document.
+
+        Raises:
+            NetworkNotFoundError: If no network exists with the given ID.
+            ValidationError: If specified router node does not exist.
+        """
         existing = await self.db.networks.find_one({"networkId": network_id})
         if not existing:
             raise NetworkNotFoundError(network_id)
 
-        # Build update
         update_fields: dict[str, Any] = {"updatedAt": datetime.now(timezone.utc)}
 
         if request.name is not None:
@@ -213,7 +244,6 @@ class NetworksService:
         if request.gateway_v6 is not None:
             update_fields["gatewayV6"] = request.gateway_v6
         if request.router_node_id is not None:
-            # Validate router node exists
             if request.router_node_id:
                 router = await self.db.nodes.find_one({"nodeId": request.router_node_id})
                 if not router:
@@ -242,30 +272,38 @@ class NetworksService:
         return await self.get_network(network_id)
 
     async def delete_network(self, network_id: str, force: bool = False) -> dict:
-        """Delete a network."""
+        """Delete a network.
+
+        Args:
+            network_id: The unique network identifier.
+            force: If True, delete even if nodes are associated.
+
+        Returns:
+            The deleted network document.
+
+        Raises:
+            NetworkNotFoundError: If no network exists with the given ID.
+            NetworkHasNodesError: If network has associated nodes and force is False.
+        """
         existing = await self.db.networks.find_one({"networkId": network_id})
         if not existing:
             raise NetworkNotFoundError(network_id)
 
-        # Check for associated nodes
         node_count = existing.get("nodeCount", 0)
         if node_count > 0 and not force:
             raise NetworkHasNodesError(network_id, node_count)
 
-        # Remove from nodes' networkIds
         await self.db.nodes.update_many(
             {"networkIds": network_id},
             {"$pull": {"networkIds": network_id}},
         )
 
-        # Remove from parent's subnetIds
         if existing.get("parentNetworkId"):
             await self.db.networks.update_one(
                 {"networkId": existing["parentNetworkId"]},
                 {"$pull": {"subnetIds": network_id}},
             )
 
-        # Delete the network
         await self.db.networks.delete_one({"networkId": network_id})
 
         logger.info("network_deleted", network_id=network_id, force=force)
@@ -273,7 +311,17 @@ class NetworksService:
         return self._format_network(existing)
 
     async def get_network_nodes(self, network_id: str) -> list[dict]:
-        """Get all nodes in a network."""
+        """Get all nodes in a network.
+
+        Args:
+            network_id: The unique network identifier.
+
+        Returns:
+            List of node summaries in the network.
+
+        Raises:
+            NetworkNotFoundError: If no network exists with the given ID.
+        """
         network = await self.db.networks.find_one({"networkId": network_id})
         if not network:
             raise NetworkNotFoundError(network_id)
@@ -289,7 +337,7 @@ class NetworksService:
                 "nodeId": node["nodeId"],
                 "displayName": node["displayName"],
                 "class": node["class"],
-                "ipAddresses": [],  # Would need to look up from profiles
+                "ipAddresses": [],
             })
         return nodes
 
@@ -299,10 +347,15 @@ class NetworksService:
         profile_id: str,
         network_profile: NetworkProfile | None,
     ) -> list[str]:
-        """
-        Extract networks from profile and auto-create/update.
+        """Extract networks from profile and auto-create/update.
 
-        Returns list of network IDs the node belongs to.
+        Args:
+            node_id: The node identifier.
+            profile_id: The profile identifier.
+            network_profile: The network section from the profile.
+
+        Returns:
+            List of network IDs the node belongs to.
         """
         if not network_profile or not network_profile.interfaces:
             return []
@@ -311,14 +364,11 @@ class NetworksService:
         now = datetime.now(timezone.utc)
 
         for interface in network_profile.interfaces:
-            # Skip loopback and link-local interfaces
             if interface.name == "lo" or interface.name.startswith("veth"):
                 continue
 
-            # Process IPv4 addresses
             for ip_str in interface.ipv4_addresses:
                 try:
-                    # Parse the IP address
                     if "/" in ip_str:
                         ip_interface = ipaddress.ip_interface(ip_str)
                         network = ip_interface.network
@@ -328,11 +378,9 @@ class NetworksService:
                         prefix_len = bin(int(netmask)).count("1")
                         network = ipaddress.ip_network(f"{ip}/{prefix_len}", strict=False)
                     else:
-                        # Default to /24 for IPv4 if no netmask
                         ip = ipaddress.ip_address(ip_str)
                         network = ipaddress.ip_network(f"{ip}/24", strict=False)
 
-                    # Skip localhost and link-local
                     if network.is_loopback or network.is_link_local:
                         continue
 
@@ -340,7 +388,6 @@ class NetworksService:
                     network_id = self._generate_network_id(cidr)
                     network_ids.add(network_id)
 
-                    # Upsert network
                     await self.db.networks.update_one(
                         {"networkId": network_id},
                         {
@@ -376,7 +423,6 @@ class NetworksService:
                     )
                     continue
 
-        # Update node's network associations
         network_id_list = list(network_ids)
         if network_id_list:
             await self.db.nodes.update_one(
@@ -384,7 +430,6 @@ class NetworksService:
                 {"$set": {"networkIds": network_id_list}},
             )
 
-            # Update node counts on networks
             for net_id in network_id_list:
                 count = await self.db.nodes.count_documents({"networkIds": net_id})
                 await self.db.networks.update_one(
@@ -403,7 +448,6 @@ class NetworksService:
 
     def _generate_network_id(self, cidr: str) -> str:
         """Generate a network ID from CIDR notation."""
-        # Convert 192.168.1.0/24 to 192-168-1-0-24
         return cidr.replace(".", "-").replace("/", "-")
 
     def _format_network(self, doc: dict) -> dict:

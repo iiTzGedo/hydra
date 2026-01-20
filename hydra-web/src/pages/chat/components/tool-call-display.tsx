@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { ChevronDown, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MCPToolCall } from '@/types/mcp';
+import type { ChatToolCall } from '@/api/chat';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 interface ToolCallDisplayProps {
-  toolCall: MCPToolCall;
+  toolCall: ChatToolCall;
 }
 
 export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {

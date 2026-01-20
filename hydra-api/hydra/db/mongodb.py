@@ -16,20 +16,33 @@ class MongoDB:
     """MongoDB connection manager with health checks and retry logic."""
 
     def __init__(self, settings: Settings | None = None):
+        """Initialize MongoDB connection manager.
+
+        Args:
+            settings: Application settings (uses global if not provided).
+        """
         self.settings = settings or get_settings()
         self._client: AsyncIOMotorClient | None = None
         self._db: AsyncIOMotorDatabase | None = None
 
     @property
     def client(self) -> AsyncIOMotorClient:
-        """Get the MongoDB client."""
+        """Get the MongoDB client.
+
+        Raises:
+            RuntimeError: If client not initialized.
+        """
         if self._client is None:
             raise RuntimeError("MongoDB client not initialized. Call connect() first.")
         return self._client
 
     @property
     def db(self) -> AsyncIOMotorDatabase:
-        """Get the database instance."""
+        """Get the database instance.
+
+        Raises:
+            RuntimeError: If database not initialized.
+        """
         if self._db is None:
             raise RuntimeError("MongoDB database not initialized. Call connect() first.")
         return self._db
@@ -54,7 +67,6 @@ class MongoDB:
         )
         self._db = self._client[self.settings.mongodb_database]
 
-        # Verify connection
         await self.health_check()
         logger.info("mongodb_connected", database=self.settings.mongodb_database)
 
@@ -67,7 +79,11 @@ class MongoDB:
             logger.info("mongodb_disconnected")
 
     async def health_check(self) -> bool:
-        """Check if MongoDB connection is healthy."""
+        """Check if MongoDB connection is healthy.
+
+        Returns:
+            True if healthy, False otherwise.
+        """
         try:
             await self.client.admin.command("ping")
             return True
@@ -75,7 +91,6 @@ class MongoDB:
             logger.error("mongodb_health_check_failed", error=str(e))
             return False
 
-    # Collection accessors
     @property
     def nodes(self):
         """Nodes collection."""
@@ -182,12 +197,15 @@ class MongoDB:
         return self.db.user_settings
 
 
-# Global instance
 _mongodb: MongoDB | None = None
 
 
 def get_mongodb() -> MongoDB:
-    """Get the global MongoDB instance."""
+    """Get the global MongoDB instance.
+
+    Returns:
+        Singleton MongoDB instance.
+    """
     global _mongodb
     if _mongodb is None:
         _mongodb = MongoDB()
@@ -196,7 +214,11 @@ def get_mongodb() -> MongoDB:
 
 @asynccontextmanager
 async def mongodb_lifespan() -> AsyncGenerator[MongoDB, None]:
-    """Context manager for MongoDB lifecycle."""
+    """Context manager for MongoDB lifecycle.
+
+    Yields:
+        Connected MongoDB instance.
+    """
     mongo = get_mongodb()
     await mongo.connect()
     try:

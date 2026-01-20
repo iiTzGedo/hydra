@@ -111,7 +111,6 @@ export default function RegisterPage() {
         variants={fadeInVariants}
         className="w-full max-w-md"
       >
-        {/* Logo */}
         <motion.div
           variants={scaleVariants}
           className="mb-8 text-center"
@@ -123,7 +122,6 @@ export default function RegisterPage() {
           <p className="mt-2 text-muted-foreground">Infrastructure Intelligence Platform</p>
         </motion.div>
 
-        {/* Registration form */}
         <motion.div
           variants={fadeInVariants}
           className="rounded-xl border bg-card p-6 shadow-lg"

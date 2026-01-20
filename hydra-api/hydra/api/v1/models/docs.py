@@ -44,9 +44,6 @@ class EntityType(str, Enum):
     GROUP = "group"
 
 
-# ==================== Nested Models ====================
-
-
 class LinkedEntity(BaseModel):
     """Entity linked to documentation."""
 
@@ -54,9 +51,6 @@ class LinkedEntity(BaseModel):
     entity_id: Annotated[str, Field(alias="entityId")]
 
     model_config = {"populate_by_name": True}
-
-
-# ==================== Request Models ====================
 
 
 class CreateDocRequest(BaseModel):
@@ -99,9 +93,6 @@ class UpdateDocRequest(BaseModel):
     status: DocStatus | None = None
 
     model_config = {"populate_by_name": True}
-
-
-# ==================== Response Models ====================
 
 
 class DocSummary(BaseModel):
@@ -168,9 +159,6 @@ class DocDeletedResponse(BaseModel):
     status: DocStatus
 
     model_config = {"populate_by_name": True}
-
-
-# ==================== Query Parameters ====================
 
 
 class DocListParams(BaseModel):

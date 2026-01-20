@@ -1,80 +1,122 @@
 //! Hardware information collector.
+//!
+//! Collects system hardware information including CPU, memory, GPU, and
+//! system identification data. Uses platform-specific APIs and commands.
 
 use anyhow::Result;
 use serde::Serialize;
 use std::process::Command;
 use sysinfo::System;
 
+/// Hardware profile containing system identification, CPU, memory, and GPU information.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct HardwareProfile {
+    /// System manufacturer (e.g., "Dell", "HP", "Apple")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_manufacturer: Option<String>,
+    /// System model name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_model: Option<String>,
+    /// System serial number
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_serial: Option<String>,
+    /// BIOS vendor
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bios_vendor: Option<String>,
+    /// BIOS version string
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bios_version: Option<String>,
+    /// CPU information
     pub cpu: CpuInfo,
+    /// Memory information
     pub memory: MemoryInfo,
+    /// List of detected GPUs
     pub gpus: Vec<GpuInfo>,
 }
 
+/// CPU information including cores, frequency, and features.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CpuInfo {
+    /// CPU model name (e.g., "Intel Core i7-10700K")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// CPU vendor (e.g., "GenuineIntel", "AuthenticAMD")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vendor: Option<String>,
+    /// Number of physical CPU cores
     pub cores_physical: usize,
+    /// Number of logical CPU cores (includes hyperthreading)
     pub cores_logical: usize,
+    /// CPU frequency in MHz
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frequency_mhz: Option<u64>,
+    /// CPU architecture (e.g., "x86_64", "aarch64")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub architecture: Option<String>,
+    /// CPU feature flags (e.g., "sse4_2", "avx2")
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
 }
 
+/// Memory information including capacity and module details.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryInfo {
+    /// Total memory in bytes
     pub total_bytes: u64,
+    /// Memory type (e.g., "DDR4", "DDR5")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_type: Option<String>,
+    /// Memory speed in MHz/MT/s
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed_mhz: Option<u64>,
+    /// Number of memory slots with modules installed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slots_used: Option<u32>,
+    /// Total number of memory slots
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slots_total: Option<u32>,
 }
 
+/// GPU information.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GpuInfo {
+    /// GPU model name
     pub model: String,
+    /// GPU vendor (e.g., "NVIDIA", "AMD", "Intel")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vendor: Option<String>,
+    /// GPU memory in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_bytes: Option<u64>,
+    /// GPU driver version
     #[serde(skip_serializing_if = "Option::is_none")]
     pub driver_version: Option<String>,
 }
 
+/// Collector for hardware information.
 pub struct HardwareCollector;
 
 impl HardwareCollector {
-    /// Collect hardware information.
+    /// Collects hardware information from the current system.
+    ///
+    /// Gathers CPU, memory, GPU, and system identification data using
+    /// platform-specific APIs and commands.
+    ///
+    /// # Returns
+    ///
+    /// A hardware profile containing all collected data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if system information cannot be retrieved.
     pub fn collect() -> Result<HardwareProfile> {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        // CPU information
         let cpus = sys.cpus();
         let cpu_info = CpuInfo {
             model: cpus.first().map(|c| c.brand().to_string()),
@@ -86,7 +128,6 @@ impl HardwareCollector {
             features: Self::detect_cpu_features(),
         };
 
-        // Memory information (extended info from platform-specific sources)
         let (memory_type, speed_mhz, slots_used, slots_total) = Self::get_memory_details();
         let memory_info = MemoryInfo {
             total_bytes: sys.total_memory(),
@@ -96,10 +137,8 @@ impl HardwareCollector {
             slots_total,
         };
 
-        // GPU information
         let gpus = Self::detect_gpus();
 
-        // System information (with BIOS/serial data)
         let (system_manufacturer, system_model, system_serial, bios_vendor, bios_version) =
             Self::get_system_info();
 
@@ -115,7 +154,6 @@ impl HardwareCollector {
         })
     }
 
-    /// Detect CPU features/flags.
     #[cfg(target_os = "linux")]
     fn detect_cpu_features() -> Vec<String> {
         if let Ok(contents) = std::fs::read_to_string("/proc/cpuinfo") {
@@ -132,7 +170,6 @@ impl HardwareCollector {
 
     #[cfg(target_os = "windows")]
     fn detect_cpu_features() -> Vec<String> {
-        // Windows: use CPUID or WMI - simplified for now
         vec![]
     }
 
@@ -154,10 +191,8 @@ impl HardwareCollector {
         vec![]
     }
 
-    /// Get extended memory details.
     #[cfg(target_os = "linux")]
     fn get_memory_details() -> (Option<String>, Option<u64>, Option<u32>, Option<u32>) {
-        // Try dmidecode for detailed memory info (requires root)
         if let Ok(output) = Command::new("dmidecode").args(["-t", "memory"]).output() {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -222,7 +257,6 @@ impl HardwareCollector {
         (None, None, None, None)
     }
 
-    /// Get system information including BIOS details.
     #[cfg(target_os = "linux")]
     fn get_system_info() -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
         let manufacturer = std::fs::read_to_string("/sys/class/dmi/id/sys_vendor")
@@ -304,7 +338,6 @@ impl HardwareCollector {
 
     #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
     fn get_system_info() -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
-        // BSD systems - use sysctl where available
         let manufacturer = Command::new("sysctl").args(["-n", "hw.vendor"]).output()
             .ok().filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
@@ -322,23 +355,18 @@ impl HardwareCollector {
         (System::name(), System::host_name(), None, None, None)
     }
 
-    /// Detect GPUs on Linux using lspci.
     #[cfg(target_os = "linux")]
     fn detect_gpus() -> Vec<GpuInfo> {
         let mut gpus = Vec::new();
 
-        // Try lspci for general GPU detection
         if let Ok(output) = Command::new("lspci").output() {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
-                    // Look for VGA or 3D controllers
                     if line.contains("VGA compatible controller")
                         || line.contains("3D controller")
                         || line.contains("Display controller")
                     {
-                        // Extract vendor and model from the line
-                        // Format: "XX:XX.X VGA compatible controller: Vendor Model"
                         if let Some(colon_pos) = line.find(": ") {
                             let device_info = &line[colon_pos + 2..];
                             let (vendor, model) = Self::parse_gpu_info(device_info);
@@ -349,7 +377,6 @@ impl HardwareCollector {
             }
         }
 
-        // Try nvidia-smi for NVIDIA GPUs (more detailed info)
         if let Ok(output) = Command::new("nvidia-smi")
             .args(["--query-gpu=name", "--format=csv,noheader"])
             .output()
@@ -359,7 +386,6 @@ impl HardwareCollector {
                 for line in stdout.lines() {
                     let model = line.trim().to_string();
                     if !model.is_empty() {
-                        // Check if we already have this GPU from lspci
                         if !gpus.iter().any(|g| g.model.contains(&model)) {
                             gpus.push(GpuInfo {
                                 model,
@@ -376,7 +402,6 @@ impl HardwareCollector {
         gpus
     }
 
-    /// Detect GPUs on macOS using system_profiler.
     #[cfg(target_os = "macos")]
     fn detect_gpus() -> Vec<GpuInfo> {
         let mut gpus = Vec::new();
@@ -409,7 +434,6 @@ impl HardwareCollector {
             }
         }
 
-        // Fallback to plain text parsing
         if gpus.is_empty() {
             if let Ok(output) = Command::new("system_profiler")
                 .args(["SPDisplaysDataType"])
@@ -436,12 +460,10 @@ impl HardwareCollector {
         gpus
     }
 
-    /// Detect GPUs on Windows using wmic.
     #[cfg(target_os = "windows")]
     fn detect_gpus() -> Vec<GpuInfo> {
         let mut gpus = Vec::new();
 
-        // Use PowerShell to get GPU info (more reliable than wmic)
         if let Ok(output) = Command::new("powershell")
             .args([
                 "-NoProfile",
@@ -466,7 +488,6 @@ impl HardwareCollector {
             }
         }
 
-        // Fallback to wmic
         if gpus.is_empty() {
             if let Ok(output) = Command::new("wmic")
                 .args(["path", "win32_videocontroller", "get", "name"])
@@ -492,7 +513,6 @@ impl HardwareCollector {
         gpus
     }
 
-    /// Detect GPUs on BSD systems using pciconf.
     #[cfg(any(
         target_os = "freebsd",
         target_os = "openbsd",
@@ -501,7 +521,6 @@ impl HardwareCollector {
     fn detect_gpus() -> Vec<GpuInfo> {
         let mut gpus = Vec::new();
 
-        // FreeBSD uses pciconf
         if let Ok(output) = Command::new("pciconf").args(["-lv"]).output() {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -535,7 +554,6 @@ impl HardwareCollector {
         gpus
     }
 
-    /// Fallback for other platforms.
     #[cfg(not(any(
         target_os = "linux",
         target_os = "macos",
@@ -548,12 +566,8 @@ impl HardwareCollector {
         Vec::new()
     }
 
-    /// Parse GPU vendor and model from a device info string.
     #[cfg(target_os = "linux")]
     fn parse_gpu_info(info: &str) -> (Option<String>, String) {
-        // Common patterns: "NVIDIA Corporation GeForce GTX 1080"
-        //                  "Advanced Micro Devices, Inc. [AMD/ATI] Navi 10"
-        //                  "Intel Corporation UHD Graphics 630"
         let known_vendors = [
             ("NVIDIA", "NVIDIA"),
             ("Advanced Micro Devices", "AMD"),
@@ -569,13 +583,11 @@ impl HardwareCollector {
         for (pattern, name) in &known_vendors {
             if info.contains(pattern) {
                 vendor = Some(name.to_string());
-                // Try to extract just the model name
                 if let Some(bracket_pos) = info.find('[') {
                     if let Some(end_pos) = info.find(']') {
                         model = info[bracket_pos + 1..end_pos].to_string();
                     }
                 } else {
-                    // Remove vendor prefix
                     model = info.replace(pattern, "").trim().to_string();
                     if model.starts_with("Corporation ") {
                         model = model.replace("Corporation ", "");

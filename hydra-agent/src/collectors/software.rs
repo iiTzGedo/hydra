@@ -1,4 +1,7 @@
 //! Software information collector.
+//!
+//! Collects operating system details and installed packages using
+//! platform-specific package managers.
 
 use anyhow::Result;
 use serde::Serialize;
@@ -6,42 +9,72 @@ use sysinfo::System;
 
 use crate::config::AgentConfig;
 
+/// Software profile containing OS and package information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SoftwareProfile {
+    /// Operating system information
     pub os: OsInfo,
+    /// List of installed packages
     pub packages: Vec<Package>,
+    /// Total number of packages (if collected)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub package_count: Option<usize>,
 }
 
+/// Operating system information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OsInfo {
+    /// OS name (e.g., "Ubuntu", "Windows 11")
     pub name: String,
+    /// OS version string
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// Kernel version
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kernel_version: Option<String>,
+    /// System architecture (e.g., "x86_64")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub architecture: Option<String>,
+    /// OS family (e.g., "linux", "windows", "macos")
     pub family: String,
 }
 
+/// Package information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Package {
+    /// Package name
     pub name: String,
+    /// Package version
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// Package manager (e.g., "dpkg", "rpm", "brew")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manager: Option<String>,
 }
 
+/// Collector for software information.
 pub struct SoftwareCollector;
 
 impl SoftwareCollector {
-    /// Collect software information.
+    /// Collects software information from the current system.
+    ///
+    /// Gathers operating system details and optionally enumerates installed
+    /// packages based on configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Agent configuration specifying collection options
+    ///
+    /// # Returns
+    ///
+    /// A software profile containing OS and package information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if system information cannot be retrieved.
     pub fn collect(config: &AgentConfig) -> Result<SoftwareProfile> {
         let os_info = OsInfo {
             name: System::name().unwrap_or_else(|| "Unknown".to_string()),
@@ -74,7 +107,6 @@ impl SoftwareCollector {
     fn collect_packages() -> Result<Vec<Package>> {
         let mut packages = Vec::new();
 
-        // Try dpkg (Debian/Ubuntu)
         if let Ok(output) = std::process::Command::new("dpkg-query")
             .args(["-W", "-f=${Package} ${Version}\n"])
             .output()
@@ -83,7 +115,7 @@ impl SoftwareCollector {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
                     let parts: Vec<&str> = line.splitn(2, ' ').collect();
-                    if parts.len() >= 1 {
+                    if !parts.is_empty() {
                         packages.push(Package {
                             name: parts[0].to_string(),
                             version: parts.get(1).map(|v| v.to_string()),
@@ -95,7 +127,6 @@ impl SoftwareCollector {
             }
         }
 
-        // Try rpm (RHEL/Fedora)
         if let Ok(output) = std::process::Command::new("rpm")
             .args(["-qa", "--queryformat", "%{NAME} %{VERSION}\n"])
             .output()
@@ -104,7 +135,7 @@ impl SoftwareCollector {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
                     let parts: Vec<&str> = line.splitn(2, ' ').collect();
-                    if parts.len() >= 1 {
+                    if !parts.is_empty() {
                         packages.push(Package {
                             name: parts[0].to_string(),
                             version: parts.get(1).map(|v| v.to_string()),
@@ -116,7 +147,6 @@ impl SoftwareCollector {
             }
         }
 
-        // Try pacman (Arch)
         if let Ok(output) = std::process::Command::new("pacman")
             .args(["-Q"])
             .output()
@@ -125,7 +155,7 @@ impl SoftwareCollector {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
                     let parts: Vec<&str> = line.splitn(2, ' ').collect();
-                    if parts.len() >= 1 {
+                    if !parts.is_empty() {
                         packages.push(Package {
                             name: parts[0].to_string(),
                             version: parts.get(1).map(|v| v.to_string()),
@@ -144,7 +174,6 @@ impl SoftwareCollector {
     fn collect_packages() -> Result<Vec<Package>> {
         let mut packages = Vec::new();
 
-        // Try Homebrew
         if let Ok(output) = std::process::Command::new("brew")
             .args(["list", "--versions"])
             .output()
@@ -153,7 +182,7 @@ impl SoftwareCollector {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
                     let parts: Vec<&str> = line.splitn(2, ' ').collect();
-                    if parts.len() >= 1 {
+                    if !parts.is_empty() {
                         packages.push(Package {
                             name: parts[0].to_string(),
                             version: parts.get(1).map(|v| v.to_string()),
@@ -167,14 +196,12 @@ impl SoftwareCollector {
         Ok(packages)
     }
 
-    /// Collect packages on Windows.
     #[cfg(target_os = "windows")]
     fn collect_packages() -> Result<Vec<Package>> {
         use std::process::Command;
 
         let mut packages = Vec::new();
 
-        // Try to list installed programs via PowerShell (most reliable)
         if let Ok(output) = Command::new("powershell")
             .args([
                 "-NoProfile",
@@ -202,7 +229,6 @@ impl SoftwareCollector {
             }
         }
 
-        // Also try winget if available
         if let Ok(output) = Command::new("winget")
             .args(["list", "--disable-interactivity"])
             .output()
@@ -210,11 +236,9 @@ impl SoftwareCollector {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let lines: Vec<&str> = stdout.lines().collect();
-                // Skip header lines
                 for line in lines.iter().skip(2) {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 2 {
-                        // Check if this package is already in the list
                         let name = parts[0].to_string();
                         if !packages.iter().any(|p| p.name == name) {
                             packages.push(Package {
@@ -228,7 +252,6 @@ impl SoftwareCollector {
             }
         }
 
-        // Also try chocolatey if available
         if let Ok(output) = Command::new("choco")
             .args(["list", "--local-only", "--limit-output"])
             .output()
@@ -251,12 +274,10 @@ impl SoftwareCollector {
         Ok(packages)
     }
 
-    /// Collect packages on FreeBSD.
     #[cfg(target_os = "freebsd")]
     fn collect_packages() -> Result<Vec<Package>> {
         let mut packages = Vec::new();
 
-        // Use pkg to list installed packages
         if let Ok(output) = std::process::Command::new("pkg")
             .args(["query", "%n %v"])
             .output()
@@ -279,12 +300,10 @@ impl SoftwareCollector {
         Ok(packages)
     }
 
-    /// Collect packages on OpenBSD.
     #[cfg(target_os = "openbsd")]
     fn collect_packages() -> Result<Vec<Package>> {
         let mut packages = Vec::new();
 
-        // Use pkg_info to list installed packages
         if let Ok(output) = std::process::Command::new("pkg_info")
             .args(["-q"])
             .output()
@@ -292,7 +311,6 @@ impl SoftwareCollector {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
-                    // OpenBSD format: name-version
                     if let Some(idx) = line.rfind('-') {
                         packages.push(Package {
                             name: line[..idx].to_string(),
@@ -313,12 +331,10 @@ impl SoftwareCollector {
         Ok(packages)
     }
 
-    /// Collect packages on NetBSD.
     #[cfg(target_os = "netbsd")]
     fn collect_packages() -> Result<Vec<Package>> {
         let mut packages = Vec::new();
 
-        // Use pkg_info to list installed packages
         if let Ok(output) = std::process::Command::new("pkg_info")
             .args(["-a"])
             .output()
@@ -326,7 +342,6 @@ impl SoftwareCollector {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
-                    // NetBSD format: name-version description
                     let parts: Vec<&str> = line.splitn(2, ' ').collect();
                     if !parts.is_empty() {
                         let name_ver = parts[0];
@@ -351,7 +366,6 @@ impl SoftwareCollector {
         Ok(packages)
     }
 
-    /// Fallback for other platforms.
     #[cfg(not(any(
         target_os = "linux",
         target_os = "macos",

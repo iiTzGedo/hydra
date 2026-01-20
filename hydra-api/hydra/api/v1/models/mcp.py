@@ -34,9 +34,6 @@ class MCPServerStatus(str, Enum):
     UNHEALTHY = "unhealthy"
 
 
-# ==================== Request Models ====================
-
-
 class MCPServerCreate(BaseModel):
     """Request to create an MCP server configuration."""
 
@@ -69,9 +66,6 @@ class MCPServerUpdate(BaseModel):
     docs_url: str | None = Field(default=None, alias="docsUrl")
 
     model_config = {"populate_by_name": True}
-
-
-# ==================== Response Models ====================
 
 
 class MCPServerResponse(BaseModel):
@@ -127,5 +121,25 @@ class MCPToolsResponse(BaseModel):
 
     server_id: str = Field(alias="serverId")
     tools: list[MCPToolInfo]
+
+    model_config = {"populate_by_name": True}
+
+
+class MCPResourceInfo(BaseModel):
+    """Information about an MCP resource."""
+
+    uri: str
+    name: str | None = None
+    description: str | None = None
+    mime_type: str | None = Field(default=None, alias="mimeType")
+
+    model_config = {"populate_by_name": True}
+
+
+class MCPResourcesResponse(BaseModel):
+    """Response for listing MCP server resources."""
+
+    server_id: str = Field(alias="serverId")
+    resources: list[MCPResourceInfo]
 
     model_config = {"populate_by_name": True}

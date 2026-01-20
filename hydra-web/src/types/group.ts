@@ -1,9 +1,7 @@
 import { ListParams } from './api';
 
-// Entity types that can be grouped
 export type GroupEntityType = 'node' | 'service';
 
-// Selector models (match backend GroupSelectors schema)
 export interface IdSelector {
   isAll?: string[];
 }
@@ -26,14 +24,12 @@ export interface GroupSelectors {
   tags?: TagsSelector;
 }
 
-// Member counts
 export interface MemberCount {
   nodes: number;
   services: number;
   lastComputed?: string;
 }
 
-// Group summary (for list views)
 export interface GroupSummary {
   groupId: string;
   name: string;
@@ -41,17 +37,15 @@ export interface GroupSummary {
   types: GroupEntityType[];
   memberCount: MemberCount;
   tags: string[];
+}
+
+export interface Group extends GroupSummary {
+  selectors: GroupSelectors;
+  parentGroupIds?: string[];
   createdAt?: string;
   updatedAt?: string;
 }
 
-// Full group details
-export interface Group extends GroupSummary {
-  selectors: GroupSelectors;
-  parentGroupIds?: string[];
-}
-
-// Group members response
 export interface GroupMemberNode {
   nodeId: string;
   displayName: string;
@@ -70,7 +64,6 @@ export interface GroupMembersResponse {
   services: GroupMemberService[];
 }
 
-// Group member (flattened for UI)
 export interface GroupMember {
   id: string;
   type: 'node' | 'service';
@@ -125,14 +118,12 @@ export function getSelectorDisplayValue(entry: SelectorEntry): string {
   return values;
 }
 
-// Group list params
 export interface GroupListParams extends ListParams {
   types?: GroupEntityType[];
   parentGroupId?: string;
   tags?: string[];
 }
 
-// Create group request
 export interface CreateGroupRequest {
   groupId: string;
   name: string;
@@ -143,7 +134,6 @@ export interface CreateGroupRequest {
   tags?: string[];
 }
 
-// Update group request
 export interface UpdateGroupRequest {
   name?: string;
   description?: string;

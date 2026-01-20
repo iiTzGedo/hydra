@@ -1,8 +1,3 @@
-/**
- * MCP Client Store
- * Manages MCP server connections, chat sessions, and LLM provider configuration
- */
-
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { generateId } from '@/lib/utils';
@@ -27,9 +22,6 @@ interface MCPHealthResponse {
   resources: string[];
 }
 
-/**
- * Probe MCP server via HTTP health endpoint
- */
 const probeHttpHealth = async (endpoint: string, timeoutMs = 5000): Promise<MCPHealthResponse> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -61,7 +53,6 @@ const probeHttpHealth = async (endpoint: string, timeoutMs = 5000): Promise<MCPH
 };
 
 interface MCPStore {
-  // Server management
   servers: MCPServer[];
   addServer: (server: Omit<MCPServer, 'id' | 'status'>) => void;
   removeServer: (serverId: string) => void;
@@ -69,7 +60,6 @@ interface MCPStore {
   connectServer: (serverId: string) => Promise<void>;
   disconnectServer: (serverId: string) => void;
 
-  // LLM Provider management
   llmProviders: LLMProvider[];
   activeLLMProviderId: string | null;
   addLLMProvider: (provider: Omit<LLMProvider, 'id' | 'isConfigured'>) => void;
@@ -77,13 +67,11 @@ interface MCPStore {
   removeLLMProvider: (providerId: string) => void;
   setActiveLLMProvider: (providerId: string | null) => void;
 
-  // Project management
   projects: ChatProject[];
   createProject: (name: string) => string;
   deleteProject: (projectId: string) => void;
   renameProject: (projectId: string, name: string) => void;
 
-  // Chat session management
   sessions: MCPChatSession[];
   currentSessionId: string | null;
   createSession: (name?: string, projectId?: string) => string;
@@ -100,13 +88,11 @@ interface MCPStore {
     updates: Partial<MCPToolCall>
   ) => void;
 
-  // Connection state
   isConnecting: boolean;
   setConnecting: (connecting: boolean) => void;
   globalError: string | null;
   setGlobalError: (error: string | null) => void;
 
-  // Helpers
   getActiveServers: () => MCPServer[];
   getActiveLLMProvider: () => LLMProvider | null;
   getCurrentSession: () => MCPChatSession | null;
@@ -114,7 +100,6 @@ interface MCPStore {
   getStandaloneSessions: () => MCPChatSession[];
 }
 
-// Default Hydra MCP server (built-in)
 const HYDRA_MCP_SERVER: MCPServer = {
   id: 'hydra-mcp',
   name: 'Hydra MCP',
@@ -129,7 +114,6 @@ const HYDRA_MCP_SERVER: MCPServer = {
   resources: [],
 };
 
-// Default LLM providers
 const DEFAULT_LLM_PROVIDERS: LLMProvider[] = [
   {
     id: 'anthropic',
@@ -158,7 +142,6 @@ const DEFAULT_LLM_PROVIDERS: LLMProvider[] = [
 export const useMCPStore = create<MCPStore>()(
   persist(
     (set, get) => ({
-      // Initial state
       servers: [HYDRA_MCP_SERVER],
       llmProviders: DEFAULT_LLM_PROVIDERS,
       activeLLMProviderId: null,
@@ -168,7 +151,6 @@ export const useMCPStore = create<MCPStore>()(
       isConnecting: false,
       globalError: null,
 
-      // Server management
       addServer: (server) => {
         const newServer: MCPServer = {
           ...server,
@@ -240,7 +222,6 @@ export const useMCPStore = create<MCPStore>()(
         get().updateServerStatus(serverId, 'disconnected');
       },
 
-      // LLM Provider management
       addLLMProvider: (provider) => {
         const newProvider: LLMProvider = {
           ...provider,
@@ -278,7 +259,6 @@ export const useMCPStore = create<MCPStore>()(
         set({ activeLLMProviderId: providerId });
       },
 
-      // Project management
       createProject: (name) => {
         const projectId = generateId();
         const newProject: ChatProject = {
@@ -296,7 +276,6 @@ export const useMCPStore = create<MCPStore>()(
       deleteProject: (projectId) => {
         set((state) => ({
           projects: state.projects.filter((p) => p.id !== projectId),
-          // Also delete or orphan sessions in this project
           sessions: state.sessions.map((s) =>
             s.projectId === projectId ? { ...s, projectId: undefined } : s
           ),
@@ -311,7 +290,6 @@ export const useMCPStore = create<MCPStore>()(
         }));
       },
 
-      // Chat session management
       createSession: (name, projectId) => {
         const sessionId = generateId();
         const newSession: MCPChatSession = {
@@ -425,7 +403,6 @@ export const useMCPStore = create<MCPStore>()(
         }));
       },
 
-      // Connection state
       setConnecting: (connecting) => {
         set({ isConnecting: connecting });
       },
@@ -434,7 +411,6 @@ export const useMCPStore = create<MCPStore>()(
         set({ globalError: error });
       },
 
-      // Helpers
       getActiveServers: () => {
         return get().servers.filter((s) => s.status === 'connected');
       },

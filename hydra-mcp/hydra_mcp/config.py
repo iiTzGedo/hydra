@@ -7,7 +7,34 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """MCP Service settings."""
+    """Configuration settings for the Hydra MCP service.
+
+    Settings are loaded from environment variables with the HYDRA_MCP_ prefix
+    and can be overridden via a .env file.
+
+    Attributes:
+        api_url: Base URL for the Hydra API.
+        api_key: Optional API key for authentication.
+        api_timeout: Request timeout in seconds.
+        server_name: Name of the MCP server.
+        server_version: Version string for the MCP server.
+        transport: Transport mode (stdio, http, sse, streamable-http).
+        http_host: Host address for HTTP transport.
+        http_port: Port number for HTTP transport.
+        cors_origins: Allowed CORS origins for HTTP transport.
+        toon_indent: Indentation spaces for TOON output.
+        toon_delimiter: Field delimiter for TOON arrays.
+        toon_length_marker: Array length marker prefix.
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR).
+        log_format: Log format (json or text).
+
+    Example:
+        Configure via environment variables::
+
+            export HYDRA_MCP_API_URL=http://localhost:8080/api/v1
+            export HYDRA_MCP_TRANSPORT=http
+            export HYDRA_MCP_HTTP_PORT=8081
+    """
 
     model_config = SettingsConfigDict(
         env_prefix="HYDRA_MCP_",
@@ -85,5 +112,13 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance."""
+    """Get the cached settings instance.
+
+    Uses LRU caching to ensure a single Settings instance is created and
+    reused throughout the application lifecycle.
+
+    Returns:
+        The singleton Settings instance with configuration loaded from
+        environment variables and .env file.
+    """
     return Settings()

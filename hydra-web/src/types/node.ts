@@ -26,7 +26,9 @@ export type NodeKind =
   | 'controller'
   | 'hub'
   | 'bridge'
-  | 'appliance';
+  | 'appliance'
+  // Generic
+  | 'other';
 
 // Node status
 export type NodeStatus = 'active' | 'inactive' | 'pending' | 'archived';
@@ -41,14 +43,6 @@ export interface NodeLocation {
   position?: string;
 }
 
-// Network membership
-export interface NetworkMembership {
-  networkId: string;
-  interfaceName: string;
-  ipAddress?: string;
-  macAddress?: string;
-}
-
 // Node summary (for list views)
 export interface NodeSummary {
   nodeId: string;
@@ -56,25 +50,21 @@ export interface NodeSummary {
   displayName: string;
   class: NodeClass;
   type: NodeType;
-  kind: NodeKind;
+  kind?: NodeKind;
   status: NodeStatus;
   tags: string[];
-  parentNodeId?: string;
-  registeredAt: string;
   lastProfileAt?: string;
-  lastUpdated: string;
-  updatedAt?: string; // Alias for lastUpdated
-  profileVersion?: string; // Latest profile version
+  registeredBy?: string;
 }
 
 // Full node details
 export interface Node extends NodeSummary {
   description?: string;
-  location?: NodeLocation;
+  parentNodeId?: string;
   networkIds: string[];
-  networks?: NetworkMembership[];
-  registeredBy: string;
-  metadata?: Record<string, unknown>;
+  registeredBy?: string;
+  registeredAt: string;
+  lastUpdated: string;
 }
 
 // Node list params
@@ -92,8 +82,10 @@ export interface NodeListParams extends ListParams {
 export interface UpdateNodeRequest {
   displayName?: string;
   description?: string;
+  kind?: NodeKind;
   tags?: string[];
-  location?: NodeLocation;
+  parentNodeId?: string;
+  status?: NodeStatus;
 }
 
 // Node registration
@@ -102,7 +94,7 @@ export interface NodeRegistrationRequest {
   class: NodeClass;
   type: NodeType;
   kind?: NodeKind;
-  displayName: string;
+  displayName?: string;
   description?: string;
   tags?: string[];
   parentNodeId?: string;

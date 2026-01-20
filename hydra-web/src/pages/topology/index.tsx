@@ -92,7 +92,6 @@ export default function TopologyPage() {
   const [filterClass, setFilterClass] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Convert topology data to ReactFlow nodes and edges
   const { initialNodes, initialEdges } = useMemo(() => {
     const topologyNodes = topology?.graph?.nodes || [];
     const topologyEdges = topology?.graph?.edges || [];
@@ -101,12 +100,10 @@ export default function TopologyPage() {
       return { initialNodes: [], initialEdges: [] };
     }
 
-    // Filter by class if selected
     let filteredTopologyNodes = filterClass !== 'all'
       ? topologyNodes.filter((n) => n.data?.class === filterClass)
       : topologyNodes;
 
-    // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filteredTopologyNodes = filteredTopologyNodes.filter((n) => {
@@ -125,12 +122,10 @@ export default function TopologyPage() {
       });
     }
 
-    // Calculate grid layout with smart positioning
     const nodeCount = filteredTopologyNodes.length;
     const cols = Math.ceil(Math.sqrt(nodeCount));
     const spacing = { x: 200, y: 150 };
 
-    // Group nodes by class/type for better layout
     const nodesByClass: Record<string, typeof filteredTopologyNodes> = {};
     filteredTopologyNodes.forEach((node) => {
       const nodeClass = node.data?.class || node.type || 'unknown';
@@ -163,10 +158,8 @@ export default function TopologyPage() {
       });
     });
 
-    // Create node ID set for filtering edges
     const nodeIds = new Set(nodes.map((n) => n.id));
 
-    // Create edges from topology edges
     const edges: Edge[] = topologyEdges
       .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
       .map((edge, index) => ({
@@ -194,7 +187,6 @@ export default function TopologyPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  // Update nodes/edges when topology changes
   useEffect(() => {
     setNodes(initialNodes);
     setEdges(initialEdges);
@@ -226,7 +218,6 @@ export default function TopologyPage() {
 
   const currentModeOption = modeOptions.find((m) => m.value === topologyMode) || modeOptions[0];
 
-  // Loading state
   if (isLoading) {
     return (
       <TooltipProvider>
@@ -255,12 +246,10 @@ export default function TopologyPage() {
     );
   }
 
-  // Empty state
   if (!topology?.graph?.nodes?.length) {
     return (
       <TooltipProvider>
         <div className="p-6 space-y-6">
-          {/* Header */}
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Topology</h1>
             <p className="text-muted-foreground">
@@ -268,7 +257,6 @@ export default function TopologyPage() {
             </p>
           </div>
 
-          {/* Mode tabs */}
           <Tabs value={topologyMode} onValueChange={handleModeChange}>
             <TabsList>
               {modeOptions.map((option) => {
@@ -312,10 +300,8 @@ export default function TopologyPage() {
   return (
     <TooltipProvider>
       <div className="h-[calc(100vh-3.5rem)] flex flex-col">
-        {/* Header */}
         <div className="border-b p-4 flex items-center justify-between flex-wrap gap-4 bg-background">
           <div className="flex items-center gap-4">
-            {/* Mode tabs */}
             <Tabs value={topologyMode} onValueChange={handleModeChange}>
               <TabsList>
                 {modeOptions.map((option) => {
@@ -347,7 +333,6 @@ export default function TopologyPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -366,7 +351,6 @@ export default function TopologyPage() {
               )}
             </div>
 
-            {/* Class filter */}
             <Select value={filterClass} onValueChange={setFilterClass}>
               <SelectTrigger className="w-[130px]">
                 <SelectValue placeholder="All Types" />
@@ -395,7 +379,6 @@ export default function TopologyPage() {
               </SelectContent>
             </Select>
 
-            {/* Toggle minimap */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -411,7 +394,6 @@ export default function TopologyPage() {
               </TooltipContent>
             </Tooltip>
 
-            {/* Regenerate */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -432,7 +414,6 @@ export default function TopologyPage() {
           </div>
         </div>
 
-        {/* Topology canvas */}
         <div className="flex-1 relative">
           <ReactFlow
             nodes={nodes}
@@ -480,7 +461,6 @@ export default function TopologyPage() {
               />
             )}
 
-            {/* Legend */}
             <Panel position="bottom-left" className="bg-card/90 backdrop-blur rounded-lg border p-3 shadow-lg">
               <div className="text-xs font-medium mb-2 text-muted-foreground uppercase tracking-wider">Node Types</div>
               <div className="flex flex-col gap-1.5">
@@ -520,7 +500,6 @@ export default function TopologyPage() {
             </Panel>
           </ReactFlow>
 
-          {/* Detail panel */}
           {selectedNode && (
             <TopologyDetailPanel
               node={selectedNode}

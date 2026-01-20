@@ -44,7 +44,17 @@ HAServiceDep = Annotated[HomeAssistantService, Depends(get_ha_service)]
 async def get_ha_status(
     ha_service: HAServiceDep,
 ) -> SuccessResponse[HAStatusResponse]:
-    """Get Home Assistant integration status."""
+    """Get Home Assistant integration status.
+
+    Args:
+        ha_service: Home Assistant service instance.
+
+    Returns:
+        Integration status including connection state, entity count, and last sync time.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     status = await ha_service.get_status()
 
     return SuccessResponse(
@@ -74,7 +84,22 @@ async def list_ha_devices(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> SuccessResponse[HADeviceListResponse]:
-    """List Home Assistant devices."""
+    """List Home Assistant devices with optional filters.
+
+    Args:
+        ha_service: Home Assistant service instance.
+        domain: Filter by HA domain (light, switch, sensor, etc.).
+        area: Filter by HA area name.
+        mapped: Filter by Hydra node mapping status.
+        limit: Maximum number of devices to return.
+        offset: Number of devices to skip.
+
+    Returns:
+        Paginated list of HA devices with their states and Hydra mappings.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     params = HADeviceListParams(
         domain=domain,
         area=area,
@@ -125,7 +150,20 @@ async def sync_ha(
     request: HASyncRequest,
     ha_service: HAServiceDep,
 ) -> SuccessResponse[HASyncResponse]:
-    """Trigger sync from Home Assistant."""
+    """Trigger a synchronization from Home Assistant.
+
+    Starts a background job to fetch and sync device states from Home Assistant.
+
+    Args:
+        request: Sync request with optional filters and options.
+        ha_service: Home Assistant service instance.
+
+    Returns:
+        Sync job details including job ID and status.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     result = await ha_service.sync_devices(request)
 
     return SuccessResponse(
@@ -148,7 +186,19 @@ async def control_ha_device(
     request: HAControlRequest,
     ha_service: HAServiceDep,
 ) -> SuccessResponse[HAControlResponse]:
-    """Control a Home Assistant device."""
+    """Send a control command to a Home Assistant device.
+
+    Args:
+        request: Control request with entity ID, service, and optional data.
+        ha_service: Home Assistant service instance.
+
+    Returns:
+        Control result including success status and new device state.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+        HTTPException 404: Entity not found.
+    """
     result = await ha_service.control_device(request)
 
     return SuccessResponse(
@@ -171,7 +221,17 @@ async def control_ha_device(
 async def list_ha_areas(
     ha_service: HAServiceDep,
 ) -> SuccessResponse[HAAreaListResponse]:
-    """List Home Assistant areas."""
+    """List all Home Assistant areas.
+
+    Args:
+        ha_service: Home Assistant service instance.
+
+    Returns:
+        List of areas with device and entity counts.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     areas, total = await ha_service.list_areas()
 
     return SuccessResponse(

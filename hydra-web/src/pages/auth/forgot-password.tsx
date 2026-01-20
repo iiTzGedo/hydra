@@ -69,7 +69,6 @@ export default function ForgotPasswordPage() {
         variants={fadeInVariants}
         className="w-full max-w-md"
       >
-        {/* Logo */}
         <motion.div
           variants={scaleVariants}
           className="mb-8 text-center"
@@ -81,7 +80,6 @@ export default function ForgotPasswordPage() {
           <p className="mt-2 text-muted-foreground">Infrastructure Intelligence Platform</p>
         </motion.div>
 
-        {/* Forgot password form */}
         <motion.div
           variants={fadeInVariants}
           className="rounded-xl border bg-card p-6 shadow-lg"

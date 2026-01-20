@@ -20,20 +20,33 @@ class ServicesService:
         self.db = mongodb
 
     async def get_service(self, service_id: str) -> dict:
-        """Get a single service by ID."""
+        """Retrieve a single service by its identifier.
+
+        Args:
+            service_id: The unique service identifier.
+
+        Returns:
+            The formatted service document.
+
+        Raises:
+            ServiceNotFoundError: If no service exists with the given ID.
+        """
         service = await self.db.services.find_one({"serviceId": service_id})
         if not service:
             raise ServiceNotFoundError(service_id)
         return self._format_service(service)
 
     async def list_services(self, params: ServiceListParams) -> tuple[list[dict], int]:
-        """
-        List services with filters and pagination.
+        """List services with optional filtering, sorting, and pagination.
+
+        Args:
+            params: Query parameters including filters (node_id, runtime, status,
+                name, tags, port, search), sorting (sort_by, sort_order),
+                and pagination (offset, limit).
 
         Returns:
-            Tuple of (services list, total count)
+            A tuple of (list of formatted service summaries, total count).
         """
-        # Build filter
         filter_query: dict[str, Any] = {}
 
         if params.node_id:
@@ -43,7 +56,6 @@ class ServicesService:
         if params.status:
             filter_query["status"] = params.status.value
         if params.name:
-            # Partial match on name
             filter_query["name"] = {"$regex": params.name, "$options": "i"}
         if params.tags:
             filter_query["tags"] = {"$all": params.tags}
@@ -56,7 +68,6 @@ class ServicesService:
                 {"serviceId": {"$regex": params.search, "$options": "i"}},
             ]
 
-        # Sort
         sort_field_map = {
             "serviceId": "serviceId",
             "name": "name",
@@ -67,7 +78,6 @@ class ServicesService:
         sort_field = sort_field_map.get(params.sort_by, "lastSeen")
         sort_direction = DESCENDING if params.sort_order == "desc" else ASCENDING
 
-        # Execute queries
         total = await self.db.services.count_documents(filter_query)
 
         cursor = (
@@ -91,13 +101,22 @@ class ServicesService:
         return services, total
 
     async def update_service(self, service_id: str, request: UpdateServiceRequest) -> dict:
-        """Update service metadata."""
-        # Check service exists
+        """Update mutable service metadata.
+
+        Args:
+            service_id: The unique service identifier.
+            request: Update payload with optional display_name, description, and tags.
+
+        Returns:
+            The updated service document.
+
+        Raises:
+            ServiceNotFoundError: If no service exists with the given ID.
+        """
         existing = await self.db.services.find_one({"serviceId": service_id})
         if not existing:
             raise ServiceNotFoundError(service_id)
 
-        # Build update
         update_fields: dict[str, Any] = {"lastUpdated": datetime.now(timezone.utc)}
 
         if request.display_name is not None:
@@ -107,7 +126,6 @@ class ServicesService:
         if request.tags is not None:
             update_fields["tags"] = request.tags
 
-        # Execute update
         result = await self.db.services.update_one(
             {"serviceId": service_id},
             {"$set": update_fields},
@@ -118,11 +136,21 @@ class ServicesService:
 
         logger.info("service_updated", service_id=service_id, fields=list(update_fields.keys()))
 
-        # Return updated service
         return await self.get_service(service_id)
 
     async def archive_service(self, service_id: str) -> dict:
-        """Archive a service (soft delete)."""
+        """Archive a service by setting its status to archived.
+
+        Args:
+            service_id: The unique service identifier.
+
+        Returns:
+            The archived service document.
+
+        Raises:
+            ServiceNotFoundError: If no service exists with the given ID.
+            ValidationError: If the service is already archived.
+        """
         existing = await self.db.services.find_one({"serviceId": service_id})
         if not existing:
             raise ServiceNotFoundError(service_id)
@@ -151,13 +179,25 @@ class ServicesService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
-        """Get services for a specific node."""
-        # Verify node exists
+        """List services running on a specific node.
+
+        Args:
+            node_id: The node identifier to filter by.
+            runtime: Optional runtime filter (e.g., docker, systemd).
+            status: Optional status filter (e.g., running, stopped).
+            limit: Maximum number of results to return.
+            offset: Number of results to skip for pagination.
+
+        Returns:
+            A tuple of (list of service summaries, total count).
+
+        Raises:
+            NodeNotFoundError: If the specified node does not exist.
+        """
         node = await self.db.nodes.find_one({"nodeId": node_id})
         if not node:
             raise NodeNotFoundError(node_id)
 
-        # Build filter
         filter_query: dict[str, Any] = {"nodeId": node_id}
         if runtime:
             filter_query["runtime"] = runtime

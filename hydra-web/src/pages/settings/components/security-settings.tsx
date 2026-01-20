@@ -1,7 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Shield, Save } from 'lucide-react';
+import { toast } from 'sonner';
+import { useSystemSettings, useUpdateSystemSettings } from '@/api/settings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import {
   Select,
@@ -11,35 +15,66 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+const nodeStatusOptions = ['active', 'inactive', 'pending'];
+
 export function SecuritySettings() {
+  const { data: settings } = useSystemSettings();
+  const updateSystemSettings = useUpdateSystemSettings();
+
+  const [form, setForm] = useState({
+    sessionTimeoutMinutes: 60,
+    profileRetentionDays: 90,
+    nodeStatus: 'active',
+  });
+
+  useEffect(() => {
+    if (!settings) return;
+    setForm({
+      sessionTimeoutMinutes: settings.defaults.sessionTimeoutMinutes,
+      profileRetentionDays: settings.defaults.profileRetentionDays,
+      nodeStatus: settings.defaults.nodeStatus,
+    });
+  }, [settings]);
+
+  const handleSave = async () => {
+    if (!settings) return;
+    try {
+      await updateSystemSettings.mutateAsync({
+        defaults: {
+          sessionTimeoutMinutes: form.sessionTimeoutMinutes,
+          profileRetentionDays: form.profileRetentionDays,
+          nodeStatus: form.nodeStatus,
+        },
+      });
+      toast.success('Security defaults updated');
+    } catch (error) {
+      toast.error('Failed to update security defaults');
+    }
+  };
+
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
         <CardTitle className="text-foreground flex items-center gap-2 text-base">
           <Shield className="h-4 w-4 text-destructive" />
-          Security
+          Security Defaults
         </CardTitle>
         <CardDescription className="text-muted-foreground text-xs">
-          Authentication and access control
+          Default security settings for new sessions and nodes
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-4">
-            <div className="flex items-center justify-between py-1">
-              <div>
-                <p className="text-foreground text-sm font-medium">Two-factor auth</p>
-                <p className="text-xs text-muted-foreground">Require 2FA for all users</p>
-              </div>
-              <Switch />
-            </div>
-            <div className="flex items-center justify-between py-1">
-              <div>
-                <p className="text-foreground text-sm font-medium">Session timeout</p>
-                <p className="text-xs text-muted-foreground">Auto logout after inactivity</p>
-              </div>
-              <Select defaultValue="60">
-                <SelectTrigger className="w-[100px] bg-muted border-border text-foreground h-8 text-xs">
+            <div className="space-y-2">
+              <Label className="text-foreground text-sm">Session timeout (minutes)</Label>
+              <Select
+                value={String(form.sessionTimeoutMinutes)}
+                onValueChange={(value) =>
+                  setForm((prev) => ({ ...prev, sessionTimeoutMinutes: Number(value) }))
+                }
+              >
+                <SelectTrigger className="w-[140px] bg-muted border-border text-foreground h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border">
@@ -49,51 +84,49 @@ export function SecuritySettings() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center justify-between py-1">
-              <div>
-                <p className="text-foreground text-sm font-medium">API rate limiting</p>
-                <p className="text-xs text-muted-foreground">Limit requests per minute</p>
-              </div>
-              <Switch defaultChecked />
+            <div className="space-y-2">
+              <Label className="text-foreground text-sm">Profile retention (days)</Label>
+              <Input
+                type="number"
+                min={1}
+                value={form.profileRetentionDays}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    profileRetentionDays: Number(e.target.value || 0),
+                  }))
+                }
+                className="bg-muted border-border text-foreground h-9"
+              />
             </div>
           </div>
           <div className="space-y-4">
-            <div className="flex items-center justify-between py-1">
-              <div>
-                <p className="text-foreground text-sm font-medium">Password requirements</p>
-                <p className="text-xs text-muted-foreground">Enforce strong passwords</p>
-              </div>
-              <Switch defaultChecked />
-            </div>
-            <div className="flex items-center justify-between py-1">
-              <div>
-                <p className="text-foreground text-sm font-medium">Login attempt limit</p>
-                <p className="text-xs text-muted-foreground">Lock after failed attempts</p>
-              </div>
-              <Select defaultValue="5">
-                <SelectTrigger className="w-[100px] bg-muted border-border text-foreground h-8 text-xs">
+            <div className="space-y-2">
+              <Label className="text-foreground text-sm">Default node status</Label>
+              <Select
+                value={form.nodeStatus}
+                onValueChange={(value) =>
+                  setForm((prev) => ({ ...prev, nodeStatus: value }))
+                }
+              >
+                <SelectTrigger className="bg-muted border-border text-foreground h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border">
-                  <SelectItem value="3">3 attempts</SelectItem>
-                  <SelectItem value="5">5 attempts</SelectItem>
-                  <SelectItem value="10">10 attempts</SelectItem>
+                  {nodeStatusOptions.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {status}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="flex items-center justify-between py-1">
-              <div>
-                <p className="text-foreground text-sm font-medium">IP whitelisting</p>
-                <p className="text-xs text-muted-foreground">Restrict access by IP</p>
-              </div>
-              <Switch />
             </div>
           </div>
         </div>
         <Separator className="bg-muted" />
-        <Button className="">
+        <Button className="" onClick={handleSave} disabled={updateSystemSettings.isPending}>
           <Save className="mr-2 h-4 w-4" />
-          Save Security Settings
+          Save Security Defaults
         </Button>
       </CardContent>
     </Card>

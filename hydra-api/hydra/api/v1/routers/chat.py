@@ -38,9 +38,6 @@ def _check_not_agent(current_user: dict) -> None:
         raise AuthorizationError("chat:read")
 
 
-# ==================== Project Endpoints ====================
-
-
 @router.get(
     "/projects",
     response_model=ChatProjectListResponse,
@@ -53,7 +50,20 @@ async def list_projects(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> ChatProjectListResponse:
-    """List chat projects."""
+    """Retrieve chat projects owned by the current user.
+
+    Args:
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+
+    Returns:
+        Paginated list of chat projects.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.list_projects(
@@ -80,7 +90,19 @@ async def create_project(
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
 ) -> ChatProjectResponse:
-    """Create a new chat project."""
+    """Create a new chat project to organize sessions.
+
+    Args:
+        request: Project details including name and description.
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+
+    Returns:
+        Created project details.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.create_project(
@@ -102,7 +124,20 @@ async def get_project(
     chat_service: ChatService = Depends(get_chat_service),
     projectId: str = Path(description="Project ID"),
 ) -> ChatProjectResponse:
-    """Get a specific chat project."""
+    """Retrieve a specific chat project by ID.
+
+    Args:
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        projectId: Unique identifier of the project.
+
+    Returns:
+        Project details.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat or project not owned by user.
+        HTTPException 404: Project not found.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.get_project(
@@ -125,7 +160,21 @@ async def update_project(
     chat_service: ChatService = Depends(get_chat_service),
     projectId: str = Path(description="Project ID"),
 ) -> ChatProjectResponse:
-    """Update a chat project."""
+    """Update an existing chat project.
+
+    Args:
+        request: Fields to update.
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        projectId: Unique identifier of the project.
+
+    Returns:
+        Updated project details.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat or project not owned by user.
+        HTTPException 404: Project not found.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.update_project(
@@ -148,7 +197,21 @@ async def delete_project(
     projectId: str = Path(description="Project ID"),
     cascade: bool = Query(default=True, description="Delete sessions and messages"),
 ) -> dict:
-    """Delete a chat project."""
+    """Delete a chat project and optionally its sessions.
+
+    Args:
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        projectId: Unique identifier of the project.
+        cascade: Delete associated sessions and messages.
+
+    Returns:
+        Deletion confirmation with counts.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat or project not owned by user.
+        HTTPException 404: Project not found.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.delete_project(
@@ -158,9 +221,6 @@ async def delete_project(
     )
 
     return result
-
-
-# ==================== Session Endpoints ====================
 
 
 @router.get(
@@ -176,7 +236,21 @@ async def list_sessions(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> ChatSessionListResponse:
-    """List chat sessions."""
+    """Retrieve chat sessions owned by the current user.
+
+    Args:
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        projectId: Filter sessions by project.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+
+    Returns:
+        Paginated list of chat sessions.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.list_sessions(
@@ -204,7 +278,19 @@ async def create_session(
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
 ) -> ChatSessionResponse:
-    """Create a new chat session."""
+    """Create a new chat session for AI conversations.
+
+    Args:
+        request: Session configuration including LLM provider and MCP servers.
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+
+    Returns:
+        Created session details.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.create_session(
@@ -226,7 +312,20 @@ async def get_session(
     chat_service: ChatService = Depends(get_chat_service),
     sessionId: str = Path(description="Session ID"),
 ) -> ChatSessionResponse:
-    """Get a specific chat session."""
+    """Retrieve a specific chat session by ID.
+
+    Args:
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        sessionId: Unique identifier of the session.
+
+    Returns:
+        Session details.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat or session not owned by user.
+        HTTPException 404: Session not found.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.get_session(
@@ -249,7 +348,21 @@ async def update_session(
     chat_service: ChatService = Depends(get_chat_service),
     sessionId: str = Path(description="Session ID"),
 ) -> ChatSessionResponse:
-    """Update a chat session."""
+    """Update an existing chat session.
+
+    Args:
+        request: Fields to update.
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        sessionId: Unique identifier of the session.
+
+    Returns:
+        Updated session details.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat or session not owned by user.
+        HTTPException 404: Session not found.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.update_session(
@@ -271,7 +384,20 @@ async def delete_session(
     chat_service: ChatService = Depends(get_chat_service),
     sessionId: str = Path(description="Session ID"),
 ) -> dict:
-    """Delete a chat session."""
+    """Delete a chat session and all its messages.
+
+    Args:
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        sessionId: Unique identifier of the session.
+
+    Returns:
+        Deletion confirmation.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat or session not owned by user.
+        HTTPException 404: Session not found.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.delete_session(
@@ -280,9 +406,6 @@ async def delete_session(
     )
 
     return result
-
-
-# ==================== Message Endpoints ====================
 
 
 @router.get(
@@ -299,7 +422,23 @@ async def list_messages(
     offset: int = Query(default=0, ge=0),
     order: str = Query(default="asc", pattern="^(asc|desc)$"),
 ) -> ChatMessageListResponse:
-    """List messages in a chat session."""
+    """Retrieve messages in a chat session.
+
+    Args:
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        sessionId: Unique identifier of the session.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+        order: Sort order (asc for oldest first, desc for newest first).
+
+    Returns:
+        Paginated list of messages.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat or session not owned by user.
+        HTTPException 404: Session not found.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.list_messages(
@@ -330,7 +469,21 @@ async def create_message(
     chat_service: ChatService = Depends(get_chat_service),
     sessionId: str = Path(description="Session ID"),
 ) -> ChatMessageResponse:
-    """Create a new message in a chat session."""
+    """Add a new message to a chat session.
+
+    Args:
+        request: Message content and role.
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        sessionId: Unique identifier of the session.
+
+    Returns:
+        Created message details.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat or session not owned by user.
+        HTTPException 404: Session not found.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.create_message(
@@ -354,7 +507,21 @@ async def bulk_upsert_messages(
     chat_service: ChatService = Depends(get_chat_service),
     sessionId: str = Path(description="Session ID"),
 ) -> ChatBulkUpsertResponse:
-    """Bulk upsert messages for background save."""
+    """Bulk create or update messages for efficient background saves.
+
+    Args:
+        request: List of messages to upsert.
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        sessionId: Unique identifier of the session.
+
+    Returns:
+        Upsert result with counts.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat or session not owned by user.
+        HTTPException 404: Session not found.
+    """
     _check_not_agent(current_user)
 
     result = await chat_service.bulk_upsert_messages(

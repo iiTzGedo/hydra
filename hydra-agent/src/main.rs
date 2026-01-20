@@ -18,7 +18,6 @@ use hydra_agent::vault::Vault;
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logging
     let level = if cli.verbose { Level::DEBUG } else { Level::INFO };
     let subscriber = FmtSubscriber::builder()
         .with_max_level(level)
@@ -26,16 +25,13 @@ async fn main() -> Result<()> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    // Create vault instance
     let vault = Vault::default();
 
-    // Check for dev mode
     let is_dev_mode = cli.mode == OperatingMode::Dev;
     if is_dev_mode {
         info!("Running in development mode (no API calls)");
     }
 
-    // Handle commands
     match cli.command {
         Some(Commands::Login(args)) => {
             if is_dev_mode {
@@ -91,10 +87,8 @@ async fn main() -> Result<()> {
         Some(Commands::Uninstall { purge }) => uninstall_service(purge),
         None => {
             if is_dev_mode {
-                // In dev mode with no subcommand, run profile collection
                 return dev_mode_run(&cli.config, true).await;
             }
-            // No subcommand - show help
             use clap::CommandFactory;
             Cli::command().print_help()?;
             println!();
@@ -103,7 +97,19 @@ async fn main() -> Result<()> {
     }
 }
 
-/// Load configuration file
+/// Loads the agent configuration from the specified path.
+///
+/// # Arguments
+///
+/// * `config_path` - Path to the TOML configuration file
+///
+/// # Returns
+///
+/// The parsed agent configuration.
+///
+/// # Errors
+///
+/// Returns an error if the configuration file cannot be read or parsed.
 fn load_config(config_path: &PathBuf) -> Result<AgentConfig> {
     AgentConfig::load(config_path).with_context(|| {
         format!(
@@ -113,30 +119,40 @@ fn load_config(config_path: &PathBuf) -> Result<AgentConfig> {
     })
 }
 
-/// Run the agent (collect and submit profiles)
+/// Runs the agent to collect and submit system profiles.
+///
+/// # Arguments
+///
+/// * `config_path` - Path to the configuration file
+/// * `vault` - Credential vault for authentication
+/// * `once` - If true, collect once and exit; otherwise enable scheduling
+///
+/// # Returns
+///
+/// Ok on success.
+///
+/// # Errors
+///
+/// Returns an error if authentication is unavailable, profile collection fails,
+/// or profile submission fails.
 async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<()> {
     info!("Starting hydra-agent v{}", env!("CARGO_PKG_VERSION"));
 
-    // Load configuration
     let config = load_config(config_path)?;
     info!(node_id = %config.node.node_id, "Configuration loaded");
 
-    // Verify authentication data is available (ApiClient will refresh keys if needed)
     if !vault.has_agent_credentials() && !vault.has_api_key() {
         return Err(anyhow::anyhow!(
             "No authentication available. Run 'hydra-agent register' first."
         ));
     }
 
-    // Create API client
     let client = api::ApiClient::new(&config, vault)?;
 
-    // Collect profile
     info!("Collecting system profile...");
     let profile = collectors::collect_profile(&config).await?;
     info!(sections = ?profile.sections(), "Profile collected");
 
-    // Submit profile
     info!("Submitting profile to API...");
     let result = client.submit_profile(&profile).await?;
     info!(
@@ -146,14 +162,26 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
     );
 
     if !once {
-        // TODO: Implement scheduling
         info!("Scheduling not yet implemented. Use --once for single collection.");
     }
 
     Ok(())
 }
 
-/// Show agent status including vault status
+/// Displays the agent status including service state and vault contents.
+///
+/// # Arguments
+///
+/// * `config_path` - Path to the configuration file
+/// * `vault` - Credential vault to check status
+///
+/// # Returns
+///
+/// Ok on success.
+///
+/// # Errors
+///
+/// Returns an error if status cannot be determined.
 fn show_status(config_path: &PathBuf, vault: &Vault) -> Result<()> {
     #[cfg(target_os = "linux")]
     use std::process::Command;
@@ -163,11 +191,9 @@ fn show_status(config_path: &PathBuf, vault: &Vault) -> Result<()> {
     println!("==================");
     println!();
 
-    // Version info
     println!("Version: {}", env!("CARGO_PKG_VERSION"));
     println!();
 
-    // Service status (Linux only)
     #[cfg(target_os = "linux")]
     {
         let status = Command::new("systemctl")
@@ -190,7 +216,6 @@ fn show_status(config_path: &PathBuf, vault: &Vault) -> Result<()> {
         println!("Service: N/A (systemd not available)");
     }
 
-    // Config file
     if config_path.exists() {
         println!("Config: {}", config_path.display());
         if let Ok(config) = load_config(config_path) {
@@ -203,11 +228,9 @@ fn show_status(config_path: &PathBuf, vault: &Vault) -> Result<()> {
 
     println!();
 
-    // Vault status
     let vault_status = vault.status();
     print!("{}", vault_status);
 
-    // Recent logs (Linux only)
     #[cfg(target_os = "linux")]
     {
         let logs = Command::new("journalctl")
@@ -234,9 +257,6 @@ fn show_status(config_path: &PathBuf, vault: &Vault) -> Result<()> {
     Ok(())
 }
 
-// ==================== Development Mode Functions ====================
-
-/// Dev mode login - simulates login without API call
 fn dev_mode_login(args: &cli::login::LoginArgs) -> Result<()> {
 
     if args.status {
@@ -271,7 +291,6 @@ fn dev_mode_login(args: &cli::login::LoginArgs) -> Result<()> {
     Ok(())
 }
 
-/// Dev mode register - simulates registration without API call
 fn dev_mode_register(args: &cli::register::RegisterArgs) -> Result<()> {
     if args.status {
         println!();
@@ -300,7 +319,6 @@ fn dev_mode_register(args: &cli::register::RegisterArgs) -> Result<()> {
     Ok(())
 }
 
-/// Dev mode unregister - simulates unregistration without API call
 fn dev_mode_unregister(args: &cli::unregister::UnregisterArgs) -> Result<()> {
     println!();
     println!("[DEV MODE] Agent Unregistration");
@@ -326,11 +344,9 @@ fn dev_mode_unregister(args: &cli::unregister::UnregisterArgs) -> Result<()> {
     Ok(())
 }
 
-/// Dev mode node - simulates node operations without API call
 fn dev_mode_node(args: &cli::node::NodeArgs) -> Result<()> {
     use cli::node::NodeCommand;
 
-    // Handle --update shorthand
     if let Some(update) = &args.update {
         println!("[DEV MODE] Node update simulated: {}", update);
         return Ok(());
@@ -371,7 +387,6 @@ fn dev_mode_node(args: &cli::node::NodeArgs) -> Result<()> {
     Ok(())
 }
 
-/// Dev mode run - collects profile but outputs locally instead of submitting
 async fn dev_mode_run(config_path: &PathBuf, once: bool) -> Result<()> {
     let home_dir = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let output_dir = PathBuf::from(&home_dir).join("hydra").join("profiles");
@@ -387,22 +402,18 @@ async fn dev_mode_run(config_path: &PathBuf, once: bool) -> Result<()> {
 
     info!("[DEV MODE] Starting hydra-agent v{}", env!("CARGO_PKG_VERSION"));
 
-    // Load configuration
     let config = load_config(config_path)?;
     info!(node_id = %config.node.node_id, "[DEV MODE] Configuration loaded");
 
-    // Collect profile
     info!("[DEV MODE] Collecting system profile...");
     let profile = collectors::collect_profile(&config).await?;
     info!(sections = ?profile.sections(), "[DEV MODE] Profile collected");
 
-    // In dev mode, output profile summary
     println!();
     println!("[DEV MODE] Profile collected successfully");
     println!("=========================================");
     println!();
 
-    // Pretty print profile summary
     println!("Node: {}", config.node.node_id);
     println!("Class: {}", config.node.class);
     println!("Type: {}", config.node.node_type);
@@ -430,10 +441,6 @@ async fn dev_mode_run(config_path: &PathBuf, once: bool) -> Result<()> {
     Ok(())
 }
 
-// ==================== Legacy Install/Uninstall Functions ====================
-// These are kept for backward compatibility with 'hydra-agent install/uninstall'
-// The new preferred way is 'hydra-agent service activate/deactivate'
-
 #[allow(unused_variables)]
 fn install_service(
     install_dir: &PathBuf,
@@ -452,7 +459,6 @@ fn install_service(
 
     info!("Installing hydra-agent as system service...");
 
-    // Check if running as root
     #[cfg(unix)]
     if !nix::unistd::Uid::effective().is_root() {
         return Err(anyhow::anyhow!(
@@ -460,19 +466,16 @@ fn install_service(
         ));
     }
 
-    // Create directories
     fs::create_dir_all(config_dir)
         .with_context(|| format!("Failed to create config dir: {}", config_dir.display()))?;
     fs::create_dir_all(log_dir)
         .with_context(|| format!("Failed to create log dir: {}", log_dir.display()))?;
 
-    // Create vault directory
     let vault_dir = PathBuf::from("/var/cv/hydra");
     fs::create_dir_all(&vault_dir)?;
     #[cfg(unix)]
     fs::set_permissions(&vault_dir, fs::Permissions::from_mode(0o700))?;
 
-    // Set permissions on config dir (750)
     #[cfg(unix)]
     fs::set_permissions(config_dir, fs::Permissions::from_mode(0o750))?;
 
@@ -482,7 +485,6 @@ fn install_service(
         log_dir.display()
     );
 
-    // Copy current binary to install dir if it's not already there
     let current_exe = std::env::current_exe()?;
     let target_exe = install_dir.join("hydra-agent");
 
@@ -495,7 +497,6 @@ fn install_service(
         info!("Installed binary to {}", target_exe.display());
     }
 
-    // Create example config if it doesn't exist
     let config_file = config_dir.join("agent.toml");
     if !config_file.exists() {
         let example_config = r#"# Hydra Agent Configuration
@@ -530,7 +531,6 @@ on_startup = true
         info!("Created example config at {}", config_file.display());
     }
 
-    // Install systemd service (Linux only)
     #[cfg(target_os = "linux")]
     if !no_systemd {
         let systemd_unit = format!(
@@ -567,13 +567,11 @@ WantedBy=multi-user.target
         fs::write(&service_path, systemd_unit)?;
         info!("Created systemd unit at {}", service_path.display());
 
-        // Reload systemd
         Command::new("systemctl")
             .args(["daemon-reload"])
             .status()
             .context("Failed to reload systemd")?;
 
-        // Enable service
         Command::new("systemctl")
             .args(["enable", "hydra-agent.service"])
             .status()
@@ -618,7 +616,6 @@ fn uninstall_service(purge: bool) -> Result<()> {
 
     info!("Uninstalling hydra-agent...");
 
-    // Check if running as root
     #[cfg(unix)]
     if !nix::unistd::Uid::effective().is_root() {
         return Err(anyhow::anyhow!(
@@ -626,7 +623,6 @@ fn uninstall_service(purge: bool) -> Result<()> {
         ));
     }
 
-    // Stop and disable service (Linux only)
     #[cfg(target_os = "linux")]
     {
         let _ = Command::new("systemctl")
@@ -637,7 +633,6 @@ fn uninstall_service(purge: bool) -> Result<()> {
             .args(["disable", "hydra-agent.service"])
             .status();
 
-        // Remove systemd unit
         let service_path = PathBuf::from("/etc/systemd/system/hydra-agent.service");
         if service_path.exists() {
             fs::remove_file(&service_path)?;
@@ -649,7 +644,6 @@ fn uninstall_service(purge: bool) -> Result<()> {
             .status();
     }
 
-    // Remove binary
     let binary_path = PathBuf::from("/usr/local/bin/hydra-agent");
     if binary_path.exists() {
         fs::remove_file(&binary_path)?;
@@ -657,7 +651,6 @@ fn uninstall_service(purge: bool) -> Result<()> {
     }
 
     if purge {
-        // Remove configuration and logs
         let config_dir = PathBuf::from("/etc/hydra");
         if config_dir.exists() {
             fs::remove_dir_all(&config_dir)?;
@@ -670,7 +663,6 @@ fn uninstall_service(purge: bool) -> Result<()> {
             info!("Removed {}", log_dir.display());
         }
 
-        // Remove vault
         let vault_dir = PathBuf::from("/var/cv/hydra");
         if vault_dir.exists() {
             fs::remove_dir_all(&vault_dir)?;

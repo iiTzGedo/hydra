@@ -16,7 +16,6 @@ class GroupEntityType(str, Enum):
     SERVICE = "service"
 
 
-# Selector Models
 class IdSelector(BaseModel):
     """Selector for explicit entity IDs."""
 
@@ -57,16 +56,11 @@ class GroupSelectors(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    # Node selectors
     id: IdSelector | None = None
     network: AnySelector | None = None
     status: AnySelector | None = None
     kind: AnySelector | None = None
-
-    # Service selectors
     runtime: AnySelector | None = None
-
-    # Common selectors
     tags: TagsSelector | None = None
 
 
@@ -80,7 +74,6 @@ class MemberCount(BaseModel):
     last_computed: datetime | None = Field(default=None, alias="lastComputed")
 
 
-# Member Models
 class GroupMemberNode(BaseModel):
     """Node member information."""
 
@@ -111,7 +104,6 @@ class GroupMembers(BaseModel):
     services: list[GroupMemberService] = Field(default_factory=list)
 
 
-# Response Models
 class GroupResponse(BaseModel):
     """Full group response model."""
 
@@ -153,7 +145,6 @@ class GroupResolveResult(BaseModel):
     changes: dict = Field(default_factory=dict)
 
 
-# Request Models
 class CreateGroupRequest(BaseModel):
     """Create group request."""
 
@@ -207,25 +198,17 @@ class UpdateGroupRequest(BaseModel):
         return v
 
 
-# Query Parameters
 class GroupListParams(BaseModel):
     """Query parameters for listing groups."""
 
     model_config = ConfigDict(populate_by_name=True)
 
-    # Filters
     types: list[GroupEntityType] | None = None
     parent_group_id: str | None = Field(default=None, alias="parentGroupId")
     tags: list[str] | None = None
-
-    # Search
     search: str | None = Field(default=None, max_length=256)
-
-    # Pagination
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
-
-    # Sorting
     sort_by: Literal["groupId", "name", "createdAt", "updatedAt"] = Field(
         default="updatedAt", alias="sortBy"
     )

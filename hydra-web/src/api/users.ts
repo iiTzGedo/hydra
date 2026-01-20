@@ -9,7 +9,6 @@ import type {
 } from '@/types/user';
 import type { Role } from '@/types/auth';
 
-// List users
 export function useUsers(params?: UserListParams) {
   return useQuery({
     queryKey: queryKeys.users.list(params),
@@ -25,7 +24,6 @@ export function useUsers(params?: UserListParams) {
           sortOrder: params?.sortOrder,
         },
       });
-      // Transform to expected paginated format
       const items = response.data.users.map((user) => ({
         ...user,
         lastLoginAt: user.lastLogin,
@@ -40,7 +38,6 @@ export function useUsers(params?: UserListParams) {
   });
 }
 
-// Archive user
 export function useArchiveUser() {
   const queryClient = useQueryClient();
 
@@ -55,7 +52,6 @@ export function useArchiveUser() {
   });
 }
 
-// Elevate user role
 export function useElevateRole() {
   const queryClient = useQueryClient();
 
@@ -70,7 +66,6 @@ export function useElevateRole() {
   });
 }
 
-// Grant temporary role
 export function useGrantTemporaryRole() {
   const queryClient = useQueryClient();
 
@@ -91,7 +86,6 @@ export function useGrantTemporaryRole() {
   });
 }
 
-// Revoke temporary role
 export function useRevokeTemporaryRole() {
   const queryClient = useQueryClient();
 
@@ -105,6 +99,3 @@ export function useRevokeTemporaryRole() {
     },
   });
 }
-
-// Approval-related hooks are exported from auth.ts to avoid conflicts
-// Import from '@/api/auth' if needed: useApprovals, useApproveUser, useRejectUser

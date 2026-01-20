@@ -1,89 +1,82 @@
 import { ListParams } from './api';
 
-// Service runtime
 export type ServiceRuntime =
   | 'systemd'
   | 'docker'
-  | 'kubernetes'
   | 'podman'
-  | 'launchd'
-  | 'windows_service'
-  | 'cron'
-  | 'supervisor'
+  | 'kubernetes'
+  | 'lxc'
+  | 'supervisord'
   | 'pm2'
-  | 'custom';
+  | 'rc'
+  | 'openrc'
+  | 'winservice'
+  | 'launchd'
+  | 'containerd'
+  | 'unknown';
 
-// Service status
-export type ServiceStatus = 'running' | 'stopped' | 'paused' | 'failed' | 'restarting' | 'unknown';
+export type ServiceStatus =
+  | 'running'
+  | 'stopped'
+  | 'paused'
+  | 'exited'
+  | 'failed'
+  | 'restarting'
+  | 'unknown';
 
-// Port exposure
-export interface PortExposure {
-  internal: number;
-  external?: number;
-  protocol: 'tcp' | 'udp';
-  host?: string;
-}
-
-// Service endpoint
-export interface ServiceEndpoint {
-  name: string;
-  url: string;
+export interface ServicePort {
+  port: number;
   protocol?: string;
-  health?: 'healthy' | 'unhealthy' | 'unknown';
+  hostPort?: number;
 }
 
-// Resource allocation
-export interface ResourceAllocation {
-  cpuLimit?: number;
-  cpuRequest?: number;
-  memoryLimit?: number;
-  memoryRequest?: number;
-  storageLimit?: number;
+export interface ServiceEndpoint {
+  url: string;
+  type: string;
+  internal?: boolean;
 }
 
-// Service exposure type
-export type ExposureType = 'internal' | 'external' | 'both';
+export interface ServiceExposure {
+  ports: ServicePort[];
+  endpoints: ServiceEndpoint[];
+}
 
-// Service summary (for list views)
+export interface ServiceOrigin {
+  nativeId: string;
+  discoveredBy: string;
+  collectedAt: string;
+}
+
+export interface ServiceHealth {
+  status: 'healthy' | 'unhealthy' | 'degraded' | 'unknown';
+  lastCheck?: string;
+}
+
 export interface ServiceSummary {
   serviceId: string;
-  id?: string; // Alias for serviceId for component convenience
+  id?: string;
   nodeId: string;
   name: string;
+  displayName: string;
   runtime: ServiceRuntime;
   status: ServiceStatus;
-  ports: number[];
-  exposure: ExposureType;
-  tags: string[];
+  version?: string;
   lastSeen: string;
 }
 
-// Full service details
 export interface Service extends ServiceSummary {
-  displayName?: string;
   description?: string;
   image?: string;
-  version?: string;
-  command?: string[];
-  environment?: Record<string, string>;
-  portMappings?: PortExposure[];
-  endpoints?: ServiceEndpoint[];
-  resources?: ResourceAllocation;
-  healthCheck?: {
-    type: string;
-    interval?: number;
-    timeout?: number;
-    retries?: number;
-  };
-  health?: 'healthy' | 'unhealthy' | 'unknown'; // Overall health status
-  labels?: Record<string, string>; // Container labels/annotations
-  metadata?: Record<string, unknown>; // Additional runtime-specific metadata
-  dependencies?: string[];
-  createdAt: string;
-  updatedAt: string;
+  profileId: string;
+  exposure?: ServiceExposure;
+  resources?: Record<string, unknown> | null;
+  attachments?: Record<string, unknown> | null;
+  origin: ServiceOrigin;
+  health?: ServiceHealth;
+  tags: string[];
+  firstSeen: string;
 }
 
-// Service list params
 export interface ServiceListParams extends ListParams {
   nodeId?: string;
   runtime?: ServiceRuntime;
@@ -93,7 +86,6 @@ export interface ServiceListParams extends ListParams {
   port?: number;
 }
 
-// Update service request
 export interface UpdateServiceRequest {
   displayName?: string;
   description?: string;

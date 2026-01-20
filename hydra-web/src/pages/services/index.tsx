@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Boxes,
   Search,
@@ -64,24 +64,28 @@ import {
 
 // Runtime colors
 const runtimeColors: Record<ServiceRuntime, string> = {
+  systemd: 'text-green-500',
   docker: 'text-blue-500',
   podman: 'text-orange-500',
   kubernetes: 'text-cyan-500',
-  systemd: 'text-green-500',
+  lxc: 'text-emerald-500',
+  supervisord: 'text-rose-500',
   pm2: 'text-purple-500',
+  rc: 'text-amber-500',
+  openrc: 'text-amber-500',
+  winservice: 'text-sky-500',
   launchd: 'text-muted-foreground',
-  windows_service: 'text-sky-500',
-  cron: 'text-amber-500',
-  supervisor: 'text-rose-500',
-  custom: 'text-muted-foreground',
+  containerd: 'text-indigo-500',
+  unknown: 'text-muted-foreground',
 };
 
 // Status icons
 const statusIcons: Record<ServiceStatus, typeof Play> = {
   running: Play,
   stopped: Square,
-  failed: AlertCircle,
   paused: Square,
+  exited: Square,
+  failed: AlertCircle,
   restarting: RotateCcw,
   unknown: HelpCircle,
 };
@@ -95,16 +99,19 @@ interface FilterState {
 
 type TableDensity = 'comfortable' | 'compact';
 type ViewMode = 'table' | 'grid';
-type ServiceColumnKey = 'service' | 'host' | 'runtime' | 'ports' | 'status' | 'lastSeen';
+type ServiceColumnKey = 'service' | 'host' | 'runtime' | 'version' | 'status' | 'lastSeen';
 
 export default function ServicesPage() {
   useDocumentTitle('Service Explorer');
+
+  const [searchParams] = useSearchParams();
+  const nodeIdParam = searchParams.get('nodeId') || '';
 
   const [filters, setFilters] = useState<FilterState>({
     search: '',
     runtime: 'all',
     status: 'all',
-    nodeId: '',
+    nodeId: nodeIdParam,
   });
   const [page, setPage] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
@@ -113,7 +120,7 @@ export default function ServicesPage() {
     service: true,
     host: true,
     runtime: true,
-    ports: true,
+    version: true,
     status: true,
     lastSeen: true,
   });
@@ -150,6 +157,13 @@ export default function ServicesPage() {
     setFilters({ search: '', runtime: 'all', status: 'all', nodeId: '' });
     setPage(0);
   };
+
+  useEffect(() => {
+    if (nodeIdParam && nodeIdParam !== filters.nodeId) {
+      setFilters((prev) => ({ ...prev, nodeId: nodeIdParam }));
+      setPage(0);
+    }
+  }, [nodeIdParam, filters.nodeId]);
 
   return (
     <TooltipProvider>
@@ -362,13 +376,13 @@ export default function ServicesPage() {
                           Runtime
                         </DropdownMenuCheckboxItem>
                         <DropdownMenuCheckboxItem
-                          checked={visibleColumns.ports}
+                          checked={visibleColumns.version}
                           onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, ports: Boolean(checked) }))
+                            setVisibleColumns((prev) => ({ ...prev, version: Boolean(checked) }))
                           }
-                          disabled={visibleColumnCount === 1 && visibleColumns.ports}
+                          disabled={visibleColumnCount === 1 && visibleColumns.version}
                         >
-                          Ports
+                          Version
                         </DropdownMenuCheckboxItem>
                         <DropdownMenuCheckboxItem
                           checked={visibleColumns.status}
@@ -423,8 +437,8 @@ export default function ServicesPage() {
                   {visibleColumns.runtime && (
                     <TableHead className="text-muted-foreground">Runtime</TableHead>
                   )}
-                  {visibleColumns.ports && (
-                    <TableHead className="text-muted-foreground">Ports</TableHead>
+                  {visibleColumns.version && (
+                    <TableHead className="text-muted-foreground">Version</TableHead>
                   )}
                   {visibleColumns.status && (
                     <TableHead className="text-muted-foreground">Status</TableHead>
@@ -451,8 +465,8 @@ export default function ServicesPage() {
                     {visibleColumns.runtime && (
                       <TableCell><Skeleton className="h-6 w-16 rounded-full bg-muted" /></TableCell>
                     )}
-                    {visibleColumns.ports && (
-                      <TableCell><Skeleton className="h-5 w-20 bg-muted" /></TableCell>
+                    {visibleColumns.version && (
+                      <TableCell><Skeleton className="h-4 w-20 bg-muted" /></TableCell>
                     )}
                     {visibleColumns.status && (
                       <TableCell><Skeleton className="h-6 w-16 rounded-full bg-muted" /></TableCell>
@@ -502,8 +516,8 @@ export default function ServicesPage() {
                   {visibleColumns.runtime && (
                     <TableHead className="text-muted-foreground">Runtime</TableHead>
                   )}
-                  {visibleColumns.ports && (
-                    <TableHead className="text-muted-foreground">Ports</TableHead>
+                  {visibleColumns.version && (
+                    <TableHead className="text-muted-foreground">Version</TableHead>
                   )}
                   {visibleColumns.status && (
                     <TableHead className="text-muted-foreground">Status</TableHead>
@@ -525,7 +539,7 @@ export default function ServicesPage() {
                         ? 'warning'
                         : service.status === 'failed'
                           ? 'destructive'
-                          : service.status === 'stopped'
+                          : service.status === 'stopped' || service.status === 'exited' || service.status === 'paused'
                             ? 'secondary'
                             : 'outline';
 
@@ -534,7 +548,9 @@ export default function ServicesPage() {
                       {visibleColumns.service && (
                         <TableCell>
                           <Link to={`${ROUTES.SERVICES}/${encodeURIComponent(service.serviceId)}`} className="flex flex-col">
-                            <span className="text-foreground font-medium hover:text-primary">{service.name}</span>
+                            <span className="text-foreground font-medium hover:text-primary">
+                              {service.displayName || service.name}
+                            </span>
                             <span className="text-xs text-muted-foreground font-mono">{service.serviceId}</span>
                           </Link>
                         </TableCell>
@@ -560,25 +576,11 @@ export default function ServicesPage() {
                           </Badge>
                         </TableCell>
                       )}
-                      {visibleColumns.ports && (
+                      {visibleColumns.version && (
                         <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {service.ports?.slice(0, 2).map((port, i) => (
-                              <Badge
-                                key={i}
-                                variant="secondary"
-                                className="text-[10px]"
-                              >
-                                {port}
-                              </Badge>
-                            ))}
-                            {(service.ports?.length ?? 0) > 2 && (
-                              <Badge variant="secondary" className="text-[10px]">
-                                +{(service.ports?.length ?? 0) - 2}
-                              </Badge>
-                            )}
-                            {!service.ports?.length && <span className="text-muted-foreground text-sm">-</span>}
-                          </div>
+                          <span className="text-muted-foreground text-sm">
+                            {service.version ? `v${service.version}` : '-'}
+                          </span>
                         </TableCell>
                       )}
                       {visibleColumns.status && (

@@ -49,11 +49,9 @@ export default function ProfilePage() {
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Token creation form state
   const [tokenName, setTokenName] = useState('');
   const [tokenExpiryDays, setTokenExpiryDays] = useState('90');
 
-  // Password change state
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -74,7 +72,6 @@ export default function ProfilePage() {
         setShowCreateTokenModal(false);
         setShowTokenResult(true);
       }
-      // Reset form
       setTokenName('');
       setTokenExpiryDays('90');
     } catch {
@@ -130,15 +127,12 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Profile</h2>
         <p className="text-sm text-muted-foreground">Manage your account settings and preferences</p>
       </div>
 
-      {/* Two Column Layout for Profile Info and Security */}
       <div className="grid gap-6 xl:grid-cols-2">
-        {/* Profile Info Card */}
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-foreground flex items-center gap-2">
@@ -215,7 +209,6 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        {/* Security Settings */}
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-foreground flex items-center gap-2">
@@ -281,7 +274,6 @@ export default function ProfilePage() {
         </Card>
       </div>
 
-      {/* API Keys Section */}
       <Card className="bg-card border-border">
         <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -380,7 +372,6 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Create Token Modal */}
       <Dialog open={showCreateTokenModal} onOpenChange={setShowCreateTokenModal}>
         <DialogContent className="bg-popover border-border text-foreground max-w-md">
           <DialogHeader>
@@ -447,7 +438,6 @@ export default function ProfilePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Token Result Modal */}
       <Dialog open={showTokenResult} onOpenChange={setShowTokenResult}>
         <DialogContent className="bg-popover border-border text-foreground max-w-lg">
           <DialogHeader>

@@ -6,6 +6,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { Link } from 'react-router-dom';
+import { useQueries } from '@tanstack/react-query';
 import {
   MessageSquare,
   Loader2,
@@ -29,9 +30,36 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useMCPStore } from '@/stores/mcp-store';
 import { ROUTES } from '@/lib/constants';
+import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-client';
 import { useMCPChat } from '@/hooks/use-mcp-chat';
+import {
+  useChatProjects,
+  useChatSessions,
+  useChatMessages,
+  useCreateChatProject,
+  useCreateChatSession,
+  useUpdateChatSession,
+  useDeleteChatSession,
+  useBulkUpsertMessages,
+  type ChatMessageResponse,
+  type ChatMessageRole,
+} from '@/api/chat';
+import {
+  useLLMProviders,
+  useCreateLLMProvider,
+  useUpdateLLMProvider,
+  useDeleteLLMProvider,
+  useValidateLLMProvider,
+  type LLMProviderCreate,
+} from '@/api/ai';
+import {
+  useMCPServers,
+  type MCPToolInfo,
+  type MCPToolsResponse,
+  type MCPResourcesResponse,
+} from '@/api/mcp';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -43,6 +71,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useToast } from '@/components/ui/use-toast';
 
 import { ChatHeader, ChatInput, MessageBubble } from './components';
 import { NewProjectModal, MCPConfigModal, LLMConfigModal } from './modals';
@@ -71,28 +100,50 @@ const useInfrastructureContext = () => {
 export default function ChatPage() {
   useDocumentTitle('Chat');
 
+  const { toast } = useToast();
+
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [localMessages, setLocalMessages] = useState<
+    Array<ChatMessageResponse & { error?: boolean }>
+  >([]);
+
+  const { data: projectsData } = useChatProjects();
+  const { data: sessionsData } = useChatSessions();
   const {
-    servers,
-    sessions,
-    projects,
-    currentSessionId,
-    llmProviders,
-    activeLLMProviderId,
-    createSession,
-    deleteSession,
-    setCurrentSession,
-    createProject,
-    addMessage,
-    getCurrentSession,
-    getActiveServers,
-    getActiveLLMProvider,
-    getProjectSessions,
-    getStandaloneSessions,
-    connectServer,
-    disconnectServer,
-    setActiveLLMProvider,
-    updateLLMProvider,
-  } = useMCPStore();
+    data: messagesData,
+    refetch: refetchMessages,
+  } = useChatMessages(currentSessionId || '', { order: 'asc' });
+
+  const { data: llmProvidersData } = useLLMProviders();
+  const { data: mcpServersData } = useMCPServers();
+
+  const createProjectMutation = useCreateChatProject();
+  const createSessionMutation = useCreateChatSession();
+  const updateSessionMutation = useUpdateChatSession();
+  const deleteSessionMutation = useDeleteChatSession();
+  const bulkUpsertMessagesMutation = useBulkUpsertMessages();
+
+  const createProviderMutation = useCreateLLMProvider();
+  const updateProviderMutation = useUpdateLLMProvider();
+  const deleteProviderMutation = useDeleteLLMProvider();
+  const validateProviderMutation = useValidateLLMProvider();
+
+  const projects = projectsData?.projects || [];
+  const sessions = sessionsData?.sessions || [];
+  const llmProviders = llmProvidersData?.providers || [];
+  const servers = mcpServersData?.servers || [];
+
+  const currentSession =
+    sessions.find((session) => session.sessionId === currentSessionId) || null;
+
+  const defaultProvider = llmProviders.find((provider) => provider.isDefault);
+  const activeLLMProviderId =
+    currentSession?.llmProviderId || defaultProvider?.providerId || null;
+  const activeLLMProvider = llmProviders.find(
+    (provider) => provider.providerId === activeLLMProviderId
+  );
+
+  const activeServerIds = currentSession?.mcpServerIds || [];
 
   const [input, setInput] = useState('');
   const [sidebarTab, setSidebarTab] = useState<'chats' | 'tools'>('chats');
@@ -107,15 +158,101 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const infraContext = useInfrastructureContext();
 
-  // Get current session data
-  const currentSession = getCurrentSession();
-  const messages = currentSession?.messages || [];
-  const activeServers = getActiveServers();
-  const activeLLMProvider = getActiveLLMProvider();
-  const standaloneSessions = getStandaloneSessions();
+  const messages = messagesData?.messages || [];
+  const standaloneSessions = useMemo(
+    () => sessions.filter((session) => !session.projectId),
+    [sessions]
+  );
 
-  const hydraMcp = servers.find((server) => server.id === 'hydra-mcp');
-  const isHydraMcpConnected = hydraMcp?.status === 'connected';
+  // Helper to get sessions for a project
+  const getProjectSessions = (projectId: string) =>
+    sessions.filter((session) => session.projectId === projectId);
+
+  const isHydraMcpConnected = activeServerIds.includes('hydra-mcp');
+
+  const toolsQueries = useQueries({
+    queries: servers.map((server) => ({
+      queryKey: queryKeys.mcp.tools(server.serverId),
+      queryFn: async () => {
+        const response = await apiClient.get<MCPToolsResponse>(
+          `/mcp/servers/${server.serverId}/tools`
+        );
+        return response.data;
+      },
+      enabled: !!server.serverId,
+    })),
+  });
+
+  const resourcesQueries = useQueries({
+    queries: servers.map((server) => ({
+      queryKey: queryKeys.mcp.resources(server.serverId),
+      queryFn: async () => {
+        const response = await apiClient.get<MCPResourcesResponse>(
+          `/mcp/servers/${server.serverId}/resources`
+        );
+        return response.data;
+      },
+      enabled: !!server.serverId,
+    })),
+  });
+
+  const toolsByServerId = useMemo(() => {
+    const toolMap = new Map<string, MCPToolInfo[]>();
+    servers.forEach((server, index) => {
+      const tools = toolsQueries[index]?.data?.tools || [];
+      toolMap.set(server.serverId, tools);
+    });
+    return toolMap;
+  }, [servers, toolsQueries]);
+
+  const resourcesByServerId = useMemo(() => {
+    const resourceMap = new Map<string, MCPResourcesResponse['resources']>();
+    servers.forEach((server, index) => {
+      const resources = resourcesQueries[index]?.data?.resources || [];
+      resourceMap.set(server.serverId, resources);
+    });
+    return resourceMap;
+  }, [servers, resourcesQueries]);
+
+  const serversWithTools = useMemo(
+    () =>
+      servers.map((server) => ({
+        ...server,
+        isActive: activeServerIds.includes(server.serverId),
+        tools: toolsByServerId.get(server.serverId) || [],
+        resources: resourcesByServerId.get(server.serverId) || [],
+      })),
+    [servers, activeServerIds, toolsByServerId, resourcesByServerId]
+  );
+
+  const activeTools = useMemo(() => {
+    return activeServerIds.flatMap((serverId) =>
+      (toolsByServerId.get(serverId) || []).map((tool) => tool.name)
+    );
+  }, [activeServerIds, toolsByServerId]);
+
+  const allMessages = useMemo(() => {
+    const combined = [...messages, ...localMessages];
+    return combined.sort((a, b) => a.order - b.order);
+  }, [messages, localMessages]);
+
+  const appendLocalMessage = (
+    payload: Pick<ChatMessageResponse, 'role' | 'content' | 'toolCalls'> & { error?: boolean }
+  ) => {
+    setLocalMessages((prev) => [
+      ...prev,
+      {
+        messageId: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        sessionId: currentSessionId || 'local',
+        role: payload.role as ChatMessageRole,
+        content: payload.content,
+        toolCalls: payload.toolCalls,
+        order: messages.length + prev.length,
+        createdAt: new Date().toISOString(),
+        error: payload.error,
+      },
+    ]);
+  };
 
   // WebSocket chat hook
   const {
@@ -128,34 +265,20 @@ export default function ChatPage() {
   } = useMCPChat({
     sessionId: currentSessionId,
     providerId: activeLLMProviderId,
-    onMessage: (message) => {
+    onMessage: () => {
+      setStreamingContent('');
+      setLocalMessages([]);
       if (currentSessionId) {
-        addMessage(currentSessionId, {
-          role: message.role,
-          content: message.content,
-          toolCalls: message.toolCalls?.map(tc => ({
-            id: tc.id,
-            serverId: '',
-            serverName: '',
-            name: tc.name,
-            arguments: tc.arguments,
-            result: tc.result,
-            error: tc.error,
-            status: tc.status,
-          })),
-        });
-        setStreamingContent('');
+        refetchMessages();
       }
     },
     onError: (error) => {
-      if (currentSessionId) {
-        addMessage(currentSessionId, {
-          role: 'assistant',
-          content: `Error: ${error}`,
-          error: true,
-        });
-        setStreamingContent('');
-      }
+      appendLocalMessage({
+        role: 'assistant',
+        content: `Error: ${error}`,
+        error: true,
+      });
+      setStreamingContent('');
     },
   });
 
@@ -164,40 +287,78 @@ export default function ChatPage() {
     setStreamingContent(currentResponse);
   }, [currentResponse]);
 
-  // Get active tools from connected servers
-  const activeTools = useMemo(() => {
-    return activeServers.flatMap((s) =>
-      (s.tools || []).map((t) => (typeof t === 'string' ? t : t.name))
+  const hasBootstrappedRef = useRef(false);
+
+  // Auto-select or create a session
+  useEffect(() => {
+    if (!sessionsData) {
+      return;
+    }
+
+    if (!currentSessionId && sessions.length > 0) {
+      setCurrentSessionId(sessions[0].sessionId);
+      return;
+    }
+
+    if (sessions.length === 0 && !hasBootstrappedRef.current) {
+      hasBootstrappedRef.current = true;
+      createSessionMutation.mutate(
+        { title: 'New Chat' },
+        {
+          onSuccess: (session) => {
+            setCurrentSessionId(session.sessionId);
+          },
+          onError: () => {
+            hasBootstrappedRef.current = false;
+          },
+        }
+      );
+    }
+  }, [sessionsData, sessions.length, currentSessionId, createSessionMutation]);
+
+  useEffect(() => {
+    if (!currentSessionId) {
+      return;
+    }
+
+    const sessionExists = sessions.some(
+      (session) => session.sessionId === currentSessionId
     );
-  }, [activeServers]);
-
-  // Auto-create session if none exists
-  useEffect(() => {
-    if (!currentSessionId && sessions.length === 0) {
-      createSession('New Chat');
+    if (!sessionExists && sessions.length > 0) {
+      setCurrentSessionId(sessions[0].sessionId);
     }
-  }, [currentSessionId, sessions.length, createSession]);
+  }, [currentSessionId, sessions]);
 
-  // Auto-connect to Hydra MCP on mount (run once)
   useEffect(() => {
-    const hydraMCP = servers.find((s) => s.id === 'hydra-mcp');
-    if (hydraMCP && hydraMCP.status === 'disconnected') {
-      connectServer('hydra-mcp');
+    if (!currentSession || !defaultProvider) {
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!currentSession.llmProviderId) {
+      updateSessionMutation.mutate({
+        sessionId: currentSession.sessionId,
+        data: { llmProviderId: defaultProvider.providerId },
+      });
+    }
+  }, [currentSession, defaultProvider, updateSessionMutation]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [allMessages, isStreaming]);
+
+  useEffect(() => {
+    setLocalMessages([]);
+    setStreamingContent('');
+  }, [currentSessionId]);
 
   // Connect WebSocket when session and provider are ready
   useEffect(() => {
-    if (currentSessionId && activeLLMProvider?.isConfigured && !wsConnected) {
+    const isProviderReady =
+      activeLLMProvider?.apiKeySet || activeLLMProvider?.type === 'ollama';
+    if (currentSessionId && isProviderReady && !wsConnected) {
       wsConnect();
     }
-  }, [currentSessionId, activeLLMProvider?.isConfigured, wsConnected, wsConnect]);
+  }, [currentSessionId, activeLLMProvider, wsConnected, wsConnect]);
 
   // Disconnect WebSocket when component unmounts
   useEffect(() => {
@@ -211,7 +372,9 @@ export default function ChatPage() {
     if (!messageText || isStreaming || !currentSessionId) return;
 
     // Check if LLM provider is configured
-    if (!activeLLMProvider?.isConfigured) {
+    const providerReady =
+      activeLLMProvider?.apiKeySet || activeLLMProvider?.type === 'ollama';
+    if (!providerReady) {
       setShowLLMConfigModal(true);
       return;
     }
@@ -219,7 +382,7 @@ export default function ChatPage() {
     if (!wsConnected) {
       // Try to connect if not connected
       wsConnect();
-      addMessage(currentSessionId, {
+      appendLocalMessage({
         role: 'assistant',
         content: 'Connecting to chat server... Please try again in a moment.',
         error: true,
@@ -230,7 +393,7 @@ export default function ChatPage() {
     setInput('');
 
     // Add user message
-    addMessage(currentSessionId, {
+    appendLocalMessage({
       role: 'user',
       content: messageText,
     });
@@ -247,20 +410,211 @@ export default function ChatPage() {
 
   const handleCreateProject = () => {
     if (!newProjectName.trim()) return;
-    const projectId = createProject(newProjectName.trim());
-    setExpandedProjects((prev) => [...prev, projectId]);
-    setNewProjectName('');
-    setShowNewProjectModal(false);
+    createProjectMutation.mutate(
+      { name: newProjectName.trim() },
+      {
+        onSuccess: (project) => {
+          setExpandedProjects((prev) => [...prev, project.projectId]);
+          setNewProjectName('');
+          setShowNewProjectModal(false);
+        },
+        onError: () => {
+          toast({
+            title: 'Failed to create project',
+            description: 'Please try again.',
+            variant: 'destructive',
+          });
+        },
+      }
+    );
   };
 
   const handleSelectSession = (sessionId: string) => {
-    setCurrentSession(sessionId);
+    setCurrentSessionId(sessionId);
+    setLocalMessages([]);
     setMobileSidebarOpen(false);
   };
 
   const handleNewChat = (projectId?: string) => {
-    createSession('New Chat', projectId);
-    setMobileSidebarOpen(false);
+    createSessionMutation.mutate(
+      { title: 'New Chat', projectId },
+      {
+        onSuccess: (session) => {
+          setCurrentSessionId(session.sessionId);
+          setMobileSidebarOpen(false);
+        },
+        onError: () => {
+          toast({
+            title: 'Failed to create chat',
+            description: 'Please try again.',
+            variant: 'destructive',
+          });
+        },
+      }
+    );
+  };
+
+  const handleSetActiveProvider = (providerId: string) => {
+    if (!currentSession) return;
+    updateSessionMutation.mutate({
+      sessionId: currentSession.sessionId,
+      data: { llmProviderId: providerId },
+    });
+  };
+
+  const handleConnectServer = (serverId: string) => {
+    if (!currentSession) return;
+    const nextServerIds = Array.from(
+      new Set([...(currentSession.mcpServerIds || []), serverId])
+    );
+    updateSessionMutation.mutate({
+      sessionId: currentSession.sessionId,
+      data: { mcpServerIds: nextServerIds },
+    });
+  };
+
+  const handleDisconnectServer = (serverId: string) => {
+    if (!currentSession) return;
+    const nextServerIds = (currentSession.mcpServerIds || []).filter(
+      (id) => id !== serverId
+    );
+    updateSessionMutation.mutate({
+      sessionId: currentSession.sessionId,
+      data: { mcpServerIds: nextServerIds },
+    });
+  };
+
+  const handleDeleteSession = () => {
+    if (!currentSessionId) return;
+    deleteSessionMutation.mutate(currentSessionId, {
+      onSuccess: () => {
+        setCurrentSessionId(null);
+      },
+      onError: () => {
+        toast({
+          title: 'Failed to delete chat',
+          description: 'Please try again.',
+          variant: 'destructive',
+        });
+      },
+    });
+  };
+
+  const handleRenameSession = () => {
+    if (!currentSession) return;
+    const nextTitle = window.prompt('Rename chat', currentSession.title || 'Chat');
+    if (!nextTitle || !nextTitle.trim()) return;
+    updateSessionMutation.mutate({
+      sessionId: currentSession.sessionId,
+      data: { title: nextTitle.trim() },
+    });
+  };
+
+  const handleDuplicateSession = async () => {
+    if (!currentSession) return;
+    try {
+      const newSession = await createSessionMutation.mutateAsync({
+        title: `${currentSession.title || 'Chat'} (copy)`,
+        projectId: currentSession.projectId || undefined,
+        llmProviderId: currentSession.llmProviderId || undefined,
+        mcpServerIds: currentSession.mcpServerIds || [],
+      });
+
+      if (messages.length > 0) {
+        await bulkUpsertMessagesMutation.mutateAsync({
+          sessionId: newSession.sessionId,
+          messages: messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+            toolCalls: message.toolCalls,
+            order: message.order,
+          })),
+        });
+      }
+
+      setCurrentSessionId(newSession.sessionId);
+    } catch (error) {
+      toast({
+        title: 'Failed to duplicate chat',
+        description: 'Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleExportSession = () => {
+    if (!currentSession) return;
+    const exportData = {
+      session: currentSession,
+      messages,
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${currentSession.title || 'chat'}-${currentSession.sessionId}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCreateProvider = (data: LLMProviderCreate) => {
+    createProviderMutation.mutate(data, {
+      onError: () => {
+        toast({
+          title: 'Failed to add provider',
+          description: 'Please check the configuration and try again.',
+          variant: 'destructive',
+        });
+      },
+    });
+  };
+
+  const handleUpdateProvider = (providerId: string, updates: { apiKey?: string }) => {
+    updateProviderMutation.mutate(
+      { providerId, data: updates },
+      {
+        onError: () => {
+          toast({
+            title: 'Failed to update provider',
+            description: 'Please try again.',
+            variant: 'destructive',
+          });
+        },
+      }
+    );
+  };
+
+  const handleDeleteProvider = (providerId: string) => {
+    deleteProviderMutation.mutate(providerId, {
+      onError: () => {
+        toast({
+          title: 'Failed to remove provider',
+          description: 'Please try again.',
+          variant: 'destructive',
+        });
+      },
+    });
+  };
+
+  const handleValidateProvider = (providerId: string) => {
+    validateProviderMutation.mutate(providerId, {
+      onSuccess: (result) => {
+        toast({
+          title: result.isValid ? 'Provider validated' : 'Validation failed',
+          description: result.message,
+          variant: result.isValid ? 'default' : 'destructive',
+        });
+      },
+      onError: () => {
+        toast({
+          title: 'Validation failed',
+          description: 'Please try again.',
+          variant: 'destructive',
+        });
+      },
+    });
   };
 
   return (
@@ -356,12 +710,12 @@ export default function ChatPage() {
                       </h4>
                       <div className="space-y-0.5">
                         {projects.map((project) => {
-                          const projectSessions = getProjectSessions(project.id);
+                          const projectSessions = getProjectSessions(project.projectId);
                           return (
                             <Collapsible
-                              key={project.id}
-                              open={expandedProjects.includes(project.id)}
-                              onOpenChange={() => toggleProjectExpand(project.id)}
+                              key={project.projectId}
+                              open={expandedProjects.includes(project.projectId)}
+                              onOpenChange={() => toggleProjectExpand(project.projectId)}
                             >
                               <CollapsibleTrigger asChild>
                                 <button
@@ -370,7 +724,7 @@ export default function ChatPage() {
                                     'hover:bg-muted text-muted-foreground hover:text-foreground'
                                   )}
                                 >
-                                  {expandedProjects.includes(project.id) ? (
+                                  {expandedProjects.includes(project.projectId) ? (
                                     <ChevronDown className="h-3 w-3 shrink-0" />
                                   ) : (
                                     <ChevronRight className="h-3 w-3 shrink-0" />
@@ -389,20 +743,20 @@ export default function ChatPage() {
                                 <div className="ml-5 mt-0.5 space-y-0.5">
                                   {projectSessions.map((session) => (
                                     <button
-                                      key={session.id}
-                                      onClick={() => handleSelectSession(session.id)}
+                                      key={session.sessionId}
+                                      onClick={() => handleSelectSession(session.sessionId)}
                                       className={cn(
                                         'w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-colors',
                                         'hover:bg-muted text-muted-foreground hover:text-foreground',
-                                        currentSessionId === session.id && 'bg-muted text-foreground'
+                                        currentSessionId === session.sessionId && 'bg-muted text-foreground'
                                       )}
                                     >
                                       <MessageSquare className="h-3 w-3 shrink-0" />
-                                      <span className="truncate">{session.name}</span>
+                                      <span className="truncate">{session.title || 'Untitled'}</span>
                                     </button>
                                   ))}
                                   <button
-                                    onClick={() => handleNewChat(project.id)}
+                                    onClick={() => handleNewChat(project.projectId)}
                                     className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                                   >
                                     <Plus className="h-3 w-3" />
@@ -425,16 +779,16 @@ export default function ChatPage() {
                     <div className="space-y-0.5">
                       {standaloneSessions.map((session) => (
                         <button
-                          key={session.id}
-                          onClick={() => handleSelectSession(session.id)}
+                          key={session.sessionId}
+                          onClick={() => handleSelectSession(session.sessionId)}
                           className={cn(
                             'w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs transition-colors',
                             'hover:bg-muted text-muted-foreground hover:text-foreground',
-                            currentSessionId === session.id && 'bg-muted text-foreground'
+                            currentSessionId === session.sessionId && 'bg-muted text-foreground'
                           )}
                         >
                           <MessageSquare className="h-3 w-3 shrink-0" />
-                          <span className="truncate flex-1 text-left">{session.name}</span>
+                          <span className="truncate flex-1 text-left">{session.title || 'Untitled'}</span>
                         </button>
                       ))}
                       {standaloneSessions.length === 0 && sessions.length === 0 && (
@@ -469,36 +823,36 @@ export default function ChatPage() {
                       </Link>
                     </div>
                     <div className="space-y-2">
-                      {servers.map((mcp) => {
-                        const statusColor = mcp.status === 'connected'
+                      {serversWithTools.map((mcp) => {
+                        const statusColor = mcp.isActive
                           ? 'bg-emerald-500'
-                          : mcp.status === 'error'
+                          : mcp.status === 'unhealthy'
                             ? 'bg-red-500'
                             : 'bg-muted-foreground';
 
                         return (
                           <div
-                            key={mcp.id}
+                            key={mcp.serverId}
                             className={cn(
                               'rounded-lg p-3 transition-colors cursor-pointer border',
-                              mcp.status === 'connected'
+                              mcp.isActive
                                 ? 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10'
                                 : 'bg-muted/30 border-border hover:bg-muted/60'
                             )}
                             onClick={() =>
-                              mcp.status === 'connected'
-                                ? disconnectServer(mcp.id)
-                                : connectServer(mcp.id)
+                              mcp.isActive
+                                ? handleDisconnectServer(mcp.serverId)
+                                : handleConnectServer(mcp.serverId)
                             }
                           >
                             <div className="flex items-start gap-3">
                               <div
                                 className={cn(
                                   'h-9 w-9 rounded-md flex items-center justify-center shrink-0',
-                                  mcp.status === 'connected' ? 'bg-emerald-500/20' : 'bg-muted'
+                                  mcp.isActive ? 'bg-emerald-500/20' : 'bg-muted'
                                 )}
                               >
-                                {mcp.type === 'builtin' ? (
+                                {mcp.serverId === 'hydra-mcp' ? (
                                   <Terminal className="h-4 w-4 text-violet-400" />
                                 ) : (
                                   <Globe className="h-4 w-4 text-cyan-400" />
@@ -511,21 +865,21 @@ export default function ChatPage() {
                                   </span>
                                   <div
                                     className={cn('h-2 w-2 rounded-full shrink-0', statusColor)}
-                                    title={mcp.status}
+                                    title={mcp.isActive ? 'active' : mcp.status}
                                   />
                                 </div>
                                 <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
-                                  {mcp.description || mcp.type}
+                                  {mcp.description || mcp.category}
                                 </p>
                                 <div className="flex items-center gap-2 mt-1.5">
                                   <Badge
                                     variant="secondary"
                                     className="text-[9px] px-1.5 h-4 bg-muted/80 text-muted-foreground"
                                   >
-                                    {(mcp.tools || []).length} tools
+                                    {mcp.tools.length} tools
                                   </Badge>
                                   <span className="text-[9px] text-muted-foreground/70">
-                                    {mcp.status === 'connected' ? 'Click to disconnect' : 'Click to connect'}
+                                    {mcp.isActive ? 'Click to disconnect' : 'Click to connect'}
                                   </span>
                                 </div>
                               </div>
@@ -682,9 +1036,12 @@ export default function ChatPage() {
             activeLLMProviderId={activeLLMProviderId}
             llmProviders={llmProviders}
             activeToolsCount={activeTools.length}
-            onLLMProviderChange={setActiveLLMProvider}
+            onLLMProviderChange={handleSetActiveProvider}
             onOpenLLMConfig={() => setShowLLMConfigModal(true)}
-            onDeleteSession={() => currentSessionId && deleteSession(currentSessionId)}
+            onRenameSession={handleRenameSession}
+            onDuplicateSession={handleDuplicateSession}
+            onExportSession={handleExportSession}
+            onDeleteSession={handleDeleteSession}
           />
 
           {/* MCP Warning */}
@@ -702,7 +1059,7 @@ export default function ChatPage() {
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto">
             <div className="p-4 space-y-4 max-w-4xl mx-auto">
-              {messages.length === 0 ? (
+              {allMessages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center py-12">
                   <div className="rounded-full bg-blue-600/10 p-4">
                     <Bot className="h-8 w-8 text-blue-500" />
@@ -740,8 +1097,8 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <>
-                  {messages.map((message) => (
-                    <MessageBubble key={message.id} message={message} />
+                  {allMessages.map((message) => (
+                    <MessageBubble key={message.messageId} message={message} />
                   ))}
                   {isStreaming && (
                     <div className="flex gap-3">
@@ -789,9 +1146,9 @@ export default function ChatPage() {
         <MCPConfigModal
           open={showMCPConfigModal}
           onOpenChange={setShowMCPConfigModal}
-          servers={servers}
-          onConnectServer={connectServer}
-          onDisconnectServer={disconnectServer}
+          servers={serversWithTools}
+          onConnectServer={handleConnectServer}
+          onDisconnectServer={handleDisconnectServer}
         />
 
         <LLMConfigModal
@@ -799,8 +1156,11 @@ export default function ChatPage() {
           onOpenChange={setShowLLMConfigModal}
           llmProviders={llmProviders}
           activeLLMProviderId={activeLLMProviderId}
-          onSetActiveProvider={setActiveLLMProvider}
-          onUpdateProvider={updateLLMProvider}
+          onSetActiveProvider={handleSetActiveProvider}
+          onUpdateProvider={handleUpdateProvider}
+          onCreateProvider={handleCreateProvider}
+          onDeleteProvider={handleDeleteProvider}
+          onValidateProvider={handleValidateProvider}
         />
       </div>
     </TooltipProvider>

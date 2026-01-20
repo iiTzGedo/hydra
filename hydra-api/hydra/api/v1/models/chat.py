@@ -32,9 +32,6 @@ class ToolCallStatus(str, Enum):
     ERROR = "error"
 
 
-# ==================== Tool Call Models ====================
-
-
 class ToolCall(BaseModel):
     """A tool call within a message."""
 
@@ -48,9 +45,6 @@ class ToolCall(BaseModel):
     status: ToolCallStatus = Field(default=ToolCallStatus.PENDING)
 
     model_config = {"populate_by_name": True}
-
-
-# ==================== Project Models ====================
 
 
 class ChatProjectCreate(BaseModel):
@@ -90,9 +84,6 @@ class ChatProjectListResponse(BaseModel):
 
     projects: list[ChatProjectResponse]
     total: int
-
-
-# ==================== Session Models ====================
 
 
 class ChatSessionCreate(BaseModel):
@@ -141,9 +132,6 @@ class ChatSessionListResponse(BaseModel):
 
     sessions: list[ChatSessionResponse]
     total: int
-
-
-# ==================== Message Models ====================
 
 
 class ChatMessageCreate(BaseModel):

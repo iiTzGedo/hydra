@@ -1,30 +1,20 @@
-/**
- * MCP (Model Context Protocol) types for Hydra Web
- */
-
-/**
- * MCP Server configuration
- */
 export interface MCPServer {
   id: string;
   name: string;
   description: string;
   type: 'builtin' | 'remote' | 'custom';
   status: 'connected' | 'disconnected' | 'error';
-  endpoint?: string; // HTTP endpoint URL for health/tools/resources
-  wsEndpoint?: string; // WebSocket endpoint URL for streaming
+  endpoint?: string;
+  wsEndpoint?: string;
   category: MCPServerCategory;
   icon?: string;
   docsUrl?: string;
-  tools?: (MCPTool | string)[]; // Can be full tool objects or just names from health check
-  resources?: (MCPResource | string)[]; // Can be full resource objects or just URIs from health check
+  tools?: (MCPTool | string)[];
+  resources?: (MCPResource | string)[];
   lastConnected?: Date;
   error?: string;
 }
 
-/**
- * MCP Server category for grouping in the marketplace
- */
 export type MCPServerCategory =
   | 'infrastructure'
   | 'monitoring'
@@ -34,18 +24,12 @@ export type MCPServerCategory =
   | 'development'
   | 'other';
 
-/**
- * MCP Tool definition
- */
 export interface MCPTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
 }
 
-/**
- * MCP Resource definition
- */
 export interface MCPResource {
   uri: string;
   name: string;
@@ -53,9 +37,6 @@ export interface MCPResource {
   mimeType?: string;
 }
 
-/**
- * LLM Provider configuration
- */
 export interface LLMProvider {
   id: string;
   name: string;
@@ -66,9 +47,6 @@ export interface LLMProvider {
   isConfigured: boolean;
 }
 
-/**
- * Chat message in the MCP chat interface
- */
 export interface MCPChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -79,9 +57,6 @@ export interface MCPChatMessage {
   pending?: boolean;
 }
 
-/**
- * Tool call made by the LLM
- */
 export interface MCPToolCall {
   id: string;
   serverId: string;
@@ -93,9 +68,6 @@ export interface MCPToolCall {
   status: 'pending' | 'success' | 'error';
 }
 
-/**
- * Chat project for organizing conversations
- */
 export interface ChatProject {
   id: string;
   name: string;
@@ -103,13 +75,10 @@ export interface ChatProject {
   updatedAt: Date;
 }
 
-/**
- * MCP Chat session
- */
 export interface MCPChatSession {
   id: string;
   name: string;
-  projectId?: string; // Optional: if set, belongs to a project; otherwise standalone
+  projectId?: string;
   messages: MCPChatMessage[];
   connectedServers: string[];
   llmProvider: string;
@@ -117,9 +86,6 @@ export interface MCPChatSession {
   updatedAt: Date;
 }
 
-/**
- * Suggested MCP servers for the marketplace
- */
 export interface SuggestedMCPServer {
   id: string;
   name: string;
@@ -134,9 +100,6 @@ export interface SuggestedMCPServer {
   isPopular?: boolean;
 }
 
-/**
- * MCP Client state
- */
 export interface MCPClientState {
   servers: MCPServer[];
   activeSessions: MCPChatSession[];
@@ -147,18 +110,12 @@ export interface MCPClientState {
   error: string | null;
 }
 
-/**
- * Send message request
- */
 export interface SendMessageRequest {
   sessionId: string;
   content: string;
   serverIds?: string[];
 }
 
-/**
- * Send message response
- */
 export interface SendMessageResponse {
   message: MCPChatMessage;
   toolCalls?: MCPToolCall[];

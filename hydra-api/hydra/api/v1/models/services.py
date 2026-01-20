@@ -48,7 +48,6 @@ class HealthStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
-# Sub-models for service components
 class ServicePort(BaseModel):
     """Service port configuration."""
 
@@ -108,7 +107,6 @@ class ServiceHealth(BaseModel):
     last_check: datetime | None = Field(default=None, alias="lastCheck")
 
 
-# Response Models
 class ServiceResponse(BaseModel):
     """Full service response model."""
 
@@ -149,7 +147,6 @@ class ServiceSummary(BaseModel):
     last_seen: datetime = Field(alias="lastSeen")
 
 
-# Request Models
 class UpdateServiceRequest(BaseModel):
     """Update service metadata."""
 
@@ -169,28 +166,20 @@ class UpdateServiceRequest(BaseModel):
         return v
 
 
-# Query Parameters
 class ServiceListParams(BaseModel):
     """Query parameters for listing services."""
 
     model_config = ConfigDict(populate_by_name=True)
 
-    # Filters
     node_id: str | None = Field(default=None, alias="nodeId")
     runtime: ServiceRuntime | None = None
     status: ServiceStatus | None = None
     name: str | None = None
     tags: list[str] | None = None
     port: int | None = Field(default=None, ge=1, le=65535)
-
-    # Search
     search: str | None = Field(default=None, max_length=256)
-
-    # Pagination
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
-
-    # Sorting
     sort_by: Literal["serviceId", "name", "lastSeen", "status", "runtime"] = Field(
         default="lastSeen", alias="sortBy"
     )

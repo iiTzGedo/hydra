@@ -39,9 +39,6 @@ class AuditAction(str, Enum):
     EXECUTE = "execute"
 
 
-# ==================== Query Request/Response Models ====================
-
-
 class QueryRequest(BaseModel):
     """Request for structured query across collections."""
 
@@ -62,9 +59,6 @@ class QueryResponse(BaseModel):
     results: list[dict[str, Any]]
     total: int
     returned: int
-
-
-# ==================== Capacity Models ====================
 
 
 class CapacitySummary(BaseModel):
@@ -109,9 +103,6 @@ class CapacityResponse(BaseModel):
     by_location: Annotated[dict[str, LocationCapacity] | None, Field(default=None, alias="byLocation")]
 
     model_config = {"populate_by_name": True}
-
-
-# ==================== Audit Models ====================
 
 
 class AuditResource(BaseModel):

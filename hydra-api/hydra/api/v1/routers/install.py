@@ -7,7 +7,6 @@ Supports multiple distribution methods:
 """
 
 import re
-from pathlib import Path
 from typing import Literal
 
 import structlog
@@ -15,17 +14,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 
 from hydra.api.v1 import __version__
-from hydra.core.config import get_settings
 from hydra.api.v1.core.deps import StorageServiceDep
 from hydra.api.v1.services.storage import StorageSource
+from hydra.core.config import get_settings
 
 router = APIRouter(prefix="/agent", tags=["Agent Management"])
 logger = structlog.get_logger(__name__)
 
-# Version validation pattern (security: prevent path traversal)
 VERSION_PATTERN = re.compile(r'^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9]+)?$|^latest$')
 
-# Supported targets for binary downloads
 SUPPORTED_TARGETS = {
     "hydra-agent-linux-amd64": {"os": "linux", "arch": "amd64", "target": "linux-amd64"},
     "hydra-agent-linux-arm64": {"os": "linux", "arch": "arm64", "target": "linux-arm64"},
@@ -38,7 +35,17 @@ SUPPORTED_TARGETS = {
 
 
 def validate_version(version: str) -> str:
-    """Validate version parameter to prevent path traversal."""
+    """Validate version parameter to prevent path traversal.
+
+    Args:
+        version: Version string to validate.
+
+    Returns:
+        The validated version string.
+
+    Raises:
+        HTTPException 400: Invalid version format.
+    """
     if not VERSION_PATTERN.match(version):
         raise HTTPException(
             status_code=400,
@@ -54,7 +61,14 @@ def validate_version(version: str) -> str:
 
 
 def is_windows_user_agent(user_agent: str | None) -> bool:
-    """Check if the user agent indicates a Windows client (PowerShell, etc.)."""
+    """Check if the user agent indicates a Windows client.
+
+    Args:
+        user_agent: HTTP User-Agent header value.
+
+    Returns:
+        True if the user agent indicates Windows (PowerShell, etc.).
+    """
     if not user_agent:
         return False
     ua_lower = user_agent.lower()
@@ -68,13 +82,16 @@ def is_windows_user_agent(user_agent: str | None) -> bool:
 
 
 def get_powershell_installation_script(api_url: str, settings, source: StorageSource = StorageSource.BINARY, version: str = "latest") -> str:
-    """Generate the PowerShell installation script for Windows.
+    """Generate PowerShell installation script for Windows.
 
     Args:
-        api_url: Base API URL
-        settings: Application settings
-        source: Storage source (obs, local)
-        version: Version to install
+        api_url: Base API URL for downloads.
+        settings: Application settings.
+        source: Storage source for binaries.
+        version: Version to install.
+
+    Returns:
+        PowerShell script content.
     """
     source_value = source.value
     return f'''#Requires -RunAsAdministrator
@@ -248,13 +265,16 @@ Write-Host ""
 
 
 def get_installation_script(api_url: str, settings, source: StorageSource = StorageSource.BINARY, version: str = "latest") -> str:
-    """Generate the bash installation script with embedded API URL.
+    """Generate bash installation script for Unix systems.
 
     Args:
-        api_url: Base API URL
-        settings: Application settings
-        source: Storage source (obs, local)
-        version: Version to install
+        api_url: Base API URL for downloads.
+        settings: Application settings.
+        source: Storage source for bundles.
+        version: Version to install.
+
+    Returns:
+        Bash script content.
     """
     source_value = source.value
     return fr'''#!/bin/bash
@@ -420,34 +440,24 @@ async def get_install_script(
     ),
     version: str = Query(default="latest", description="Agent version to install"),
 ) -> Response:
+    """Generate and return the agent installation script.
+
+    The API URL in the generated script is derived from the request URL.
+    Auto-detects Windows clients and returns PowerShell; otherwise returns bash.
+
+    Args:
+        request: HTTP request for URL derivation.
+        arch: Target architecture (auto-detect if not specified).
+        os: Target OS (auto-detect from User-Agent if not specified).
+        source: Storage source for agent distribution.
+        version: Agent version to install.
+
+    Returns:
+        Installation script appropriate for the target platform.
+
+    Raises:
+        HTTPException 400: Binary source not supported for Unix /agent/install.
     """
-    Generate and return the installation script.
-
-    The API URL in the generated script is derived from the request URL. Use HTTP for
-    local development/testing and HTTPS for production.
-
-    For Unix systems (curl):
-    ```bash
-    # Local development (HTTP)
-    curl -sSL http://localhost:8080/api/v1/agent/install?source=local | bash -s -- -v 0.3.1
-
-    # Production (HTTPS)
-    curl -sSL https://hydra.local/api/v1/agent/install?source=local | bash -s -- -v 0.3.1
-    ```
-
-    For Windows (PowerShell):
-    ```powershell
-    # Local development
-    iwr -useb http://localhost:8080/api/v1/agent/install | iex
-
-    # Production
-    iwr -useb https://hydra.local/api/v1/agent/install | iex
-    ```
-
-    The endpoint auto-detects Windows clients via User-Agent and returns a PowerShell script.
-    Use ?os=windows to force PowerShell output, or ?os=linux to force bash output.
-    """
-    # Determine API URL from request
     api_url = str(request.base_url).rstrip("/")
     if request.url.path.startswith("/api/v1"):
         api_url = f"{api_url.rsplit('/api/v1', 1)[0]}/api/v1"
@@ -456,14 +466,12 @@ async def get_install_script(
 
     version = validate_version(version)
 
-    # Detect if this is a Windows client
     user_agent = request.headers.get("user-agent")
     is_windows = os == "windows" or (os is None and is_windows_user_agent(user_agent))
 
     settings = get_settings()
 
     if is_windows:
-        # Windows clients get PowerShell script with binary source
         script = get_powershell_installation_script(api_url, settings, source=StorageSource.BINARY, version=version)
 
         logger.info(
@@ -487,7 +495,6 @@ async def get_install_script(
             },
         )
 
-    # Unix clients (bash script)
     if source == StorageSource.BINARY:
         raise HTTPException(
             status_code=400,
@@ -553,29 +560,33 @@ async def download_agent(
         description="Target architecture (required for source=binary, e.g., linux-amd64)",
     ),
 ) -> Response:
-    """
-    Download agent based on storage source.
+    """Download agent binary or source bundle.
 
-    For source=binary:
-    - Downloads pre-compiled binary for specified target
-    - Requires 'target' parameter (e.g., linux-amd64, darwin-arm64)
+    For source=binary: Downloads pre-compiled binary for specified target.
+    For source=obs or source=local: Downloads bundled source code (zip).
 
-    For source=obs or source=local:
-    - Downloads bundled source code (zip)
-    - Architecture-independent, built locally during installation
+    Args:
+        storage: Storage service dependency.
+        source: Storage source for agent distribution.
+        version: Agent version to download.
+        target: Target architecture (required for binary downloads).
+
+    Returns:
+        Streaming response with agent binary or bundle.
+
+    Raises:
+        HTTPException 400: Target required for binary downloads or invalid target.
+        HTTPException 404: Version not found.
+        HTTPException 503: Storage not configured or unavailable.
     """
     from hydra.api.v1.services.storage import (
         ObjectNotFoundError,
-        StorageUnavailableError,
         StorageNotConfiguredError,
-        S3BundleStorageService,
-        LocalBundleStorageService,
+        StorageUnavailableError,
     )
 
-    # Validate version (security: prevent path traversal)
     version = validate_version(version)
 
-    # Check if storage is configured
     if storage is None:
         raise HTTPException(
             status_code=503,
@@ -587,7 +598,6 @@ async def download_agent(
             },
         )
 
-    # Check if requested source is available
     if not storage.is_source_available(source):
         available = [s.value for s in storage.get_available_sources()]
         raise HTTPException(
@@ -605,7 +615,6 @@ async def download_agent(
         backend = storage.get_backend(source)
 
         if source == StorageSource.BINARY:
-            # Binary download requires target
             if not target:
                 raise HTTPException(
                     status_code=400,
@@ -622,7 +631,6 @@ async def download_agent(
                     },
                 )
 
-            # Validate target
             valid_targets = {t["target"] for t in SUPPORTED_TARGETS.values()}
             if target not in valid_targets:
                 raise HTTPException(
@@ -636,7 +644,6 @@ async def download_agent(
                     },
                 )
 
-            # Resolve 'latest' to actual version
             resolved_version = version
             if version == "latest":
                 resolved_version = await backend.get_latest_version(target)
@@ -651,14 +658,12 @@ async def download_agent(
                         },
                     )
 
-            # Build the storage key (Windows binaries have .exe extension)
             binary_name = "hydra-agent.exe" if target.startswith("windows") else "hydra-agent"
             object_key = f"agents/{target}/{resolved_version}/{binary_name}"
             filename = f"hydra-agent-{target}" + (".exe" if target.startswith("windows") else "")
             media_type = "application/octet-stream"
 
         else:
-            # Bundle download (obs or local)
             resolved_version = version
             if version == "latest":
                 resolved_version = await backend.get_latest_version()
@@ -673,12 +678,10 @@ async def download_agent(
                         },
                     )
 
-            # Get bundle key from backend
             object_key = backend.get_bundle_key(resolved_version)
             filename = f"hydra-agent-{resolved_version}.zip"
             media_type = "application/zip"
 
-        # Get metadata for response headers
         metadata = await backend.get_object_metadata(object_key)
 
         logger.info(
@@ -690,7 +693,6 @@ async def download_agent(
             size=metadata.get("size"),
         )
 
-        # Stream the file
         async def stream_file():
             async for chunk in backend.get_object_stream(object_key):
                 yield chunk
@@ -721,7 +723,7 @@ async def download_agent(
                 }
             },
         )
-    except ObjectNotFoundError as e:
+    except ObjectNotFoundError:
         raise HTTPException(
             status_code=404,
             detail={
@@ -775,20 +777,23 @@ async def list_versions(
         description="Storage source: binary (pre-compiled), obs (S3 bundles), local (local bundles)",
     ),
 ) -> dict:
+    """List available agent versions.
+
+    For source=binary: Returns versions per target architecture.
+    For source=obs or source=local: Returns bundled source versions.
+
+    Args:
+        storage: Storage service dependency.
+        source: Storage source to query.
+
+    Returns:
+        Version manifest with targets/bundles and their available versions.
+
+    Raises:
+        HTTPException 503: Storage not configured.
     """
-    List available agent versions.
+    from hydra.api.v1.services.storage import StorageNotConfiguredError, StorageUnavailableError
 
-    For source=binary:
-    - Returns versions per target architecture
-    - Requires S3-compatible object storage
-
-    For source=obs or source=local:
-    - Returns bundled source versions
-    - Architecture-independent (built locally)
-    """
-    from hydra.api.v1.services.storage import StorageUnavailableError, StorageNotConfiguredError
-
-    # Check if storage is configured
     if storage is None:
         raise HTTPException(
             status_code=503,
@@ -801,7 +806,6 @@ async def list_versions(
             },
         )
 
-    # Check if requested source is available
     if not storage.is_source_available(source):
         available = [s.value for s in storage.get_available_sources()]
         raise HTTPException(
@@ -826,7 +830,6 @@ async def list_versions(
         backend = storage.get_backend(source)
 
         if source == StorageSource.BINARY:
-            # Binary mode: list per-target versions
             manifest["targets"] = {}
 
             for target_name, target_info in SUPPORTED_TARGETS.items():
@@ -876,7 +879,6 @@ async def list_versions(
                         "error": str(e),
                     }
         else:
-            # Bundle mode (obs or local): architecture-independent
             versions = await backend.list_versions()
             latest = await backend.get_latest_version()
 

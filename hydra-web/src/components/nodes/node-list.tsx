@@ -26,7 +26,7 @@ import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations'
 import { useUiStore, ViewLayout } from '@/stores/ui-store';
 
 // Extended type with id alias (matching what the API returns)
-type NodeListItem = NodeSummary & { id: string; profileVersion?: string };
+type NodeListItem = NodeSummary & { id: string };
 
 interface NodeListProps {
   filters: NodeFilterState;
@@ -307,13 +307,13 @@ function NodeRow({ node }: { node: NodeListItem }) {
 
       {/* Profile info */}
       <div className="hidden md:block text-right">
-        {node.profileVersion && (
-          <div className="text-sm font-mono">{node.profileVersion}</div>
-        )}
         {node.lastProfileAt && (
           <div className="text-xs text-muted-foreground">
             {formatRelativeTime(new Date(node.lastProfileAt))}
           </div>
+        )}
+        {!node.lastProfileAt && (
+          <div className="text-xs text-muted-foreground">No profiles yet</div>
         )}
       </div>
 
@@ -349,21 +349,23 @@ function NodeRow({ node }: { node: NodeListItem }) {
                 <RefreshCw className="h-4 w-4" />
                 View Profiles
               </Link>
-              <button
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
+              <Link
+                to={`${ROUTES.NODES}/${node.id}?edit=1`}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
                 onClick={() => setMenuOpen(false)}
               >
                 <Edit className="h-4 w-4" />
                 Edit
-              </button>
+              </Link>
               <div className="my-1 border-t" />
-              <button
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-error hover:bg-error/10"
+              <Link
+                to={`${ROUTES.NODES}/${node.id}?archive=1`}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-error hover:bg-error/10"
                 onClick={() => setMenuOpen(false)}
               >
                 <Archive className="h-4 w-4" />
                 Archive
-              </button>
+              </Link>
             </div>
           </>
         )}
@@ -401,17 +403,15 @@ function CompactNodeRow({ node }: { node: NodeListItem }) {
           {node.class}
         </span>
 
-        {/* Profile version */}
-        {node.profileVersion && (
-          <span className="text-xs font-mono text-muted-foreground hidden md:inline">
-            {node.profileVersion}
-          </span>
-        )}
-
-        {/* Last update */}
+        {/* Last profiled */}
         {node.lastProfileAt && (
           <span className="text-xs text-muted-foreground hidden lg:inline">
             {formatRelativeTime(new Date(node.lastProfileAt))}
+          </span>
+        )}
+        {!node.lastProfileAt && (
+          <span className="text-xs text-muted-foreground hidden lg:inline">
+            No profiles yet
           </span>
         )}
       </Link>

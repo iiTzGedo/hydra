@@ -38,7 +38,6 @@ class NetworkOriginType(str, Enum):
     IMPORT = "import"
 
 
-# Sub-models for network components
 class DhcpConfig(BaseModel):
     """DHCP configuration."""
 
@@ -100,7 +99,6 @@ class NetworkSubnetInfo(BaseModel):
     cidr: str | None = None
 
 
-# Response Models
 class NetworkResponse(BaseModel):
     """Full network response model."""
 
@@ -142,7 +140,6 @@ class NetworkSummary(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
-# Request Models
 class CreateNetworkRequest(BaseModel):
     """Create network request."""
 
@@ -235,27 +232,20 @@ class UpdateNetworkRequest(BaseModel):
         return v
 
 
-# Query Parameters
 class NetworkListParams(BaseModel):
     """Query parameters for listing networks."""
 
     model_config = ConfigDict(populate_by_name=True)
 
-    # Filters
     type: NetworkType | None = None
     parent_network_id: str | None = Field(default=None, alias="parentNetworkId")
     router_node_id: str | None = Field(default=None, alias="routerNodeId")
     cidr: str | None = None
     tags: list[str] | None = None
 
-    # Search
     search: str | None = Field(default=None, max_length=256)
-
-    # Pagination
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
-
-    # Sorting
     sort_by: Literal["networkId", "name", "createdAt", "updatedAt", "nodeCount"] = Field(
         default="updatedAt", alias="sortBy"
     )

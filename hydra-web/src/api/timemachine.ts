@@ -4,21 +4,20 @@ import { queryKeys } from '@/lib/query-client';
 import type { ApiResponse } from '@/types/api';
 import type { TopologyMode } from '@/types/topology';
 import type {
-  HistoricalNodeState,
+  NodeTimeMachineResponse,
   HistoricalTopology,
   TimelineResponse,
   TimelineParams,
 } from '@/types/timemachine';
 
-// Get node state at a specific time
 export function useNodeStateAtTime(nodeId: string, timestamp: string, sections?: string[]) {
   return useQuery({
     queryKey: queryKeys.timemachine.nodeState(nodeId, timestamp),
     queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<HistoricalNodeState>>(
+      const response = await apiClient.get<ApiResponse<NodeTimeMachineResponse>>(
         `/timemachine/node/${nodeId}`,
         {
-          params: { timestamp, sections: sections?.join(',') },
+          params: { timestamp, sections },
         }
       );
       return response.data.data;
@@ -27,7 +26,6 @@ export function useNodeStateAtTime(nodeId: string, timestamp: string, sections?:
   });
 }
 
-// Get topology at a specific time
 export function useTopologyAtTime(timestamp: string, mode?: TopologyMode) {
   return useQuery({
     queryKey: queryKeys.timemachine.topology(timestamp, mode),
@@ -44,7 +42,6 @@ export function useTopologyAtTime(timestamp: string, mode?: TopologyMode) {
   });
 }
 
-// Get timeline of events
 export function useTimeline(params?: TimelineParams) {
   return useQuery({
     queryKey: queryKeys.timemachine.timeline(params),
@@ -56,7 +53,7 @@ export function useTimeline(params?: TimelineParams) {
             since: params?.since,
             until: params?.until,
             nodeId: params?.nodeId,
-            eventTypes: params?.eventTypes?.join(','),
+            eventTypes: params?.eventTypes,
             limit: params?.limit,
             offset: params?.offset,
           },
@@ -67,5 +64,4 @@ export function useTimeline(params?: TimelineParams) {
   });
 }
 
-// Alias for backwards compatibility
 export { useTopologyAtTime as useTopologyStateAt };

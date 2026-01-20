@@ -8,7 +8,8 @@ import {
   Download,
   Trash2,
 } from 'lucide-react';
-import type { MCPChatSession, LLMProvider } from '@/types/mcp';
+import type { ChatSessionResponse } from '@/api/chat';
+import type { LLMProviderResponse } from '@/api/ai';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -26,13 +27,16 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 interface ChatHeaderProps {
-  currentSession: MCPChatSession | null;
-  activeLLMProvider: LLMProvider | undefined;
+  currentSession: ChatSessionResponse | null;
+  activeLLMProvider: LLMProviderResponse | undefined;
   activeLLMProviderId: string | null;
-  llmProviders: LLMProvider[];
+  llmProviders: LLMProviderResponse[];
   activeToolsCount: number;
   onLLMProviderChange: (providerId: string) => void;
   onOpenLLMConfig: () => void;
+  onRenameSession: () => void;
+  onDuplicateSession: () => void;
+  onExportSession: () => void;
   onDeleteSession: () => void;
 }
 
@@ -44,15 +48,22 @@ export function ChatHeader({
   activeToolsCount,
   onLLMProviderChange,
   onOpenLLMConfig,
+  onRenameSession,
+  onDuplicateSession,
+  onExportSession,
   onDeleteSession,
 }: ChatHeaderProps) {
+  const configuredProviders = llmProviders.filter(
+    (provider) => provider.apiKeySet || provider.type === 'ollama'
+  );
+
   return (
     <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
       <div className="flex items-center gap-3 min-w-0">
         <MessageSquare className="h-5 w-5 text-blue-500 shrink-0" />
         <div className="min-w-0">
           <h2 className="font-medium text-foreground truncate">
-            {currentSession?.name || 'Chat'}
+            {currentSession?.title || 'Chat'}
           </h2>
           <p className="text-xs text-muted-foreground">
             Using {activeLLMProvider?.name || 'No LLM'} &bull; {activeToolsCount} tools available
@@ -70,14 +81,16 @@ export function ChatHeader({
             <SelectValue placeholder="Select LLM" />
           </SelectTrigger>
           <SelectContent className="bg-muted border-border">
-            {llmProviders
-              .filter((l) => l.isConfigured)
-              .map((llm) => (
-                <SelectItem key={llm.id} value={llm.id} className="text-foreground">
+            {configuredProviders.map((llm) => (
+                <SelectItem
+                  key={llm.providerId}
+                  value={llm.providerId}
+                  className="text-foreground"
+                >
                   {llm.name}
                 </SelectItem>
               ))}
-            {llmProviders.filter((l) => l.isConfigured).length === 0 && (
+            {configuredProviders.length === 0 && (
               <div className="p-2 text-xs text-muted-foreground">No LLMs configured</div>
             )}
           </SelectContent>
@@ -99,15 +112,24 @@ export function ChatHeader({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem className="text-foreground focus:bg-muted focus:text-foreground">
+            <DropdownMenuItem
+              className="text-foreground focus:bg-muted focus:text-foreground"
+              onClick={onRenameSession}
+            >
               <Pencil className="h-4 w-4 mr-2" />
               Rename Chat
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-foreground focus:bg-muted focus:text-foreground">
+            <DropdownMenuItem
+              className="text-foreground focus:bg-muted focus:text-foreground"
+              onClick={onDuplicateSession}
+            >
               <Copy className="h-4 w-4 mr-2" />
               Duplicate
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-foreground focus:bg-muted focus:text-foreground">
+            <DropdownMenuItem
+              className="text-foreground focus:bg-muted focus:text-foreground"
+              onClick={onExportSession}
+            >
               <Download className="h-4 w-4 mr-2" />
               Export
             </DropdownMenuItem>

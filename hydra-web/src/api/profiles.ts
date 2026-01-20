@@ -4,7 +4,6 @@ import { queryKeys } from '@/lib/query-client';
 import type { ApiResponse } from '@/types/api';
 import type { Profile, ProfileSummary, ProfileListParams, ProfileDiff } from '@/types/profile';
 
-// Get single profile
 export function useProfile(profileId: string) {
   return useQuery({
     queryKey: queryKeys.profiles.detail(profileId),
@@ -16,7 +15,6 @@ export function useProfile(profileId: string) {
   });
 }
 
-// Get profiles for a node
 export function useNodeProfiles(nodeId: string, params?: ProfileListParams) {
   return useQuery({
     queryKey: queryKeys.profiles.byNode(nodeId, params),
@@ -25,16 +23,11 @@ export function useNodeProfiles(nodeId: string, params?: ProfileListParams) {
         `/nodes/${nodeId}/profiles`,
         {
           params: {
-            since: params?.since,
-            until: params?.until,
             limit: params?.limit,
             offset: params?.offset,
-            sortBy: params?.sortBy,
-            sortOrder: params?.sortOrder,
           },
         }
       );
-      // Transform to expected paginated format
       return {
         items: response.data.data,
         total: response.data.meta?.total ?? response.data.data.length,
@@ -46,7 +39,6 @@ export function useNodeProfiles(nodeId: string, params?: ProfileListParams) {
   });
 }
 
-// Get latest profile for a node
 export function useLatestProfile(nodeId: string) {
   return useQuery({
     queryKey: queryKeys.profiles.latest(nodeId),
@@ -60,8 +52,7 @@ export function useLatestProfile(nodeId: string) {
   });
 }
 
-// Diff profiles
-// Note: API accepts fromVersion/toVersion (version strings like "E0-0.0.0.1")
+// API accepts fromVersion/toVersion (version strings like "E0-0.0.0.1")
 // If not provided, it compares the latest two profiles
 export function useProfileDiff(nodeId: string, fromVersion?: string, toVersion?: string) {
   return useQuery({
@@ -78,7 +69,6 @@ export function useProfileDiff(nodeId: string, fromVersion?: string, toVersion?:
       );
       return response.data.data;
     },
-    // Enable if we have nodeId AND either both versions or neither (for auto-compare latest two)
     enabled: !!nodeId && ((!!fromVersion && !!toVersion) || (!fromVersion && !toVersion)),
   });
 }

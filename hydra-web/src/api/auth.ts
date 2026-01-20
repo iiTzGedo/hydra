@@ -23,7 +23,6 @@ import type {
   ApiKeyListResponse,
 } from '@/types/auth';
 
-// Login mutation
 export function useLogin() {
   const login = useAuthStore((state) => state.login);
 
@@ -38,7 +37,6 @@ export function useLogin() {
   });
 }
 
-// Register mutation
 export function useRegister() {
   return useMutation({
     mutationFn: async (data: RegisterRequest) => {
@@ -48,14 +46,12 @@ export function useRegister() {
   });
 }
 
-// Logout mutation
 export function useLogout() {
   const logout = useAuthStore((state) => state.logout);
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async () => {
-      // No API call needed, just clear local state
       return Promise.resolve();
     },
     onSuccess: () => {
@@ -65,7 +61,6 @@ export function useLogout() {
   });
 }
 
-// Get current user
 export function useMe() {
   const setUser = useAuthStore((state) => state.setUser);
   const setLoading = useAuthStore((state) => state.setLoading);
@@ -79,7 +74,7 @@ export function useMe() {
     },
     enabled: isAuthenticated,
     retry: false,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 5,
   });
 
   useEffect(() => {
@@ -109,7 +104,6 @@ export function useMe() {
   return query;
 }
 
-// Forgot password
 export function useForgotPassword() {
   return useMutation({
     mutationFn: async (data: ForgotPasswordRequest) => {
@@ -119,7 +113,6 @@ export function useForgotPassword() {
   });
 }
 
-// Reset password
 export function useResetPassword() {
   return useMutation({
     mutationFn: async (data: ResetPasswordRequest) => {
@@ -129,7 +122,6 @@ export function useResetPassword() {
   });
 }
 
-// Change password
 export function useChangePassword() {
   return useMutation({
     mutationFn: async (data: ChangePasswordRequest) => {
@@ -139,7 +131,6 @@ export function useChangePassword() {
   });
 }
 
-// Refresh token
 export function useRefreshToken() {
   const setTokens = useAuthStore((state) => state.setTokens);
 
@@ -157,7 +148,6 @@ export function useRefreshToken() {
   });
 }
 
-// Get pending approvals
 export function useApprovals(params?: { role?: string; limit?: number; offset?: number }) {
   return useQuery({
     queryKey: queryKeys.auth.approvals(params),
@@ -168,7 +158,6 @@ export function useApprovals(params?: { role?: string; limit?: number; offset?: 
   });
 }
 
-// Approve user
 export function useApproveUser() {
   const queryClient = useQueryClient();
 
@@ -183,7 +172,6 @@ export function useApproveUser() {
   });
 }
 
-// Reject user
 export function useRejectUser() {
   const queryClient = useQueryClient();
 
@@ -198,7 +186,6 @@ export function useRejectUser() {
   });
 }
 
-// Create registration token
 export function useCreateRegistrationToken() {
   return useMutation({
     mutationFn: async (data: CreateRegistrationTokenRequest) => {
@@ -208,7 +195,6 @@ export function useCreateRegistrationToken() {
   });
 }
 
-// Create API key
 export function useCreateApiKey() {
   const queryClient = useQueryClient();
 
@@ -223,7 +209,6 @@ export function useCreateApiKey() {
   });
 }
 
-// Get API keys
 export function useApiKeys() {
   return useQuery({
     queryKey: queryKeys.auth.apiKeys(),
@@ -234,7 +219,6 @@ export function useApiKeys() {
   });
 }
 
-// Revoke API key
 export function useRevokeApiKey() {
   const queryClient = useQueryClient();
 
@@ -249,7 +233,6 @@ export function useRevokeApiKey() {
   });
 }
 
-// Aliases for convenience
 export { useCreateRegistrationToken as useCreateToken };
 export { useForgotPassword as useRequestPasswordReset };
 export { useRegister as useRegisterWithToken };

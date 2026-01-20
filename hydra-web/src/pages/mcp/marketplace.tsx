@@ -1,11 +1,7 @@
-/**
- * MCP Marketplace Page
- * Configure MCP servers and marketplace sources
- */
-
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { useQueries } from '@tanstack/react-query';
 import {
   ExternalLink,
   Plus,
@@ -21,17 +17,28 @@ import {
   Loader2,
   Terminal,
 } from 'lucide-react';
-import { useMCPStore } from '@/stores/mcp-store';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/constants';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
-import type { MCPServerCategory } from '@/types/mcp';
+import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-client';
+import {
+  useMCPServers,
+  useCreateMCPServer,
+  useUpdateMCPServer,
+  useDeleteMCPServer,
+  useCheckMCPServerHealth,
+  type MCPServerCategory,
+  type MCPToolsResponse,
+  type MCPServerResponse,
+} from '@/api/mcp';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useToast } from '@/components/ui/use-toast';
 import {
   Select,
   SelectContent,
@@ -64,7 +71,6 @@ const categories: MCPServerCategory[] = [
   'other',
 ];
 
-// Mock marketplace sources for UI (would be persisted in store/backend)
 interface MarketplaceSource {
   id: string;
   name: string;
@@ -75,19 +81,25 @@ interface MarketplaceSource {
 }
 
 export default function MCPMarketplacePage() {
-  const { servers, addServer, connectServer, disconnectServer, removeServer } = useMCPStore();
+  const { toast } = useToast();
+  const { data: serversData } = useMCPServers();
+  const createServerMutation = useCreateMCPServer();
+  const updateServerMutation = useUpdateMCPServer();
+  const deleteServerMutation = useDeleteMCPServer();
+  const checkHealthMutation = useCheckMCPServerHealth();
+
+  const servers = serversData?.servers || [];
   const [activeTab, setActiveTab] = useState<'servers' | 'sources'>('servers');
   const [showAddServerModal, setShowAddServerModal] = useState(false);
   const [showAddSourceModal, setShowAddSourceModal] = useState(false);
 
-  // Add server form state
   const [name, setName] = useState('');
   const [endpoint, setEndpoint] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<MCPServerCategory>('other');
   const [docsUrl, setDocsUrl] = useState('');
+  const [healthMessages, setHealthMessages] = useState<Record<string, string>>({});
 
-  // Marketplace sources state (mock for now)
   const [sources, setSources] = useState<MarketplaceSource[]>([
     {
       id: 'default',
@@ -102,22 +114,81 @@ export default function MCPMarketplacePage() {
   const [newSourceUrl, setNewSourceUrl] = useState('');
   const [isSyncing, setIsSyncing] = useState<string | null>(null);
 
-  const handleAddServer = () => {
-    if (!name.trim()) return;
-    addServer({
-      name: name.trim(),
-      description: description.trim() || 'Custom MCP server',
-      type: endpoint ? 'remote' : 'custom',
-      category,
-      endpoint: endpoint.trim() || undefined,
-      docsUrl: docsUrl.trim() || undefined,
+  const toolQueries = useQueries({
+    queries: servers.map((server) => ({
+      queryKey: queryKeys.mcp.tools(server.serverId),
+      queryFn: async () => {
+        const response = await apiClient.get<MCPToolsResponse>(
+          `/mcp/servers/${server.serverId}/tools`
+        );
+        return response.data;
+      },
+      enabled: !!server.serverId,
+    })),
+  });
+
+  const toolsByServerId = useMemo(() => {
+    const toolMap = new Map<string, MCPToolsResponse['tools']>();
+    servers.forEach((server, index) => {
+      toolMap.set(server.serverId, toolQueries[index]?.data?.tools || []);
     });
-    setName('');
-    setEndpoint('');
-    setDescription('');
-    setDocsUrl('');
-    setCategory('other');
-    setShowAddServerModal(false);
+    return toolMap;
+  }, [servers, toolQueries]);
+
+  const serversWithTools = useMemo(
+    () =>
+      servers.map((server) => ({
+        ...server,
+        tools: toolsByServerId.get(server.serverId) || [],
+      })),
+    [servers, toolsByServerId]
+  );
+
+  const handleAddServer = () => {
+    if (!name.trim() || !endpoint.trim()) {
+      toast({
+        title: 'Missing required fields',
+        description: 'Name and endpoint are required.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    createServerMutation.mutate(
+      {
+        name: name.trim(),
+        endpoint: endpoint.trim(),
+        description: description.trim() || 'Custom MCP server',
+        category,
+        docsUrl: docsUrl.trim() || undefined,
+        enabled: true,
+      },
+      {
+        onSuccess: (server) => {
+          setName('');
+          setEndpoint('');
+          setDescription('');
+          setDocsUrl('');
+          setCategory('other');
+          setShowAddServerModal(false);
+          checkHealthMutation.mutate(server.serverId, {
+            onSuccess: (result) => {
+              setHealthMessages((prev) => ({
+                ...prev,
+                [server.serverId]: result.message,
+              }));
+            },
+          });
+        },
+        onError: () => {
+          toast({
+            title: 'Failed to add server',
+            description: 'Please check the configuration and try again.',
+            variant: 'destructive',
+          });
+        },
+      }
+    );
   };
 
   const handleAddSource = () => {
@@ -134,9 +205,61 @@ export default function MCPMarketplacePage() {
     setShowAddSourceModal(false);
   };
 
+  const handleToggleServer = (server: MCPServerResponse) => {
+    const nextEnabled = !server.enabled;
+    updateServerMutation.mutate(
+      { serverId: server.serverId, data: { enabled: nextEnabled } },
+      {
+        onSuccess: () => {
+          if (nextEnabled) {
+            checkHealthMutation.mutate(server.serverId, {
+              onSuccess: (result) => {
+                setHealthMessages((prev) => ({
+                  ...prev,
+                  [server.serverId]: result.message,
+                }));
+              },
+            });
+          } else {
+            setHealthMessages((prev) => {
+              const next = { ...prev };
+              delete next[server.serverId];
+              return next;
+            });
+          }
+        },
+        onError: () => {
+          toast({
+            title: 'Failed to update server',
+            description: 'Please try again.',
+            variant: 'destructive',
+          });
+        },
+      }
+    );
+  };
+
+  const handleRemoveServer = (serverId: string) => {
+    deleteServerMutation.mutate(serverId, {
+      onSuccess: () => {
+        setHealthMessages((prev) => {
+          const next = { ...prev };
+          delete next[serverId];
+          return next;
+        });
+      },
+      onError: () => {
+        toast({
+          title: 'Failed to remove server',
+          description: 'Please try again.',
+          variant: 'destructive',
+        });
+      },
+    });
+  };
+
   const handleSyncSource = async (sourceId: string) => {
     setIsSyncing(sourceId);
-    // Simulate sync
     await new Promise((resolve) => setTimeout(resolve, 2000));
     setSources((prev) =>
       prev.map((s) =>
@@ -155,7 +278,6 @@ export default function MCPMarketplacePage() {
   return (
     <TooltipProvider>
       <div className="space-y-6">
-        {/* Header with Back Navigation */}
         <div className="flex items-center gap-4">
           <Link to={ROUTES.CHAT}>
             <Button
@@ -178,7 +300,6 @@ export default function MCPMarketplacePage() {
           </div>
         </div>
 
-        {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'servers' | 'sources')}>
           <TabsList className="bg-card border border-border">
             <TabsTrigger
@@ -197,7 +318,6 @@ export default function MCPMarketplacePage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Servers Tab */}
           <TabsContent value="servers" className="mt-6 space-y-6">
             <div className="flex justify-end">
               <Button onClick={() => setShowAddServerModal(true)}>
@@ -223,8 +343,8 @@ export default function MCPMarketplacePage() {
                 animate="visible"
                 className="grid gap-4 md:grid-cols-2"
               >
-                {servers.map((server) => (
-                  <motion.div key={server.id} variants={staggerItemVariants}>
+                {serversWithTools.map((server) => (
+                  <motion.div key={server.serverId} variants={staggerItemVariants}>
                     <Card className="bg-card border-border hover:border-foreground/20 transition-colors">
                       <CardContent className="p-5 space-y-3">
                         <div className="flex items-start justify-between">
@@ -232,10 +352,10 @@ export default function MCPMarketplacePage() {
                             <div
                               className={cn(
                                 'h-10 w-10 rounded-lg flex items-center justify-center shrink-0',
-                                server.status === 'connected' ? 'bg-success/10' : 'bg-muted'
+                                server.enabled ? 'bg-success/10' : 'bg-muted'
                               )}
                             >
-                              {server.type === 'builtin' ? (
+                              {server.serverId === 'hydra-mcp' ? (
                                 <Terminal className="h-5 w-5 text-primary" />
                               ) : (
                                 <Globe className="h-5 w-5 text-info" />
@@ -248,20 +368,20 @@ export default function MCPMarketplacePage() {
                                   variant="outline"
                                   className={cn(
                                     'text-[10px]',
-                                    server.status === 'connected'
+                                    server.enabled && server.status === 'healthy'
                                       ? 'border-success/30 text-success'
-                                      : server.status === 'error'
+                                      : server.enabled && server.status === 'unhealthy'
                                         ? 'border-destructive/30 text-destructive'
                                         : 'border-border text-muted-foreground'
                                   )}
                                 >
-                                  {server.status}
+                                  {server.enabled ? server.status : 'disabled'}
                                 </Badge>
                               </div>
                               <p className="text-xs text-muted-foreground mt-1">{server.description}</p>
                             </div>
                           </div>
-                          {server.status === 'error' && (
+                          {server.enabled && server.status === 'unhealthy' && (
                             <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
                           )}
                         </div>
@@ -277,9 +397,9 @@ export default function MCPMarketplacePage() {
                             <Badge variant="secondary" className="text-[10px] bg-muted text-muted-foreground capitalize">
                               {server.category.replace('-', ' ')}
                             </Badge>
-                            {(server.tools || []).length > 0 && (
+                            {server.tools.length > 0 && (
                               <Badge variant="secondary" className="text-[10px] bg-primary/20 text-primary">
-                                {(server.tools || []).length} tools
+                                {server.tools.length} tools
                               </Badge>
                             )}
                           </div>
@@ -304,27 +424,23 @@ export default function MCPMarketplacePage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() =>
-                                server.status === 'connected'
-                                  ? disconnectServer(server.id)
-                                  : connectServer(server.id)
-                              }
+                              onClick={() => handleToggleServer(server)}
                               className={cn(
                                 'h-8 text-xs',
-                                server.status === 'connected'
+                                server.enabled
                                   ? 'text-destructive hover:text-destructive hover:bg-destructive/10'
                                   : 'text-success hover:text-success hover:bg-success/10'
                               )}
                             >
-                              {server.status === 'connected' ? 'Disconnect' : 'Connect'}
+                              {server.enabled ? 'Disconnect' : 'Connect'}
                             </Button>
-                            {server.type !== 'builtin' && (
+                            {server.serverId !== 'hydra-mcp' && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => removeServer(server.id)}
+                                    onClick={() => handleRemoveServer(server.serverId)}
                                     className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                                   >
                                     <Trash2 className="h-4 w-4" />
@@ -338,9 +454,11 @@ export default function MCPMarketplacePage() {
                           </div>
                         </div>
 
-                        {server.error && (
+                        {server.enabled &&
+                          server.status === 'unhealthy' &&
+                          healthMessages[server.serverId] && (
                           <p className="text-xs text-destructive bg-destructive/10 rounded px-2 py-1">
-                            {server.error}
+                            {healthMessages[server.serverId]}
                           </p>
                         )}
                       </CardContent>
@@ -351,7 +469,6 @@ export default function MCPMarketplacePage() {
             )}
           </TabsContent>
 
-          {/* Marketplace Sources Tab */}
           <TabsContent value="sources" className="mt-6 space-y-6">
             <Card className="bg-card border-border">
               <CardHeader className="pb-4">
@@ -468,7 +585,6 @@ export default function MCPMarketplacePage() {
           </TabsContent>
         </Tabs>
 
-        {/* Add Server Modal */}
         <Dialog open={showAddServerModal} onOpenChange={setShowAddServerModal}>
           <DialogContent className="bg-popover border-border text-foreground max-w-md">
             <DialogHeader>
@@ -556,7 +672,6 @@ export default function MCPMarketplacePage() {
           </DialogContent>
         </Dialog>
 
-        {/* Add Source Modal */}
         <Dialog open={showAddSourceModal} onOpenChange={setShowAddSourceModal}>
           <DialogContent className="bg-popover border-border text-foreground max-w-md">
             <DialogHeader>

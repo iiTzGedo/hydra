@@ -1,11 +1,6 @@
 import { ListParams } from './api';
 
-// Profile collection level - matches API CollectionLevel enum
 export type CollectionLevel = 'shallow' | 'neutral' | 'deep';
-
-// ============================================
-// Hardware Profile Types (matches API HardwareProfile)
-// ============================================
 
 export interface CpuInfo {
   model?: string;
@@ -43,10 +38,6 @@ export interface HardwareProfile {
   gpus?: GpuInfo[];
 }
 
-// ============================================
-// Network Profile Types (matches API NetworkProfile)
-// ============================================
-
 export interface NetworkInterface {
   name: string;
   macAddress?: string;
@@ -78,10 +69,6 @@ export interface NetworkProfile {
   routes?: NetworkRoute[];
 }
 
-// ============================================
-// Storage Profile Types (matches API StorageProfile)
-// ============================================
-
 export interface BlockDevice {
   name: string;
   sizeBytes?: number;
@@ -107,10 +94,6 @@ export interface StorageProfile {
   totalCapacityBytes?: number;
 }
 
-// ============================================
-// Software Profile Types (matches API SoftwareProfile)
-// ============================================
-
 export interface OsInfo {
   name: string;
   version?: string;
@@ -131,10 +114,6 @@ export interface SoftwareProfile {
   packageCount?: number;
 }
 
-// ============================================
-// Services Profile Types (matches API ServicesProfile)
-// ============================================
-
 export interface ServiceInfo {
   name: string;
   runtime: string;
@@ -150,10 +129,6 @@ export interface ServiceInfo {
 export interface ServicesProfile {
   services?: ServiceInfo[];
 }
-
-// ============================================
-// Users Profile Types (matches API UsersProfile)
-// ============================================
 
 export interface UserInfo {
   username: string;
@@ -176,10 +151,6 @@ export interface UsersProfile {
   sshKeys?: SshKey[];
 }
 
-// ============================================
-// Configs Profile Types (matches API ConfigsProfile)
-// ============================================
-
 export interface ConfigFile {
   path: string;
   hash: string;
@@ -191,10 +162,6 @@ export interface ConfigsProfile {
   files?: ConfigFile[];
 }
 
-// ============================================
-// Profile Summary (for list views)
-// ============================================
-
 export interface ProfileSummary {
   profileId: string;
   nodeId: string;
@@ -205,10 +172,6 @@ export interface ProfileSummary {
   serviceCount?: number;
 }
 
-// ============================================
-// Full Profile Response (matches API ProfileResponse)
-// ============================================
-
 export interface Profile extends ProfileSummary {
   agentVersion: string;
   serviceIds?: string[];
@@ -216,25 +179,12 @@ export interface Profile extends ProfileSummary {
   network?: NetworkProfile;
   storage?: StorageProfile;
   software?: SoftwareProfile;
-  // Note: API returns serviceIds, not services section.
-  // Services are stored separately and fetched via the services API.
   users?: UsersProfile;
   configs?: ConfigsProfile;
   metadata?: Record<string, unknown>;
 }
 
-// ============================================
-// Profile List Params
-// ============================================
-
-export interface ProfileListParams extends ListParams {
-  since?: string;
-  until?: string;
-}
-
-// ============================================
-// Profile Diff (matches API ProfileDiff)
-// ============================================
+export interface ProfileListParams extends ListParams {}
 
 export interface ProfileDiff {
   fromVersion: string;

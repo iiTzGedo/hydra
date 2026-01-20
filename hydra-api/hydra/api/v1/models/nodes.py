@@ -64,7 +64,6 @@ class NodeStatus(str, Enum):
     PENDING = "pending"
 
 
-# Response Models
 class NodeResponse(BaseModel):
     """Full node response model."""
 
@@ -98,7 +97,6 @@ class NodeSummary(BaseModel):
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
 
 
-# Agent Models
 class AgentInfo(BaseModel):
     """Agent information for a registered node."""
 
@@ -131,7 +129,6 @@ class AgentListResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-# Request Models
 class UpdateNodeRequest(BaseModel):
     """Update node metadata."""
 
@@ -156,11 +153,9 @@ class UpdateNodeRequest(BaseModel):
         return v
 
 
-# Query Parameters
 class NodeListParams(BaseModel):
     """Query parameters for listing nodes."""
 
-    # Filters
     node_class: NodeClass | None = Field(default=None, alias="class")
     node_type: NodeType | None = Field(default=None, alias="type")
     kind: NodeKind | None = None
@@ -168,15 +163,9 @@ class NodeListParams(BaseModel):
     tags: list[str] | None = None
     parent_node_id: str | None = Field(default=None, alias="parentNodeId")
     network_id: str | None = Field(default=None, alias="networkId")
-
-    # Search
     search: str | None = Field(default=None, max_length=256)
-
-    # Pagination
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
-
-    # Sorting
     sort_by: Literal["nodeId", "displayName", "registeredAt", "lastProfileAt", "lastUpdated"] = (
         Field(default="lastUpdated", alias="sortBy")
     )

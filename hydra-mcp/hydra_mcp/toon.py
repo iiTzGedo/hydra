@@ -13,7 +13,17 @@ from toon_format import encode
 
 
 class TOONFormatter:
-    """Wrapper for TOON encoding with Hydra-specific defaults."""
+    """Wrapper for TOON encoding with Hydra-specific defaults.
+
+    TOON (Text-Oriented Object Notation) provides a more compact and
+    LLM-friendly format compared to JSON, reducing token usage by 30-60%.
+
+    Example:
+        Basic usage::
+
+            formatter = TOONFormatter()
+            output = formatter.format({"name": "node-01", "status": "active"})
+    """
 
     def __init__(self, delimiter: str = ",", indent: int = 2, length_marker: str = ""):
         """Initialize the formatter.

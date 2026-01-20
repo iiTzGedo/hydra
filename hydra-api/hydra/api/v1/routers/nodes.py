@@ -47,7 +47,6 @@ NodeServiceDep = Annotated[NodeService, Depends(get_node_service)]
 )
 async def list_nodes(
     node_service: NodeServiceDep,
-    # Filter params
     node_class: NodeClass | None = Query(default=None, alias="class"),
     node_type: NodeType | None = Query(default=None, alias="type"),
     kind: NodeKind | None = None,
@@ -56,16 +55,36 @@ async def list_nodes(
     parent_node_id: str | None = Query(default=None, alias="parentNodeId"),
     network_id: str | None = Query(default=None, alias="networkId"),
     search: str | None = None,
-    # Pagination
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    # Sorting
     sort_by: Literal["nodeId", "displayName", "registeredAt", "lastProfileAt", "lastUpdated"] = (
         Query(default="lastUpdated", alias="sortBy")
     ),
     sort_order: Literal["asc", "desc"] = Query(default="desc", alias="sortOrder"),
 ) -> SuccessResponse[list[NodeSummary]]:
-    """List nodes with filters."""
+    """Retrieve a paginated list of nodes with optional filtering.
+
+    Args:
+        node_service: Node service instance.
+        node_class: Filter by node class (compute, networking, iot).
+        node_type: Filter by node type (physical, vm, container, etc.).
+        kind: Filter by node kind.
+        status: Filter by node status (active, inactive, archived).
+        tags: Filter by tags (nodes must have all specified tags).
+        parent_node_id: Filter by parent node ID.
+        network_id: Filter by network membership.
+        search: Search query for node ID or display name.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+        sort_by: Field to sort by.
+        sort_order: Sort direction (ascending or descending).
+
+    Returns:
+        Paginated list of node summaries with metadata.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     params = NodeListParams(
         node_class=node_class,
         node_type=node_type,
@@ -112,7 +131,21 @@ async def list_agents(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> AgentListResponse:
-    """List all registered agents with health status."""
+    """Retrieve all registered agents with health status information.
+
+    Args:
+        node_service: Node service instance.
+        status: Filter by node status.
+        healthy_only: Only return agents that reported within 24 hours.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+
+    Returns:
+        List of agents with health status and submission statistics.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     result = await node_service.list_agents(
         status=status.value if status else None,
         healthy_only=healthy_only,
@@ -140,7 +173,19 @@ async def get_node(
     node_id: str,
     node_service: NodeServiceDep,
 ) -> SuccessResponse[NodeResponse]:
-    """Get a single node by ID."""
+    """Retrieve detailed information for a single node.
+
+    Args:
+        node_id: Unique identifier of the node.
+        node_service: Node service instance.
+
+    Returns:
+        Complete node details including metadata and configuration.
+
+    Raises:
+        HTTPException 404: Node not found.
+        HTTPException 403: Insufficient permissions.
+    """
     node = await node_service.get_node(node_id)
     return SuccessResponse(data=NodeResponse(**node))
 
@@ -157,7 +202,20 @@ async def update_node(
     request: UpdateNodeRequest,
     node_service: NodeServiceDep,
 ) -> SuccessResponse[NodeResponse]:
-    """Update a node's metadata."""
+    """Update metadata for an existing node.
+
+    Args:
+        node_id: Unique identifier of the node.
+        request: Fields to update.
+        node_service: Node service instance.
+
+    Returns:
+        Updated node details.
+
+    Raises:
+        HTTPException 404: Node not found.
+        HTTPException 403: Insufficient permissions.
+    """
     node = await node_service.update_node(node_id, request)
     return SuccessResponse(data=NodeResponse(**node))
 
@@ -173,7 +231,19 @@ async def archive_node(
     node_id: str,
     node_service: NodeServiceDep,
 ) -> SuccessResponse[NodeResponse]:
-    """Archive a node."""
+    """Archive a node without permanently deleting its data.
+
+    Args:
+        node_id: Unique identifier of the node.
+        node_service: Node service instance.
+
+    Returns:
+        Archived node details with updated status.
+
+    Raises:
+        HTTPException 404: Node not found.
+        HTTPException 403: Insufficient permissions.
+    """
     node = await node_service.archive_node(node_id)
     return SuccessResponse(data=NodeResponse(**node))
 
@@ -189,13 +259,22 @@ async def get_node_children(
     node_id: str,
     node_service: NodeServiceDep,
 ) -> SuccessResponse[list[NodeSummary]]:
-    """Get child nodes."""
+    """Retrieve all child nodes for a given parent node.
+
+    Args:
+        node_id: Unique identifier of the parent node.
+        node_service: Node service instance.
+
+    Returns:
+        List of child node summaries.
+
+    Raises:
+        HTTPException 404: Parent node not found.
+        HTTPException 403: Insufficient permissions.
+    """
     children = await node_service.get_node_children(node_id)
     return SuccessResponse(data=[NodeSummary(**child) for child in children])
 
-
-# ==================== Node Registration ====================
-# Separate router for /node prefix (singular)
 
 node_router = APIRouter(prefix="/node", tags=["Node Registration"])
 
@@ -226,13 +305,25 @@ async def register_node(
     auth_service: AuthServiceDep,
     registration_auth: RegistrationAuth,
 ) -> NodeRegistrationResponse:
-    """Register a new node and get API key credentials."""
-    # Get the user_id from the registration auth (either user or token creator)
+    """Register a new infrastructure node and provision API credentials.
+
+    Args:
+        request: Node registration details including ID, class, and type.
+        auth_service: Authentication service instance.
+        registration_auth: Validated registration authentication context.
+
+    Returns:
+        Registration result with API key for the new node.
+
+    Raises:
+        HTTPException 400: Invalid node configuration.
+        HTTPException 401: Invalid or expired registration token.
+        HTTPException 409: Node ID already exists.
+    """
     registered_by = registration_auth["user_id"]
 
     result = await auth_service.register_node(request, registered_by)
 
-    # If using a registration token, mark it as used
     if registration_auth["type"] == "registration_token":
         await auth_service.use_registration_token(
             registration_auth["token"], result["node_id"]
@@ -260,7 +351,20 @@ async def refresh_node_api_key(
     current_user: CurrentUser,
     nodeId: str = Path(description="Node ID"),
 ) -> NodeApiKeyRefreshResponse:
-    """Refresh the API key for a node."""
+    """Generate a new API key for a node and revoke the previous one.
+
+    Args:
+        auth_service: Authentication service instance.
+        current_user: Authenticated user making the request.
+        nodeId: Unique identifier of the node.
+
+    Returns:
+        New API key credentials and revocation confirmation.
+
+    Raises:
+        HTTPException 404: Node not found.
+        HTTPException 403: Insufficient permissions.
+    """
     result = await auth_service.refresh_node_api_key(nodeId, current_user["user_id"])
     return NodeApiKeyRefreshResponse(
         node_id=result["node_id"],

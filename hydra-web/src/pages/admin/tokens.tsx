@@ -34,14 +34,12 @@ export default function TokensPage() {
   const [newToken, setNewToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Create form state
   const [scope, setScope] = useState<'user' | 'node'>('user');
   const [maxUses, setMaxUses] = useState('1');
   const [expiresInDays, setExpiresInDays] = useState('7');
   const [allowedRoles, setAllowedRoles] = useState<Role[]>(['viewer']);
 
   const handleCreate = async () => {
-    // Convert days to seconds
     const days = parseInt(expiresInDays) || 7;
     const expiresIn = days * 24 * 60 * 60;
 
@@ -98,7 +96,6 @@ export default function TokensPage() {
         </Button>
       </div>
 
-      {/* Create Token Dialog */}
       <Dialog open={showCreateForm} onOpenChange={handleCloseModal}>
         <DialogContent className="sm:max-w-md bg-card border-border text-foreground">
           {newToken ? (
@@ -140,7 +137,6 @@ export default function TokensPage() {
               </DialogHeader>
 
               <div className="space-y-4">
-                {/* Scope */}
                 <div className="space-y-2">
                   <Label className="text-foreground">Token Scope</Label>
                   <div className="flex gap-2">
@@ -165,7 +161,6 @@ export default function TokensPage() {
                   </div>
                 </div>
 
-                {/* Max uses */}
                 <div className="space-y-2">
                   <Label htmlFor="maxUses" className="text-foreground">
                     Max Uses
@@ -180,7 +175,6 @@ export default function TokensPage() {
                   />
                 </div>
 
-                {/* Expires in */}
                 <div className="space-y-2">
                   <Label htmlFor="expiresIn" className="text-foreground">
                     Expires in (days)
@@ -195,7 +189,6 @@ export default function TokensPage() {
                   />
                 </div>
 
-                {/* Allowed roles (for user tokens) */}
                 {scope === 'user' && (
                   <div className="space-y-2">
                     <Label className="text-foreground">Allowed Roles</Label>

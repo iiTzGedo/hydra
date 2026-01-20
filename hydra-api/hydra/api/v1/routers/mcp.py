@@ -12,6 +12,7 @@ from hydra.api.v1.models.mcp import (
     MCPServerListResponse,
     MCPServerResponse,
     MCPServerUpdate,
+    MCPResourcesResponse,
     MCPToolsResponse,
 )
 from hydra.api.v1.services.mcp import MCPService
@@ -22,17 +23,21 @@ logger = structlog.get_logger(__name__)
 
 
 async def get_mcp_service(mongodb: MongoDB = Depends(get_mongodb)) -> MCPService:
-    """Get MCP service."""
+    """Get MCP service dependency."""
     return MCPService(mongodb)
 
 
 def _check_not_agent(current_user: dict) -> None:
-    """Verify user is not an agent."""
+    """Verify user is not an agent.
+
+    Args:
+        current_user: Current authenticated user.
+
+    Raises:
+        AuthorizationError: If user is an agent.
+    """
     if current_user.get("type") == "agent":
         raise AuthorizationError("mcp:read")
-
-
-# ==================== Server Configuration Endpoints ====================
 
 
 @router.get(
@@ -49,7 +54,22 @@ async def list_servers(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> MCPServerListResponse:
-    """List MCP servers."""
+    """List all MCP servers configured by the current user.
+
+    Args:
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+        category: Optional filter by server category.
+        enabled: Optional filter by enabled status.
+        limit: Maximum number of servers to return.
+        offset: Number of servers to skip.
+
+    Returns:
+        Paginated list of MCP server configurations.
+
+    Raises:
+        HTTPException 403: Agents cannot manage MCP servers.
+    """
     _check_not_agent(current_user)
 
     result = await mcp_service.list_servers(
@@ -78,7 +98,19 @@ async def create_server(
     current_user: CurrentUser,
     mcp_service: MCPService = Depends(get_mcp_service),
 ) -> MCPServerResponse:
-    """Create a new MCP server configuration."""
+    """Create a new MCP server configuration.
+
+    Args:
+        request: Server creation request with name, URL, category, and optional auth.
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+
+    Returns:
+        Created MCP server details.
+
+    Raises:
+        HTTPException 403: Agents cannot manage MCP servers.
+    """
     _check_not_agent(current_user)
 
     result = await mcp_service.create_server(
@@ -100,7 +132,20 @@ async def get_server(
     mcp_service: MCPService = Depends(get_mcp_service),
     serverId: str = Path(description="Server ID"),
 ) -> MCPServerResponse:
-    """Get a specific MCP server configuration."""
+    """Retrieve a specific MCP server by ID.
+
+    Args:
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+        serverId: Unique identifier of the MCP server.
+
+    Returns:
+        MCP server configuration details.
+
+    Raises:
+        HTTPException 403: Agents cannot manage MCP servers.
+        HTTPException 404: Server not found.
+    """
     _check_not_agent(current_user)
 
     result = await mcp_service.get_server(
@@ -123,7 +168,21 @@ async def update_server(
     mcp_service: MCPService = Depends(get_mcp_service),
     serverId: str = Path(description="Server ID"),
 ) -> MCPServerResponse:
-    """Update an MCP server configuration."""
+    """Update an existing MCP server configuration.
+
+    Args:
+        request: Server update request with fields to modify.
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+        serverId: Unique identifier of the MCP server.
+
+    Returns:
+        Updated MCP server details.
+
+    Raises:
+        HTTPException 403: Agents cannot manage MCP servers.
+        HTTPException 404: Server not found.
+    """
     _check_not_agent(current_user)
 
     result = await mcp_service.update_server(
@@ -145,7 +204,20 @@ async def delete_server(
     mcp_service: MCPService = Depends(get_mcp_service),
     serverId: str = Path(description="Server ID"),
 ) -> dict:
-    """Delete an MCP server configuration."""
+    """Delete an MCP server configuration.
+
+    Args:
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+        serverId: Unique identifier of the MCP server.
+
+    Returns:
+        Confirmation of deletion.
+
+    Raises:
+        HTTPException 403: Agents cannot manage MCP servers.
+        HTTPException 404: Server not found.
+    """
     _check_not_agent(current_user)
 
     result = await mcp_service.delete_server(
@@ -167,7 +239,22 @@ async def check_health(
     mcp_service: MCPService = Depends(get_mcp_service),
     serverId: str = Path(description="Server ID"),
 ) -> MCPHealthResponse:
-    """Check the health of an MCP server."""
+    """Check the health and connectivity of an MCP server.
+
+    Performs a connection test to verify the server is reachable and responding.
+
+    Args:
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+        serverId: Unique identifier of the MCP server.
+
+    Returns:
+        Health status including connectivity, latency, and any errors.
+
+    Raises:
+        HTTPException 403: Agents cannot manage MCP servers.
+        HTTPException 404: Server not found.
+    """
     _check_not_agent(current_user)
 
     result = await mcp_service.check_health(
@@ -189,7 +276,22 @@ async def list_tools(
     mcp_service: MCPService = Depends(get_mcp_service),
     serverId: str = Path(description="Server ID"),
 ) -> MCPToolsResponse:
-    """List tools available on an MCP server."""
+    """List all tools available on an MCP server.
+
+    Queries the MCP server for its tool manifest and returns tool definitions.
+
+    Args:
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+        serverId: Unique identifier of the MCP server.
+
+    Returns:
+        List of tools with their names, descriptions, and input schemas.
+
+    Raises:
+        HTTPException 403: Agents cannot manage MCP servers.
+        HTTPException 404: Server not found.
+    """
     _check_not_agent(current_user)
 
     result = await mcp_service.list_tools(
@@ -198,3 +300,40 @@ async def list_tools(
     )
 
     return MCPToolsResponse(**result)
+
+
+@router.get(
+    "/servers/{serverId}/resources",
+    response_model=MCPResourcesResponse,
+    summary="List MCP Server Resources",
+    description="List resources available on an MCP server.",
+)
+async def list_resources(
+    current_user: CurrentUser,
+    mcp_service: MCPService = Depends(get_mcp_service),
+    serverId: str = Path(description="Server ID"),
+) -> MCPResourcesResponse:
+    """List all resources available on an MCP server.
+
+    Queries the MCP server for its resource manifest and returns resource definitions.
+
+    Args:
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+        serverId: Unique identifier of the MCP server.
+
+    Returns:
+        List of resources with their URIs, names, and descriptions.
+
+    Raises:
+        HTTPException 403: Agents cannot manage MCP servers.
+        HTTPException 404: Server not found.
+    """
+    _check_not_agent(current_user)
+
+    result = await mcp_service.list_resources(
+        server_id=serverId,
+        user_id=current_user["user_id"],
+    )
+
+    return MCPResourcesResponse(**result)

@@ -22,7 +22,6 @@ class CollectionLevel(str, Enum):
     DEEP = "deep"
 
 
-# Hardware Profile Components
 class CpuInfo(BaseModel):
     """CPU information."""
 
@@ -75,7 +74,6 @@ class HardwareProfile(BaseModel):
     gpus: list[GpuInfo] = Field(default_factory=list)
 
 
-# Network Profile Components
 class NetworkInterface(BaseModel):
     """Network interface information."""
 
@@ -129,7 +127,6 @@ class NetworkProfile(BaseModel):
     routes: list[NetworkRoute] = Field(default_factory=list)
 
 
-# Storage Profile Components
 class BlockDevice(BaseModel):
     """Block device information."""
 
@@ -167,7 +164,6 @@ class StorageProfile(BaseModel):
     total_capacity_bytes: int | None = Field(default=None, alias="totalCapacityBytes")
 
 
-# Software Profile Components
 class OsInfo(BaseModel):
     """Operating system information."""
 
@@ -200,7 +196,6 @@ class SoftwareProfile(BaseModel):
     package_count: int | None = Field(default=None, alias="packageCount")
 
 
-# Service Components (for extraction)
 class ServiceInfo(BaseModel):
     """Discovered service information."""
 
@@ -225,7 +220,6 @@ class ServicesProfile(BaseModel):
     services: list[ServiceInfo] = Field(default_factory=list)
 
 
-# User Profile Components
 class UserInfo(BaseModel):
     """User account information."""
 
@@ -259,7 +253,6 @@ class UsersProfile(BaseModel):
     ssh_keys: list[SshKey] = Field(default_factory=list, alias="sshKeys")
 
 
-# Config Profile Components
 class ConfigFile(BaseModel):
     """Configuration file metadata."""
 
@@ -279,7 +272,6 @@ class ConfigsProfile(BaseModel):
     files: list[ConfigFile] = Field(default_factory=list)
 
 
-# Full Profile Request/Response
 class ProfileSubmission(BaseModel):
     """Profile submission from agent."""
 

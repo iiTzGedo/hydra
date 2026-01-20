@@ -13,6 +13,8 @@ import {
   ChevronRight,
   ExternalLink,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { useCreateCommand } from '@/api/commands';
 import { useServices } from '@/api/services';
 import { ServiceSummary } from '@/types/service';
 import { ServiceFilterState } from './service-filters';
@@ -33,7 +35,7 @@ export function ServiceList({ filters }: ServiceListProps) {
     if (filters.search) f.search = filters.search;
     if (filters.runtime) f.runtime = filters.runtime;
     if (filters.status) f.status = filters.status;
-    if (filters.nodeId) f.node_id = filters.nodeId;
+    if (filters.nodeId) f.nodeId = filters.nodeId;
     return f;
   }, [filters, page]);
 
@@ -143,9 +145,30 @@ type ServiceListItem = ServiceSummary & { id: string };
 
 function ServiceRow({ service }: { service: ServiceListItem }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const createCommand = useCreateCommand();
 
   const statusColors = STATUS_COLORS[service.status as keyof typeof STATUS_COLORS] || STATUS_COLORS.stopped;
   const runtimeLabel = SERVICE_RUNTIME_LABELS[service.runtime] || service.runtime;
+
+  const handleCommand = async (action: 'start' | 'stop' | 'restart') => {
+    try {
+      await createCommand.mutateAsync({
+        type: 'service',
+        target: { nodeId: service.nodeId, serviceId: service.serviceId },
+        action,
+        parameters: {
+          serviceId: service.serviceId,
+          name: service.name,
+          runtime: service.runtime,
+        },
+      });
+      toast.success(`Command queued: ${action} ${service.displayName || service.name}`);
+    } catch (error) {
+      toast.error(`Failed to ${action} service`);
+    } finally {
+      setMenuOpen(false);
+    }
+  };
 
   return (
     <motion.div
@@ -165,7 +188,7 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
             to={ROUTES.SERVICES + '/' + encodeURIComponent(service.id)}
             className="font-medium hover:text-primary transition-colors truncate"
           >
-            {service.name}
+            {service.displayName || service.name}
           </Link>
           <span
             className={cn(
@@ -180,6 +203,12 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
         </div>
         <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
           <span className="font-mono text-xs">{service.id}</span>
+          {service.version && (
+            <>
+              <span>•</span>
+              <span className="text-xs">v{service.version}</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -200,25 +229,6 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
           {service.nodeId}
         </Link>
       </div>
-
-      {/* Ports */}
-      {service.ports && service.ports.length > 0 && (
-        <div className="hidden xl:flex items-center gap-1">
-          {service.ports.slice(0, 3).map((port, i) => (
-            <span
-              key={i}
-              className="rounded bg-muted px-2 py-0.5 text-xs font-mono"
-            >
-              {port}
-            </span>
-          ))}
-          {service.ports.length > 3 && (
-            <span className="text-xs text-muted-foreground">
-              +{service.ports.length - 3}
-            </span>
-          )}
-        </div>
-      )}
 
       {/* Last seen */}
       <div className="hidden md:block text-right text-sm text-muted-foreground">
@@ -260,21 +270,21 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
               <div className="my-1 border-t" />
               <button
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-success hover:bg-success/10"
-                onClick={() => setMenuOpen(false)}
+                onClick={() => handleCommand('start')}
               >
                 <Play className="h-4 w-4" />
                 Start
               </button>
               <button
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-warning hover:bg-warning/10"
-                onClick={() => setMenuOpen(false)}
+                onClick={() => handleCommand('restart')}
               >
                 <RefreshCw className="h-4 w-4" />
                 Restart
               </button>
               <button
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-error hover:bg-error/10"
-                onClick={() => setMenuOpen(false)}
+                onClick={() => handleCommand('stop')}
               >
                 <Square className="h-4 w-4" />
                 Stop

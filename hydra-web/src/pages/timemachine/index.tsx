@@ -18,6 +18,7 @@ import {
   FileText,
   Network,
   AlertTriangle,
+  FolderOpen,
   ChevronRight,
   Expand,
   X,
@@ -77,23 +78,30 @@ const EVENT_CATEGORIES = [
   {
     id: 'nodes',
     label: 'Node Events',
-    types: ['node_registered', 'node_archived', 'node_updated'],
+    types: ['node_registered', 'node_archived'],
     icon: Server,
     color: 'bg-emerald-500'
   },
   {
     id: 'services',
     label: 'Service Events',
-    types: ['service_discovered', 'service_removed', 'service_updated'],
+    types: ['service_discovered', 'service_removed'],
     icon: Boxes,
     color: 'bg-blue-500'
   },
   {
     id: 'networks',
     label: 'Network Events',
-    types: ['network_created', 'network_updated', 'network_deleted'],
+    types: ['network_created'],
     icon: Network,
     color: 'bg-cyan-500'
+  },
+  {
+    id: 'groups',
+    label: 'Group Events',
+    types: ['group_created'],
+    icon: FolderOpen,
+    color: 'bg-lime-500'
   },
   {
     id: 'topology',
@@ -108,13 +116,6 @@ const EVENT_CATEGORIES = [
     types: ['profile_submitted'],
     icon: FileText,
     color: 'bg-amber-500'
-  },
-  {
-    id: 'alerts',
-    label: 'Alert Events',
-    types: ['alert_triggered', 'alert_resolved'],
-    icon: AlertTriangle,
-    color: 'bg-red-500'
   },
 ];
 
@@ -622,10 +623,10 @@ export default function TimeMachinePage() {
     if (!events.length) return { nodeEvents: 0, serviceEvents: 0, topologyEvents: 0, profiles: 0 };
     return {
       nodeEvents: events.filter((e) =>
-        ['node_registered', 'node_archived', 'node_updated'].includes(e.eventType)
+        ['node_registered', 'node_archived'].includes(e.eventType)
       ).length,
       serviceEvents: events.filter((e) =>
-        ['service_discovered', 'service_removed', 'service_updated'].includes(e.eventType)
+        ['service_discovered', 'service_removed'].includes(e.eventType)
       ).length,
       topologyEvents: events.filter((e) => e.eventType === 'topology_generated').length,
       profiles: events.filter((e) => e.eventType === 'profile_submitted').length,
@@ -642,7 +643,6 @@ export default function TimeMachinePage() {
         type: (node.data?.type as string) || node.type,
         kind: (node.data?.kind as string) || 'unknown',
         status: (node.data?.status as string) || 'unknown',
-        profileVersion: node.data?.profileVersion as string | undefined,
       })),
       edges: topologyState.graph.edges?.map((edge) => ({
         from: edge.source,

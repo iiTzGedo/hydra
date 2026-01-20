@@ -60,7 +60,6 @@ class ApiKeyType(str, Enum):
     NODE = "node"
 
 
-# Role limits
 ROLE_LIMITS: dict[str, int | None] = {
     Role.ADMIN.value: 2,
     Role.OPERATOR.value: 10,
@@ -69,7 +68,6 @@ ROLE_LIMITS: dict[str, int | None] = {
     Role.AGENT.value: None,  # Unlimited (one per node)
 }
 
-# Role levels for hierarchy comparison (higher = more privileged)
 ROLE_LEVELS: dict[str, int] = {
     Role.ADMIN.value: 100,
     Role.OPERATOR.value: 50,
@@ -98,10 +96,6 @@ def is_valid_sub_account_role(role: str) -> bool:
     """Check if a role can be a sub-account (family, viewer, or agent)."""
     return role in [Role.FAMILY.value, Role.VIEWER.value, Role.AGENT.value]
 
-
-# =============================================================================
-# Sub-Account Models
-# =============================================================================
 
 class SubAccountInfo(BaseModel):
     """Information about a linked sub-account."""
@@ -165,7 +159,6 @@ class TemporaryRole(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-# Request Models
 class LoginRequest(BaseModel):
     """User login request."""
 
@@ -391,7 +384,6 @@ class GrantTemporaryRoleRequest(BaseModel):
         return v
 
 
-# Password Reset Models
 class ForgotPasswordRequest(BaseModel):
     """Request to initiate password reset."""
 
@@ -416,7 +408,6 @@ class ChangePasswordRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-# Response Models
 class TokenResponse(BaseModel):
     """Token response for login/registration."""
 
@@ -765,5 +756,4 @@ class ChangePasswordResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-# Update forward reference
 LoginResponse.model_rebuild()

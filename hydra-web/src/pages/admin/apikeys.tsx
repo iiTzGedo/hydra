@@ -44,12 +44,10 @@ export default function ApiKeysPage() {
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Create form state
   const [name, setName] = useState('');
   const [expiresInDays, setExpiresInDays] = useState('365');
 
   const handleCreate = async () => {
-    // Calculate expiresAt from days
     const days = parseInt(expiresInDays) || 365;
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
@@ -119,7 +117,6 @@ export default function ApiKeysPage() {
           }
         />
 
-        {/* Create API Key Dialog */}
         <Dialog open={showCreateForm} onOpenChange={handleCloseModal}>
           <DialogContent className="sm:max-w-md">
             {newApiKey ? (
@@ -154,7 +151,6 @@ export default function ApiKeysPage() {
                 </DialogHeader>
 
                 <div className="space-y-4">
-                  {/* Name */}
                   <div className="space-y-2">
                     <Label htmlFor="name">
                       Name <span className="text-destructive">*</span>
@@ -168,7 +164,6 @@ export default function ApiKeysPage() {
                     />
                   </div>
 
-                  {/* Expires in */}
                   <div className="space-y-2">
                     <Label htmlFor="expiresIn">Expires in (days)</Label>
                     <Input
@@ -199,7 +194,6 @@ export default function ApiKeysPage() {
           </DialogContent>
         </Dialog>
 
-        {/* API key list */}
         {isLoading ? (
           <Card>
             <CardContent className="p-6 space-y-4">

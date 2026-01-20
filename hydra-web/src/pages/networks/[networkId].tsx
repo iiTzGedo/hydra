@@ -1,4 +1,5 @@
-import { useParams, Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft,
@@ -9,16 +10,116 @@ import {
   Globe,
   Tag,
 } from 'lucide-react';
-import { useNetwork, useNetworkNodes } from '@/api/networks';
+import { toast } from 'sonner';
+import { useDeleteNetwork, useNetwork, useNetworkNodes, useUpdateNetwork } from '@/api/networks';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, NETWORK_TYPE_LABELS, NODE_CLASS_COLORS } from '@/lib/constants';
 import { cn, formatDate } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function NetworkDetailPage() {
   const { networkId } = useParams<{ networkId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { data: network, isLoading, error } = useNetwork(networkId!);
   const { data: networkNodes } = useNetworkNodes(networkId!);
+  const updateNetwork = useUpdateNetwork();
+  const deleteNetwork = useDeleteNetwork();
+
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    description: '',
+    gatewayV4: '',
+    gatewayV6: '',
+    routerNodeId: '',
+    tags: '',
+  });
+
+  useEffect(() => {
+    if (!network) return;
+    setEditForm({
+      name: network.name || '',
+      description: network.description || '',
+      gatewayV4: network.gatewayV4 || '',
+      gatewayV6: network.gatewayV6 || '',
+      routerNodeId: network.routerNodeId || '',
+      tags: network.tags?.join(', ') || '',
+    });
+  }, [network]);
+
+  useEffect(() => {
+    if (searchParams.get('edit') === '1') {
+      setShowEditDialog(true);
+    }
+    if (searchParams.get('delete') === '1') {
+      setShowDeleteDialog(true);
+    }
+  }, [searchParams]);
+
+  const setSearchParam = (key: string, value?: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value) {
+        next.set(key, value);
+      } else {
+        next.delete(key);
+      }
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    if (!network) return;
+    const tags = editForm.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    try {
+      await updateNetwork.mutateAsync({
+        networkId: network.networkId,
+        data: {
+          name: editForm.name || undefined,
+          description: editForm.description || undefined,
+          gatewayV4: editForm.gatewayV4 || undefined,
+          gatewayV6: editForm.gatewayV6 || undefined,
+          routerNodeId: editForm.routerNodeId || undefined,
+          tags,
+        },
+      });
+      toast.success('Network updated');
+      setShowEditDialog(false);
+      setSearchParam('edit');
+    } catch (err) {
+      toast.error('Failed to update network');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!network) return;
+    try {
+      await deleteNetwork.mutateAsync({ networkId: network.networkId });
+      toast.success('Network deleted');
+      setShowDeleteDialog(false);
+      setSearchParam('delete');
+      navigate(ROUTES.NETWORKS);
+    } catch (err) {
+      toast.error('Failed to delete network');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -75,6 +176,7 @@ export default function NetworkDetailPage() {
                 'inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium',
                 'hover:bg-muted transition-colors'
               )}
+              onClick={() => setSearchParam('edit', '1')}
             >
               <Edit className="h-4 w-4" />
               Edit
@@ -84,6 +186,7 @@ export default function NetworkDetailPage() {
                 'inline-flex items-center gap-2 rounded-lg border border-error/50 px-4 py-2 text-sm font-medium text-error',
                 'hover:bg-error/10 transition-colors'
               )}
+              onClick={() => setSearchParam('delete', '1')}
             >
               <Trash2 className="h-4 w-4" />
               Delete
@@ -270,6 +373,105 @@ export default function NetworkDetailPage() {
           )}
         </motion.div>
       </motion.div>
+
+      <Dialog open={showEditDialog} onOpenChange={(open) => {
+        setShowEditDialog(open);
+        if (!open) setSearchParam('edit');
+      }}>
+        <DialogContent className="sm:max-w-lg bg-card border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle>Edit Network</DialogTitle>
+            <DialogDescription>Update network configuration.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-foreground text-sm">Name</Label>
+              <Input
+                value={editForm.name}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                className="bg-muted border-border text-foreground"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-foreground text-sm">Description</Label>
+              <Textarea
+                value={editForm.description}
+                onChange={(e) =>
+                  setEditForm((prev) => ({ ...prev, description: e.target.value }))
+                }
+                className="bg-muted border-border text-foreground"
+              />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="text-foreground text-sm">Gateway v4</Label>
+                <Input
+                  value={editForm.gatewayV4}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, gatewayV4: e.target.value }))}
+                  className="bg-muted border-border text-foreground"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-foreground text-sm">Gateway v6</Label>
+                <Input
+                  value={editForm.gatewayV6}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, gatewayV6: e.target.value }))}
+                  className="bg-muted border-border text-foreground"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-foreground text-sm">Router Node ID</Label>
+              <Input
+                value={editForm.routerNodeId}
+                onChange={(e) =>
+                  setEditForm((prev) => ({ ...prev, routerNodeId: e.target.value }))
+                }
+                className="bg-muted border-border text-foreground"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-foreground text-sm">Tags</Label>
+              <Input
+                value={editForm.tags}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, tags: e.target.value }))}
+                className="bg-muted border-border text-foreground"
+                placeholder="comma,separated,tags"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={updateNetwork.isPending}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+        setShowDeleteDialog(open);
+        if (!open) setSearchParam('delete');
+      }}>
+        <DialogContent className="sm:max-w-md bg-card border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle>Delete Network</DialogTitle>
+            <DialogDescription>
+              This will permanently delete the network. Nodes may be orphaned.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteNetwork.isPending}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

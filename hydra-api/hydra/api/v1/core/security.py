@@ -10,12 +10,19 @@ from argon2.exceptions import VerificationError
 from hydra.core.config import Settings, get_settings
 from hydra.api.v1.core.exceptions import InvalidTokenError
 
-# Password hashing context
 pwd_hasher = PasswordHasher()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against a hash."""
+    """Verify a password against a hash.
+
+    Args:
+        plain_password: The plaintext password to verify.
+        hashed_password: The hashed password to compare against.
+
+    Returns:
+        True if the password matches, False otherwise.
+    """
     try:
         return pwd_hasher.verify(hashed_password, plain_password)
     except VerificationError:
@@ -23,7 +30,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def hash_password(password: str) -> str:
-    """Hash a password."""
+    """Hash a password using Argon2.
+
+    Args:
+        password: The plaintext password to hash.
+
+    Returns:
+        The hashed password string.
+    """
     return pwd_hasher.hash(password)
 
 
@@ -33,21 +47,19 @@ def create_access_token(
     additional_claims: dict[str, Any] | None = None,
     settings: Settings | None = None,
 ) -> str:
-    """
-    Create a JWT access token.
+    """Create a JWT access token.
 
     Args:
-        subject: The subject (user ID, node ID, etc.)
-        token_type: Type of token (access, refresh, registration)
-        additional_claims: Additional claims to include in the token
-        settings: Application settings (optional, uses global if not provided)
+        subject: The subject (user ID, node ID, etc.).
+        token_type: Type of token (access, refresh, registration).
+        additional_claims: Additional claims to include in the token.
+        settings: Application settings (optional, uses global if not provided).
 
     Returns:
-        Encoded JWT token string
+        Encoded JWT token string.
     """
     settings = settings or get_settings()
 
-    # Determine expiration based on token type
     if token_type == "refresh":
         expire = datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_expire_days)
     elif token_type == "registration":
@@ -69,18 +81,17 @@ def create_access_token(
 
 
 def decode_token(token: str, settings: Settings | None = None) -> dict[str, Any]:
-    """
-    Decode and validate a JWT token.
+    """Decode and validate a JWT token.
 
     Args:
-        token: The JWT token string
-        settings: Application settings
+        token: The JWT token string.
+        settings: Application settings.
 
     Returns:
-        Decoded token claims
+        Decoded token claims.
 
     Raises:
-        InvalidTokenError: If token is invalid or expired
+        InvalidTokenError: If token is invalid or expired.
     """
     settings = settings or get_settings()
 
@@ -100,11 +111,15 @@ def create_token_pair(
     additional_claims: dict[str, Any] | None = None,
     settings: Settings | None = None,
 ) -> tuple[str, str]:
-    """
-    Create an access/refresh token pair.
+    """Create an access/refresh token pair.
+
+    Args:
+        subject: The subject (user ID, node ID, etc.).
+        additional_claims: Additional claims to include in the access token.
+        settings: Application settings.
 
     Returns:
-        Tuple of (access_token, refresh_token)
+        Tuple of (access_token, refresh_token).
     """
     settings = settings or get_settings()
 

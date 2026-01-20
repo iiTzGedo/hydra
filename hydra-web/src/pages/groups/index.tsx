@@ -107,7 +107,6 @@ export default function GroupsPage() {
 
   const visibleColumnCount = Object.values(visibleColumns).filter(Boolean).length;
 
-  // Build query params
   const queryParams = useMemo(() => {
     const params: Record<string, unknown> = { limit, offset: page * limit };
     if (filters.search) params.search = filters.search;
@@ -116,7 +115,6 @@ export default function GroupsPage() {
 
   const { data, isLoading, error } = useGroups(queryParams);
 
-  // Calculate stats from current data
   const stats = useMemo(() => {
     const items = data?.items ?? [];
     const nodeGroups = items.filter(g => g.types.includes('node'));
@@ -136,7 +134,6 @@ export default function GroupsPage() {
   return (
     <TooltipProvider>
       <div className="p-6 space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Groups</h1>
@@ -150,7 +147,6 @@ export default function GroupsPage() {
           </Button>
         </div>
 
-        {/* Status Summary Cards */}
         <motion.div
           variants={staggerContainerVariants}
           initial="hidden"
@@ -238,11 +234,9 @@ export default function GroupsPage() {
           </motion.div>
         </motion.div>
 
-        {/* Filter Bar */}
         <Card>
           <CardContent className="p-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              {/* Search */}
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -256,7 +250,6 @@ export default function GroupsPage() {
                 />
               </div>
 
-              {/* View Controls */}
               <div className="flex items-center gap-2">
                 {filters.search && (
                   <Button
@@ -270,7 +263,6 @@ export default function GroupsPage() {
                   </Button>
                 )}
 
-                {/* View Mode Toggle */}
                 <div className="flex items-center border rounded-md">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -392,7 +384,6 @@ export default function GroupsPage() {
           </CardContent>
         </Card>
 
-        {/* Error State */}
         {error && (
           <Card className="border-destructive">
             <CardContent className="p-8 text-center">
@@ -403,7 +394,6 @@ export default function GroupsPage() {
           </Card>
         )}
 
-        {/* Loading State */}
         {isLoading && !error && (
           <Card>
             <Table>
@@ -441,7 +431,6 @@ export default function GroupsPage() {
           </Card>
         )}
 
-        {/* Empty State */}
         {!isLoading && !error && !data?.items?.length && (
           <Card>
             <CardContent className="p-8 text-center">
@@ -467,7 +456,6 @@ export default function GroupsPage() {
           </Card>
         )}
 
-        {/* Groups Table/Grid */}
         {!isLoading && !error && data?.items && data.items.length > 0 && (
           <motion.div
             variants={staggerContainerVariants}
@@ -511,7 +499,6 @@ export default function GroupsPage() {
                   </TableBody>
                 </Table>
 
-                {/* Pagination */}
                 <Pagination
                   page={page}
                   totalPages={totalPages}
@@ -542,7 +529,6 @@ export default function GroupsPage() {
           </motion.div>
         )}
 
-        {/* Create Group Modal */}
         <CreateGroupModal
           open={showCreateModal}
           onOpenChange={setShowCreateModal}
@@ -593,20 +579,23 @@ function GroupGridCard({ group }: { group: GroupListItem }) {
                     View Members
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit Group
+                <DropdownMenuItem asChild>
+                  <Link to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}?edit=1`}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit Group
+                  </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-destructive">
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
+                <DropdownMenuItem asChild className="text-destructive">
+                  <Link to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}?delete=1`}>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
 
-          {/* Types */}
           <div className="flex gap-1 mb-3">
             {group.types.includes('node') && (
               <Badge variant="secondary" className="bg-compute/10 text-compute">
@@ -671,7 +660,6 @@ function GroupRow({
       variants={staggerItemVariants}
       className="group hover:bg-muted/50 transition-colors"
     >
-      {/* Group Info */}
       {visibleColumns.group && (
         <TableCell>
           <div className="flex items-center gap-3">
@@ -693,7 +681,6 @@ function GroupRow({
         </TableCell>
       )}
 
-      {/* Types */}
       {visibleColumns.types && (
         <TableCell>
           <div className="flex gap-1">
@@ -713,7 +700,6 @@ function GroupRow({
         </TableCell>
       )}
 
-      {/* Node Count */}
       {visibleColumns.nodes && (
         <TableCell>
           <Badge variant="outline" className="font-mono">
@@ -722,7 +708,6 @@ function GroupRow({
         </TableCell>
       )}
 
-      {/* Service Count */}
       {visibleColumns.services && (
         <TableCell>
           <Badge variant="outline" className="font-mono">
@@ -731,7 +716,6 @@ function GroupRow({
         </TableCell>
       )}
 
-      {/* Tags */}
       {visibleColumns.tags && (
         <TableCell>
           {group.tags && group.tags.length > 0 ? (
@@ -760,7 +744,6 @@ function GroupRow({
         </TableCell>
       )}
 
-      {/* Actions */}
       {visibleColumns.actions && (
         <TableCell>
           <DropdownMenu>
@@ -780,14 +763,18 @@ function GroupRow({
                   View Members
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Group
+              <DropdownMenuItem asChild>
+                <Link to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}?edit=1`}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Group
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
+              <DropdownMenuItem asChild className="text-destructive">
+                <Link to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}?delete=1`}>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Link>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -797,7 +784,6 @@ function GroupRow({
   );
 }
 
-// Create Group Modal Component
 function CreateGroupModal({
   open,
   onOpenChange
@@ -809,7 +795,6 @@ function CreateGroupModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
 
-  // Form state
   const [formData, setFormData] = useState({
     groupId: '',
     name: '',
@@ -818,7 +803,6 @@ function CreateGroupModal({
     types: ['node'] as GroupEntityType[],
   });
 
-  // Selector state
   const [selectors, setSelectors] = useState({
     ids: '',
     networks: '',
@@ -930,7 +914,6 @@ function CreateGroupModal({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         {createdGroupId ? (
-          // Success state
           <div className="text-center py-6">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-success/10">
               <CheckCircle2 className="h-8 w-8 text-success" />
@@ -967,7 +950,6 @@ function CreateGroupModal({
             )}
 
             <div className="grid gap-4">
-              {/* Basic Info */}
               <div className="space-y-4">
                 <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                   Basic Information
@@ -1044,7 +1026,6 @@ function CreateGroupModal({
                 </div>
               </div>
 
-              {/* Selectors */}
               <div className="space-y-4">
                 <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                   Selectors

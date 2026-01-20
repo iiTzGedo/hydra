@@ -33,7 +33,6 @@ from hydra_mcp.toon import TOONFormatter
 
 logger = structlog.get_logger(__name__)
 
-# Initialize the MCP server
 server = Server("hydra-mcp")
 settings = get_settings()
 client = HydraClient(settings)
@@ -44,12 +43,13 @@ toon = TOONFormatter(
 )
 
 
-# ==================== Tools ====================
-
-
 @server.list_tools()
 async def list_tools() -> ListToolsResult:
-    """List all available tools."""
+    """List all available MCP tools for infrastructure management.
+
+    Returns:
+        ListToolsResult containing tool definitions with schemas.
+    """
     tools = [
         Tool(
             name="list_nodes",
@@ -461,7 +461,15 @@ async def list_tools() -> ListToolsResult:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
-    """Handle tool calls."""
+    """Execute a tool call and return TOON-formatted results.
+
+    Args:
+        name: The tool name to execute.
+        arguments: Tool arguments as a dictionary.
+
+    Returns:
+        CallToolResult with TOON-formatted content or error details.
+    """
     try:
         result = await _execute_tool(name, arguments)
         return CallToolResult(content=[TextContent(type="text", text=result)])
@@ -475,7 +483,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 
 
 async def _execute_tool(name: str, args: dict[str, Any]) -> str:
-    """Execute a tool and return TOON-formatted result."""
     if name == "list_nodes":
         nodes, _ = await client.list_nodes(
             node_class=args.get("class"),
@@ -592,8 +599,6 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
         return toon.format(result)
 
     elif name == "control_service":
-        # Fetch the service to get the node ID
-        # Service ID format: svc-<name>-<hash>
         service = await client.get_service(args["serviceId"])
         if not service:
             raise ValueError(f"Service not found: {args['serviceId']}")
@@ -614,22 +619,18 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
         return toon.format(result)
 
     elif name == "service_dependency_map":
-        # Fetch services
         service_id = args.get("serviceId")
         depth = args.get("depth", 3)
         include_network = args.get("includeNetworkAnalysis", True)
 
         if service_id:
-            # Analyze specific service
             service = await client.get_service(service_id)
             services = [service]
         else:
-            # Analyze all services
             services, _ = await client.list_services(limit=200)
             if not isinstance(services, list):
                 services = []
 
-        # Build dependency map
         dependency_map = {
             "services": [],
             "dependencies": [],
@@ -642,7 +643,6 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
             },
         }
 
-        # Service-to-service dependency tracking
         service_deps = {}
         service_dependents = {}
 
@@ -663,19 +663,15 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
                 "dependents": [],
             }
 
-            # Extract dependencies from service metadata
             metadata = svc.get("metadata", {})
 
-            # Docker/Podman: analyze environment variables, links, networks
             if runtime in ["docker", "podman"]:
                 env_vars = metadata.get("environment", {})
                 networks = metadata.get("networks", [])
                 links = metadata.get("links", [])
 
-                # Analyze environment variables for service references
                 for key, value in env_vars.items() if isinstance(env_vars, dict) else []:
                     if isinstance(value, str):
-                        # Look for patterns like: SERVICE_HOST, SERVICE_PORT, etc.
                         if "_HOST" in key or "_URL" in key or "_ENDPOINT" in key:
                             service_info["dependencies"].append({
                                 "type": "environment",
@@ -683,17 +679,14 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
                                 "reference": key,
                             })
 
-                # Add network-based dependencies
                 if networks:
                     service_info["networks"] = networks
 
-                # Add explicit links
                 if links:
                     service_info["dependencies"].extend([
                         {"type": "link", "target": link} for link in links
                     ])
 
-            # Kubernetes: analyze pod dependencies
             elif runtime == "kubernetes":
                 containers = metadata.get("containers", [])
                 for container in containers if isinstance(containers, list) else []:
@@ -708,7 +701,6 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
                                 "reference": name,
                             })
 
-            # systemd: analyze configuration
             elif runtime == "systemd":
                 config = metadata.get("config", {})
                 requires = config.get("Requires", [])
@@ -732,35 +724,28 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
             service_deps[svc_id] = service_info["dependencies"]
             service_dependents[svc_id] = []
 
-        # Build dependency graph
         for svc_info in dependency_map["services"]:
             svc_id = svc_info["serviceId"]
             for dep in svc_info["dependencies"]:
                 target = dep.get("target", "")
-
-                # Try to match target to another service
                 for other_svc in dependency_map["services"]:
                     other_id = other_svc["serviceId"]
                     other_name = other_svc["name"]
-
                     if other_id != svc_id and (target in other_id or target in other_name):
                         dependency_map["dependencies"].append({
                             "from": svc_id,
                             "to": other_id,
                             "type": dep.get("type", "unknown"),
                         })
-
                         if other_id not in service_dependents:
                             service_dependents[other_id] = []
                         service_dependents[other_id].append(svc_id)
 
-        # Analyze patterns
         for svc_info in dependency_map["services"]:
             svc_id = svc_info["serviceId"]
             num_deps = len(service_deps.get(svc_id, []))
             num_dependents = len(service_dependents.get(svc_id, []))
 
-            # Critical services (many dependents)
             if num_dependents >= 3:
                 dependency_map["analysis"]["criticalServices"].append({
                     "serviceId": svc_id,
@@ -769,14 +754,12 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
                     "reason": "High number of dependent services",
                 })
 
-            # Isolated services (no dependencies or dependents)
             if num_deps == 0 and num_dependents == 0:
                 dependency_map["analysis"]["isolatedServices"].append({
                     "serviceId": svc_id,
                     "name": svc_info["name"],
                 })
 
-            # Single points of failure (critical + running)
             if num_dependents >= 2 and svc_info["status"] == "running":
                 dependency_map["analysis"]["singlePointsOfFailure"].append({
                     "serviceId": svc_id,
@@ -785,13 +768,9 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
                     "impact": "High - failure would affect multiple services",
                 })
 
-        # Network topology analysis
         if include_network:
             try:
                 topology = await client.get_topology(mode="network")
-                networks = topology.get("networks", [])
-
-                # Analyze service communication patterns
                 network_services = {}
                 for svc_info in dependency_map["services"]:
                     svc_networks = svc_info.get("networks", [])
@@ -800,7 +779,6 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
                             network_services[net] = []
                         network_services[net].append(svc_info["serviceId"])
 
-                # Identify communication patterns
                 for net, svc_list in network_services.items():
                     if len(svc_list) > 1:
                         dependency_map["analysis"]["communicationPatterns"].append({
@@ -817,12 +795,13 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
         raise ValueError(f"Unknown tool: {name}")
 
 
-# ==================== Resources ====================
-
-
 @server.list_resources()
 async def list_resources() -> ListResourcesResult:
-    """List available resources."""
+    """List available MCP resources for infrastructure data.
+
+    Returns:
+        ListResourcesResult containing resource definitions with URIs.
+    """
     resources = [
         Resource(
             uri="infrastructure://overview",
@@ -866,7 +845,14 @@ async def list_resources() -> ListResourcesResult:
 
 @server.read_resource()
 async def read_resource(uri: str) -> ReadResourceResult:
-    """Read a resource."""
+    """Read a resource and return its TOON-formatted content.
+
+    Args:
+        uri: The resource URI to read (e.g., infrastructure://nodes).
+
+    Returns:
+        ReadResourceResult with TOON-formatted content or error message.
+    """
     try:
         content = await _read_resource(uri)
         return ReadResourceResult(contents=[TextContent(type="text", text=content)])
@@ -876,7 +862,6 @@ async def read_resource(uri: str) -> ReadResourceResult:
 
 
 async def _read_resource(uri: str) -> str:
-    """Read a resource and return content."""
     if uri == "infrastructure://overview":
         info = await client.get_info()
         return toon.format(info)
@@ -915,12 +900,13 @@ async def _read_resource(uri: str) -> str:
         raise ValueError(f"Unknown resource: {uri}")
 
 
-# ==================== Prompts ====================
-
-
 @server.list_prompts()
 async def list_prompts() -> ListPromptsResult:
-    """List available prompts."""
+    """List available MCP prompts for infrastructure analysis.
+
+    Returns:
+        ListPromptsResult containing prompt definitions with arguments.
+    """
     prompts = [
         Prompt(
             name="capacity_planning",
@@ -1024,7 +1010,15 @@ async def list_prompts() -> ListPromptsResult:
 
 @server.get_prompt()
 async def get_prompt(name: str, arguments: dict[str, str] | None) -> GetPromptResult:
-    """Get a prompt with context."""
+    """Get a prompt populated with infrastructure context.
+
+    Args:
+        name: The prompt name to retrieve.
+        arguments: Optional prompt arguments as key-value pairs.
+
+    Returns:
+        GetPromptResult with context-aware prompt messages.
+    """
     args = arguments or {}
 
     if name == "capacity_planning":
@@ -1230,11 +1224,12 @@ Please create documentation including:
         raise ValueError(f"Unknown prompt: {name}")
 
 
-# ==================== HTTP Transport ====================
-
-
 def create_http_app():
-    """Create FastAPI app for HTTP transport."""
+    """Create a FastAPI application for HTTP transport.
+
+    Returns:
+        FastAPI application with MCP endpoints for tools, resources, and prompts.
+    """
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
@@ -1245,7 +1240,6 @@ def create_http_app():
         version=settings.server_version,
     )
 
-    # CORS middleware
     http_app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -1352,11 +1346,8 @@ def create_http_app():
     return http_app
 
 
-# ==================== Server Entry Point ====================
-
-
-async def run_stdio():
-    """Run the MCP server with stdio transport."""
+async def run_stdio() -> None:
+    """Run the MCP server with stdio transport for CLI and desktop apps."""
     logger.info(
         "starting_hydra_mcp_server",
         transport="stdio",
@@ -1371,8 +1362,8 @@ async def run_stdio():
         )
 
 
-async def run_http():
-    """Run the MCP server with HTTP transport (custom REST API)."""
+async def run_http() -> None:
+    """Run the MCP server with custom HTTP REST API transport."""
     import uvicorn
 
     logger.info(
@@ -1394,8 +1385,8 @@ async def run_http():
     await http_server.serve()
 
 
-async def run_sse():
-    """Run the MCP server with SSE transport (MCP protocol over HTTP)."""
+async def run_sse() -> None:
+    """Run the MCP server with Server-Sent Events transport."""
     from starlette.applications import Starlette
     from starlette.routing import Mount, Route
     import uvicorn
@@ -1408,10 +1399,8 @@ async def run_sse():
         version=settings.server_version,
     )
 
-    # Create SSE transport
     sse_transport = SseServerTransport("/messages")
 
-    # Create Starlette app with MCP SSE endpoints
     sse_app = Starlette(
         routes=[
             Route("/sse", endpoint=sse_transport.connect_sse),
@@ -1419,7 +1408,6 @@ async def run_sse():
         ]
     )
 
-    # Run the MCP server with SSE transport
     async with sse_transport.connect_sse() as streams:
         async def run_server():
             await server.run(
@@ -1428,7 +1416,6 @@ async def run_sse():
                 server.create_initialization_options(),
             )
 
-        # Start both the ASGI app and MCP server
         import anyio
         async with anyio.create_task_group() as tg:
             tg.start_soon(run_server)
@@ -1442,8 +1429,8 @@ async def run_sse():
             tg.start_soon(http_server.serve)
 
 
-async def run_streamable_http():
-    """Run the MCP server with Streamable HTTP transport (recommended for Claude Desktop)."""
+async def run_streamable_http() -> None:
+    """Run the MCP server with Streamable HTTP transport for Claude Desktop."""
     from starlette.applications import Starlette
     from starlette.routing import Mount
     from starlette.middleware.cors import CORSMiddleware
@@ -1457,20 +1444,17 @@ async def run_streamable_http():
         version=settings.server_version,
     )
 
-    # Create Streamable HTTP transport
     streamable_transport = StreamableHTTPServerTransport(
-        mcp_session_id=None,  # Let the transport generate session IDs
-        is_json_response_enabled=False,  # Use SSE for streaming
+        mcp_session_id=None,
+        is_json_response_enabled=False,
     )
 
-    # Create Starlette app that mounts the MCP transport
     mcp_app = Starlette(
         routes=[
             Mount("/mcp", app=streamable_transport.handle_request),
         ]
     )
 
-    # Add CORS middleware
     mcp_app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -1479,16 +1463,14 @@ async def run_streamable_http():
         allow_headers=["*"],
     )
 
-    # Run MCP server
     async def run_mcp():
         async with streamable_transport.connect() as streams:
             await server.run(
-                streams[0],  # read stream
-                streams[1],  # write stream
+                streams[0],
+                streams[1],
                 server.create_initialization_options(),
             )
 
-    # Start both the ASGI app and MCP server
     import anyio
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_mcp)
@@ -1502,26 +1484,31 @@ async def run_streamable_http():
         await http_server.serve()
 
 
-async def main(transport: str | None = None):
-    """Run the MCP server with the specified transport."""
+async def main(transport: str | None = None) -> None:
+    """Run the MCP server with the specified transport.
+
+    Args:
+        transport: Transport mode override. If None, uses settings.transport.
+            Valid values: 'stdio', 'http', 'sse', 'streamable-http'.
+    """
     transport = transport or settings.transport
 
     if transport == "http":
-        # Custom REST API (for Hydra API integration)
         await run_http()
     elif transport == "sse":
-        # MCP protocol over SSE (for Claude Desktop)
         await run_sse()
     elif transport == "streamable-http":
-        # MCP protocol over Streamable HTTP (recommended for Claude Desktop)
         await run_streamable_http()
     else:
-        # stdio transport (for CLI and desktop apps)
         await run_stdio()
 
 
-def run(transport: str | None = None):
-    """Synchronous entry point for CLI."""
+def run(transport: str | None = None) -> None:
+    """Synchronous entry point for running the MCP server.
+
+    Args:
+        transport: Transport mode override. If None, uses settings.transport.
+    """
     import asyncio
     asyncio.run(main(transport))
 

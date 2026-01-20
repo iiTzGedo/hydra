@@ -17,7 +17,6 @@ import {
   Network,
   Cpu,
   Clock,
-  AlertCircle,
   Loader2,
 } from 'lucide-react';
 import { TopologyNodeComponent } from '@/components/topology/topology-node';
@@ -35,7 +34,6 @@ interface HistoricalTopologyProps {
       type: string;
       kind: string;
       status: string;
-      profileVersion?: string;
     }>;
     edges?: Array<{
       from: string;
@@ -46,7 +44,6 @@ interface HistoricalTopologyProps {
   isLoading: boolean;
 }
 
-// Define nodeTypes - cast to any to avoid ReactFlow type complexity
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const nodeTypes: Record<string, any> = {
   topology: TopologyNodeComponent,
@@ -64,7 +61,6 @@ export function HistoricalTopology({
   topologyState,
   isLoading,
 }: HistoricalTopologyProps) {
-  // Convert topology state to ReactFlow format
   const { nodes, edges } = useMemo(() => {
     if (!topologyState?.nodes?.length) {
       return { nodes: [], edges: [] };
@@ -137,7 +133,6 @@ export function HistoricalTopology({
 
   return (
     <div className="h-full flex">
-      {/* Topology view */}
       <div className="flex-1 relative">
         <ReactFlow
           nodes={flowNodes}
@@ -156,7 +151,6 @@ export function HistoricalTopology({
           <Controls showInteractive={false} />
         </ReactFlow>
 
-        {/* Timestamp overlay */}
         <div className="absolute top-4 left-4 rounded-lg bg-card/90 backdrop-blur border px-3 py-2 shadow-lg">
           <div className="flex items-center gap-2 text-sm">
             <Clock className="h-4 w-4 text-muted-foreground" />
@@ -165,7 +159,6 @@ export function HistoricalTopology({
         </div>
       </div>
 
-      {/* Side panel with node list */}
       <div className="w-80 border-l bg-card overflow-auto">
         <div className="p-4 border-b sticky top-0 bg-card z-10">
           <h3 className="font-semibold">Nodes at this time</h3>
@@ -199,11 +192,6 @@ export function HistoricalTopology({
                       {node.class} • {node.kind}
                     </div>
                   </div>
-                  {node.profileVersion && (
-                    <span className="text-xs font-mono text-muted-foreground">
-                      {node.profileVersion}
-                    </span>
-                  )}
                 </Link>
               </motion.div>
             );

@@ -118,7 +118,6 @@ export default function AuditPage() {
         description="View system activity and changes"
       />
 
-      {/* Filters */}
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -147,7 +146,6 @@ export default function AuditPage() {
         </Select>
       </div>
 
-      {/* Audit log list */}
       {error ? (
         <Card>
           <CardContent className="p-8 text-center">
@@ -240,7 +238,6 @@ export default function AuditPage() {
         </motion.div>
       )}
 
-      {/* Pagination */}
       {totalPages > 1 && !normalizedSearch && (
         <div className="mt-4 flex items-center justify-center gap-2">
           <Button

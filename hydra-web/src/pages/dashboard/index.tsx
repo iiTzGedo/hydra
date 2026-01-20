@@ -15,7 +15,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Dashboard</h1>
@@ -49,10 +48,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats cards */}
       <StatsCards />
 
-      {/* Main content grid - Resource usage (2 cols) + Activity (1 col) */}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <CapacityOverview />
@@ -60,13 +57,11 @@ export default function DashboardPage() {
         <RecentActivity />
       </div>
 
-      {/* Services and Topology row */}
       <div className="grid gap-6 lg:grid-cols-2">
         <ServiceSummary />
         <MiniTopology />
       </div>
 
-      {/* Node Status Grid */}
       <NodeStatusGrid />
     </div>
   );

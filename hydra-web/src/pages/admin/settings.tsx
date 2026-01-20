@@ -28,7 +28,6 @@ export default function AdminSettingsPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* General Settings */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-4">
             <CardTitle className="text-foreground flex items-center gap-2 text-base">
@@ -85,7 +84,6 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Agent Configuration */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-4">
             <CardTitle className="text-foreground flex items-center gap-2 text-base">
@@ -137,7 +135,6 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Notifications */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-4">
             <CardTitle className="text-foreground flex items-center gap-2 text-base">
@@ -196,7 +193,6 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Security */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-4">
             <CardTitle className="text-foreground flex items-center gap-2 text-base">

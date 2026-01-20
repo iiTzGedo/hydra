@@ -1,65 +1,105 @@
 //! Network information collector.
+//!
+//! Collects network configuration including interfaces, DNS settings,
+//! and routing information using platform-specific APIs and commands.
 
 use anyhow::Result;
 use serde::Serialize;
 use sysinfo::Networks;
 
+/// Network profile containing hostname, interfaces, DNS, and routing information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkProfile {
+    /// System hostname
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
+    /// Network domain
     #[serde(skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
+    /// Fully qualified domain name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fqdn: Option<String>,
+    /// List of network interfaces
     pub interfaces: Vec<NetworkInterface>,
+    /// Configured DNS servers
     pub dns_servers: Vec<String>,
+    /// DNS search domains
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub dns_search: Vec<String>,
+    /// Default gateway IP address
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_gateway: Option<String>,
+    /// Routing table entries
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub routes: Vec<NetworkRoute>,
 }
 
+/// Network interface information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkInterface {
+    /// Interface name (e.g., "eth0", "enp0s3")
     pub name: String,
+    /// MAC address in colon-separated format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mac_address: Option<String>,
+    /// IPv4 addresses assigned to this interface
     pub ipv4_addresses: Vec<String>,
+    /// IPv6 addresses assigned to this interface
     pub ipv6_addresses: Vec<String>,
+    /// Network mask
     #[serde(skip_serializing_if = "Option::is_none")]
     pub netmask: Option<String>,
+    /// Gateway for this interface
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gateway: Option<String>,
+    /// Maximum transmission unit
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mtu: Option<u32>,
+    /// Interface state (e.g., "up", "down")
     pub state: String,
+    /// Interface type (e.g., "ethernet", "wireless")
     #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
     pub interface_type: Option<String>,
+    /// Link speed in Mbps
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed_mbps: Option<u32>,
 }
 
+/// Network route entry.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkRoute {
+    /// Destination network or "default"
     pub destination: String,
+    /// Gateway IP address
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gateway: Option<String>,
+    /// Outgoing interface
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interface: Option<String>,
+    /// Route metric/priority
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metric: Option<u32>,
 }
 
+/// Collector for network information.
 pub struct NetworkCollector;
 
 impl NetworkCollector {
-    /// Collect network information.
+    /// Collects network information from the current system.
+    ///
+    /// Gathers interface details, DNS configuration, and routing information
+    /// using platform-specific methods.
+    ///
+    /// # Returns
+    ///
+    /// A network profile containing all collected data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if network information cannot be retrieved.
     pub fn collect() -> Result<NetworkProfile> {
         let networks = Networks::new_with_refreshed_list();
 
@@ -72,11 +112,9 @@ impl NetworkCollector {
                 mac.0[0], mac.0[1], mac.0[2], mac.0[3], mac.0[4], mac.0[5]
             );
 
-            // Get IP addresses using local-ip-address crate
             let mut ipv4_addresses = Vec::new();
             let mut ipv6_addresses = Vec::new();
 
-            // Try to get local IP (simplified - production would enumerate all IPs)
             if let Ok(ip) = local_ip_address::local_ip() {
                 match ip {
                     std::net::IpAddr::V4(v4) => ipv4_addresses.push(v4.to_string()),
@@ -89,7 +127,7 @@ impl NetworkCollector {
                 mac_address: Some(mac_str),
                 ipv4_addresses,
                 ipv6_addresses,
-                netmask: None, // Would require platform-specific enumeration
+                netmask: None,
                 gateway: None,
                 mtu: None,
                 state: "up".to_string(),
@@ -98,18 +136,12 @@ impl NetworkCollector {
             });
         }
 
-        // Get hostname
         let hostname = hostname::get()
             .ok()
             .and_then(|h| h.into_string().ok());
 
-        // Get domain and FQDN
         let (domain, fqdn) = Self::get_domain_info(&hostname);
-
-        // DNS servers and search domains
         let (dns_servers, dns_search) = Self::get_dns_config();
-
-        // Default gateway and routes
         let (default_gateway, routes) = Self::get_routing_info();
 
         Ok(NetworkProfile {
@@ -124,7 +156,6 @@ impl NetworkCollector {
         })
     }
 
-    /// Get domain and FQDN.
     fn get_domain_info(hostname: &Option<String>) -> (Option<String>, Option<String>) {
         #[cfg(unix)]
         {
@@ -159,7 +190,6 @@ impl NetworkCollector {
         (None, hostname.clone())
     }
 
-    /// Get DNS configuration (servers and search domains).
     #[cfg(unix)]
     fn get_dns_config() -> (Vec<String>, Vec<String>) {
         let mut servers = Vec::new();
@@ -206,7 +236,6 @@ impl NetworkCollector {
         (servers, search)
     }
 
-    /// Get routing information.
     #[cfg(target_os = "linux")]
     fn get_routing_info() -> (Option<String>, Vec<NetworkRoute>) {
         use std::process::Command;

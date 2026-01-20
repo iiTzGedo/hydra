@@ -1,4 +1,4 @@
-"""Documentation endpoints."""
+"""Documentation management endpoints."""
 
 from typing import Annotated
 
@@ -55,7 +55,26 @@ async def list_docs(
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> SuccessResponse[list[DocSummary]]:
-    """List documentation with filters."""
+    """List documentation with optional filters.
+
+    Args:
+        docs_service: Documentation service instance.
+        type: Filter by document type.
+        status: Filter by document status.
+        category: Filter by category name.
+        entity_type: Filter by linked entity type.
+        entity_id: Filter by linked entity ID.
+        tags: Filter by tags (documents must have all specified tags).
+        search: Full-text search query.
+        limit: Maximum number of documents to return.
+        offset: Number of documents to skip.
+
+    Returns:
+        Paginated list of document summaries.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     params = DocListParams(
         type=type,
         status=status,
@@ -104,7 +123,19 @@ async def create_doc(
     docs_service: DocsServiceDep,
     current_user: CurrentUser,
 ) -> SuccessResponse[DocCreatedResponse]:
-    """Create new documentation."""
+    """Create new infrastructure documentation.
+
+    Args:
+        request: Document creation request with title, type, format, and content.
+        docs_service: Documentation service instance.
+        current_user: Authenticated user making the request.
+
+    Returns:
+        Created document details with ID and version.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     author = current_user.get("username") if isinstance(current_user, dict) else getattr(current_user, "username", None)
 
     doc = await docs_service.create_doc(request, author=author)
@@ -131,7 +162,20 @@ async def get_doc(
     docs_service: DocsServiceDep,
     version: int | None = Query(default=None, description="Specific version to retrieve"),
 ) -> SuccessResponse[DocResponse]:
-    """Get documentation by ID."""
+    """Retrieve documentation by ID.
+
+    Args:
+        doc_id: Unique identifier of the document.
+        docs_service: Documentation service instance.
+        version: Optional specific version to retrieve.
+
+    Returns:
+        Full document content and metadata.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+        HTTPException 404: Document not found.
+    """
     doc = await docs_service.get_doc(doc_id, version=version)
 
     return SuccessResponse(
@@ -170,7 +214,23 @@ async def update_doc(
     docs_service: DocsServiceDep,
     current_user: CurrentUser,
 ) -> SuccessResponse[DocUpdatedResponse]:
-    """Update documentation."""
+    """Update existing documentation.
+
+    Creates a new version of the document with the updated content.
+
+    Args:
+        doc_id: Unique identifier of the document.
+        request: Document update request with fields to modify.
+        docs_service: Documentation service instance.
+        current_user: Authenticated user making the request.
+
+    Returns:
+        Updated document details with new version number.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+        HTTPException 404: Document not found.
+    """
     author = current_user.get("username") if isinstance(current_user, dict) else getattr(current_user, "username", None)
 
     doc = await docs_service.update_doc(doc_id, request, author=author)
@@ -196,7 +256,22 @@ async def delete_doc(
     docs_service: DocsServiceDep,
     permanent: bool = Query(default=False, description="Permanently delete (default: archive)"),
 ) -> SuccessResponse[DocDeletedResponse]:
-    """Delete or archive documentation."""
+    """Delete or archive documentation.
+
+    By default, documents are archived rather than permanently deleted.
+
+    Args:
+        doc_id: Unique identifier of the document.
+        docs_service: Documentation service instance.
+        permanent: If true, permanently delete; otherwise archive.
+
+    Returns:
+        Deletion result with final document status.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+        HTTPException 404: Document not found.
+    """
     result = await docs_service.delete_doc(doc_id, permanent=permanent)
 
     return SuccessResponse(

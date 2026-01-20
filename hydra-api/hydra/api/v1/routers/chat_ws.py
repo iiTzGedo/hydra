@@ -17,16 +17,13 @@ router = APIRouter(tags=["Chat WebSocket"])
 logger = structlog.get_logger(__name__)
 
 
-# WebSocket message types
 class WSMessageType:
-    """WebSocket message types."""
+    """WebSocket message types for client-server communication."""
 
-    # Client -> Server
     CHAT_REQUEST = "chat_request"
     CANCEL = "cancel"
     PING = "ping"
 
-    # Server -> Client
     TEXT_DELTA = "text_delta"
     TOOL_CALL_START = "tool_call_start"
     TOOL_CALL_RESULT = "tool_call_result"
@@ -36,7 +33,7 @@ class WSMessageType:
 
 
 class ChatWebSocketHandler:
-    """Handler for WebSocket chat connections."""
+    """Handler for WebSocket chat connections with LLM and MCP integration."""
 
     def __init__(
         self,
@@ -44,6 +41,13 @@ class ChatWebSocketHandler:
         user_id: str,
         mongodb: MongoDB,
     ):
+        """Initialize the WebSocket handler.
+
+        Args:
+            websocket: The WebSocket connection instance.
+            user_id: ID of the authenticated user.
+            mongodb: MongoDB database instance.
+        """
         self.websocket = websocket
         self.user_id = user_id
         self.mongodb = mongodb
@@ -53,7 +57,11 @@ class ChatWebSocketHandler:
         self._cancelled = False
 
     async def handle(self):
-        """Main handler loop for WebSocket messages."""
+        """Process incoming WebSocket messages in a loop.
+
+        Handles message types: ping, cancel, and chat_request.
+        Continues until the connection is closed or an error occurs.
+        """
         try:
             while True:
                 data = await self.websocket.receive_json()
@@ -79,7 +87,11 @@ class ChatWebSocketHandler:
             await self._send_error(str(e))
 
     async def _handle_chat_request(self, data: dict):
-        """Handle a chat request with LLM and MCP integration."""
+        """Process a chat request with LLM completion and MCP tool support.
+
+        Args:
+            data: Request data containing sessionId, content, and optional providerId.
+        """
         session_id = data.get("sessionId")
         message_content = data.get("content", "")
         provider_id = data.get("providerId")
@@ -93,21 +105,17 @@ class ChatWebSocketHandler:
             return
 
         try:
-            # Get session info
             session = await self.chat_service.get_session(session_id, self.user_id)
 
-            # Use session's provider or specified provider
             active_provider_id = provider_id or session.get("llm_provider_id")
             if not active_provider_id:
                 await self._send_error("No LLM provider configured for session")
                 return
 
-            # Get provider config
             provider_config = await self.llm_bridge.get_provider_config(
                 active_provider_id, self.user_id
             )
 
-            # Get MCP tools if servers are configured
             mcp_server_ids = session.get("mcp_server_ids", [])
             tools = []
             if mcp_server_ids:
@@ -115,22 +123,16 @@ class ChatWebSocketHandler:
                     mcp_server_ids, self.user_id
                 )
 
-            # Get conversation history
             history_result = await self.chat_service.list_messages(
                 session_id, self.user_id, limit=100, order="asc"
             )
             history = self._format_history(history_result.get("messages", []))
-
-            # Add the new user message
             history.append({"role": "user", "content": message_content})
 
-            # Save user message to database
             await self._save_message(session_id, "user", message_content)
 
-            # Build system prompt with MCP context
             system_prompt = self._build_system_prompt(tools)
 
-            # Stream LLM response
             await self._stream_llm_response(
                 session_id=session_id,
                 provider_config=provider_config,
@@ -159,10 +161,21 @@ class ChatWebSocketHandler:
         system_prompt: str,
         mcp_server_ids: list[str],
     ):
-        """Stream LLM response with tool execution support."""
+        """Stream LLM response with iterative tool execution support.
+
+        Handles multiple rounds of tool calls up to max_tool_rounds limit.
+
+        Args:
+            session_id: Chat session identifier.
+            provider_config: LLM provider configuration.
+            messages: Conversation history.
+            tools: Available MCP tools.
+            system_prompt: System prompt for the LLM.
+            mcp_server_ids: Connected MCP server IDs.
+        """
         full_response = ""
         tool_calls: list[dict] = []
-        max_tool_rounds = 10  # Prevent infinite tool loops
+        max_tool_rounds = 10
 
         current_messages = messages.copy()
 
@@ -220,11 +233,9 @@ class ChatWebSocketHandler:
                 elif event_type == "done":
                     break
 
-            # If no tool calls, we're done
             if not round_tool_calls:
                 break
 
-            # Execute tool calls and continue conversation
             for tool_call in round_tool_calls:
                 result = await self.mcp_client.execute_tool_call(
                     tool_call, mcp_server_ids, self.user_id
@@ -247,7 +258,6 @@ class ChatWebSocketHandler:
                     },
                 })
 
-            # Add assistant message with tool calls to history
             if round_text or round_tool_calls:
                 current_messages.append({
                     "role": "assistant",
@@ -258,7 +268,6 @@ class ChatWebSocketHandler:
                     ],
                 })
 
-            # Add tool results to history
             for tc in round_tool_calls:
                 current_messages.append({
                     "role": "tool",
@@ -266,7 +275,6 @@ class ChatWebSocketHandler:
                     "content": tc.get("result", ""),
                 })
 
-        # Save assistant message with tool calls
         await self._save_message(
             session_id,
             "assistant",
@@ -274,7 +282,6 @@ class ChatWebSocketHandler:
             tool_calls=tool_calls if tool_calls else None,
         )
 
-        # Send completion
         await self._send({
             "type": WSMessageType.MESSAGE_COMPLETE,
             "messageId": f"msg_{secrets.token_urlsafe(8)}",
@@ -293,16 +300,31 @@ class ChatWebSocketHandler:
         })
 
     def _find_tool_server(self, tool_name: str, tools: list[dict]) -> str | None:
-        """Find which server provides a tool."""
+        """Find which MCP server provides a specific tool.
+
+        Args:
+            tool_name: Name of the tool to find.
+            tools: List of available tools with server metadata.
+
+        Returns:
+            Server ID that provides the tool, or None if not found.
+        """
         for tool in tools:
             if tool.get("name") == tool_name:
                 return tool.get("server_id")
         return None
 
     def _format_history(self, messages: list[dict]) -> list[dict]:
-        """Format message history for LLM.
+        """Format message history for LLM consumption.
 
-        Handles both camelCase (from database) and snake_case formats.
+        Handles both camelCase (from database) and snake_case formats,
+        normalizing tool call structures for the LLM bridge.
+
+        Args:
+            messages: Raw message history from the database.
+
+        Returns:
+            Formatted message history for LLM API calls.
         """
         formatted = []
         for msg in messages:
@@ -310,8 +332,6 @@ class ChatWebSocketHandler:
             content = msg.get("content", "")
 
             if role == "tool":
-                # Tool messages need special handling
-                # Database stores toolCallId (camelCase), LLM expects tool_call_id
                 tool_call_id = msg.get("toolCallId") or msg.get("tool_call_id", "")
                 formatted.append({
                     "role": "tool",
@@ -319,9 +339,7 @@ class ChatWebSocketHandler:
                     "content": content,
                 })
             elif msg.get("toolCalls") or msg.get("tool_calls"):
-                # Handle both camelCase (database) and snake_case formats
                 tool_calls = msg.get("toolCalls") or msg.get("tool_calls", [])
-                # Normalize tool calls to snake_case for LLM bridge
                 normalized_tool_calls = [
                     {
                         "id": tc.get("id", ""),
@@ -341,7 +359,14 @@ class ChatWebSocketHandler:
         return formatted
 
     def _build_system_prompt(self, tools: list[dict]) -> str:
-        """Build system prompt with MCP context."""
+        """Build the system prompt with MCP tool context.
+
+        Args:
+            tools: List of available MCP tools.
+
+        Returns:
+            System prompt string with tool information appended.
+        """
         prompt = """You are an AI assistant helping manage infrastructure through Hydra.
 You have access to tools that let you query and control infrastructure.
 
@@ -366,11 +391,17 @@ Available tools are from connected MCP servers for infrastructure management."""
         content: str,
         tool_calls: list[dict] | None = None,
     ):
-        """Save a message to the database."""
+        """Persist a message to the database.
+
+        Args:
+            session_id: Chat session identifier.
+            role: Message role (user, assistant, tool).
+            content: Message content text.
+            tool_calls: Optional list of tool calls made in this message.
+        """
         now = datetime.now(timezone.utc)
         message_id = f"msg_{secrets.token_urlsafe(8)}"
 
-        # Get current max order
         last_message = await self.mongodb.chat_messages.find_one(
             {"sessionId": session_id},
             sort=[("order", -1)],
@@ -405,27 +436,41 @@ Available tools are from connected MCP servers for infrastructure management."""
 
         await self.mongodb.chat_messages.insert_one(doc)
 
-        # Update session's lastMessageAt
         await self.mongodb.chat_sessions.update_one(
             {"sessionId": session_id},
             {"$set": {"lastMessageAt": now, "updatedAt": now}},
         )
 
     async def _send(self, data: dict):
-        """Send a message to the WebSocket client."""
+        """Send a JSON message to the WebSocket client.
+
+        Args:
+            data: Message data to send.
+        """
         await self.websocket.send_json(data)
 
     async def _send_error(self, error: str):
-        """Send an error message to the WebSocket client."""
+        """Send an error message to the WebSocket client.
+
+        Args:
+            error: Error message string.
+        """
         await self._send({"type": WSMessageType.ERROR, "error": error})
 
 
 async def get_user_from_token(websocket: WebSocket) -> dict | None:
-    """Extract and verify user from WebSocket query params or headers."""
-    # Try query parameter first
+    """Extract and verify user from WebSocket authentication.
+
+    Checks for JWT token in query parameters or Authorization header.
+
+    Args:
+        websocket: The WebSocket connection instance.
+
+    Returns:
+        Decoded user payload if valid, None otherwise.
+    """
     token = websocket.query_params.get("token")
 
-    # Try Authorization header
     if not token:
         auth_header = websocket.headers.get("authorization")
         if auth_header and auth_header.startswith("Bearer "):
@@ -446,26 +491,31 @@ async def chat_websocket(
     websocket: WebSocket,
     mongodb: MongoDB = Depends(get_mongodb),
 ):
-    """WebSocket endpoint for real-time chat.
+    """WebSocket endpoint for real-time chat with streaming LLM responses.
 
-    Connect with authentication token:
-    - Query param: ws://host/api/v1/chat/ws?token=<jwt>
-    - Header: Authorization: Bearer <jwt>
+    Authenticates via JWT token in query parameter or Authorization header.
+    Supports bidirectional communication for chat requests, cancellation, and ping/pong.
 
-    Message format (client -> server):
-    {
-        "type": "chat_request",
-        "sessionId": "sess_xxx",
-        "content": "Your message",
-        "providerId": "llm_xxx"  // optional, uses session default
-    }
+    Args:
+        websocket: The WebSocket connection instance.
+        mongodb: MongoDB database dependency.
 
-    Response events (server -> client):
-    - {"type": "text_delta", "text": "..."}
-    - {"type": "tool_call_start", "toolCall": {...}}
-    - {"type": "tool_call_result", "toolCall": {...}}
-    - {"type": "message_complete", "messageId": "...", "content": "...", "toolCalls": [...]}
-    - {"type": "error", "error": "..."}
+    Connection:
+        - Query param: ws://host/api/v1/chat/ws?token=<jwt>
+        - Header: Authorization: Bearer <jwt>
+
+    Client Messages:
+        - chat_request: {type, sessionId, content, providerId?}
+        - cancel: {type: "cancel"}
+        - ping: {type: "ping"}
+
+    Server Messages:
+        - text_delta: Streaming text chunks
+        - tool_call_start: Tool execution started
+        - tool_call_result: Tool execution completed
+        - message_complete: Full message with all tool calls
+        - error: Error occurred
+        - pong: Response to ping
     """
     user = await get_user_from_token(websocket)
 
@@ -473,7 +523,6 @@ async def chat_websocket(
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
-    # Check if user is not an agent
     if user.get("type") == "agent":
         await websocket.close(code=4003, reason="Agents cannot use chat")
         return

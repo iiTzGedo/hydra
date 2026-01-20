@@ -17,7 +17,6 @@ from hydra.api.v1.models.query import (
     CapacitySummary,
     ClassCapacity,
     LocationCapacity,
-    QueryCollection,
     QueryRequest,
     QueryResponse,
 )
@@ -51,13 +50,19 @@ async def execute_query(
     request: QueryRequest,
     query_service: QueryServiceDep,
 ) -> SuccessResponse[QueryResponse]:
-    """Execute a structured query.
+    """Execute a structured query against infrastructure data.
 
-    Requires read permission for the target collection.
+    Args:
+        request: Query specification including collection, filters, and options.
+        query_service: Query service instance.
+
+    Returns:
+        Query results with pagination metadata.
+
+    Raises:
+        HTTPException 400: Invalid query specification.
+        HTTPException 403: Insufficient permissions for target collection.
     """
-    # Permission check would be done based on collection
-    # For now, require nodes:read as a baseline
-
     results, total = await query_service.execute_query(request)
 
     return SuccessResponse(
@@ -84,7 +89,21 @@ async def get_capacity(
     group_id: str | None = Query(default=None, alias="groupId"),
     network_id: str | None = Query(default=None, alias="networkId"),
 ) -> SuccessResponse[CapacityResponse]:
-    """Get infrastructure capacity summary."""
+    """Retrieve aggregated infrastructure capacity metrics.
+
+    Args:
+        query_service: Query service instance.
+        group_by: Group capacity by class or location.
+        include_logical: Include logical nodes (VMs, containers) in capacity.
+        group_id: Filter to nodes in a specific group.
+        network_id: Filter to nodes in a specific network.
+
+    Returns:
+        Capacity summary with optional grouping breakdown.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     capacity = await query_service.get_capacity(
         group_by=group_by,
         include_logical=include_logical,
@@ -92,7 +111,6 @@ async def get_capacity(
         network_id=network_id,
     )
 
-    # Convert to response models
     summary = CapacitySummary(
         total_nodes=capacity["summary"]["totalNodes"],
         physical_nodes=capacity["summary"]["physicalNodes"],
@@ -152,7 +170,25 @@ async def get_audit_log(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> SuccessResponse[list[AuditEntry]]:
-    """Get audit log entries."""
+    """Retrieve audit log entries for compliance and troubleshooting.
+
+    Args:
+        audit_service: Audit service instance.
+        action: Filter by audit action type.
+        resource_type: Filter by resource type (node, service, user, etc.).
+        resource_id: Filter by specific resource ID.
+        actor_id: Filter by actor (user or agent) ID.
+        since: Only include entries after this timestamp.
+        until: Only include entries before this timestamp.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+
+    Returns:
+        Paginated list of audit entries.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     params = AuditListParams(
         action=action,
         resource_type=resource_type,

@@ -6,7 +6,6 @@ from pymongo import ASCENDING, DESCENDING, TEXT, IndexModel
 
 logger = structlog.get_logger(__name__)
 
-# Index definitions for each collection
 INDEXES: dict[str, list[IndexModel]] = {
     "nodes": [
         IndexModel([("nodeId", ASCENDING)], unique=True),
@@ -75,7 +74,6 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("username", ASCENDING)], unique=True),
         IndexModel([("email", ASCENDING)], unique=True),
         IndexModel([("role", ASCENDING)]),
-        # Auto-expire pending users after 7 days
         IndexModel([("requestedAt", ASCENDING)], expireAfterSeconds=604800),
     ],
     "tokens": [
@@ -104,40 +102,34 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("resource.type", ASCENDING), ("resource.id", ASCENDING)]),
         IndexModel([("actor.id", ASCENDING)]),
     ],
-    # AI/LLM provider configurations
     "ai_models": [
         IndexModel([("providerId", ASCENDING)], unique=True),
         IndexModel([("createdBy", ASCENDING), ("createdAt", DESCENDING)]),
         IndexModel([("type", ASCENDING)]),
         IndexModel([("isDefault", ASCENDING)], sparse=True),
     ],
-    # Chat projects (groups of chat sessions)
     "chat_projects": [
         IndexModel([("projectId", ASCENDING)], unique=True),
         IndexModel([("ownerId", ASCENDING), ("createdAt", DESCENDING)]),
         IndexModel([("updatedAt", DESCENDING)]),
     ],
-    # Chat sessions
     "chat_sessions": [
         IndexModel([("sessionId", ASCENDING)], unique=True),
         IndexModel([("projectId", ASCENDING), ("lastMessageAt", DESCENDING)]),
         IndexModel([("ownerId", ASCENDING), ("lastMessageAt", DESCENDING)]),
         IndexModel([("status", ASCENDING)]),
     ],
-    # Chat messages
     "chat_messages": [
         IndexModel([("messageId", ASCENDING)], unique=True),
         IndexModel([("sessionId", ASCENDING), ("order", ASCENDING)]),
         IndexModel([("sessionId", ASCENDING), ("createdAt", ASCENDING)]),
     ],
-    # MCP server configurations
     "mcp_servers": [
         IndexModel([("serverId", ASCENDING)], unique=True),
         IndexModel([("ownerId", ASCENDING), ("createdAt", DESCENDING)]),
         IndexModel([("category", ASCENDING)]),
         IndexModel([("enabled", ASCENDING)]),
     ],
-    # User settings
     "user_settings": [
         IndexModel([("userId", ASCENDING)], unique=True),
     ],
@@ -145,7 +137,11 @@ INDEXES: dict[str, list[IndexModel]] = {
 
 
 async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
-    """Create all indexes for all collections."""
+    """Create all indexes for all collections.
+
+    Args:
+        db: MongoDB database instance.
+    """
     logger.info("ensuring_indexes")
 
     for collection_name, indexes in INDEXES.items():
@@ -165,14 +161,18 @@ async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
 
 
 async def drop_indexes(db: AsyncIOMotorDatabase, exclude_id: bool = True) -> None:
-    """Drop all indexes (for testing/reset). Optionally keeps _id index."""
+    """Drop all indexes (for testing/reset).
+
+    Args:
+        db: MongoDB database instance.
+        exclude_id: If True, keeps the _id index.
+    """
     logger.warning("dropping_indexes")
 
     for collection_name in INDEXES.keys():
         collection = db[collection_name]
         try:
             if exclude_id:
-                # Get all indexes and drop non-_id ones
                 async for index in collection.list_indexes():
                     if index["name"] != "_id_":
                         await collection.drop_index(index["name"])

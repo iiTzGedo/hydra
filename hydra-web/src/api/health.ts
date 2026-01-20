@@ -2,49 +2,25 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
 
-// Health check response
 export interface HealthResponse {
   status: 'healthy' | 'degraded' | 'unhealthy';
   version: string;
   checks: {
     database: 'ok' | 'error';
     redis: 'ok' | 'error';
-    disk?: 'ok' | 'error';
-    objectStorage?: 'ok' | 'error';
+    storage?: 'ok' | 'error' | 'not_configured';
   };
-  uptime_seconds: number;
+  uptimeSeconds: number;
 }
 
-// Info response
 export interface InfoResponse {
-  service: string;
+  name: string;
   version: string;
-  environment: string;
-  stats: {
-    nodes: {
-      total: number;
-      active: number;
-      byClass: Record<string, number>;
-    };
-    services: {
-      total: number;
-      running: number;
-      byRuntime: Record<string, number>;
-    };
-    networks: {
-      total: number;
-    };
-    groups: {
-      total: number;
-    };
-    users: {
-      total: number;
-      byRole: Record<string, number>;
-    };
-  };
+  apiVersion: string;
+  stats: Record<string, unknown>;
+  features: Record<string, boolean>;
 }
 
-// Get health status
 export function useHealth() {
   return useQuery({
     queryKey: queryKeys.health.status(),
@@ -52,12 +28,11 @@ export function useHealth() {
       const response = await apiClient.get<HealthResponse>('/health');
       return response.data;
     },
-    refetchInterval: 30000, // Refresh every 30 seconds
-    staleTime: 10000, // Consider stale after 10 seconds
+    refetchInterval: 30000,
+    staleTime: 10000,
   });
 }
 
-// Get system info
 export function useInfo() {
   return useQuery({
     queryKey: queryKeys.health.info(),
@@ -65,6 +40,6 @@ export function useInfo() {
       const response = await apiClient.get<InfoResponse>('/info');
       return response.data;
     },
-    staleTime: 60000, // 1 minute
+    staleTime: 60000,
   });
 }

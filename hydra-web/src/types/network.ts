@@ -1,6 +1,5 @@
 import { ListParams } from './api';
 
-// Network type
 export type NetworkType =
   | 'physical'
   | 'virtual'
@@ -10,7 +9,6 @@ export type NetworkType =
   | 'bridge'
   | 'tunnel';
 
-// DHCP configuration
 export interface DhcpConfig {
   enabled: boolean;
   rangeStart?: string;
@@ -18,29 +16,24 @@ export interface DhcpConfig {
   serverNodeId?: string;
 }
 
-// DNS configuration
 export interface DnsConfig {
   servers: string[];
   domain?: string;
   searchDomains?: string[];
 }
 
-// Network summary (for list views)
 export interface NetworkSummary {
   networkId: string;
-  id?: string; // Alias for networkId for component convenience
+  id?: string;
   name: string;
   type: NetworkType;
   cidr?: string | null;
   gatewayV4?: string;
-  gatewayV6?: string;
-  vlanId?: number;
   routerNodeId?: string;
   nodeCount: number;
   tags: string[];
 }
 
-// Full network details
 export interface Network extends NetworkSummary {
   description?: string;
   cidrV6?: string | null;
@@ -53,13 +46,17 @@ export interface Network extends NetworkSummary {
     sourceNodeId?: string;
     sourceProfileId?: string;
   };
-  mtu?: number;
   createdAt?: string;
   updatedAt?: string;
-  metadata?: Record<string, unknown>;
 }
 
-// Network list params
+export interface NetworkNodeInfo {
+  nodeId: string;
+  displayName: string;
+  class: string;
+  ipAddresses: string[];
+}
+
 export interface NetworkListParams extends ListParams {
   type?: NetworkType;
   parentNetworkId?: string;
@@ -68,7 +65,6 @@ export interface NetworkListParams extends ListParams {
   tags?: string[];
 }
 
-// Create network request
 export interface CreateNetworkRequest {
   networkId: string;
   name: string;
@@ -86,7 +82,6 @@ export interface CreateNetworkRequest {
   tags?: string[];
 }
 
-// Update network request
 export interface UpdateNetworkRequest {
   name?: string;
   description?: string;

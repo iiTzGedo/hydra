@@ -30,7 +30,7 @@ export function RecentActivity() {
           <CardTitle className="text-foreground">Recent Activity</CardTitle>
           <CardDescription className="text-muted-foreground">Latest events and changes</CardDescription>
         </div>
-        <Link to={ROUTES.ADMIN + '/audit'}>
+        <Link to={`${ROUTES.SETTINGS}?bottom=audit`}>
           <Button variant="ghost" size="sm" className="text-muted-foreground">
             View all
             <ArrowRight className="ml-1 h-4 w-4" />

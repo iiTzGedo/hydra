@@ -1,4 +1,5 @@
-import { useParams, Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft,
@@ -10,18 +11,109 @@ import {
   Tag,
   Code,
 } from 'lucide-react';
-import { useGroup, useGroupMembers } from '@/api/groups';
+import { toast } from 'sonner';
+import { useDeleteGroup, useGroup, useGroupMembers, useUpdateGroup } from '@/api/groups';
 import { getSelectorEntries, getSelectorDisplayValue } from '@/types/group';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, NODE_CLASS_COLORS } from '@/lib/constants';
 import { cn, formatDate } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function GroupDetailPage() {
   const { groupId } = useParams<{ groupId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { data: group, isLoading, error } = useGroup(groupId!);
   const { data: members } = useGroupMembers(groupId!);
+  const updateGroup = useUpdateGroup();
+  const deleteGroup = useDeleteGroup();
   const selectorEntries = group?.selectors ? getSelectorEntries(group.selectors) : [];
+
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    description: '',
+    tags: '',
+  });
+
+  useEffect(() => {
+    if (!group) return;
+    setEditForm({
+      name: group.name || '',
+      description: group.description || '',
+      tags: group.tags?.join(', ') || '',
+    });
+  }, [group]);
+
+  useEffect(() => {
+    if (searchParams.get('edit') === '1') {
+      setShowEditDialog(true);
+    }
+    if (searchParams.get('delete') === '1') {
+      setShowDeleteDialog(true);
+    }
+  }, [searchParams]);
+
+  const setSearchParam = (key: string, value?: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value) {
+        next.set(key, value);
+      } else {
+        next.delete(key);
+      }
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    if (!group) return;
+    const tags = editForm.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    try {
+      await updateGroup.mutateAsync({
+        groupId: group.groupId,
+        data: {
+          name: editForm.name || undefined,
+          description: editForm.description || undefined,
+          tags,
+        },
+      });
+      toast.success('Group updated');
+      setShowEditDialog(false);
+      setSearchParam('edit');
+    } catch (err) {
+      toast.error('Failed to update group');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!group) return;
+    try {
+      await deleteGroup.mutateAsync(group.groupId);
+      toast.success('Group deleted');
+      setShowDeleteDialog(false);
+      setSearchParam('delete');
+      navigate(ROUTES.GROUPS);
+    } catch (err) {
+      toast.error('Failed to delete group');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -76,6 +168,7 @@ export default function GroupDetailPage() {
                 'inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium',
                 'hover:bg-muted transition-colors'
               )}
+              onClick={() => setSearchParam('edit', '1')}
             >
               <Edit className="h-4 w-4" />
               Edit
@@ -85,6 +178,7 @@ export default function GroupDetailPage() {
                 'inline-flex items-center gap-2 rounded-lg border border-error/50 px-4 py-2 text-sm font-medium text-error',
                 'hover:bg-error/10 transition-colors'
               )}
+              onClick={() => setSearchParam('delete', '1')}
             >
               <Trash2 className="h-4 w-4" />
               Delete
@@ -99,7 +193,6 @@ export default function GroupDetailPage() {
         animate="visible"
         className="space-y-6"
       >
-        {/* Overview card */}
         <motion.div
           variants={staggerItemVariants}
           className="rounded-xl border bg-card p-6 shadow-sm"
@@ -148,7 +241,6 @@ export default function GroupDetailPage() {
             </div>
           </div>
 
-          {/* Tags */}
           {group.tags && group.tags.length > 0 && (
             <div className="mt-6 pt-6 border-t">
               <h4 className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-3">
@@ -169,7 +261,6 @@ export default function GroupDetailPage() {
           )}
         </motion.div>
 
-        {/* Selectors */}
         {selectorEntries.length > 0 && (
           <motion.div
             variants={staggerItemVariants}
@@ -200,7 +291,6 @@ export default function GroupDetailPage() {
           </motion.div>
         )}
 
-        {/* Members */}
         <motion.div
           variants={staggerItemVariants}
           className="rounded-xl border bg-card p-6 shadow-sm"
@@ -258,6 +348,77 @@ export default function GroupDetailPage() {
           )}
         </motion.div>
       </motion.div>
+
+      <Dialog open={showEditDialog} onOpenChange={(open) => {
+        setShowEditDialog(open);
+        if (!open) setSearchParam('edit');
+      }}>
+        <DialogContent className="sm:max-w-lg bg-card border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle>Edit Group</DialogTitle>
+            <DialogDescription>Update group metadata.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-foreground text-sm">Name</Label>
+              <Input
+                value={editForm.name}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                className="bg-muted border-border text-foreground"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-foreground text-sm">Description</Label>
+              <Textarea
+                value={editForm.description}
+                onChange={(e) =>
+                  setEditForm((prev) => ({ ...prev, description: e.target.value }))
+                }
+                className="bg-muted border-border text-foreground"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-foreground text-sm">Tags</Label>
+              <Input
+                value={editForm.tags}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, tags: e.target.value }))}
+                className="bg-muted border-border text-foreground"
+                placeholder="comma,separated,tags"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={updateGroup.isPending}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+        setShowDeleteDialog(open);
+        if (!open) setSearchParam('delete');
+      }}>
+        <DialogContent className="sm:max-w-md bg-card border-border text-foreground">
+          <DialogHeader>
+            <DialogTitle>Delete Group</DialogTitle>
+            <DialogDescription>
+              This will permanently delete the group and its selectors.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteGroup.isPending}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

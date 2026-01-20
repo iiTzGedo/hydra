@@ -7,7 +7,6 @@ import {
   Cpu,
   ExternalLink,
   Clock,
-  Tag,
 } from 'lucide-react';
 import { TopologyNode } from '@/types/topology';
 import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS, STATUS_COLORS } from '@/lib/constants';
@@ -26,14 +25,9 @@ const classIcons = {
 };
 
 export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps) {
-  // Extract properties from node.data
   const nodeClass = node.data.class as string | undefined;
   const nodeStatus = node.data.status as string | undefined;
   const nodeKind = node.data.kind as string | undefined;
-  const profileVersion = node.data.profileVersion as string | undefined;
-  const lastProfileAt = node.data.lastProfileAt as string | undefined;
-  const tags = node.data.tags as string[] | undefined;
-  const networks = node.data.networks as string[] | undefined;
 
   const Icon = classIcons[nodeClass as keyof typeof classIcons] || Server;
   const colors = NODE_CLASS_COLORS[nodeClass as keyof typeof NODE_CLASS_COLORS];
@@ -48,7 +42,6 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
       variants={slideInVariants}
       className="absolute right-4 top-4 w-80 rounded-xl border bg-card shadow-xl overflow-hidden"
     >
-      {/* Header */}
       <div className={cn('flex items-center justify-between p-4', colors?.bg || 'bg-muted')}>
         <div className="flex items-center gap-3">
           <Icon className="h-6 w-6 text-white" />
@@ -65,9 +58,7 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
         </button>
       </div>
 
-      {/* Content */}
       <div className="p-4 space-y-4">
-        {/* Status */}
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Status</span>
           <span
@@ -82,7 +73,6 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
           </span>
         </div>
 
-        {/* Type & Kind */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <span className="text-xs text-muted-foreground">Type</span>
@@ -94,64 +84,15 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
           </div>
         </div>
 
-        {/* Profile version */}
-        {profileVersion && (
-          <div>
-            <span className="text-xs text-muted-foreground">Profile Version</span>
-            <div className="font-mono text-sm">{profileVersion}</div>
-          </div>
-        )}
-
-        {/* Last profiled */}
-        {lastProfileAt && (
+        {node.data.lastProfileAt && (
           <div className="flex items-center gap-2 text-sm">
             <Clock className="h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Last profiled:</span>
-            <span>{formatRelativeTime(new Date(lastProfileAt))}</span>
-          </div>
-        )}
-
-        {/* Tags */}
-        {tags && tags.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-              <Tag className="h-3 w-3" />
-              Tags
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded-full bg-muted px-2 py-0.5 text-xs"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Networks */}
-        {networks && networks.length > 0 && (
-          <div>
-            <span className="text-xs text-muted-foreground">Networks</span>
-            <div className="mt-1 space-y-1">
-              {networks.slice(0, 3).map((network, i) => (
-                <div key={i} className="rounded bg-muted/50 px-2 py-1 text-xs font-mono">
-                  {network}
-                </div>
-              ))}
-              {networks.length > 3 && (
-                <span className="text-xs text-muted-foreground">
-                  +{networks.length - 3} more
-                </span>
-              )}
-            </div>
+            <span>{formatRelativeTime(new Date(node.data.lastProfileAt as string))}</span>
           </div>
         )}
       </div>
 
-      {/* Footer */}
       <div className="border-t p-4">
         <Link
           to={ROUTES.NODES + '/' + node.id}

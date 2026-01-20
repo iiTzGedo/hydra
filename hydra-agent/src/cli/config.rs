@@ -1,4 +1,4 @@
-//! Config command for managing agent configuration.
+//! Configuration management CLI command.
 //!
 //! Provides get/set/unset operations for agent configuration values.
 //! Changes are applied to the TOML configuration file.
@@ -92,13 +92,14 @@ fn backup_config(config_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Config command arguments
+/// Arguments for the config command.
 #[derive(Args, Debug)]
 pub struct ConfigArgs {
     #[command(subcommand)]
     pub command: ConfigCommand,
 }
 
+/// Config subcommands.
 #[derive(Subcommand, Debug)]
 pub enum ConfigCommand {
     /// Get a configuration value
@@ -132,7 +133,6 @@ pub enum ConfigCommand {
     /// Initialize a new configuration file with optional key=value pairs
     Init {
         /// Initial configuration values in section.key=value format
-        /// Example: api.url=https://hydra.local/api/v1 node.node_id=my-server
         #[arg(value_name = "KEY=VALUE")]
         values: Vec<String>,
 
@@ -145,14 +145,30 @@ pub enum ConfigCommand {
     Validate,
 }
 
-/// Context for config command execution
+/// Context for config command execution.
 pub struct ConfigContext<'a> {
+    /// Path to the configuration file
     pub config_path: &'a PathBuf,
+    /// Optional vault for API operations
     pub vault: Option<&'a Vault>,
+    /// Whether to push changes to API
     pub live_mode: bool,
 }
 
-/// Execute the config command
+/// Executes the config command.
+///
+/// # Arguments
+///
+/// * `args` - Parsed command arguments
+/// * `ctx` - Execution context with config path and vault
+///
+/// # Returns
+///
+/// Ok on success.
+///
+/// # Errors
+///
+/// Returns an error if the configuration operation fails.
 pub async fn execute(args: &ConfigArgs, ctx: &ConfigContext<'_>) -> Result<()> {
     match &args.command {
         ConfigCommand::Get { key } => get_value(ctx.config_path, key),
@@ -165,7 +181,6 @@ pub async fn execute(args: &ConfigArgs, ctx: &ConfigContext<'_>) -> Result<()> {
     }
 }
 
-/// Get a configuration value by key
 fn get_value(config_path: &PathBuf, key: &str) -> Result<()> {
     let contents = std::fs::read_to_string(config_path)
         .with_context(|| format!("Failed to read config file: {}", config_path.display()))?;
@@ -186,7 +201,6 @@ fn get_value(config_path: &PathBuf, key: &str) -> Result<()> {
     }
 }
 
-/// Request body for node update API
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NodeUpdateRequest {
@@ -200,7 +214,6 @@ struct NodeUpdateRequest {
     description: Option<String>,
 }
 
-/// Set a configuration value
 async fn set_value(ctx: &ConfigContext<'_>, key: &str, value: &str) -> Result<()> {
     let contents = std::fs::read_to_string(ctx.config_path)
         .with_context(|| format!("Failed to read config file: {}", ctx.config_path.display()))?;
@@ -259,16 +272,15 @@ async fn set_value(ctx: &ConfigContext<'_>, key: &str, value: &str) -> Result<()
         .with_context(|| format!("Failed to write config file: {}", ctx.config_path.display()))?;
 
     info!("Set {} = {}", key, value);
-    println!("✓ Set {} = {}", key, value);
+    println!("Set {} = {}", key, value);
 
-    // In live mode, auto-push node.* changes to the API
     if section == "node" && ctx.live_mode {
         if let Err(e) = push_node_update_to_api(ctx, &field, value, &value_type).await {
             warn!("Failed to push node update to API: {}", e);
-            println!("⚠ Config saved locally but API update failed: {}", e);
+            println!("Config saved locally but API update failed: {}", e);
             println!("  Run 'hydra-agent node update' to sync manually.");
         } else {
-            println!("✓ API updated with new node configuration.");
+            println!("API updated with new node configuration.");
         }
     } else {
         println!("Note: Restart the hydra-agent service to apply changes.");
@@ -277,20 +289,17 @@ async fn set_value(ctx: &ConfigContext<'_>, key: &str, value: &str) -> Result<()
     Ok(())
 }
 
-/// Push a node config change to the API
 async fn push_node_update_to_api(
     ctx: &ConfigContext<'_>,
     field: &str,
     value: &str,
     value_type: &ConfigValueType,
 ) -> Result<()> {
-    // Load config to get API URL and node_id
     use crate::config::AgentConfig;
 
     let config = AgentConfig::load(ctx.config_path)?;
     let vault = ctx.vault.ok_or_else(|| anyhow!("Vault not available for API call"))?;
 
-    // Check if node is registered
     if !vault.has_node_registration() {
         debug!("Node not registered, skipping API update");
         return Ok(());
@@ -298,11 +307,8 @@ async fn push_node_update_to_api(
 
     let node_reg = vault.load_node_registration()?.ok_or_else(|| anyhow!("Node registration data not found"))?;
 
-    // Get auth header
     let auth = vault.get_auth_header()?.ok_or_else(|| anyhow!("No authentication available"))?;
 
-    // Build update request based on changed field
-    // Only certain fields can be updated via API: display_name, tags, kind, description
     let update_request = match field {
         "display_name" => NodeUpdateRequest {
             display_name: Some(value.to_string()),
@@ -335,7 +341,6 @@ async fn push_node_update_to_api(
             description: Some(value.to_string()),
         },
         _ => {
-            // Fields like node_id, class, node_type cannot be updated via API
             debug!("Field '{}' cannot be updated via API, skipping", field);
             return Ok(());
         }
@@ -365,7 +370,6 @@ async fn push_node_update_to_api(
     Ok(())
 }
 
-/// Unset (remove) a configuration value
 fn unset_value(config_path: &PathBuf, key: &str, value: Option<&str>) -> Result<()> {
     let contents = std::fs::read_to_string(config_path)
         .with_context(|| format!("Failed to read config file: {}", config_path.display()))?;
@@ -420,12 +424,11 @@ fn unset_value(config_path: &PathBuf, key: &str, value: Option<&str>) -> Result<
         .with_context(|| format!("Failed to write config file: {}", config_path.display()))?;
 
     info!("Unset {}", key);
-    println!("✓ Removed {}", key);
+    println!("Removed {}", key);
     println!("Note: Restart the hydra-agent service to apply changes.");
     Ok(())
 }
 
-/// List all configuration values
 fn list_values(config_path: &PathBuf) -> Result<()> {
     let contents = std::fs::read_to_string(config_path)
         .with_context(|| format!("Failed to read config file: {}", config_path.display()))?;
@@ -447,7 +450,6 @@ fn list_values(config_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Show configuration file path
 fn show_path(config_path: &PathBuf) -> Result<()> {
     println!("{}", config_path.display());
 
@@ -460,7 +462,6 @@ fn show_path(config_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Parse a KEY=VALUE string into (key, value) tuple
 fn parse_key_value(s: &str) -> Result<(String, String)> {
     let parts: Vec<&str> = s.splitn(2, '=').collect();
     if parts.len() != 2 {
@@ -472,7 +473,6 @@ fn parse_key_value(s: &str) -> Result<(String, String)> {
     Ok((parts[0].to_string(), parts[1].to_string()))
 }
 
-/// Initialize a new configuration file with optional key=value pairs
 fn init_config(config_path: &PathBuf, values: &[String], force: bool) -> Result<()> {
     if config_path.exists() && !force {
         return Err(anyhow!(
@@ -481,7 +481,6 @@ fn init_config(config_path: &PathBuf, values: &[String], force: bool) -> Result<
         ));
     }
 
-    // Parse provided values
     let mut api_url = "https://hydra.local/api/v1".to_string();
     let mut node_id = String::new();
     let mut node_class = "compute".to_string();
@@ -492,8 +491,6 @@ fn init_config(config_path: &PathBuf, values: &[String], force: bool) -> Result<
 
     for value_str in values {
         let (key, value) = parse_key_value(value_str)?;
-
-        // Validate the key exists
         let (section, field, _) = parse_key(&key)?;
 
         match (section.as_str(), field.as_str()) {
@@ -510,14 +507,12 @@ fn init_config(config_path: &PathBuf, values: &[String], force: bool) -> Result<
         }
     }
 
-    // Validate required fields
     if node_id.is_empty() {
         return Err(anyhow!(
             "node.node_id is required. Example: hydra-agent config init node.node_id=my-server api.url=https://hydra.local/api/v1"
         ));
     }
 
-    // Validate node class
     let valid_classes = ["compute", "networking", "iot"];
     if !valid_classes.contains(&node_class.as_str()) {
         return Err(anyhow!(
@@ -527,7 +522,6 @@ fn init_config(config_path: &PathBuf, values: &[String], force: bool) -> Result<
         ));
     }
 
-    // Build optional fields
     let display_name_line = display_name
         .map(|n| format!("display_name = \"{}\"", n))
         .unwrap_or_else(|| "# display_name = \"My Server\"".to_string());
@@ -573,7 +567,6 @@ on_startup = true
 "#
     );
 
-    // Ensure parent directory exists
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
@@ -589,7 +582,7 @@ on_startup = true
     }
 
     info!("Created config file at {}", config_path.display());
-    println!("✓ Created configuration file: {}", config_path.display());
+    println!("Created configuration file: {}", config_path.display());
     println!();
     println!("Configuration summary:");
     println!("  node.node_id = {}", node_id);
@@ -604,14 +597,12 @@ on_startup = true
     Ok(())
 }
 
-/// Validate configuration file
 fn validate_config(config_path: &PathBuf) -> Result<()> {
     use crate::config::AgentConfig;
 
     println!("Validating configuration: {}", config_path.display());
     println!();
 
-    // Check file exists
     if !config_path.exists() {
         return Err(anyhow!(
             "Config file not found: {}",
@@ -619,35 +610,31 @@ fn validate_config(config_path: &PathBuf) -> Result<()> {
         ));
     }
 
-    // Try to parse as TOML
     let contents = std::fs::read_to_string(config_path)?;
     let _doc = contents
         .parse::<DocumentMut>()
         .context("Failed to parse as TOML")?;
-    println!("  ✓ Valid TOML syntax");
+    println!("  Valid TOML syntax");
 
-    // Try to load as AgentConfig
     match AgentConfig::load(config_path) {
         Ok(config) => {
-            println!("  ✓ Valid configuration structure");
+            println!("  Valid configuration structure");
             println!();
             println!("Configuration summary:");
             println!("  Node ID: {}", config.node.node_id);
             println!("  Class: {}", config.node.class);
             println!("  API URL: {}", config.api.url);
             println!();
-            println!("✓ Configuration is valid");
+            println!("Configuration is valid");
         }
         Err(e) => {
-            println!("  ✗ Invalid configuration structure");
+            println!("  Invalid configuration structure");
             return Err(anyhow!("Configuration validation failed: {}", e));
         }
     }
 
     Ok(())
 }
-
-// Helper functions for nested value access
 
 fn get_nested_value<'a>(doc: &'a DocumentMut, parts: &[&str]) -> Option<&'a Item> {
     let mut current: &Item = doc.as_item();
@@ -664,13 +651,11 @@ fn set_nested_value_item(doc: &mut DocumentMut, parts: &[&str], item: Item) -> R
         return Err(anyhow!("Empty key"));
     }
 
-    // Navigate to parent and set the value
     let table = doc.as_table_mut();
     let last_idx = parts.len() - 1;
 
     let mut current = table;
 
-    // Navigate to the parent table, creating intermediate tables as needed
     for &part in &parts[..last_idx] {
         if !current.contains_key(part) {
             current.insert(part, Item::Table(Default::default()));
@@ -681,7 +666,6 @@ fn set_nested_value_item(doc: &mut DocumentMut, parts: &[&str], item: Item) -> R
             .ok_or_else(|| anyhow!("Cannot create nested key '{}'", part))?;
     }
 
-    // Set the value
     let key = parts[last_idx];
     current.insert(key, item);
 

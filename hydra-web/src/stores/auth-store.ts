@@ -10,7 +10,6 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
 
-  // Actions
   setUser: (user: User | null) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
   clearTokens: () => void;
@@ -18,7 +17,6 @@ interface AuthState {
   logout: () => void;
   setLoading: (loading: boolean) => void;
 
-  // Helpers
   hasPermission: (permission: string) => boolean;
   hasRole: (role: Role) => boolean;
   hasAnyRole: (roles: Role[]) => boolean;
@@ -79,13 +77,9 @@ export const useAuthStore = create<AuthState>()(
 
         const permissions = user.permissions ?? [];
 
-        // Admin has all permissions
         if (permissions.includes('*:*')) return true;
-
-        // Check exact permission
         if (permissions.includes(permission)) return true;
 
-        // Check wildcard permissions
         const [resource, action] = permission.split(':');
         if (permissions.includes(`${resource}:*`)) return true;
         if (permissions.includes(`*:${action}`)) return true;

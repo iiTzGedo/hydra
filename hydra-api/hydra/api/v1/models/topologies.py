@@ -41,7 +41,6 @@ class GraphEdgeType(str, Enum):
     GROUP_MEMBER = "group-member"
 
 
-# Graph Components
 class GraphNodePosition(BaseModel):
     """Position of a node in the graph visualization."""
 
@@ -129,7 +128,6 @@ class TopologyDiff(BaseModel):
     edges_removed: list[str] = Field(default_factory=list, alias="edgesRemoved")
 
 
-# Response Models
 class TopologyResponse(BaseModel):
     """Full topology response model."""
 
@@ -173,7 +171,6 @@ class TopologyDiffResponse(BaseModel):
     summary: dict[str, int]
 
 
-# Request Models
 class GenerateTopologyRequest(BaseModel):
     """Request to generate a new topology."""
 
@@ -183,7 +180,6 @@ class GenerateTopologyRequest(BaseModel):
     scope: TopologyScope | None = None
 
 
-# Subgraph Response
 class SubgraphStats(BaseModel):
     """Statistics about a subgraph."""
 
@@ -206,7 +202,6 @@ class SubgraphResponse(BaseModel):
     stats: SubgraphStats
 
 
-# Query Parameters
 class TopologyListParams(BaseModel):
     """Query parameters for listing topologies."""
 
@@ -215,7 +210,5 @@ class TopologyListParams(BaseModel):
     mode: TopologyMode | None = None
     since: datetime | None = None
     until: datetime | None = None
-
-    # Pagination
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)

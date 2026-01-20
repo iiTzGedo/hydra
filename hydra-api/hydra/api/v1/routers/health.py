@@ -8,25 +8,28 @@ from fastapi import APIRouter, Depends
 
 from hydra.api.v1 import __version__
 from hydra.api.v1.core.deps import StorageServiceDep
+from hydra.api.v1.models.common import HealthCheck, ServiceInfo
 from hydra.db.mongodb import MongoDB, get_mongodb
 from hydra.db.redis import RedisClient, get_redis
-from hydra.api.v1.models.common import HealthCheck, ServiceInfo
 
 router = APIRouter(tags=["Health"])
 logger = structlog.get_logger(__name__)
 
-# Track startup time for uptime calculation
 _startup_time: float | None = None
 
 
 def set_startup_time() -> None:
-    """Set the startup time. Called during application startup."""
+    """Set the startup time for uptime calculation. Called during application startup."""
     global _startup_time
     _startup_time = time.time()
 
 
 def get_uptime() -> float:
-    """Get the uptime in seconds."""
+    """Get the service uptime in seconds.
+
+    Returns:
+        Uptime in seconds, or 0.0 if startup time not set.
+    """
     if _startup_time is None:
         return 0.0
     return time.time() - _startup_time
@@ -43,18 +46,21 @@ async def health_check(
     redis: RedisClient = Depends(get_redis),
     storage: StorageServiceDep = None,
 ) -> HealthCheck:
-    """
-    Health check endpoint.
+    """Check health status of the API and all dependencies.
 
-    Checks the status of:
-    - MongoDB connection
-    - Redis connection
-    - Object storage (if configured)
-    - Agent binary availability
+    Performs connectivity checks against MongoDB, Redis, and object storage (if configured).
+    Returns healthy if required dependencies (database, redis) are operational.
+
+    Args:
+        mongodb: MongoDB database dependency.
+        redis: Redis client dependency.
+        storage: Optional storage service dependency.
+
+    Returns:
+        Health status with individual component check results and uptime.
     """
     checks: dict[str, str] = {}
 
-    # Check MongoDB
     try:
         if await mongodb.health_check():
             checks["database"] = "ok"
@@ -64,7 +70,6 @@ async def health_check(
         logger.warning("health_check_mongodb_failed", error=str(e))
         checks["database"] = "error"
 
-    # Check Redis
     try:
         if await redis.health_check():
             checks["redis"] = "ok"
@@ -74,7 +79,6 @@ async def health_check(
         logger.warning("health_check_redis_failed", error=str(e))
         checks["redis"] = "error"
 
-    # Check Object Storage / Agent Binaries
     if storage is not None:
         try:
             if await storage.health_check():
@@ -87,8 +91,6 @@ async def health_check(
     else:
         checks["storage"] = "not_configured"
 
-    # Determine overall status
-    # Only database and redis are required for healthy status
     required_checks = [checks.get("database"), checks.get("redis")]
     all_required_ok = all(v == "ok" for v in required_checks)
     status = "healthy" if all_required_ok else "degraded"
@@ -111,15 +113,16 @@ async def health_check(
 async def service_info(
     mongodb: MongoDB = Depends(get_mongodb),
 ) -> ServiceInfo:
-    """
-    Service information endpoint.
+    """Get service metadata and infrastructure statistics.
 
-    Returns service metadata and statistics about:
-    - Node counts by class and status
-    - Service counts by runtime and status
-    - Network and group counts
-    - Profile and user counts
-    - Enabled features
+    Aggregates counts for nodes, services, networks, groups, profiles, and users.
+    Includes feature flags for enabled capabilities.
+
+    Args:
+        mongodb: MongoDB database dependency.
+
+    Returns:
+        Service information with version, API version, statistics, and feature flags.
     """
     stats: dict = {
         "nodes": {"total": 0, "active": 0, "byClass": {}},
@@ -131,7 +134,6 @@ async def service_info(
     }
 
     try:
-        # Node statistics
         node_pipeline = [
             {
                 "$facet": {
@@ -154,7 +156,6 @@ async def service_info(
                 item["_id"]: item["count"] for item in result["byClass"]
             }
 
-        # Service statistics
         service_pipeline = [
             {
                 "$facet": {
@@ -171,7 +172,6 @@ async def service_info(
                 result["running"][0]["count"] if result["running"] else 0
             )
 
-        # Simple counts for other collections
         stats["networks"]["total"] = await mongodb.networks.count_documents({})
         stats["groups"]["total"] = await mongodb.groups.count_documents({})
         stats["profiles"]["total"] = await mongodb.profiles.count_documents({})
@@ -190,7 +190,7 @@ async def service_info(
             "timeMachine": True,
             "autoNetworkCreation": True,
             "rbac": True,
-            "writeOperations": False,  # Phase 4
-            "homeAssistant": False,  # Phase 5
+            "writeOperations": False,
+            "homeAssistant": False,
         },
     )

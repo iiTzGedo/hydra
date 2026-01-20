@@ -114,6 +114,7 @@ export function OverviewTab({ node }: OverviewTabProps) {
 
   const services = servicesData?.items || [];
   const runningServices = services.filter((s) => s.status === 'running');
+  const latestProfileVersion = latestProfile?.version;
 
   return (
     <div className="space-y-6">
@@ -185,7 +186,7 @@ export function OverviewTab({ node }: OverviewTabProps) {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Profile Version</span>
-                    <span className="font-mono text-sm">{node.profileVersion || '-'}</span>
+                    <span className="font-mono text-sm">{latestProfileVersion || '-'}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Last Profiled</span>
@@ -205,10 +206,10 @@ export function OverviewTab({ node }: OverviewTabProps) {
                     <span className="text-muted-foreground">Registered</span>
                     <span className="text-sm">{formatDate(new Date(node.registeredAt))}</span>
                   </div>
-                  {node.updatedAt && (
+                  {node.lastUpdated && (
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Updated</span>
-                      <span className="text-sm">{formatDate(new Date(node.updatedAt))}</span>
+                      <span className="text-sm">{formatDate(new Date(node.lastUpdated))}</span>
                     </div>
                   )}
                 </div>
@@ -375,7 +376,7 @@ export function OverviewTab({ node }: OverviewTabProps) {
                     {latestProfile.hardware.cpu && (
                       <div className="rounded-lg border p-3">
                         <div className="flex items-center gap-2 mb-2">
-                          <Cpu className="h-4 w-4 text-muted-foreground" />
+                          <Cpu className="h-6 w-4 text-muted-foreground" />
                           <span className="text-sm font-medium">CPU</span>
                         </div>
                         <div className="text-sm truncate mb-1" title={latestProfile.hardware.cpu.model}>
@@ -460,6 +461,75 @@ export function OverviewTab({ node }: OverviewTabProps) {
               </Card>
             )}
 
+
+          </div>
+
+          {/* Right Column */}
+          <div className="space-y-6">
+            {/* Storage Usage */}
+            {latestProfile?.storage?.filesystems && latestProfile.storage.filesystems.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <HardDrive className="h-4 w-4" />
+                    Storage Usage
+                  </CardTitle>
+                  {latestProfile.storage.totalCapacityBytes && (
+                    <CardDescription>
+                      Total capacity: {formatBytes(latestProfile.storage.totalCapacityBytes)}
+                    </CardDescription>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {latestProfile.storage.filesystems.slice(0, 6).map((fs, idx) => {
+                      const usedPercent =
+                        fs.sizeBytes && fs.usedBytes
+                          ? Math.round((fs.usedBytes / fs.sizeBytes) * 100)
+                          : 0;
+                      return (
+                        <div key={`${fs.mountPoint}-${idx}`} className="space-y-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-mono text-muted-foreground truncate max-w-[150px]" title={fs.mountPoint}>
+                              {fs.mountPoint}
+                            </span>
+                            <span className="text-xs">
+                              {fs.usedBytes ? formatBytes(fs.usedBytes) : '?'} / {fs.sizeBytes ? formatBytes(fs.sizeBytes) : '?'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Progress
+                              value={usedPercent}
+                              className="h-2 flex-1"
+                              indicatorClassName={cn(
+                                usedPercent > 90
+                                  ? 'bg-destructive'
+                                  : usedPercent > 75
+                                    ? 'bg-warning'
+                                    : 'bg-chart-1'
+                              )}
+                            />
+                            <span className={cn(
+                              'text-xs font-medium w-10 text-right',
+                              usedPercent > 90 && 'text-destructive',
+                              usedPercent > 75 && usedPercent <= 90 && 'text-warning'
+                            )}>
+                              {usedPercent}%
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {latestProfile.storage.filesystems.length > 6 && (
+                      <div className="text-xs text-muted-foreground text-center pt-2">
+                        +{latestProfile.storage.filesystems.length - 6} more filesystems
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Network Summary */}
             {latestProfile?.network && (
               <Card>
@@ -508,7 +578,7 @@ export function OverviewTab({ node }: OverviewTabProps) {
                           Interfaces ({latestProfile.network.interfaces.length})
                         </div>
                         <div className="grid gap-2 sm:grid-cols-2">
-                          {latestProfile.network.interfaces.slice(0, 4).map((iface) => (
+                          {latestProfile.network.interfaces.slice(0, 2).map((iface) => (
                             <div key={iface.name} className="rounded-lg border p-2 text-sm">
                               <div className="flex items-center justify-between">
                                 <span className="font-mono">{iface.name}</span>
@@ -532,73 +602,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
                             +{latestProfile.network.interfaces.length - 4} more interfaces
                           </div>
                         )}
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {/* Right Column */}
-          <div className="space-y-6">
-            {/* Storage Usage */}
-            {latestProfile?.storage?.filesystems && latestProfile.storage.filesystems.length > 0 && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <HardDrive className="h-4 w-4" />
-                    Storage Usage
-                  </CardTitle>
-                  {latestProfile.storage.totalCapacityBytes && (
-                    <CardDescription>
-                      Total capacity: {formatBytes(latestProfile.storage.totalCapacityBytes)}
-                    </CardDescription>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {latestProfile.storage.filesystems.slice(0, 6).map((fs, idx) => {
-                      const usedPercent =
-                        fs.sizeBytes && fs.usedBytes
-                          ? Math.round((fs.usedBytes / fs.sizeBytes) * 100)
-                          : 0;
-                      return (
-                        <div key={`${fs.mountPoint}-${idx}`} className="space-y-2">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="font-mono text-muted-foreground truncate max-w-[150px]" title={fs.mountPoint}>
-                              {fs.mountPoint}
-                            </span>
-                            <span className="text-xs">
-                              {fs.usedBytes ? formatBytes(fs.usedBytes) : '?'} / {fs.sizeBytes ? formatBytes(fs.sizeBytes) : '?'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Progress
-                              value={usedPercent}
-                              className="h-2 flex-1"
-                              indicatorClassName={cn(
-                                usedPercent > 90
-                                  ? 'bg-destructive'
-                                  : usedPercent > 75
-                                  ? 'bg-warning'
-                                  : 'bg-chart-1'
-                              )}
-                            />
-                            <span className={cn(
-                              'text-xs font-medium w-10 text-right',
-                              usedPercent > 90 && 'text-destructive',
-                              usedPercent > 75 && usedPercent <= 90 && 'text-warning'
-                            )}>
-                              {usedPercent}%
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {latestProfile.storage.filesystems.length > 6 && (
-                      <div className="text-xs text-muted-foreground text-center pt-2">
-                        +{latestProfile.storage.filesystems.length - 6} more filesystems
                       </div>
                     )}
                   </div>
@@ -701,26 +704,49 @@ export function OverviewTab({ node }: OverviewTabProps) {
         </Card>
       )}
 
-      {/* Metadata */}
-      {node.metadata && Object.keys(node.metadata).length > 0 && (
+      {/* Relationships */}
+      {(node.parentNodeId || (node.networkIds && node.networkIds.length > 0)) && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Info className="h-4 w-4" />
-              Metadata
+              Relationships
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-              {Object.entries(node.metadata).map(([key, value]) => (
-                <div
-                  key={key}
-                  className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2"
-                >
-                  <span className="text-muted-foreground">{key}</span>
-                  <span className="font-mono text-sm">{String(value)}</span>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {node.parentNodeId && (
+                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                  <span className="text-muted-foreground">Parent</span>
+                  <Link
+                    to={`${ROUTES.NODES}/${node.parentNodeId}`}
+                    className="font-mono text-sm text-primary hover:underline"
+                  >
+                    {node.parentNodeId}
+                  </Link>
                 </div>
-              ))}
+              )}
+              {node.networkIds && node.networkIds.length > 0 && (
+                <div className="rounded-lg bg-muted/50 px-3 py-2">
+                  <span className="text-muted-foreground">Networks</span>
+                  <div className="mt-2 space-y-1">
+                    {node.networkIds.slice(0, 4).map((networkId) => (
+                      <Link
+                        key={networkId}
+                        to={`${ROUTES.NETWORKS}/${networkId}`}
+                        className="block font-mono text-sm text-primary hover:underline"
+                      >
+                        {networkId}
+                      </Link>
+                    ))}
+                    {node.networkIds.length > 4 && (
+                      <span className="text-xs text-muted-foreground">
+                        +{node.networkIds.length - 4} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

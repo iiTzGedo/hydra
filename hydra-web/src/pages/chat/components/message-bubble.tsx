@@ -1,11 +1,18 @@
 import { useState } from 'react';
 import { Bot, User, Zap, Copy, Check } from 'lucide-react';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import type { MCPChatMessage } from '@/types/mcp';
+import type { ChatMessageRole, ChatToolCall } from '@/api/chat';
 import { ToolCallDisplay } from './tool-call-display';
 
 interface MessageBubbleProps {
-  message: MCPChatMessage;
+  message: {
+    messageId?: string;
+    role: ChatMessageRole;
+    content: string;
+    toolCalls?: ChatToolCall[];
+    createdAt?: string;
+    error?: boolean;
+  };
 }
 
 export function MessageBubble({ message }: MessageBubbleProps) {
@@ -60,7 +67,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         </div>
         <div className="flex items-center gap-2 mt-1 px-1">
           <span className="text-[10px] text-muted-foreground">
-            {formatRelativeTime(message.timestamp)}
+            {formatRelativeTime(message.createdAt || new Date().toISOString())}
           </span>
           {!isUser && (
             <button

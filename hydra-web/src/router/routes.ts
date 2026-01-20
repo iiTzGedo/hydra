@@ -2,7 +2,6 @@ import { lazy } from 'react';
 import { ROUTES } from '@/lib/constants';
 import type { Role } from '@/types/auth';
 
-// Lazy load all pages for code splitting
 const LoginPage = lazy(() => import('@/pages/auth/login'));
 const RegisterPage = lazy(() => import('@/pages/auth/register'));
 const ForgotPasswordPage = lazy(() => import('@/pages/auth/forgot-password'));
@@ -50,7 +49,6 @@ export interface RouteConfig {
   children?: RouteConfig[];
 }
 
-// Auth routes (no auth required)
 export const authRoutes: RouteConfig[] = [
   {
     path: ROUTES.LOGIN,
@@ -78,7 +76,6 @@ export const authRoutes: RouteConfig[] = [
   },
 ];
 
-// Main app routes (auth required)
 export const appRoutes: RouteConfig[] = [
   {
     path: ROUTES.DASHBOARD,
@@ -231,7 +228,6 @@ export const appRoutes: RouteConfig[] = [
   },
 ];
 
-// Settings route (unified, replaces admin routes)
 export const adminRoutes: RouteConfig[] = [
   {
     path: ROUTES.SETTINGS,
@@ -243,7 +239,6 @@ export const adminRoutes: RouteConfig[] = [
   },
 ];
 
-// Error routes
 export const errorRoutes: RouteConfig[] = [
   {
     path: '*',
@@ -253,5 +248,4 @@ export const errorRoutes: RouteConfig[] = [
   },
 ];
 
-// All routes combined
 export const allRoutes = [...authRoutes, ...appRoutes, ...adminRoutes, ...errorRoutes];

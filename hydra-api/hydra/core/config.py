@@ -8,7 +8,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Application settings loaded from environment variables.
+
+    All settings can be configured via environment variables with the HYDRA_ prefix.
+    For example, HYDRA_API_PORT=8080 sets the api_port field.
+    """
 
     model_config = SettingsConfigDict(
         env_prefix="HYDRA_",
@@ -17,48 +21,38 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Environment
     env: Literal["development", "staging", "production"] = "development"
     debug: bool = False
 
-    # API Server
     api_host: str = "0.0.0.0"
     api_port: int = 8080
     api_workers: int = 4
 
-    # MongoDB
     mongodb_uri: MongoDsn = Field(default="mongodb://mongo-dev.db.nimi.labs:27017")
     mongodb_database: str = "hydra_dev"
     mongodb_min_pool_size: int = 5
     mongodb_max_pool_size: int = 50
 
-    # Redis
     redis_url: RedisDsn = Field(default="redis://redis-dev.db.nimi.labs:6379/0")
     redis_max_connections: int = 20
 
-    # JWT Authentication
     jwt_secret: str = Field(default="change-this-secret")
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
     jwt_refresh_expire_days: int = 7
 
-    # Registration Tokens
     registration_token_expire_days: int = 7
     registration_token_max_uses: int = 10
 
-    # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "console"] = "json"
 
-    # CORS
     cors_origins: list[str] = Field(default=["http://localhost:5173", "http://localhost:3000"])
 
-    # Rate Limiting
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 100
     rate_limit_window_seconds: int = 60
 
-    # Object Storage (S3/Garage) for agent binary and bundle distribution
     object_storage_enabled: bool = False
     object_storage_endpoint: str | None = Field(default=None)
     object_storage_bucket: str = "hydra-bucket"
@@ -66,14 +60,12 @@ class Settings(BaseSettings):
     object_storage_secret_key: str | None = Field(default=None)
     object_storage_region: str = "garage"
 
-    # Local Storage for agent bundle distribution (alternative to S3)
     local_storage_enabled: bool = False
     local_storage_path: str = Field(
         default="/var/lib/hydra/bundles",
         description="Local filesystem path for agent bundles",
     )
 
-    # SMTP Configuration for email (password reset, notifications)
     smtp_enabled: bool = False
     smtp_host: str | None = Field(default=None)
     smtp_port: int = 587
@@ -85,14 +77,12 @@ class Settings(BaseSettings):
     smtp_starttls: bool = True
     smtp_timeout: int = 30
 
-    # Password reset settings
     password_reset_token_expire_hours: int = 24
     password_reset_base_url: str | None = Field(
         default=None,
         description="Base URL for password reset links (e.g., https://hydra.local)",
     )
 
-    # MCP Server connection
     mcp_server_url: str = Field(
         default="http://hydra-mcp:8081",
         description="URL for the built-in Hydra MCP server (HTTP transport)",
@@ -135,5 +125,9 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance."""
+    """Get cached settings instance.
+
+    Returns:
+        Singleton Settings instance loaded from environment.
+    """
     return Settings()

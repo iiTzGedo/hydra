@@ -111,7 +111,6 @@ export default function NodeProfilesPage() {
           </div>
         ) : (
           <div className="relative">
-            {/* Timeline line */}
             <div className="absolute left-[23px] top-0 bottom-0 w-0.5 bg-border" />
 
             {profiles.items.map((profile, index) => {
@@ -122,7 +121,6 @@ export default function NodeProfilesPage() {
                 variants={staggerItemVariants}
                 className="relative pl-12 pb-6 last:pb-0"
               >
-                {/* Timeline dot */}
                 <div
                   className={cn(
                     'absolute left-4 top-2 h-4 w-4 rounded-full border-2 bg-background',
@@ -139,7 +137,6 @@ export default function NodeProfilesPage() {
                   )}
                 >
                   <div className="flex items-start gap-4">
-                    {/* Checkbox */}
                     <button
                       onClick={() => toggleProfileSelection(profileKey)}
                       className={cn(
@@ -166,7 +163,6 @@ export default function NodeProfilesPage() {
                       )}
                     </button>
 
-                    {/* Profile info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3">
                         <span className="font-mono font-medium">{profile.version}</span>
@@ -182,7 +178,6 @@ export default function NodeProfilesPage() {
                         <span>{formatRelativeTime(new Date(profile.submittedAt))}</span>
                       </div>
 
-                      {/* Collection level badge */}
                       <div className="mt-3 flex flex-wrap gap-2">
                         <span className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize">
                           {profile.collectionLevel || 'neutral'}
@@ -190,7 +185,6 @@ export default function NodeProfilesPage() {
                       </div>
                     </div>
 
-                    {/* Actions */}
                     <Link
                       to={`${ROUTES.NODES}/${nodeId}/profile/${profileKey}`}
                       className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm hover:bg-muted transition-colors"

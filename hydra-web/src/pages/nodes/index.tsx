@@ -99,7 +99,6 @@ export default function NodesPage() {
   });
   const [showRegisterForm, setShowRegisterForm] = useState(false);
 
-  // API data
   const { data: nodesData, isLoading, error, refetch } = useNodes({
     search: search || undefined,
     class: classFilter !== 'all' ? classFilter : undefined,
@@ -107,7 +106,6 @@ export default function NodesPage() {
   });
   const registerMutation = useRegisterNode();
 
-  // Form state
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [registeredNodeId, setRegisteredNodeId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -121,7 +119,6 @@ export default function NodesPage() {
   const [tags, setTags] = useState('');
   const [parentNodeId, setParentNodeId] = useState('');
 
-  // Status counts
   const statusCounts = useMemo(() => {
     const items = nodesData?.items ?? [];
     return {
@@ -187,7 +184,6 @@ export default function NodesPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Node Explorer</h2>
@@ -217,7 +213,6 @@ export default function NodesPage() {
         </div>
       </div>
 
-      {/* Status Summary */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
         <Card>
           <CardContent className="flex items-center justify-between p-4">
@@ -257,7 +252,6 @@ export default function NodesPage() {
         </Card>
       </div>
 
-      {/* Filters */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
@@ -404,7 +398,6 @@ export default function NodesPage() {
         </CardContent>
       </Card>
 
-      {/* Error State */}
       {error && !isLoading && (
         <Card className="border-destructive">
           <CardContent className="p-8 text-center">
@@ -421,7 +414,6 @@ export default function NodesPage() {
         </Card>
       )}
 
-      {/* Empty State */}
       {!isLoading && !error && filteredNodes.length === 0 && (
         <EmptyState
           icon={Server}
@@ -446,7 +438,6 @@ export default function NodesPage() {
         />
       )}
 
-      {/* Results */}
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {[...Array(8)].map((_, i) => (
@@ -501,7 +492,6 @@ export default function NodesPage() {
                     </CardHeader>
                     <CardContent className="pt-0">
                       <div className="space-y-2">
-                        {/* Type */}
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-muted-foreground">Type</span>
                           <Badge
@@ -511,7 +501,6 @@ export default function NodesPage() {
                             {node.type} / {node.kind || 'unknown'}
                           </Badge>
                         </div>
-                        {/* Tags */}
                         <div className="flex flex-wrap gap-1 pt-1">
                           {node.tags?.slice(0, 3).map((tag) => (
                             <Badge key={tag} variant="outline" className="text-[10px] border-border text-muted-foreground">
@@ -621,7 +610,6 @@ export default function NodesPage() {
         </Card>
       ) : null}
 
-      {/* Register Node Modal */}
       <Dialog open={showRegisterForm} onOpenChange={setShowRegisterForm}>
         <DialogContent className="sm:max-w-lg">
           {newApiKey ? (

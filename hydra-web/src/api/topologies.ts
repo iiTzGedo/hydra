@@ -11,7 +11,6 @@ import type {
   GenerateTopologyRequest,
 } from '@/types/topology';
 
-// List topologies
 export function useTopologies(params?: TopologyListParams) {
   return useQuery({
     queryKey: queryKeys.topologies.list(params),
@@ -25,7 +24,6 @@ export function useTopologies(params?: TopologyListParams) {
           offset: params?.offset,
         },
       });
-      // Transform to expected paginated format
       return {
         items: response.data.data,
         total: response.data.meta?.total ?? response.data.data.length,
@@ -36,7 +34,6 @@ export function useTopologies(params?: TopologyListParams) {
   });
 }
 
-// Get latest topology
 export function useLatestTopology(mode: TopologyMode = 'infrastructure', includeGraph = true) {
   return useQuery({
     queryKey: queryKeys.topologies.latest(mode),
@@ -49,7 +46,6 @@ export function useLatestTopology(mode: TopologyMode = 'infrastructure', include
   });
 }
 
-// Get single topology
 export function useTopology(topologyId: string, includeGraph = true) {
   return useQuery({
     queryKey: queryKeys.topologies.detail(topologyId),
@@ -66,7 +62,6 @@ export function useTopology(topologyId: string, includeGraph = true) {
   });
 }
 
-// Generate topology
 export function useGenerateTopology() {
   const queryClient = useQueryClient();
 
@@ -85,7 +80,6 @@ export function useGenerateTopology() {
   });
 }
 
-// Compare topologies
 export function useTopologyDiff(fromId?: string, toId?: string, mode?: TopologyMode) {
   return useQuery({
     queryKey: queryKeys.topologies.diff(fromId, toId, mode),
@@ -98,6 +92,3 @@ export function useTopologyDiff(fromId?: string, toId?: string, mode?: TopologyM
     enabled: !!(fromId || toId || mode),
   });
 }
-
-// NOTE: Subgraph endpoint not implemented in API
-// The topology-tab.tsx extracts subgraph from the main topology locally instead

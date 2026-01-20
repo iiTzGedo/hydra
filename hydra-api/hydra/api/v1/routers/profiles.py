@@ -39,7 +39,20 @@ async def submit_profile(
     submission: ProfileSubmission,
     profile_service: ProfileServiceDep,
 ) -> SuccessResponse[ProfileResponse]:
-    """Submit a new profile."""
+    """Submit a new infrastructure profile from an agent.
+
+    Args:
+        submission: Profile data including hardware, software, and network information.
+        profile_service: Profile service instance.
+
+    Returns:
+        Created profile with calculated version and metadata.
+
+    Raises:
+        HTTPException 400: Invalid profile data.
+        HTTPException 403: Insufficient permissions.
+        HTTPException 404: Node not found.
+    """
     profile = await profile_service.submit_profile(submission)
     return SuccessResponse(data=ProfileResponse(**profile))
 
@@ -56,12 +69,23 @@ async def get_profile(
     profile_id: str,
     profile_service: ProfileServiceDep,
 ) -> SuccessResponse[ProfileResponse]:
-    """Get a profile by ID."""
+    """Retrieve a specific profile by its unique identifier.
+
+    Args:
+        profile_id: Unique identifier of the profile.
+        profile_service: Profile service instance.
+
+    Returns:
+        Complete profile data including all collected sections.
+
+    Raises:
+        HTTPException 404: Profile not found.
+        HTTPException 403: Insufficient permissions.
+    """
     profile = await profile_service.get_profile(profile_id)
     return SuccessResponse(data=ProfileResponse(**profile))
 
 
-# Node-specific profile endpoints (nested under /nodes)
 nodes_router = APIRouter(prefix="/nodes", tags=["Profiles"])
 
 
@@ -79,7 +103,21 @@ async def list_node_profiles(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> SuccessResponse[list[ProfileSummary]]:
-    """List profiles for a node."""
+    """Retrieve profile submission history for a specific node.
+
+    Args:
+        node_id: Unique identifier of the node.
+        profile_service: Profile service instance.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+
+    Returns:
+        Paginated list of profile summaries ordered by submission time.
+
+    Raises:
+        HTTPException 404: Node not found.
+        HTTPException 403: Insufficient permissions.
+    """
     profiles, total = await profile_service.list_node_profiles(node_id, limit, offset)
     return SuccessResponse(
         data=[ProfileSummary(**p) for p in profiles],
@@ -99,7 +137,19 @@ async def get_latest_profile(
     node_id: str,
     profile_service: ProfileServiceDep,
 ) -> SuccessResponse[ProfileResponse]:
-    """Get the latest profile for a node."""
+    """Retrieve the most recently submitted profile for a node.
+
+    Args:
+        node_id: Unique identifier of the node.
+        profile_service: Profile service instance.
+
+    Returns:
+        The latest complete profile for the specified node.
+
+    Raises:
+        HTTPException 404: Node not found or has no profiles.
+        HTTPException 403: Insufficient permissions.
+    """
     profile = await profile_service.get_latest_profile(node_id)
     return SuccessResponse(data=ProfileResponse(**profile))
 
@@ -118,6 +168,20 @@ async def diff_profiles(
     from_version: str | None = Query(default=None, alias="fromVersion"),
     to_version: str | None = Query(default=None, alias="toVersion"),
 ) -> SuccessResponse[ProfileDiff]:
-    """Compare two profiles."""
+    """Compare two profiles to identify configuration changes.
+
+    Args:
+        node_id: Unique identifier of the node.
+        profile_service: Profile service instance.
+        from_version: Starting profile version (defaults to second-latest).
+        to_version: Ending profile version (defaults to latest).
+
+    Returns:
+        Diff result showing added, removed, and modified sections.
+
+    Raises:
+        HTTPException 404: Node not found or insufficient profiles for comparison.
+        HTTPException 403: Insufficient permissions.
+    """
     diff = await profile_service.diff_profiles(node_id, from_version, to_version)
     return SuccessResponse(data=ProfileDiff(**diff))

@@ -26,7 +26,6 @@ export function TimelineScrubber({
 }: TimelineScrubberProps) {
   const trackRef = useRef<HTMLDivElement>(null);
 
-  // Calculate position as percentage
   const getPositionPercent = useCallback(
     (timestamp: Date) => {
       const range = timeRange.end.getTime() - timeRange.start.getTime();
@@ -37,7 +36,6 @@ export function TimelineScrubber({
     [timeRange]
   );
 
-  // Calculate time from position
   const getTimeFromPosition = useCallback(
     (percent: number) => {
       const range = timeRange.end.getTime() - timeRange.start.getTime();
@@ -59,7 +57,6 @@ export function TimelineScrubber({
   const currentPercent = getPositionPercent(currentTime);
   const comparePercent = compareTime ? getPositionPercent(compareTime) : null;
 
-  // Format time labels
   const timeLabels = useMemo(() => {
     const labels = [];
     const range = timeRange.end.getTime() - timeRange.start.getTime();
@@ -88,22 +85,18 @@ export function TimelineScrubber({
 
   return (
     <div className="space-y-4">
-      {/* Timeline track */}
       <div
         ref={trackRef}
         onClick={handleTrackClick}
         className="relative h-12 cursor-pointer"
       >
-        {/* Track background */}
         <div className="absolute inset-x-0 top-5 h-2 rounded-full bg-muted" />
 
-        {/* Progress fill */}
         <div
           className="absolute top-5 left-0 h-2 rounded-full bg-primary/30"
           style={{ width: `${currentPercent}%` }}
         />
 
-        {/* Compare time marker */}
         {comparePercent !== null && (
           <motion.div
             initial={{ opacity: 0, scale: 0.5 }}
@@ -118,7 +111,6 @@ export function TimelineScrubber({
           </motion.div>
         )}
 
-        {/* Event markers */}
         {events.map((event) => {
           const percent = getPositionPercent(event.timestamp);
           return (
@@ -140,7 +132,6 @@ export function TimelineScrubber({
           );
         })}
 
-        {/* Current time handle */}
         <motion.div
           className="absolute top-2 -translate-x-1/2 cursor-grab active:cursor-grabbing"
           style={{ left: `${currentPercent}%` }}
@@ -163,7 +154,6 @@ export function TimelineScrubber({
         </motion.div>
       </div>
 
-      {/* Time labels */}
       <div className="relative h-4">
         {timeLabels.map((label, i) => (
           <div
@@ -176,7 +166,6 @@ export function TimelineScrubber({
         ))}
       </div>
 
-      {/* Legend */}
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-1">
           <div className="h-2 w-2 rounded-full bg-primary" />

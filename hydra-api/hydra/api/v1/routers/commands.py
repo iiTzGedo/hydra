@@ -49,8 +49,21 @@ async def create_command(
     commands_service: CommandsServiceDep,
     current_user: CurrentUser,
 ) -> SuccessResponse[CommandQueuedResponse]:
-    """Queue a new command for execution."""
-    # Determine source based on request context
+    """Queue a new command for execution on an agent.
+
+    Args:
+        request: Command specification including type, target, and parameters.
+        commands_service: Commands service instance.
+        current_user: User initiating the command.
+
+    Returns:
+        Queued command details with tracking ID.
+
+    Raises:
+        HTTPException 400: Invalid command specification.
+        HTTPException 403: Insufficient permissions.
+        HTTPException 404: Target node not found.
+    """
     source = CommandSource.API
     if hasattr(current_user, "source"):
         source = current_user.source
@@ -91,7 +104,23 @@ async def list_commands(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> SuccessResponse[list[CommandSummary]]:
-    """List commands with filters."""
+    """Retrieve command execution history.
+
+    Args:
+        commands_service: Commands service instance.
+        node_id: Filter by target node ID.
+        type: Filter by command type.
+        status: Filter by execution status.
+        since: Only include commands created after this timestamp.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+
+    Returns:
+        Paginated list of command summaries.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     params = CommandListParams(
         node_id=node_id,
         type=type,
@@ -130,7 +159,19 @@ async def get_command(
     command_id: str,
     commands_service: CommandsServiceDep,
 ) -> SuccessResponse[CommandResponse]:
-    """Get a single command by ID."""
+    """Retrieve detailed information about a specific command.
+
+    Args:
+        command_id: Unique identifier of the command.
+        commands_service: Commands service instance.
+
+    Returns:
+        Complete command details including result if available.
+
+    Raises:
+        HTTPException 404: Command not found.
+        HTTPException 403: Insufficient permissions.
+    """
     command = await commands_service.get_command(command_id)
 
     return SuccessResponse(
@@ -163,7 +204,20 @@ async def cancel_command(
     command_id: str,
     commands_service: CommandsServiceDep,
 ) -> SuccessResponse[CommandCancelledResponse]:
-    """Cancel a command."""
+    """Cancel a command that has not yet completed.
+
+    Args:
+        command_id: Unique identifier of the command to cancel.
+        commands_service: Commands service instance.
+
+    Returns:
+        Cancellation confirmation.
+
+    Raises:
+        HTTPException 400: Command cannot be cancelled (already completed).
+        HTTPException 404: Command not found.
+        HTTPException 403: Insufficient permissions.
+    """
     result = await commands_service.cancel_command(command_id)
 
     return SuccessResponse(
@@ -174,8 +228,6 @@ async def cancel_command(
         )
     )
 
-
-# ==================== Node Commands Endpoints (for agents) ====================
 
 nodes_commands_router = APIRouter(prefix="/nodes", tags=["Nodes"])
 
@@ -191,7 +243,18 @@ async def poll_commands(
     node_id: str,
     commands_service: CommandsServiceDep,
 ) -> SuccessResponse[CommandPollResponse]:
-    """Poll for pending commands for a node."""
+    """Poll for commands pending execution on a specific node.
+
+    Args:
+        node_id: Unique identifier of the polling node.
+        commands_service: Commands service instance.
+
+    Returns:
+        List of commands awaiting execution.
+
+    Raises:
+        HTTPException 403: Insufficient permissions (agent-only endpoint).
+    """
     commands = await commands_service.poll_commands(node_id)
 
     return SuccessResponse(
@@ -212,7 +275,22 @@ async def submit_command_result(
     request: SubmitCommandResultRequest,
     commands_service: CommandsServiceDep,
 ) -> SuccessResponse[CommandResultSubmittedResponse]:
-    """Submit command execution result."""
+    """Submit the result of command execution from an agent.
+
+    Args:
+        node_id: Unique identifier of the executing node.
+        command_id: Unique identifier of the command.
+        request: Execution result including output and status.
+        commands_service: Commands service instance.
+
+    Returns:
+        Confirmation of result submission.
+
+    Raises:
+        HTTPException 400: Invalid result or command not assigned to node.
+        HTTPException 404: Command not found.
+        HTTPException 403: Insufficient permissions (agent-only endpoint).
+    """
     result = await commands_service.submit_result(node_id, command_id, request)
 
     return SuccessResponse(

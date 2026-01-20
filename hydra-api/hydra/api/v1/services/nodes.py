@@ -20,20 +20,32 @@ class NodeService:
         self.db = mongodb
 
     async def get_node(self, node_id: str) -> dict:
-        """Get a single node by ID."""
+        """Retrieve a single node by its identifier.
+
+        Args:
+            node_id: The unique node identifier.
+
+        Returns:
+            The formatted node document.
+
+        Raises:
+            NodeNotFoundError: If no node exists with the given ID.
+        """
         node = await self.db.nodes.find_one({"nodeId": node_id})
         if not node:
             raise NodeNotFoundError(node_id)
         return self._format_node(node)
 
     async def list_nodes(self, params: NodeListParams) -> tuple[list[dict], int]:
-        """
-        List nodes with filters and pagination.
+        """List nodes with filtering, sorting, and pagination.
+
+        Args:
+            params: Filter and pagination parameters including class, type,
+                kind, status, tags, and search query.
 
         Returns:
-            Tuple of (nodes list, total count)
+            A tuple of (list of node summaries, total count).
         """
-        # Build filter
         filter_query: dict[str, Any] = {}
 
         if params.node_class:
@@ -53,7 +65,6 @@ class NodeService:
         if params.search:
             filter_query["$text"] = {"$search": params.search}
 
-        # Sort
         sort_field_map = {
             "nodeId": "nodeId",
             "displayName": "displayName",
@@ -64,7 +75,6 @@ class NodeService:
         sort_field = sort_field_map.get(params.sort_by, "lastUpdated")
         sort_direction = DESCENDING if params.sort_order == "desc" else ASCENDING
 
-        # Execute queries
         total = await self.db.nodes.count_documents(filter_query)
 
         cursor = (
@@ -88,13 +98,24 @@ class NodeService:
         return nodes, total
 
     async def update_node(self, node_id: str, request: UpdateNodeRequest) -> dict:
-        """Update node metadata."""
-        # Check node exists
+        """Update node metadata.
+
+        Args:
+            node_id: The node identifier to update.
+            request: Fields to update including display name, description,
+                kind, tags, parent node, and status.
+
+        Returns:
+            The updated node document.
+
+        Raises:
+            NodeNotFoundError: If no node exists with the given ID.
+            ValidationError: If parent node reference is invalid.
+        """
         existing = await self.db.nodes.find_one({"nodeId": node_id})
         if not existing:
             raise NodeNotFoundError(node_id)
 
-        # Build update
         update_fields: dict[str, Any] = {"lastUpdated": datetime.now(timezone.utc)}
 
         if request.display_name is not None:
@@ -106,7 +127,6 @@ class NodeService:
         if request.tags is not None:
             update_fields["tags"] = request.tags
         if request.parent_node_id is not None:
-            # Validate parent exists if not null
             if request.parent_node_id:
                 parent = await self.db.nodes.find_one({"nodeId": request.parent_node_id})
                 if not parent:
@@ -118,7 +138,6 @@ class NodeService:
         if request.status is not None:
             update_fields["status"] = request.status.value
 
-        # Execute update
         result = await self.db.nodes.update_one(
             {"nodeId": node_id},
             {"$set": update_fields},
@@ -129,11 +148,21 @@ class NodeService:
 
         logger.info("node_updated", node_id=node_id, fields=list(update_fields.keys()))
 
-        # Return updated node
         return await self.get_node(node_id)
 
     async def archive_node(self, node_id: str) -> dict:
-        """Archive a node (soft delete)."""
+        """Archive a node (soft delete).
+
+        Args:
+            node_id: The node identifier to archive.
+
+        Returns:
+            The archived node document.
+
+        Raises:
+            NodeNotFoundError: If no node exists with the given ID.
+            ValidationError: If the node is already archived.
+        """
         existing = await self.db.nodes.find_one({"nodeId": node_id})
         if not existing:
             raise NodeNotFoundError(node_id)
@@ -155,8 +184,17 @@ class NodeService:
         return await self.get_node(node_id)
 
     async def get_node_children(self, node_id: str) -> list[dict]:
-        """Get child nodes of a parent node."""
-        # Verify parent exists
+        """Get child nodes of a parent node.
+
+        Args:
+            node_id: The parent node identifier.
+
+        Returns:
+            List of child node summaries.
+
+        Raises:
+            NodeNotFoundError: If the parent node does not exist.
+        """
         parent = await self.db.nodes.find_one({"nodeId": node_id})
         if not parent:
             raise NodeNotFoundError(node_id)
@@ -169,7 +207,15 @@ class NodeService:
         return children
 
     async def update_node_networks(self, node_id: str, network_ids: list[str]) -> None:
-        """Update the network associations for a node."""
+        """Update network associations for a node.
+
+        Args:
+            node_id: The node identifier.
+            network_ids: List of network IDs to associate.
+
+        Raises:
+            NodeNotFoundError: If no node exists with the given ID.
+        """
         result = await self.db.nodes.update_one(
             {"nodeId": node_id},
             {
@@ -183,7 +229,15 @@ class NodeService:
             raise NodeNotFoundError(node_id)
 
     async def update_last_profile(self, node_id: str, profile_time: datetime) -> None:
-        """Update the last profile timestamp for a node."""
+        """Update the last profile timestamp for a node.
+
+        Args:
+            node_id: The node identifier.
+            profile_time: The timestamp of the profile submission.
+
+        Raises:
+            NodeNotFoundError: If no node exists with the given ID.
+        """
         result = await self.db.nodes.update_one(
             {"nodeId": node_id},
             {
@@ -203,35 +257,32 @@ class NodeService:
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
-        """
-        List all registered agents (nodes with API keys).
+        """List all registered agents (nodes with submitted profiles).
 
-        An agent is considered healthy if it has submitted a profile within the last 24 hours.
+        An agent is considered healthy if it has submitted a profile within
+        the last 24 hours.
 
         Args:
-            status: Optional status filter
-            healthy_only: Only return healthy agents
-            limit: Max results
-            offset: Pagination offset
+            status: Optional status filter.
+            healthy_only: Only return healthy agents.
+            limit: Maximum results to return.
+            offset: Pagination offset.
 
         Returns:
-            dict with agents list and counts
+            Dict containing agents list, total count, active count, and pagination info.
         """
         from datetime import timedelta
 
         now = datetime.now(timezone.utc)
         health_threshold = now - timedelta(hours=24)
 
-        # Build query - agents are nodes that have lastProfileAt set (have profiled at least once)
         query: dict = {"lastProfileAt": {"$ne": None}}
 
         if status:
             query["status"] = status
 
-        # Count total
         total = await self.db.nodes.count_documents(query)
 
-        # Get nodes
         cursor = (
             self.db.nodes.find(query)
             .sort("lastProfileAt", DESCENDING)
@@ -252,10 +303,8 @@ class NodeService:
             if is_healthy:
                 active_count += 1
 
-            # Get profile count and latest version for this node
             profile_count = await self.db.profiles.count_documents({"nodeId": node["nodeId"]})
 
-            # Get latest profile version
             latest_profile = await self.db.profiles.find_one(
                 {"nodeId": node["nodeId"]},
                 sort=[("submittedAt", DESCENDING)],
@@ -279,11 +328,9 @@ class NodeService:
                 "isHealthy": is_healthy,
             })
 
-        # If we didn't count active during fetch (healthy_only=True case), count them
         if healthy_only:
             active_count = len(agents)
         else:
-            # Recalculate active count from actual query if we limited results
             active_query = {**query, "lastProfileAt": {"$gte": health_threshold}}
             active_count = await self.db.nodes.count_documents(active_query)
 

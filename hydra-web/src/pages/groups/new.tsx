@@ -155,7 +155,6 @@ export default function NewGroupPage() {
           </motion.div>
         )}
 
-        {/* Basic Info */}
         <motion.div
           variants={staggerItemVariants}
           className="rounded-xl border bg-card p-6 shadow-sm"
@@ -267,7 +266,6 @@ export default function NewGroupPage() {
           </div>
         </motion.div>
 
-        {/* Selectors */}
         <motion.div
           variants={staggerItemVariants}
           className="rounded-xl border bg-card p-6 shadow-sm"
@@ -381,7 +379,6 @@ export default function NewGroupPage() {
           </div>
         </motion.div>
 
-        {/* Actions */}
         <motion.div variants={staggerItemVariants} className="flex items-center gap-3">
           <button
             type="submit"

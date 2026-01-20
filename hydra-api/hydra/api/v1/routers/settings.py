@@ -19,17 +19,21 @@ logger = structlog.get_logger(__name__)
 
 
 async def get_settings_service(mongodb: MongoDB = Depends(get_mongodb)) -> SettingsService:
-    """Get settings service."""
+    """Get settings service dependency."""
     return SettingsService(mongodb)
 
 
 def _check_not_agent(current_user: dict) -> None:
-    """Verify user is not an agent."""
+    """Verify user is not an agent.
+
+    Args:
+        current_user: Current authenticated user.
+
+    Raises:
+        AuthorizationError: If user is an agent.
+    """
     if current_user.get("type") == "agent":
         raise AuthorizationError("settings:read")
-
-
-# ==================== User Settings ====================
 
 
 @router.get(
@@ -42,7 +46,18 @@ async def get_user_settings(
     current_user: CurrentUser,
     settings_service: SettingsService = Depends(get_settings_service),
 ) -> UserSettingsResponse:
-    """Get user settings."""
+    """Get settings for the current user.
+
+    Args:
+        current_user: Authenticated user making the request.
+        settings_service: Settings service instance.
+
+    Returns:
+        User settings including preferences and UI configuration.
+
+    Raises:
+        HTTPException 403: Agents cannot access settings.
+    """
     _check_not_agent(current_user)
 
     result = await settings_service.get_user_settings(
@@ -63,7 +78,19 @@ async def update_user_settings(
     current_user: CurrentUser,
     settings_service: SettingsService = Depends(get_settings_service),
 ) -> UserSettingsResponse:
-    """Update user settings."""
+    """Update settings for the current user.
+
+    Args:
+        request: Settings update request with fields to modify.
+        current_user: Authenticated user making the request.
+        settings_service: Settings service instance.
+
+    Returns:
+        Updated user settings.
+
+    Raises:
+        HTTPException 403: Agents cannot access settings.
+    """
     _check_not_agent(current_user)
 
     result = await settings_service.update_user_settings(
@@ -72,9 +99,6 @@ async def update_user_settings(
     )
 
     return UserSettingsResponse(**result)
-
-
-# ==================== System Settings (Admin Only) ====================
 
 
 @router.get(
@@ -88,7 +112,18 @@ async def get_system_settings(
     current_user: CurrentUser,
     settings_service: SettingsService = Depends(get_settings_service),
 ) -> SystemSettingsResponse:
-    """Get system settings."""
+    """Get system-wide settings.
+
+    Args:
+        current_user: Authenticated admin user making the request.
+        settings_service: Settings service instance.
+
+    Returns:
+        System settings including global configuration.
+
+    Raises:
+        HTTPException 403: Insufficient permissions (admin only).
+    """
     result = await settings_service.get_system_settings()
 
     return SystemSettingsResponse(**result)
@@ -106,7 +141,19 @@ async def update_system_settings(
     current_user: CurrentUser,
     settings_service: SettingsService = Depends(get_settings_service),
 ) -> SystemSettingsResponse:
-    """Update system settings."""
+    """Update system-wide settings.
+
+    Args:
+        request: System settings update request with fields to modify.
+        current_user: Authenticated admin user making the request.
+        settings_service: Settings service instance.
+
+    Returns:
+        Updated system settings.
+
+    Raises:
+        HTTPException 403: Insufficient permissions (admin only).
+    """
     result = await settings_service.update_system_settings(
         request=request,
         admin_user_id=current_user["user_id"],

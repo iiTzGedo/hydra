@@ -43,7 +43,6 @@ export default function LoginPage() {
         variants={fadeInVariants}
         className="w-full max-w-md"
       >
-        {/* Logo */}
         <motion.div
           variants={scaleVariants}
           className="mb-8 text-center"
@@ -55,7 +54,6 @@ export default function LoginPage() {
           <p className="mt-2 text-muted-foreground">Infrastructure Intelligence Platform</p>
         </motion.div>
 
-        {/* Login form */}
         <motion.div
           variants={fadeInVariants}
           className="rounded-xl border bg-card p-6 shadow-lg"

@@ -20,7 +20,6 @@ class HydraError(Exception):
         super().__init__(message)
 
 
-# Authentication Errors (401)
 class AuthenticationError(HydraError):
     """Base authentication error."""
 
@@ -81,7 +80,6 @@ class PendingApprovalError(AuthenticationError):
         )
 
 
-# Authorization Errors (403)
 class AuthorizationError(HydraError):
     """Insufficient permissions."""
 
@@ -108,7 +106,6 @@ class AdminOnlyError(HydraError):
         )
 
 
-# Not Found Errors (404)
 class NotFoundError(HydraError):
     """Resource not found."""
 
@@ -189,7 +186,6 @@ class ApiKeyNotFoundError(NotFoundError):
         super().__init__("api_key", key_id)
 
 
-# Conflict Errors (409)
 class ConflictError(HydraError):
     """Resource already exists."""
 
@@ -238,7 +234,6 @@ class NodeAlreadyRegisteredError(HydraError):
         )
 
 
-# Validation Errors (400)
 class ValidationError(HydraError):
     """Request validation failed."""
 
@@ -275,7 +270,6 @@ class BootstrapRequiresAdminError(HydraError):
         )
 
 
-# Unprocessable Entity Errors (422)
 class RoleLimitExceededError(HydraError):
     """Maximum accounts for role reached."""
 
@@ -326,7 +320,6 @@ class TempRoleAlreadyActiveError(HydraError):
         )
 
 
-# Sub-Account Errors
 class SubAccountError(HydraError):
     """Base error for sub-account operations."""
 
@@ -392,7 +385,6 @@ class SystemAccountLoginBlockedError(AuthenticationError):
         )
 
 
-# Rate Limit Error (429)
 class RateLimitError(HydraError):
     """Rate limit exceeded."""
 
@@ -405,7 +397,6 @@ class RateLimitError(HydraError):
         )
 
 
-# Service Unavailable (503)
 class ServiceUnavailableError(HydraError):
     """External service unavailable."""
 
@@ -418,7 +409,6 @@ class ServiceUnavailableError(HydraError):
         )
 
 
-# Command Errors
 class CommandNotFoundError(NotFoundError):
     """Command not found."""
 
@@ -438,7 +428,6 @@ class CommandNotCancellableError(HydraError):
         )
 
 
-# Documentation Errors
 class DocNotFoundError(NotFoundError):
     """Documentation not found."""
 
@@ -446,7 +435,6 @@ class DocNotFoundError(NotFoundError):
         super().__init__("doc", doc_id)
 
 
-# Home Assistant Errors
 class HomeAssistantUnavailableError(ServiceUnavailableError):
     """Home Assistant is unavailable."""
 

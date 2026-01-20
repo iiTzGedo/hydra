@@ -1,4 +1,3 @@
-// Re-export all API hooks
 export * from './auth';
 export * from './nodes';
 export * from './profiles';
@@ -10,4 +9,7 @@ export * from './timemachine';
 export * from './users';
 export * from './query';
 export * from './health';
+export * from './settings';
+export * from './commands';
+export * from './ai';
 export * from './client';

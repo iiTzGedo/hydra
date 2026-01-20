@@ -15,7 +15,6 @@ from hydra.api.v1.models.profiles import ProfileSubmission
 
 logger = structlog.get_logger(__name__)
 
-# Section weights for diff calculation
 SECTION_WEIGHTS = {
     "hardware": 0.30,
     "configs": 0.25,
@@ -26,28 +25,22 @@ SECTION_WEIGHTS = {
 
 
 def generate_service_id(node_id: str, runtime: str, name: str) -> str:
-    """Generate a unique service ID using the format svc-<name>-<4 char hash>.
-
-    The hash is generated from the combination of node_id, runtime, and name
-    to ensure uniqueness across nodes and runtimes.
+    """Generate a unique service ID from node, runtime, and service name.
 
     Args:
-        node_id: The node ID where the service runs
-        runtime: The service runtime (e.g., docker, systemd, kubernetes)
-        name: The service name
+        node_id: The node ID where the service runs.
+        runtime: The service runtime (e.g., docker, systemd, kubernetes).
+        name: The service name.
 
     Returns:
-        Service ID in format: svc-<sanitized_name>-<4 char hash>
+        Service ID in format: svc-<sanitized_name>-<4 char hash>.
     """
-    # Create hash from the combination of node_id, runtime, and name
     hash_input = f"{node_id}:{runtime}:{name}"
     hash_digest = hashlib.sha256(hash_input.encode()).hexdigest()
-    hash_suffix = hash_digest[:4]  # First 4 characters of the hash
+    hash_suffix = hash_digest[:4]
 
-    # Sanitize name: lowercase, replace dots with hyphens, keep underscores
     sanitized_name = name.lower().replace(".", "-")
-    # Limit name length to keep service ID reasonable (max 50 chars total)
-    max_name_len = 40  # svc- (4) + name + - (1) + hash (4) = 9 + name
+    max_name_len = 40
     if len(sanitized_name) > max_name_len:
         sanitized_name = sanitized_name[:max_name_len]
 
@@ -61,43 +54,39 @@ class ProfileService:
         self.db = mongodb
 
     async def submit_profile(self, submission: ProfileSubmission) -> dict:
-        """
-        Submit a new profile from an agent.
+        """Submit a new profile from an agent.
 
-        This will:
-        1. Validate the node exists
-        2. Compute section fingerprints
-        3. Calculate version based on diff from previous
-        4. Store profile and metadata
-        5. Extract and upsert services
-        6. Update node's lastProfileAt
+        Validates the node, computes fingerprints and version, stores the profile,
+        extracts services, processes networks, and updates the node's lastProfileAt.
 
-        Returns the created profile.
+        Args:
+            submission: The profile submission containing hardware, network,
+                storage, software, configs, and services data.
+
+        Returns:
+            The created profile document.
+
+        Raises:
+            NodeNotFoundError: If the target node does not exist.
         """
-        # Validate node exists
         node = await self.db.nodes.find_one({"nodeId": submission.node_id})
         if not node:
             raise NodeNotFoundError(submission.node_id)
 
-        # Get previous profile for version calculation
         previous = await self._get_latest_profile_meta(submission.node_id)
 
-        # Compute fingerprints for this profile
         fingerprints = self._compute_section_fingerprints(submission)
         profile_hash = self._compute_profile_hash(fingerprints)
 
-        # Check for duplicate submission
         if previous and previous.get("profileHash") == profile_hash:
             logger.info(
                 "duplicate_profile_skipped",
                 node_id=submission.node_id,
                 profile_hash=profile_hash[:16],
             )
-            # Return the existing profile
             existing = await self.db.profiles.find_one({"profileId": previous["profileId"]})
             return self._format_profile(existing)
 
-        # Calculate version based on diff from previous profile
         if previous:
             calculated_version = self._calculate_version(
                 previous.get("version", "E0-0.0.0.0"),
@@ -107,7 +96,6 @@ class ProfileService:
         else:
             calculated_version = "E0-0.0.0.1"
 
-        # Use calculated version (agent-provided version is ignored - server is authoritative)
         if submission.version and submission.version != calculated_version:
             logger.debug(
                 "version_override",
@@ -118,7 +106,6 @@ class ProfileService:
 
         version = calculated_version
 
-        # Create profile document
         now = datetime.now(timezone.utc)
         profile_id = f"prof_{secrets.token_urlsafe(12)}"
 
@@ -140,7 +127,6 @@ class ProfileService:
             "metadata": submission.metadata,
         }
 
-        # Extract and upsert services
         service_ids = []
         if submission.services:
             service_ids = await self._extract_services(
@@ -150,17 +136,14 @@ class ProfileService:
             )
             profile_doc["serviceIds"] = service_ids
 
-        # Process networks from profile
         network_ids = await self._process_networks(
             submission.node_id,
             profile_id,
             submission.network,
         )
 
-        # Store profile
         await self.db.profiles.insert_one(profile_doc)
 
-        # Store profile metadata
         meta_doc = {
             "profileId": profile_id,
             "nodeId": submission.node_id,
@@ -171,7 +154,6 @@ class ProfileService:
         }
         await self.db.profile_meta.insert_one(meta_doc)
 
-        # Update node's lastProfileAt
         await self.db.nodes.update_one(
             {"nodeId": submission.node_id},
             {"$set": {"lastProfileAt": now, "lastUpdated": now}},
@@ -189,15 +171,35 @@ class ProfileService:
         return self._format_profile(profile_doc)
 
     async def get_profile(self, profile_id: str) -> dict:
-        """Get a specific profile by ID."""
+        """Retrieve a specific profile by its identifier.
+
+        Args:
+            profile_id: The unique profile identifier.
+
+        Returns:
+            The formatted profile document.
+
+        Raises:
+            ProfileNotFoundError: If no profile exists with the given ID.
+        """
         profile = await self.db.profiles.find_one({"profileId": profile_id})
         if not profile:
             raise ProfileNotFoundError(profile_id)
         return self._format_profile(profile)
 
     async def get_latest_profile(self, node_id: str) -> dict:
-        """Get the latest profile for a node."""
-        # Verify node exists
+        """Retrieve the most recent profile for a node.
+
+        Args:
+            node_id: The node identifier.
+
+        Returns:
+            The formatted latest profile document.
+
+        Raises:
+            NodeNotFoundError: If the node does not exist.
+            ProfileNotFoundError: If the node has no profiles.
+        """
         node = await self.db.nodes.find_one({"nodeId": node_id})
         if not node:
             raise NodeNotFoundError(node_id)
@@ -217,8 +219,19 @@ class ProfileService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
-        """List profiles for a node."""
-        # Verify node exists
+        """List profiles for a node with pagination.
+
+        Args:
+            node_id: The node identifier.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip.
+
+        Returns:
+            A tuple of (list of profile summaries, total count).
+
+        Raises:
+            NodeNotFoundError: If the node does not exist.
+        """
         node = await self.db.nodes.find_one({"nodeId": node_id})
         if not node:
             raise NodeNotFoundError(node_id)
@@ -244,12 +257,23 @@ class ProfileService:
         from_version: str | None = None,
         to_version: str | None = None,
     ) -> dict:
-        """
-        Compare two profiles for a node.
+        """Compare two profiles for a node.
 
-        If versions not specified, compares latest two profiles.
+        If versions are not specified, compares the latest two profiles.
+
+        Args:
+            node_id: The node identifier.
+            from_version: The starting profile version (optional).
+            to_version: The ending profile version (optional).
+
+        Returns:
+            A diff summary including changed sections and percentages.
+
+        Raises:
+            NodeNotFoundError: If the node does not exist.
+            ValidationError: If fewer than 2 profiles exist for comparison.
+            ProfileNotFoundError: If specified versions are not found.
         """
-        # Verify node exists
         node = await self.db.nodes.find_one({"nodeId": node_id})
         if not node:
             raise NodeNotFoundError(node_id)
@@ -262,7 +286,6 @@ class ProfileService:
                 {"nodeId": node_id, "version": to_version}
             )
         else:
-            # Get latest two profiles
             cursor = (
                 self.db.profiles.find({"nodeId": node_id})
                 .sort("submittedAt", DESCENDING)
@@ -281,7 +304,6 @@ class ProfileService:
         if not to_profile:
             raise ProfileNotFoundError(f"Profile version {to_version} not found")
 
-        # Get metadata for fingerprints
         from_meta = await self.db.profile_meta.find_one(
             {"profileId": from_profile["profileId"]}
         )
@@ -289,7 +311,6 @@ class ProfileService:
             {"profileId": to_profile["profileId"]}
         )
 
-        # Calculate diff
         changed_sections = []
         change_summary: dict[str, Any] = {}
 
@@ -312,7 +333,6 @@ class ProfileService:
                     "changed": min(added, removed),
                 }
 
-        # Calculate overall diff percentage
         total_diff = 0.0
         for section in all_sections:
             from_hashes = set(from_fingerprints.get(section, []))
@@ -344,7 +364,6 @@ class ProfileService:
         """Compute hash fingerprints for each section of the profile."""
         fingerprints: dict[str, list[str]] = {}
 
-        # Hardware fingerprints
         if submission.hardware:
             hashes = []
             hw = submission.hardware
@@ -357,7 +376,6 @@ class ProfileService:
             if hashes:
                 fingerprints["hardware"] = hashes
 
-        # Network fingerprints
         if submission.network:
             hashes = []
             for iface in submission.network.interfaces:
@@ -367,7 +385,6 @@ class ProfileService:
             if hashes:
                 fingerprints["network"] = hashes
 
-        # Storage fingerprints
         if submission.storage:
             hashes = []
             for device in submission.storage.block_devices:
@@ -377,7 +394,6 @@ class ProfileService:
             if hashes:
                 fingerprints["storage"] = hashes
 
-        # Software fingerprints
         if submission.software:
             hashes = []
             if submission.software.os:
@@ -387,11 +403,10 @@ class ProfileService:
             if hashes:
                 fingerprints["software"] = hashes
 
-        # Config fingerprints
         if submission.configs:
             hashes = []
             for config in submission.configs.files:
-                hashes.append(config.hash)  # Already a hash
+                hashes.append(config.hash)
             if hashes:
                 fingerprints["configs"] = hashes
 
@@ -416,16 +431,14 @@ class ProfileService:
         previous_fingerprints: dict[str, list[str]],
         current_fingerprints: dict[str, list[str]],
     ) -> str:
-        """
-        Calculate new version based on diff from previous.
+        """Calculate new version based on diff from previous.
 
-        Version format: Ex-W.X.Y.Z (hexadecimal)
+        Version format: Ex-W.X.Y.Z (hexadecimal) where:
         - W increments for >75% change
         - X increments for >50% change
         - Y increments for >25% change
         - Z increments for any change
         """
-        # Calculate weighted diff
         total_diff = 0.0
         sections_changed = 0
 
@@ -443,36 +456,27 @@ class ProfileService:
                     jaccard = 1 - (len(intersection) / len(union))
                     total_diff += jaccard * SECTION_WEIGHTS.get(section, 0.1)
 
-        # Determine increment position
         if total_diff > 0.75:
-            position = 0  # W
+            position = 0
         elif total_diff > 0.50:
-            position = 1  # X
+            position = 1
         elif total_diff > 0.25:
-            position = 2  # Y
+            position = 2
         else:
-            position = 3  # Z
+            position = 3
 
         return self._increment_version(previous_version, position)
 
     def _increment_version(self, version: str, position: int) -> str:
-        """
-        Increment version at specified position (0=W, 1=X, 2=Y, 3=Z).
-
-        Handles hexadecimal overflow.
-        """
-        # Parse version: Ex-W.X.Y.Z
+        """Increment version at specified position with hexadecimal overflow handling."""
         parts = version.split("-")
-        epoch = int(parts[0][1:])  # Remove 'E' prefix
+        epoch = int(parts[0][1:])
         components = parts[1].split(".")
 
-        # Convert hex to int
         values = [int(c, 16) for c in components]
 
-        # Increment at position
         values[position] += 1
 
-        # Handle overflow (F -> 0, carry to left)
         for i in range(3, -1, -1):
             if values[i] > 15:
                 values[i] = 0
@@ -483,11 +487,9 @@ class ProfileService:
                     values = [0, 0, 0, 0]
                     break
 
-        # Reset positions to the right of increment
         for i in range(position + 1, 4):
             values[i] = 0
 
-        # Format back to hex
         hex_components = [format(v, "X") for v in values]
         return f"E{epoch}-{'.'.join(hex_components)}"
 
@@ -531,8 +533,6 @@ class ProfileService:
                 "lastSeen": now,
             }
 
-            # Upsert - update lastSeen if exists, insert if new
-            # serviceId is globally unique (includes hash of nodeId+runtime+name)
             await self.db.services.update_one(
                 {"serviceId": service_id},
                 {

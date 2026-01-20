@@ -54,9 +54,6 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 logger = structlog.get_logger(__name__)
 
 
-# ==================== User Authentication ====================
-
-
 @router.post(
     "/login",
     response_model=LoginResponse,
@@ -74,16 +71,25 @@ async def login(
         description="Login source. Use 'agent' to allow system account login from CLI.",
     ),
 ) -> LoginResponse:
-    """Authenticate a user and return tokens."""
-    # Allow system accounts when source=agent (CLI programmatic login)
+    """Authenticate a user and obtain access tokens.
+
+    Args:
+        request: Login credentials (username and password).
+        auth_service: Authentication service instance.
+        source: Login source identifier for agent CLI login.
+
+    Returns:
+        Access token, refresh token, and user information.
+
+    Raises:
+        HTTPException 401: Invalid credentials.
+        HTTPException 403: Account locked or pending approval.
+    """
     allow_system_accounts = source == "agent"
-    logger.info(request.username)
-    print(request.password)
     result = await auth_service.authenticate_user(
         request.username, request.password, allow_system_accounts=allow_system_accounts
     )
 
-    # Convert temporary roles to response format
     temp_roles = [
         TemporaryRole(
             role=Role(tr["role"]),
@@ -120,16 +126,24 @@ async def refresh_token(
     request: RefreshTokenRequest,
     auth_service: AuthServiceDep,
 ) -> TokenResponse:
-    """Refresh an access token."""
+    """Obtain a new access token using a valid refresh token.
+
+    Args:
+        request: Refresh token.
+        auth_service: Authentication service instance.
+
+    Returns:
+        New access token with expiration information.
+
+    Raises:
+        HTTPException 401: Invalid or expired refresh token.
+    """
     result = await auth_service.refresh_access_token(request.refresh_token)
     return TokenResponse(
         access_token=result["access_token"],
         refresh_token=request.refresh_token,
         expires_in=result["expires_in"],
     )
-
-
-# ==================== Password Reset ====================
 
 
 @router.post(
@@ -146,7 +160,15 @@ async def forgot_password(
     request: ForgotPasswordRequest,
     users_service: UsersServiceDep,
 ) -> ForgotPasswordResponse:
-    """Request a password reset."""
+    """Request a password reset email for an account.
+
+    Args:
+        request: Email address for the account.
+        users_service: Users service instance.
+
+    Returns:
+        Confirmation of email dispatch attempt.
+    """
     settings = get_settings()
     result = await users_service.request_password_reset(request.email, settings)
     return ForgotPasswordResponse(
@@ -164,7 +186,18 @@ async def reset_password(
     request: ResetPasswordRequest,
     users_service: UsersServiceDep,
 ) -> ResetPasswordResponse:
-    """Reset password with token."""
+    """Reset account password using a valid reset token.
+
+    Args:
+        request: Reset token and new password.
+        users_service: Users service instance.
+
+    Returns:
+        Confirmation of password reset.
+
+    Raises:
+        HTTPException 400: Invalid or expired reset token.
+    """
     result = await users_service.reset_password(request.token, request.new_password)
     return ResetPasswordResponse(
         reset_at=result["reset_at"],
@@ -182,7 +215,20 @@ async def change_password(
     users_service: UsersServiceDep,
     current_user: CurrentUser,
 ) -> ChangePasswordResponse:
-    """Change password for authenticated user."""
+    """Change the password for the authenticated user.
+
+    Args:
+        request: Current password and new password.
+        users_service: Users service instance.
+        current_user: Authenticated user making the request.
+
+    Returns:
+        Confirmation of password change.
+
+    Raises:
+        HTTPException 400: Current password is incorrect.
+        HTTPException 401: Not authenticated.
+    """
     result = await users_service.change_password(
         current_user["user_id"],
         request.current_password,
@@ -191,9 +237,6 @@ async def change_password(
     return ChangePasswordResponse(
         changed_at=result["changed_at"],
     )
-
-
-# ==================== User Registration ====================
 
 
 @router.post(
@@ -213,7 +256,22 @@ async def register_user(
     users_service: UsersServiceDep,
     current_user: OptionalUser,
 ) -> UserRegistrationResponse:
-    """Register a new user account."""
+    """Register a new user or agent account.
+
+    Args:
+        request: Registration details including username, password, and role.
+        auth_service: Authentication service instance.
+        users_service: Users service instance.
+        current_user: Optional authenticated user (for agent registration).
+
+    Returns:
+        Registration result with user details and status.
+
+    Raises:
+        HTTPException 400: Invalid registration data.
+        HTTPException 401: Agent registration requires authentication.
+        HTTPException 409: Username or email already exists.
+    """
     if request.role == Role.AGENT:
         parent_user_id = None
         if current_user:
@@ -252,10 +310,6 @@ async def register_user(
 
     result = await users_service.register_user(request)
 
-    # Determine status code based on result
-    # Note: FastAPI doesn't easily support dynamic status codes in the return,
-    # but the response model handles the status field
-
     return UserRegistrationResponse(
         user_id=result["user_id"],
         username=result["username"],
@@ -266,9 +320,6 @@ async def register_user(
         message=result.get("message"),
         created_at=result["created_at"],
     )
-
-
-# ==================== User Approval Workflow ====================
 
 
 @router.get(
@@ -284,7 +335,20 @@ async def list_pending_approvals(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> PendingUsersListResponse:
-    """List pending user registrations."""
+    """List user registrations awaiting admin approval.
+
+    Args:
+        users_service: Users service instance.
+        role: Filter by requested role.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+
+    Returns:
+        List of pending user registrations.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     result = await users_service.list_pending_users(
         role=role.value if role else None,
         limit=limit,
@@ -319,7 +383,20 @@ async def approve_user(
     users_service: UsersServiceDep,
     current_user: CurrentUser,
 ) -> ApprovalResponse:
-    """Approve a pending user registration."""
+    """Approve a pending user registration.
+
+    Args:
+        request: User ID and optional role override.
+        users_service: Users service instance.
+        current_user: Admin user approving the request.
+
+    Returns:
+        Approved user details with assigned role.
+
+    Raises:
+        HTTPException 404: Pending user not found.
+        HTTPException 403: Insufficient permissions.
+    """
     result = await users_service.approve_user(request, current_user["user_id"])
     return ApprovalResponse(
         user_id=result["user_id"],
@@ -344,7 +421,20 @@ async def reject_user(
     current_user: CurrentUser,
     userId: str = Path(description="Pending user ID"),
 ) -> RejectionResponse:
-    """Reject a pending user registration."""
+    """Reject and delete a pending user registration.
+
+    Args:
+        users_service: Users service instance.
+        current_user: Admin user rejecting the request.
+        userId: ID of the pending user to reject.
+
+    Returns:
+        Rejection confirmation.
+
+    Raises:
+        HTTPException 404: Pending user not found.
+        HTTPException 403: Insufficient permissions.
+    """
     result = await users_service.reject_user(userId, current_user["user_id"])
     return RejectionResponse(
         user_id=result["user_id"],
@@ -352,9 +442,6 @@ async def reject_user(
         rejected_by=result["rejected_by"],
         rejected_at=result["rejected_at"],
     )
-
-
-# ==================== Registration Tokens ====================
 
 
 @router.post(
@@ -381,11 +468,22 @@ async def create_registration_token(
     auth_service: AuthServiceDep,
     current_user: CurrentUser,
 ) -> RegistrationTokenResponse:
-    """Create a new registration token."""
+    """Create a registration token for automated user or node provisioning.
+
+    Args:
+        request: Token configuration including scope and expiration.
+        auth_service: Authentication service instance.
+        current_user: User creating the token.
+
+    Returns:
+        Generated token with usage constraints.
+
+    Raises:
+        HTTPException 403: Insufficient permissions for requested scope.
+    """
     user_permissions = current_user.get("permissions", [])
     user_role = current_user.get("role")
 
-    # Check permissions based on scope
     has_full_permission = "tokens:create" in user_permissions or "*:*" in user_permissions
     has_user_permission = "tokens:create:user" in user_permissions
     has_node_permission = "tokens:create:node" in user_permissions
@@ -432,7 +530,19 @@ async def list_registration_tokens(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> RegistrationTokenListResponse:
-    """List registration tokens created by the current user."""
+    """List registration tokens created by the authenticated user.
+
+    Args:
+        auth_service: Authentication service instance.
+        current_user: Authenticated user.
+        scope: Filter by token scope.
+        active_only: Only return usable tokens.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+
+    Returns:
+        Paginated list of registration tokens with masked values.
+    """
     result = await auth_service.list_registration_tokens(
         user_id=current_user["user_id"],
         scope=scope.value if scope else None,
@@ -471,9 +581,6 @@ async def list_registration_tokens(
     )
 
 
-# ==================== API Keys ====================
-
-
 @router.post(
     "/apikeys",
     response_model=ApiKeyResponse,
@@ -489,7 +596,21 @@ async def create_api_key(
     current_user: CurrentUser,
     sub_account_user_id: str | None = Query(default=None, alias="subAccountUserId"),
 ) -> ApiKeyResponse:
-    """Create a new API key."""
+    """Create an API key for programmatic access to the API.
+
+    Args:
+        request: API key configuration including permissions and expiration.
+        auth_service: Authentication service instance.
+        users_service: Users service instance.
+        current_user: User creating the API key.
+        sub_account_user_id: Create key for a sub-account (parent/admin only).
+
+    Returns:
+        Generated API key (shown only once).
+
+    Raises:
+        HTTPException 403: Cannot create key for specified sub-account.
+    """
     owner_id = current_user["user_id"]
     if sub_account_user_id:
         if current_user.get("role") == Role.ADMIN.value:
@@ -524,7 +645,20 @@ async def list_api_keys(
     current_user: CurrentUser,
     sub_account_user_id: str | None = Query(default=None, alias="subAccountUserId"),
 ) -> ApiKeyListResponse:
-    """List API keys for the current user."""
+    """List API keys owned by the authenticated user.
+
+    Args:
+        auth_service: Authentication service instance.
+        users_service: Users service instance.
+        current_user: Authenticated user.
+        sub_account_user_id: List keys for a sub-account (parent/admin only).
+
+    Returns:
+        List of API keys with metadata (key values are not included).
+
+    Raises:
+        HTTPException 403: Cannot view keys for specified sub-account.
+    """
     owner_id = current_user["user_id"]
     if sub_account_user_id:
         if current_user.get("role") == Role.ADMIN.value:
@@ -562,7 +696,20 @@ async def revoke_api_key(
     current_user: CurrentUser,
     keyId: str = Path(description="API key ID"),
 ) -> ApiKeyRevokeResponse:
-    """Revoke an API key."""
+    """Revoke an API key to prevent further use.
+
+    Args:
+        auth_service: Authentication service instance.
+        current_user: Authenticated user.
+        keyId: ID of the API key to revoke.
+
+    Returns:
+        Revocation confirmation.
+
+    Raises:
+        HTTPException 404: API key not found.
+        HTTPException 403: Cannot revoke key owned by another user.
+    """
     result = await auth_service.revoke_api_key(
         keyId,
         current_user["user_id"],
@@ -575,9 +722,6 @@ async def revoke_api_key(
     )
 
 
-# ==================== Current User ====================
-
-
 @router.get(
     "/me",
     response_model=CurrentUserResponse,
@@ -587,7 +731,14 @@ async def revoke_api_key(
 async def get_current_user_info(
     current_user: CurrentUser,
 ) -> CurrentUserResponse:
-    """Get current user/agent info."""
+    """Retrieve information about the authenticated user or agent.
+
+    Args:
+        current_user: Authenticated user or agent.
+
+    Returns:
+        Current user/agent details including role and permissions.
+    """
     return CurrentUserResponse(
         type=current_user["type"],
         user_id=current_user.get("user_id"),
@@ -597,9 +748,6 @@ async def get_current_user_info(
         role=current_user.get("role"),
         permissions=current_user.get("permissions", []),
     )
-
-
-# ==================== User Management (Admin) ====================
 
 
 @router.post(
@@ -614,7 +762,20 @@ async def create_user(
     request: CreateUserRequest,
     users_service: UsersServiceDep,
 ) -> UserInfo:
-    """Create a new user (admin only)."""
+    """Create a new user account directly without registration flow.
+
+    Args:
+        request: User details including username, email, password, and role.
+        users_service: Users service instance.
+
+    Returns:
+        Created user information.
+
+    Raises:
+        HTTPException 400: Invalid user data.
+        HTTPException 403: Insufficient permissions.
+        HTTPException 409: Username or email already exists.
+    """
     result = await users_service.create_user(request)
     return UserInfo(
         user_id=result["user_id"],
@@ -622,9 +783,6 @@ async def create_user(
         email=result["email"],
         role=result["role"],
     )
-
-
-# ==================== Sub-Account Management ====================
 
 
 @router.post(
@@ -650,7 +808,22 @@ async def link_sub_account(
     current_user: CurrentUser,
     userId: str = Path(description="User ID of the account to link as sub-account"),
 ) -> SubAccountLinkResponse:
-    """Link an existing user as a sub-account."""
+    """Link an existing user as a sub-account of the current user.
+
+    Args:
+        request: Link request with password verification.
+        users_service: Users service instance.
+        current_user: Parent user making the request.
+        userId: ID of the user to link as sub-account.
+
+    Returns:
+        Link confirmation with sub-account details.
+
+    Raises:
+        HTTPException 400: Invalid password or user already has parent.
+        HTTPException 403: Target user role not allowed as sub-account.
+        HTTPException 404: Target user not found.
+    """
     result = await users_service.link_sub_account(
         parent_user_id=current_user["user_id"],
         target_user_id=userId,
@@ -677,7 +850,20 @@ async def unlink_sub_account(
     current_user: CurrentUser,
     userId: str = Path(description="User ID of the sub-account to unlink"),
 ) -> dict:
-    """Unlink a sub-account."""
+    """Unlink a sub-account from the current user.
+
+    Args:
+        users_service: Users service instance.
+        current_user: Parent user making the request.
+        userId: ID of the sub-account to unlink.
+
+    Returns:
+        Unlink confirmation.
+
+    Raises:
+        HTTPException 403: User is not a sub-account of current user.
+        HTTPException 404: Sub-account not found.
+    """
     result = await users_service.unlink_sub_account(
         parent_user_id=current_user["user_id"],
         sub_account_user_id=userId,
@@ -688,6 +874,3 @@ async def unlink_sub_account(
         "unlinkedAt": result["unlinked_at"],
         "message": "Sub-account unlinked successfully",
     }
-
-
-# ==================== Agent Registration ====================

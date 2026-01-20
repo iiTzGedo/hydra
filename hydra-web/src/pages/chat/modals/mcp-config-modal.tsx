@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Terminal, Globe, Store } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MCPServer } from '@/types/mcp';
+import type { MCPServerResponse, MCPToolInfo } from '@/api/mcp';
 import { ROUTES } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +19,7 @@ import {
 interface MCPConfigModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  servers: MCPServer[];
+  servers: Array<MCPServerResponse & { isActive: boolean; tools: MCPToolInfo[] }>;
   onConnectServer: (serverId: string) => void;
   onDisconnectServer: (serverId: string) => void;
 }
@@ -43,12 +43,12 @@ export function MCPConfigModal({
         <ScrollArea className="flex-1 -mx-6 px-6">
           <div className="space-y-4 py-4">
             {servers.map((mcp) => (
-              <Card key={mcp.id} className="bg-muted/60 border-border">
+              <Card key={mcp.serverId} className="bg-muted/60 border-border">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-card">
-                        {mcp.type === 'builtin' ? (
+                        {mcp.serverId === 'hydra-mcp' ? (
                           <Terminal className="h-5 w-5 text-violet-500" />
                         ) : (
                           <Globe className="h-5 w-5 text-cyan-500" />
@@ -60,48 +60,48 @@ export function MCPConfigModal({
                           <Badge
                             variant="outline"
                             className={cn(
-                              mcp.status === 'connected'
+                              mcp.isActive
                                 ? 'border-emerald-500/30 text-emerald-400'
                                 : 'border-border text-muted-foreground'
                             )}
                           >
-                            {mcp.status}
+                            {mcp.isActive ? 'connected' : 'disconnected'}
                           </Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground">{(mcp.tools || []).length} tools</p>
+                        <p className="text-xs text-muted-foreground">{mcp.tools.length} tools</p>
                       </div>
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() =>
-                        mcp.status === 'connected'
-                          ? onDisconnectServer(mcp.id)
-                          : onConnectServer(mcp.id)
+                        mcp.isActive
+                          ? onDisconnectServer(mcp.serverId)
+                          : onConnectServer(mcp.serverId)
                       }
                       className={cn(
-                        mcp.status === 'connected'
+                        mcp.isActive
                           ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
                           : 'text-blue-400 hover:text-blue-300 hover:bg-blue-500/10'
                       )}
                     >
-                      {mcp.status === 'connected' ? 'Disconnect' : 'Connect'}
+                      {mcp.isActive ? 'Disconnect' : 'Connect'}
                     </Button>
                   </div>
-                  {(mcp.tools || []).length > 0 && (
+                  {mcp.tools.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1">
-                      {(mcp.tools || []).slice(0, 8).map((tool) => (
+                      {mcp.tools.slice(0, 8).map((tool) => (
                         <Badge
-                          key={typeof tool === 'string' ? tool : tool.name}
+                          key={tool.name}
                           variant="secondary"
                           className="text-[10px] bg-card text-muted-foreground"
                         >
-                          {typeof tool === 'string' ? tool : tool.name}
+                          {tool.name}
                         </Badge>
                       ))}
-                      {(mcp.tools || []).length > 8 && (
+                      {mcp.tools.length > 8 && (
                         <Badge variant="secondary" className="text-[10px] bg-card text-muted-foreground">
-                          +{(mcp.tools || []).length - 8} more
+                          +{mcp.tools.length - 8} more
                         </Badge>
                       )}
                     </div>

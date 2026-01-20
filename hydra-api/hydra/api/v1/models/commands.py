@@ -55,9 +55,6 @@ class ServiceAction(str, Enum):
     RELOAD = "reload"
 
 
-# ==================== Request/Response Models ====================
-
-
 class CommandTarget(BaseModel):
     """Target for a command."""
 
@@ -106,9 +103,6 @@ class RequestedBy(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-# ==================== Request Models ====================
-
-
 class CreateCommandRequest(BaseModel):
     """Request to create/queue a new command."""
 
@@ -139,9 +133,6 @@ class SubmitCommandResultRequest(BaseModel):
     error: str | None = Field(default=None, description="Error message if failed")
 
     model_config = {"populate_by_name": True}
-
-
-# ==================== Response Models ====================
 
 
 class CommandSummary(BaseModel):
@@ -214,9 +205,6 @@ class CommandResultSubmittedResponse(BaseModel):
     completed_at: Annotated[datetime, Field(alias="completedAt")]
 
     model_config = {"populate_by_name": True}
-
-
-# ==================== Query Parameters ====================
 
 
 class CommandListParams(BaseModel):

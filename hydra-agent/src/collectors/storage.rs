@@ -1,51 +1,72 @@
 //! Storage information collector.
+//!
+//! Collects block device and filesystem information using the sysinfo
+//! library and platform-specific commands for extended details.
 
 use anyhow::Result;
 use serde::Serialize;
 use sysinfo::Disks;
 
+/// Storage profile containing block devices and filesystems.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageProfile {
+    /// List of physical block devices
     pub block_devices: Vec<BlockDevice>,
+    /// List of mounted filesystems
     pub filesystems: Vec<Filesystem>,
+    /// Total storage capacity in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_capacity_bytes: Option<u64>,
 }
 
+/// Block device information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockDevice {
+    /// Device name (e.g., "/dev/sda", "PhysicalDrive0")
     pub name: String,
+    /// Device size in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
+    /// Device type (e.g., "disk", "removable")
     #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
     pub device_type: Option<String>,
+    /// Device model name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Device serial number
     #[serde(skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
+    /// Whether the device is rotational (HDD) or not (SSD)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rotational: Option<bool>,
+    /// Bus transport type (e.g., "sata", "nvme", "usb")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<String>,
 }
 
+/// Filesystem information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Filesystem {
+    /// Mount point path
     pub mount_point: String,
+    /// Device backing this filesystem
     pub device: String,
+    /// Filesystem type (e.g., "ext4", "ntfs", "apfs")
     pub fs_type: String,
+    /// Total filesystem size in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
+    /// Used space in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub used_bytes: Option<u64>,
+    /// Mount options
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
 }
 
-/// Extended block device information for internal use.
 struct ExtendedBlockInfo {
     model: Option<String>,
     serial: Option<String>,
@@ -53,10 +74,22 @@ struct ExtendedBlockInfo {
     transport: Option<String>,
 }
 
+/// Collector for storage information.
 pub struct StorageCollector;
 
 impl StorageCollector {
-    /// Collect storage information.
+    /// Collects storage information from the current system.
+    ///
+    /// Gathers block device details and mounted filesystem information
+    /// using the sysinfo library and platform-specific commands.
+    ///
+    /// # Returns
+    ///
+    /// A storage profile containing devices and filesystems.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if storage information cannot be retrieved.
     pub fn collect() -> Result<StorageProfile> {
         let disks = Disks::new_with_refreshed_list();
 
@@ -65,7 +98,6 @@ impl StorageCollector {
         let mut total_capacity: u64 = 0;
         let mut seen_devices = std::collections::HashSet::new();
 
-        // Get extended block device info
         let extended_info = Self::get_block_device_info();
 
         for disk in disks.list() {
@@ -76,11 +108,9 @@ impl StorageCollector {
             let available_space = disk.available_space();
             let used_space = total_space.saturating_sub(available_space);
 
-            // Track unique block devices
             if !seen_devices.contains(&name) {
                 seen_devices.insert(name.clone());
 
-                // Get extended info for this device
                 let ext = extended_info.get(&name);
 
                 block_devices.push(BlockDevice {
@@ -104,7 +134,7 @@ impl StorageCollector {
                 fs_type,
                 size_bytes: Some(total_space),
                 used_bytes: Some(used_space),
-                options: vec![], // Mount options require platform-specific parsing
+                options: vec![],
             });
 
             total_capacity += total_space;
@@ -121,13 +151,11 @@ impl StorageCollector {
         })
     }
 
-    /// Get extended block device information.
     #[cfg(target_os = "linux")]
     fn get_block_device_info() -> std::collections::HashMap<String, ExtendedBlockInfo> {
         use std::process::Command;
         let mut info = std::collections::HashMap::new();
 
-        // Use lsblk to get device info
         if let Ok(output) = Command::new("lsblk")
             .args(["-o", "NAME,MODEL,SERIAL,ROTA,TRAN", "-n", "-d"])
             .output()

@@ -6,9 +6,6 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field
 
 
-# ==================== Request Models ====================
-
-
 class HASyncRequest(BaseModel):
     """Request to trigger HA sync."""
 
@@ -32,9 +29,6 @@ class HAControlRequest(BaseModel):
     data: dict[str, Any] | None = Field(default=None, description="Service data")
 
     model_config = {"populate_by_name": True}
-
-
-# ==================== Response Models ====================
 
 
 class HAStatusResponse(BaseModel):
@@ -118,9 +112,6 @@ class HAAreaListResponse(BaseModel):
 
     areas: list[HAArea]
     total: int
-
-
-# ==================== Query Parameters ====================
 
 
 class HADeviceListParams(BaseModel):

@@ -26,9 +26,6 @@ router = APIRouter(prefix="/users", tags=["Users"])
 logger = structlog.get_logger(__name__)
 
 
-# ==================== User Directory ====================
-
-
 @router.get(
     "",
     response_model=UserListResponse,
@@ -41,7 +38,20 @@ async def list_users(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> UserListResponse:
-    """List users."""
+    """Retrieve a paginated list of users in the system.
+
+    Args:
+        users_service: Users service instance.
+        current_user: Authenticated user making the request.
+        limit: Maximum number of results to return.
+        offset: Number of results to skip.
+
+    Returns:
+        Paginated list of users with basic information.
+
+    Raises:
+        HTTPException 403: Agents cannot list users.
+    """
     if current_user.get("type") == "agent" or current_user.get("role") == Role.AGENT.value:
         raise AuthorizationError()
 
@@ -64,7 +74,18 @@ async def list_my_sub_accounts(
     users_service: UsersServiceDep,
     current_user: CurrentUser,
 ) -> SubAccountListResponse:
-    """List sub-accounts for the current user."""
+    """List sub-accounts owned by the current user.
+
+    Args:
+        users_service: Users service instance.
+        current_user: Authenticated user making the request.
+
+    Returns:
+        List of sub-accounts with their details.
+
+    Raises:
+        HTTPException 403: Agents cannot have sub-accounts.
+    """
     if current_user.get("type") == "agent":
         raise AuthorizationError()
 
@@ -96,7 +117,19 @@ async def list_sub_accounts(
     current_user: CurrentUser,
     userId: str = Path(description="User ID to list sub-accounts for"),
 ) -> SubAccountListResponse:
-    """List sub-accounts for a user."""
+    """List sub-accounts for a specific user.
+
+    Args:
+        users_service: Users service instance.
+        current_user: Authenticated user making the request.
+        userId: ID of the user whose sub-accounts to list.
+
+    Returns:
+        List of sub-accounts with their details.
+
+    Raises:
+        HTTPException 403: Can only view own sub-accounts or requires admin role.
+    """
     if current_user.get("type") == "agent":
         raise AuthorizationError()
 
@@ -130,15 +163,25 @@ async def archive_user(
     current_user: CurrentUser,
     userId: str = Path(description="User ID to archive"),
 ) -> UserListItem:
-    """Archive a user."""
+    """Archive a user account without permanently deleting data.
+
+    Args:
+        users_service: Users service instance.
+        current_user: Admin user making the request.
+        userId: ID of the user to archive.
+
+    Returns:
+        Archived user details.
+
+    Raises:
+        HTTPException 403: Only admins can archive users.
+        HTTPException 404: User not found.
+    """
     if current_user.get("type") != "user" or current_user.get("role") != Role.ADMIN.value:
         raise AdminOnlyError("archive_user")
 
     result = await users_service.archive_user(userId)
     return UserListItem(**result)
-
-
-# ==================== Role Management ====================
 
 
 @router.post(
@@ -154,7 +197,22 @@ async def elevate_user_role(
     current_user: CurrentUser,
     userId: str = Path(description="User ID to elevate"),
 ) -> RoleElevationResponse:
-    """Permanently elevate a user's role."""
+    """Permanently elevate a user's role to a higher level.
+
+    Args:
+        request: New role to assign.
+        users_service: Users service instance.
+        current_user: Admin user making the request.
+        userId: ID of the user to elevate.
+
+    Returns:
+        Elevation details including previous and new roles.
+
+    Raises:
+        HTTPException 400: Cannot elevate to requested role.
+        HTTPException 403: Insufficient permissions.
+        HTTPException 404: User not found.
+    """
     result = await users_service.elevate_role(userId, request, current_user["user_id"])
     return RoleElevationResponse(
         user_id=result["user_id"],
@@ -178,12 +236,25 @@ async def grant_temporary_role(
     current_user: CurrentUser,
     userId: str = Path(description="User ID to grant role to"),
 ) -> TemporaryRoleGrantResponse:
-    """Grant a temporary role to a user."""
+    """Grant a time-limited elevated role to a user.
+
+    Args:
+        request: Temporary role details including duration.
+        users_service: Users service instance.
+        current_user: Admin user making the request.
+        userId: ID of the user to grant role to.
+
+    Returns:
+        Updated user with temporary role information.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+        HTTPException 404: User not found.
+    """
     result = await users_service.grant_temporary_role(
         userId, request, current_user["user_id"]
     )
 
-    # Convert temporary roles to response format
     temp_roles = [
         TemporaryRole(
             role=Role(tr["role"]),
@@ -215,7 +286,21 @@ async def revoke_temporary_role(
     userId: str = Path(description="User ID"),
     role: Role = Path(description="Role to revoke"),
 ) -> TemporaryRoleRevokeResponse:
-    """Revoke a temporary role from a user."""
+    """Revoke a temporary role from a user before expiration.
+
+    Args:
+        users_service: Users service instance.
+        current_user: Admin user making the request.
+        userId: ID of the user.
+        role: Temporary role to revoke.
+
+    Returns:
+        Revocation confirmation.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+        HTTPException 404: User or temporary role not found.
+    """
     result = await users_service.revoke_temporary_role(
         userId, role.value, current_user["user_id"]
     )

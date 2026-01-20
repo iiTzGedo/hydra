@@ -1,9 +1,7 @@
 import { ListParams } from './api';
 
-// Topology mode
 export type TopologyMode = 'network' | 'infrastructure' | 'service';
 
-// Topology node type
 export interface TopologyNode {
   id: string;
   type: string;
@@ -24,7 +22,6 @@ export interface TopologyNode {
   };
 }
 
-// Topology edge type
 export interface TopologyEdge {
   id: string;
   source: string;
@@ -38,7 +35,6 @@ export interface TopologyEdge {
   };
 }
 
-// Topology graph
 export interface TopologyGraph {
   nodes: TopologyNode[];
   edges: TopologyEdge[];
@@ -58,7 +54,6 @@ export interface TopologyScope {
   nodeIds?: string[];
 }
 
-// Topology summary (for list views)
 export interface TopologySummary {
   topologyId: string;
   mode: TopologyMode;
@@ -69,7 +64,6 @@ export interface TopologySummary {
   stats: TopologyStats;
 }
 
-// Full topology
 export interface Topology extends TopologySummary {
   scope?: TopologyScope;
   graph?: TopologyGraph;
@@ -77,20 +71,17 @@ export interface Topology extends TopologySummary {
   diff?: TopologyDiff;
 }
 
-// Topology list params
 export interface TopologyListParams extends ListParams {
   mode?: TopologyMode;
   since?: string;
   until?: string;
 }
 
-// Generate topology request
 export interface GenerateTopologyRequest {
   mode: TopologyMode;
   scope?: TopologyScope;
 }
 
-// Topology diff
 export interface TopologyDiff {
   nodesAdded: string[];
   nodesRemoved: string[];
@@ -106,7 +97,6 @@ export interface TopologyDiffResponse {
   summary: Record<string, number>;
 }
 
-// Subgraph response (node-centric view)
 export interface SubgraphStats {
   nodeCount: number;
   edgeCount: number;

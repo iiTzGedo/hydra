@@ -31,20 +31,41 @@ class TopologiesService:
         self.db = mongodb
 
     async def get_topology(self, topology_id: str, include_graph: bool = True) -> dict:
-        """Get a single topology by ID."""
+        """Retrieve a topology by its identifier.
+
+        Args:
+            topology_id: The unique topology identifier.
+            include_graph: Whether to include the full graph data.
+
+        Returns:
+            The formatted topology document.
+
+        Raises:
+            TopologyNotFoundError: If no topology exists with the given ID.
+        """
         topology = await self.db.topologies.find_one({"topologyId": topology_id})
         if not topology:
             raise TopologyNotFoundError(topology_id)
         return self._format_topology(topology, include_graph=include_graph)
 
     async def get_latest_topology(self, mode: TopologyMode, include_graph: bool = True) -> dict:
-        """Get the latest topology for a mode."""
+        """Get the most recent topology for a given mode.
+
+        Args:
+            mode: The topology mode (infrastructure, network, or service).
+            include_graph: Whether to include the full graph data.
+
+        Returns:
+            The formatted topology document.
+
+        Raises:
+            ValidationError: If no topology exists for the given mode.
+        """
         topology = await self.db.topologies.find_one(
             {"mode": mode.value, "validUntil": None},
             sort=[("generatedAt", DESCENDING)],
         )
         if not topology:
-            # Try to find any topology for this mode
             topology = await self.db.topologies.find_one(
                 {"mode": mode.value},
                 sort=[("generatedAt", DESCENDING)],
@@ -54,7 +75,14 @@ class TopologiesService:
         return self._format_topology(topology, include_graph=include_graph)
 
     async def list_topologies(self, params: TopologyListParams) -> tuple[list[dict], int]:
-        """List topologies with filters and pagination."""
+        """List topologies with filtering and pagination.
+
+        Args:
+            params: Filter and pagination parameters.
+
+        Returns:
+            Tuple of (topologies list, total count).
+        """
         filter_query: dict[str, Any] = {}
 
         if params.mode:
@@ -83,13 +111,18 @@ class TopologiesService:
         return topologies, total
 
     async def generate_topology(self, request: GenerateTopologyRequest) -> dict:
-        """Generate a new topology."""
+        """Generate a new topology graph.
+
+        Args:
+            request: Generation request with mode and scope.
+
+        Returns:
+            The generated topology document with graph and stats.
+        """
         start_time = time.time()
 
-        # Close previous topology for this mode
         previous_id = await self._close_previous_topology(request.mode)
 
-        # Generate the graph based on mode
         if request.mode == TopologyMode.NETWORK:
             graph_nodes, graph_edges = await self._generate_network_topology(request.scope)
         elif request.mode == TopologyMode.SERVICE:
@@ -97,15 +130,12 @@ class TopologiesService:
         else:
             graph_nodes, graph_edges = await self._generate_infrastructure_topology(request.scope)
 
-        # Compute layout
         positions = self._compute_layout(graph_nodes, graph_edges, request.mode)
 
-        # Apply positions to nodes
         for node in graph_nodes:
             if node.id in positions:
                 node.position = positions[node.id]
 
-        # Calculate diff if there's a previous topology
         diff = None
         if previous_id:
             previous = await self.db.topologies.find_one({"topologyId": previous_id})
@@ -116,14 +146,11 @@ class TopologiesService:
                 )
 
         compute_time = int((time.time() - start_time) * 1000)
-
-        # Get next version
         version = await self._get_next_version(request.mode)
 
         now = datetime.now(timezone.utc)
         topology_id = f"topo-{request.mode.value}-{now.strftime('%Y%m%dT%H%M%SZ')}"
 
-        # Count networks and services
         network_count = sum(1 for n in graph_nodes if n.type == "network")
         service_count = sum(1 for n in graph_nodes if n.type == "service")
 
@@ -170,14 +197,25 @@ class TopologiesService:
         to_id: str | None,
         mode: TopologyMode | None = None,
     ) -> dict:
-        """Compare two topologies."""
-        # Get topologies
+        """Compare two topologies and compute their differences.
+
+        Args:
+            from_id: Source topology ID (or None to use second-to-last).
+            to_id: Target topology ID (or None to use latest).
+            mode: Topology mode (required if from_id is None).
+
+        Returns:
+            Diff result with summary and detailed changes.
+
+        Raises:
+            TopologyNotFoundError: If a specified topology does not exist.
+            ValidationError: If insufficient topologies exist to compare.
+        """
         if from_id:
             from_topo = await self.db.topologies.find_one({"topologyId": from_id})
             if not from_topo:
                 raise TopologyNotFoundError(from_id)
         else:
-            # Get second-to-last for this mode
             if not mode:
                 raise ValidationError("Either from_id or mode is required")
             cursor = self.db.topologies.find({"mode": mode.value}).sort("generatedAt", DESCENDING).limit(2)
@@ -191,7 +229,6 @@ class TopologiesService:
             if not to_topo:
                 raise TopologyNotFoundError(to_id)
         else:
-            # Get latest for this mode
             if not mode:
                 mode = TopologyMode(from_topo["mode"])
             to_topo = await self.db.topologies.find_one(
@@ -201,7 +238,6 @@ class TopologiesService:
             if not to_topo:
                 raise ValidationError(f"No topology found for mode '{mode.value}'")
 
-        # Calculate diff
         from_graph = TopologyGraph(**from_topo.get("graph", {"nodes": [], "edges": []}))
         to_graph = TopologyGraph(**to_topo.get("graph", {"nodes": [], "edges": []}))
         diff = self._calculate_diff(from_graph, to_graph)
@@ -220,6 +256,178 @@ class TopologiesService:
                     len(diff.nodes_added) + len(diff.nodes_removed) + len(diff.nodes_modified) +
                     len(diff.edges_added) + len(diff.edges_removed)
                 ),
+            },
+        }
+
+    async def get_subgraph(
+        self,
+        node_id: str,
+        depth: int = 1,
+        include_services: bool = True,
+        include_networks: bool = True,
+    ) -> dict:
+        """Get a subgraph centered on a specific node.
+
+        Args:
+            node_id: The center node identifier.
+            depth: Number of hops to include from center.
+            include_services: Whether to include services on this node.
+            include_networks: Whether to include networks this node belongs to.
+
+        Returns:
+            Subgraph containing center node and its neighbors.
+
+        Raises:
+            TopologyNotFoundError: If the center node does not exist.
+        """
+        nodes: list[GraphNode] = []
+        edges: list[GraphEdge] = []
+        visited_nodes: set[str] = set()
+
+        center_node = await self.db.nodes.find_one({"nodeId": node_id})
+        if not center_node:
+            raise TopologyNotFoundError(f"Node '{node_id}' not found")
+
+        center_graph_id = f"node::{node_id}"
+        node_type = self._get_graph_node_type(center_node)
+        nodes.append(GraphNode(
+            id=center_graph_id,
+            type=node_type,
+            label=center_node.get("displayName", node_id),
+            data={
+                "nodeId": node_id,
+                "class": center_node.get("class"),
+                "type": center_node.get("type"),
+                "kind": center_node.get("kind"),
+                "status": center_node.get("status"),
+                "isCenter": True,
+            },
+            position=GraphNodePosition(x=0, y=0, layer=0),
+        ))
+        visited_nodes.add(center_graph_id)
+
+        if center_node.get("parentNodeId"):
+            parent_id = center_node["parentNodeId"]
+            parent_node = await self.db.nodes.find_one({"nodeId": parent_id})
+            if parent_node:
+                parent_graph_id = f"node::{parent_id}"
+                if parent_graph_id not in visited_nodes:
+                    nodes.append(GraphNode(
+                        id=parent_graph_id,
+                        type=self._get_graph_node_type(parent_node),
+                        label=parent_node.get("displayName", parent_id),
+                        data={
+                            "nodeId": parent_id,
+                            "class": parent_node.get("class"),
+                            "type": parent_node.get("type"),
+                            "kind": parent_node.get("kind"),
+                            "status": parent_node.get("status"),
+                        },
+                        position=GraphNodePosition(x=0, y=-150, layer=-1),
+                    ))
+                    visited_nodes.add(parent_graph_id)
+                edges.append(GraphEdge(
+                    id=f"edge::{center_graph_id}::parent::{parent_graph_id}",
+                    source=center_graph_id,
+                    target=parent_graph_id,
+                    type="parent-child",
+                ))
+
+        child_cursor = self.db.nodes.find({"parentNodeId": node_id, "status": {"$ne": "archived"}})
+        child_index = 0
+        async for child in child_cursor:
+            child_id = child["nodeId"]
+            child_graph_id = f"node::{child_id}"
+            if child_graph_id not in visited_nodes:
+                nodes.append(GraphNode(
+                    id=child_graph_id,
+                    type=self._get_graph_node_type(child),
+                    label=child.get("displayName", child_id),
+                    data={
+                        "nodeId": child_id,
+                        "class": child.get("class"),
+                        "type": child.get("type"),
+                        "kind": child.get("kind"),
+                        "status": child.get("status"),
+                    },
+                    position=GraphNodePosition(x=-200 + (child_index * 150), y=150, layer=1),
+                ))
+                visited_nodes.add(child_graph_id)
+                child_index += 1
+            edges.append(GraphEdge(
+                id=f"edge::{child_graph_id}::parent::{center_graph_id}",
+                source=child_graph_id,
+                target=center_graph_id,
+                type="parent-child",
+            ))
+
+        if include_services:
+            service_cursor = self.db.services.find({"nodeId": node_id, "status": {"$ne": "archived"}})
+            service_index = 0
+            async for service in service_cursor:
+                service_id = service["serviceId"]
+                nodes.append(GraphNode(
+                    id=service_id,
+                    type="service",
+                    label=service.get("displayName", service["name"]),
+                    data={
+                        "serviceId": service_id,
+                        "name": service.get("name"),
+                        "runtime": service.get("runtime"),
+                        "status": service.get("status"),
+                        "nodeId": node_id,
+                    },
+                    position=GraphNodePosition(x=200, y=-100 + (service_index * 80), layer=1),
+                ))
+                edges.append(GraphEdge(
+                    id=f"edge::{service_id}::host::{center_graph_id}",
+                    source=service_id,
+                    target=center_graph_id,
+                    type="service-host",
+                ))
+                service_index += 1
+
+        if include_networks:
+            network_ids = center_node.get("networkIds", [])
+            if network_ids:
+                network_cursor = self.db.networks.find({"networkId": {"$in": network_ids}})
+                network_index = 0
+                async for network in network_cursor:
+                    network_id = network["networkId"]
+                    network_graph_id = f"net::{network_id}"
+                    if network_graph_id not in visited_nodes:
+                        nodes.append(GraphNode(
+                            id=network_graph_id,
+                            type="network",
+                            label=network.get("name", network_id),
+                            data={
+                                "networkId": network_id,
+                                "cidr": network.get("cidr"),
+                                "type": network.get("type"),
+                            },
+                            position=GraphNodePosition(x=-200, y=-100 + (network_index * 80), layer=1),
+                        ))
+                        visited_nodes.add(network_graph_id)
+                        network_index += 1
+                    edges.append(GraphEdge(
+                        id=f"edge::{center_graph_id}::net::{network_graph_id}",
+                        source=center_graph_id,
+                        target=network_graph_id,
+                        type="network-connection",
+                    ))
+
+        return {
+            "centerNodeId": node_id,
+            "depth": depth,
+            "graph": {
+                "nodes": [n.model_dump() for n in nodes],
+                "edges": [e.model_dump() for e in edges],
+            },
+            "stats": {
+                "nodeCount": len(nodes),
+                "edgeCount": len(edges),
+                "serviceCount": sum(1 for n in nodes if n.type == "service"),
+                "networkCount": sum(1 for n in nodes if n.type == "network"),
             },
         }
 
@@ -249,11 +457,10 @@ class TopologiesService:
         self,
         scope: TopologyScope | None,
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
-        """Generate network-centric topology."""
+        """Generate network-centric topology with nodes grouped by network."""
         nodes: list[GraphNode] = []
         edges: list[GraphEdge] = []
 
-        # Get networks
         network_filter: dict[str, Any] = {}
         if scope and scope.network_ids:
             network_filter["networkId"] = {"$in": scope.network_ids}
@@ -274,16 +481,11 @@ class TopologiesService:
                 position=GraphNodePosition(x=0, y=0),
             ))
 
-        # Get nodes
         node_filter: dict[str, Any] = {"status": {"$ne": "archived"}}
         if scope and scope.node_ids:
             node_filter["nodeId"] = {"$in": scope.node_ids}
 
-        infra_nodes = []
         async for node in self.db.nodes.find(node_filter):
-            infra_nodes.append(node)
-
-            # Determine node type
             node_type = self._get_graph_node_type(node)
 
             nodes.append(GraphNode(
@@ -300,7 +502,6 @@ class TopologiesService:
                 position=GraphNodePosition(x=0, y=0),
             ))
 
-            # Create edges for network connections
             for network_id in node.get("networkIds", []):
                 edges.append(GraphEdge(
                     id=f"edge::node::{node['nodeId']}::net::{network_id}",
@@ -309,7 +510,6 @@ class TopologiesService:
                     type="network-connection",
                 ))
 
-        # Create gateway edges
         for network in networks:
             if network.get("routerNodeId"):
                 edges.append(GraphEdge(
@@ -319,7 +519,6 @@ class TopologiesService:
                     type="network-gateway",
                 ))
 
-            # VLAN parent-child edges
             if network.get("parentNetworkId"):
                 edges.append(GraphEdge(
                     id=f"edge::net::{network['networkId']}::parent::{network['parentNetworkId']}",
@@ -334,19 +533,15 @@ class TopologiesService:
         self,
         scope: TopologyScope | None,
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
-        """Generate infrastructure (parent-child + services) topology."""
+        """Generate infrastructure topology with parent-child and service relationships."""
         nodes: list[GraphNode] = []
         edges: list[GraphEdge] = []
 
-        # Get nodes
         node_filter: dict[str, Any] = {"status": {"$ne": "archived"}}
         if scope and scope.node_ids:
             node_filter["nodeId"] = {"$in": scope.node_ids}
 
-        infra_nodes = []
         async for node in self.db.nodes.find(node_filter):
-            infra_nodes.append(node)
-
             node_type = self._get_graph_node_type(node)
 
             nodes.append(GraphNode(
@@ -363,7 +558,6 @@ class TopologiesService:
                 position=GraphNodePosition(x=0, y=0),
             ))
 
-            # Create parent-child edges
             if node.get("parentNodeId"):
                 edges.append(GraphEdge(
                     id=f"edge::node::{node['nodeId']}::parent::{node['parentNodeId']}",
@@ -372,13 +566,11 @@ class TopologiesService:
                     type="parent-child",
                 ))
 
-        # Get services
         service_filter: dict[str, Any] = {"status": {"$ne": "archived"}}
         if scope and scope.node_ids:
             service_filter["nodeId"] = {"$in": scope.node_ids}
 
         async for service in self.db.services.find(service_filter):
-            # Service ID is now in format svc-<name>-<hash>, use directly for graph node ID
             service_id = service["serviceId"]
             nodes.append(GraphNode(
                 id=service_id,
@@ -393,7 +585,6 @@ class TopologiesService:
                 position=GraphNodePosition(x=0, y=0),
             ))
 
-            # Service-host edge
             edges.append(GraphEdge(
                 id=f"edge::{service_id}::host::{service['nodeId']}",
                 source=service_id,
@@ -407,12 +598,11 @@ class TopologiesService:
         self,
         scope: TopologyScope | None,
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
-        """Generate service-centric topology focusing on services and their hosting nodes."""
+        """Generate service-centric topology with host nodes and dependencies."""
         nodes: list[GraphNode] = []
         edges: list[GraphEdge] = []
         node_ids_added: set[str] = set()
 
-        # Get services
         service_filter: dict[str, Any] = {"status": {"$ne": "archived"}}
         if scope and scope.node_ids:
             service_filter["nodeId"] = {"$in": scope.node_ids}
@@ -422,7 +612,6 @@ class TopologiesService:
             services_list.append(service)
             service_id = service["serviceId"]
 
-            # Add service node
             nodes.append(GraphNode(
                 id=service_id,
                 type="service",
@@ -438,10 +627,8 @@ class TopologiesService:
                 position=GraphNodePosition(x=0, y=0),
             ))
 
-            # Track host node for adding later
             node_ids_added.add(service["nodeId"])
 
-        # Add host nodes (infrastructure nodes that run services)
         if node_ids_added:
             node_filter: dict[str, Any] = {
                 "nodeId": {"$in": list(node_ids_added)},
@@ -464,7 +651,6 @@ class TopologiesService:
                     position=GraphNodePosition(x=0, y=0),
                 ))
 
-        # Create service-host edges
         for service in services_list:
             edges.append(GraphEdge(
                 id=f"edge::{service['serviceId']}::host::{service['nodeId']}",
@@ -473,9 +659,6 @@ class TopologiesService:
                 type="service-host",
             ))
 
-        # Discover service-to-service dependencies based on runtime-specific patterns
-        # For now, we detect dependencies via port mapping analysis
-        # Future: Analyze network connections, environment variables, config files
         service_deps = await self._discover_service_dependencies(services_list)
         for dep in service_deps:
             edges.append(GraphEdge(
@@ -495,7 +678,6 @@ class TopologiesService:
         """Discover service-to-service dependencies based on configuration."""
         dependencies: list[dict] = []
 
-        # Build a lookup of services by port and name
         port_to_service: dict[int, str] = {}
         name_to_service: dict[str, str] = {}
 
@@ -507,17 +689,13 @@ class TopologiesService:
                 elif isinstance(port, int):
                     port_to_service[port] = service["serviceId"]
 
-        # Look for common dependency patterns
         for service in services:
             service_id = service["serviceId"]
             env_vars = service.get("config", {}).get("environment", {})
 
-            # Check environment variables for connection strings
             for key, value in env_vars.items() if isinstance(env_vars, dict) else []:
                 value_str = str(value).lower()
-                # Database connections
                 if any(db in key.upper() for db in ["DATABASE", "DB_HOST", "MONGO", "REDIS", "POSTGRES", "MYSQL"]):
-                    # Try to find referenced service
                     for name, target_id in name_to_service.items():
                         if name in value_str and target_id != service_id:
                             dependencies.append({
@@ -530,7 +708,7 @@ class TopologiesService:
         return dependencies
 
     def _get_graph_node_type(self, node: dict) -> str:
-        """Determine the graph node type based on node class/type."""
+        """Determine the graph node type based on node class and type."""
         node_class = node.get("class", "")
         node_type = node.get("type", "")
 
@@ -549,33 +727,27 @@ class TopologiesService:
         edges: list[GraphEdge],
         mode: TopologyMode,
     ) -> dict[str, GraphNodePosition]:
-        """Compute layout positions for nodes."""
-        positions: dict[str, GraphNodePosition] = {}
-
+        """Compute layout positions for nodes based on topology mode."""
         if mode == TopologyMode.NETWORK:
-            positions = self._circular_layout(nodes, edges)
+            return self._circular_layout(nodes, edges)
         elif mode == TopologyMode.SERVICE:
-            positions = self._service_layout(nodes, edges)
+            return self._service_layout(nodes, edges)
         else:
-            positions = self._hierarchical_layout(nodes, edges)
-
-        return positions
+            return self._hierarchical_layout(nodes, edges)
 
     def _circular_layout(
         self,
         nodes: list[GraphNode],
         edges: list[GraphEdge],
     ) -> dict[str, GraphNodePosition]:
-        """Circular layout with networks in center."""
+        """Circular layout with networks in center and devices in outer ring."""
         import math
 
         positions: dict[str, GraphNodePosition] = {}
 
-        # Separate networks and devices
         networks = [n for n in nodes if n.type == "network"]
         devices = [n for n in nodes if n.type != "network"]
 
-        # Place networks in inner circle
         network_radius = 100
         for i, net in enumerate(networks):
             angle = (2 * math.pi * i) / max(len(networks), 1)
@@ -583,7 +755,6 @@ class TopologiesService:
             y = network_radius * math.sin(angle)
             positions[net.id] = GraphNodePosition(x=x, y=y, layer=0)
 
-        # Place devices in outer circle
         device_radius = 300
         for i, device in enumerate(devices):
             angle = (2 * math.pi * i) / max(len(devices), 1)
@@ -598,10 +769,9 @@ class TopologiesService:
         nodes: list[GraphNode],
         edges: list[GraphEdge],
     ) -> dict[str, GraphNodePosition]:
-        """Hierarchical layout: physical -> logical -> services."""
+        """Hierarchical layout with physical nodes at top, logical in middle, services at bottom."""
         positions: dict[str, GraphNodePosition] = {}
 
-        # Categorize nodes by layer
         layers: dict[int, list[GraphNode]] = {0: [], 1: [], 2: []}
 
         for node in nodes:
@@ -609,10 +779,9 @@ class TopologiesService:
                 layers[0].append(node)
             elif node.type in ["compute-logical", "iot"]:
                 layers[1].append(node)
-            else:  # service
+            else:
                 layers[2].append(node)
 
-        # Position nodes in each layer
         layer_height = 200
         node_spacing = 150
 
@@ -632,16 +801,14 @@ class TopologiesService:
         nodes: list[GraphNode],
         edges: list[GraphEdge],
     ) -> dict[str, GraphNodePosition]:
-        """Service-centric layout: host nodes on top, services grouped below their hosts."""
+        """Service-centric layout with hosts at top and services fanned below."""
         import math
 
         positions: dict[str, GraphNodePosition] = {}
 
-        # Separate host nodes and services
         host_nodes = [n for n in nodes if n.type != "service"]
         services = [n for n in nodes if n.type == "service"]
 
-        # Group services by their host node
         services_by_host: dict[str, list[GraphNode]] = {}
         for service in services:
             host_id = service.data.get("nodeId", "")
@@ -650,7 +817,6 @@ class TopologiesService:
                     services_by_host[host_id] = []
                 services_by_host[host_id].append(service)
 
-        # Layout host nodes in a row at the top
         host_spacing = 300
         total_host_width = len(host_nodes) * host_spacing
         start_x = -total_host_width / 2
@@ -659,23 +825,21 @@ class TopologiesService:
             x = start_x + (i * host_spacing) + (host_spacing / 2)
             positions[host.id] = GraphNodePosition(x=x, y=0, layer=0)
 
-            # Layout services below their host in a fan pattern
             host_node_id = host.id.replace("node::", "")
             host_services = services_by_host.get(host_node_id, [])
 
             if host_services:
                 service_radius = 150
-                service_arc = math.pi  # Half circle below the host
+                service_arc = math.pi
                 for j, service in enumerate(host_services):
                     if len(host_services) == 1:
-                        angle = math.pi / 2  # Directly below
+                        angle = math.pi / 2
                     else:
                         angle = (service_arc * j) / (len(host_services) - 1)
                     sx = x + service_radius * math.cos(angle)
                     sy = 100 + service_radius * math.sin(angle)
                     positions[service.id] = GraphNodePosition(x=sx, y=sy, layer=1)
 
-        # Handle orphan services (no host found)
         orphan_x = 0
         for service in services:
             if service.id not in positions:
@@ -696,11 +860,9 @@ class TopologiesService:
         prev_edge_ids = {e.id for e in prev_graph.edges}
         curr_edge_ids = {e.id for e in curr_graph.edges}
 
-        # Create lookup for comparison
         prev_nodes = {n.id: n for n in prev_graph.nodes}
         curr_nodes = {n.id: n for n in curr_graph.nodes}
 
-        # Find modified nodes (same ID but different data)
         modified = []
         for node_id in prev_node_ids & curr_node_ids:
             if prev_nodes[node_id].data != curr_nodes[node_id].data:
@@ -744,179 +906,4 @@ class TopologiesService:
             "validFrom": doc["validFrom"],
             "validUntil": doc.get("validUntil"),
             "stats": doc.get("stats", {}),
-        }
-
-    async def get_subgraph(
-        self,
-        node_id: str,
-        depth: int = 1,
-        include_services: bool = True,
-        include_networks: bool = True,
-    ) -> dict:
-        """Get a subgraph centered on a specific node.
-
-        Args:
-            node_id: The center node ID
-            depth: How many hops to include (1 = immediate neighbors)
-            include_services: Include services running on this node
-            include_networks: Include networks this node belongs to
-
-        Returns:
-            A subgraph containing the center node and its neighbors
-        """
-        nodes: list[GraphNode] = []
-        edges: list[GraphEdge] = []
-        visited_nodes: set[str] = set()
-
-        # Get the center node
-        center_node = await self.db.nodes.find_one({"nodeId": node_id})
-        if not center_node:
-            raise TopologyNotFoundError(f"Node '{node_id}' not found")
-
-        # Add center node
-        center_graph_id = f"node::{node_id}"
-        node_type = self._get_graph_node_type(center_node)
-        nodes.append(GraphNode(
-            id=center_graph_id,
-            type=node_type,
-            label=center_node.get("displayName", node_id),
-            data={
-                "nodeId": node_id,
-                "class": center_node.get("class"),
-                "type": center_node.get("type"),
-                "kind": center_node.get("kind"),
-                "status": center_node.get("status"),
-                "isCenter": True,
-            },
-            position=GraphNodePosition(x=0, y=0, layer=0),
-        ))
-        visited_nodes.add(center_graph_id)
-
-        # Get parent node if exists
-        if center_node.get("parentNodeId"):
-            parent_id = center_node["parentNodeId"]
-            parent_node = await self.db.nodes.find_one({"nodeId": parent_id})
-            if parent_node:
-                parent_graph_id = f"node::{parent_id}"
-                if parent_graph_id not in visited_nodes:
-                    nodes.append(GraphNode(
-                        id=parent_graph_id,
-                        type=self._get_graph_node_type(parent_node),
-                        label=parent_node.get("displayName", parent_id),
-                        data={
-                            "nodeId": parent_id,
-                            "class": parent_node.get("class"),
-                            "type": parent_node.get("type"),
-                            "kind": parent_node.get("kind"),
-                            "status": parent_node.get("status"),
-                        },
-                        position=GraphNodePosition(x=0, y=-150, layer=-1),
-                    ))
-                    visited_nodes.add(parent_graph_id)
-                edges.append(GraphEdge(
-                    id=f"edge::{center_graph_id}::parent::{parent_graph_id}",
-                    source=center_graph_id,
-                    target=parent_graph_id,
-                    type="parent-child",
-                ))
-
-        # Get child nodes
-        child_cursor = self.db.nodes.find({"parentNodeId": node_id, "status": {"$ne": "archived"}})
-        child_index = 0
-        async for child in child_cursor:
-            child_id = child["nodeId"]
-            child_graph_id = f"node::{child_id}"
-            if child_graph_id not in visited_nodes:
-                nodes.append(GraphNode(
-                    id=child_graph_id,
-                    type=self._get_graph_node_type(child),
-                    label=child.get("displayName", child_id),
-                    data={
-                        "nodeId": child_id,
-                        "class": child.get("class"),
-                        "type": child.get("type"),
-                        "kind": child.get("kind"),
-                        "status": child.get("status"),
-                    },
-                    position=GraphNodePosition(x=-200 + (child_index * 150), y=150, layer=1),
-                ))
-                visited_nodes.add(child_graph_id)
-                child_index += 1
-            edges.append(GraphEdge(
-                id=f"edge::{child_graph_id}::parent::{center_graph_id}",
-                source=child_graph_id,
-                target=center_graph_id,
-                type="parent-child",
-            ))
-
-        # Get services running on this node
-        if include_services:
-            service_cursor = self.db.services.find({"nodeId": node_id, "status": {"$ne": "archived"}})
-            service_index = 0
-            async for service in service_cursor:
-                service_id = service["serviceId"]
-                nodes.append(GraphNode(
-                    id=service_id,
-                    type="service",
-                    label=service.get("displayName", service["name"]),
-                    data={
-                        "serviceId": service_id,
-                        "name": service.get("name"),
-                        "runtime": service.get("runtime"),
-                        "status": service.get("status"),
-                        "nodeId": node_id,
-                    },
-                    position=GraphNodePosition(x=200, y=-100 + (service_index * 80), layer=1),
-                ))
-                edges.append(GraphEdge(
-                    id=f"edge::{service_id}::host::{center_graph_id}",
-                    source=service_id,
-                    target=center_graph_id,
-                    type="service-host",
-                ))
-                service_index += 1
-
-        # Get networks this node belongs to
-        if include_networks:
-            network_ids = center_node.get("networkIds", [])
-            if network_ids:
-                network_cursor = self.db.networks.find({"networkId": {"$in": network_ids}})
-                network_index = 0
-                async for network in network_cursor:
-                    network_id = network["networkId"]
-                    network_graph_id = f"net::{network_id}"
-                    if network_graph_id not in visited_nodes:
-                        nodes.append(GraphNode(
-                            id=network_graph_id,
-                            type="network",
-                            label=network.get("name", network_id),
-                            data={
-                                "networkId": network_id,
-                                "cidr": network.get("cidr"),
-                                "type": network.get("type"),
-                            },
-                            position=GraphNodePosition(x=-200, y=-100 + (network_index * 80), layer=1),
-                        ))
-                        visited_nodes.add(network_graph_id)
-                        network_index += 1
-                    edges.append(GraphEdge(
-                        id=f"edge::{center_graph_id}::net::{network_graph_id}",
-                        source=center_graph_id,
-                        target=network_graph_id,
-                        type="network-connection",
-                    ))
-
-        return {
-            "centerNodeId": node_id,
-            "depth": depth,
-            "graph": {
-                "nodes": [n.model_dump() for n in nodes],
-                "edges": [e.model_dump() for e in edges],
-            },
-            "stats": {
-                "nodeCount": len(nodes),
-                "edgeCount": len(edges),
-                "serviceCount": sum(1 for n in nodes if n.type == "service"),
-                "networkCount": sum(1 for n in nodes if n.type == "network"),
-            },
         }

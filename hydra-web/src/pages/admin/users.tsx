@@ -95,7 +95,6 @@ export default function UsersPage() {
         description="Manage user accounts and their roles"
       />
 
-      {/* Search */}
       <div className="mb-6">
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -109,7 +108,6 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* User list */}
       {isLoading ? (
         <Card>
           <div className="divide-y">
@@ -156,7 +154,6 @@ export default function UsersPage() {
             </Card>
           </motion.div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="mt-4 flex items-center justify-center gap-2">
               <Button
@@ -207,14 +204,12 @@ function UserRow({ user }: { user: UserSummary }) {
       layout
       className="group flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
     >
-      {/* Avatar */}
       <Avatar>
         <AvatarFallback className="bg-primary text-primary-foreground">
           {user.username?.charAt(0).toUpperCase() || 'U'}
         </AvatarFallback>
       </Avatar>
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium truncate">{user.username}</span>
@@ -230,12 +225,10 @@ function UserRow({ user }: { user: UserSummary }) {
         </div>
       </div>
 
-      {/* Created date */}
       <div className="hidden md:block text-right text-sm text-muted-foreground">
         {formatDate(new Date(user.createdAt))}
       </div>
 
-      {/* Actions */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

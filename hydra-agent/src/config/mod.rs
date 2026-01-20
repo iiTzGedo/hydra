@@ -14,102 +14,87 @@ use std::path::Path;
 pub struct AgentConfig {
     /// API connection settings
     pub api: ApiConfig,
-
     /// Node identification
     pub node: NodeConfig,
-
     /// Collection settings
     #[serde(default)]
     pub collection: CollectionConfig,
-
     /// Schedule settings
     #[serde(default)]
     pub schedule: ScheduleConfig,
 }
 
+/// API connection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiConfig {
-    /// Base URL of the Hydra API
+    /// Base URL of the Hydra API (e.g., "https://hydra.local/api/v1")
     pub url: String,
-
     /// Request timeout in seconds
     #[serde(default = "default_timeout")]
     pub timeout_seconds: u64,
-
     /// Number of retries for failed requests
     #[serde(default = "default_retries")]
     pub retries: u32,
 }
 
+/// Node identification and classification configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConfig {
-    /// Unique node identifier
+    /// Unique node identifier matching pattern `^[a-z]+([._-][a-z0-9]+){0,2}$`
     pub node_id: String,
-
-    /// Node class (compute, networking, iot)
+    /// Node class: "compute", "networking", or "iot"
     #[serde(default = "default_class")]
     pub class: String,
-
-    /// Node type (physical, logical)
+    /// Node type: "physical" or "logical"
     #[serde(default = "default_type")]
     pub node_type: String,
-
-    /// Node kind (bare-metal, vm, lxc, docker, etc.)
+    /// Node kind (e.g., "bare-metal", "vm", "lxc", "docker")
     pub kind: Option<String>,
-
-    /// Display name for the node
+    /// Human-readable display name
     pub display_name: Option<String>,
-
-    /// Description
+    /// Description text
     pub description: Option<String>,
-
-    /// Tags for the node
+    /// Tags for grouping and filtering
     #[serde(default)]
     pub tags: Vec<String>,
-
-    /// Parent node ID (for VMs/containers)
+    /// Parent node ID for nested nodes (VMs, containers)
     pub parent_node_id: Option<String>,
 }
 
+/// Profile collection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionConfig {
-    /// Collection level (shallow, neutral, deep)
+    /// Collection depth: "shallow", "neutral", or "deep"
     #[serde(default = "default_level")]
     pub level: String,
-
-    /// Enabled collectors
+    /// Enabled collectors (hardware, network, storage, software, services)
     #[serde(default = "default_collectors")]
     pub collectors: Vec<String>,
-
-    /// Include package list
+    /// Whether to include package list in profiles
     #[serde(default = "default_true")]
     pub include_packages: bool,
-
-    /// Include user list
+    /// Whether to include user list in profiles
     #[serde(default = "default_true")]
     pub include_users: bool,
-
-    /// Config files to track (paths)
+    /// Configuration file paths to track changes
     #[serde(default)]
     pub config_files: Vec<String>,
 }
 
+/// Scheduled collection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleConfig {
     /// Enable scheduled collection
     #[serde(default = "default_true")]
     pub enabled: bool,
-
     /// Collection interval in seconds
     #[serde(default = "default_interval")]
     pub interval_seconds: u64,
-
-    /// Collect on startup
+    /// Collect immediately on agent startup
     #[serde(default = "default_true")]
     pub on_startup: bool,
 }
 
-// Default value functions
 fn default_timeout() -> u64 {
     30
 }
@@ -145,7 +130,7 @@ fn default_true() -> bool {
 }
 
 fn default_interval() -> u64 {
-    86400 // 24 hours
+    86400
 }
 
 impl Default for CollectionConfig {
@@ -171,7 +156,19 @@ impl Default for ScheduleConfig {
 }
 
 impl AgentConfig {
-    /// Load configuration from a TOML file.
+    /// Loads configuration from a TOML file.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the TOML configuration file
+    ///
+    /// # Returns
+    ///
+    /// The parsed and validated agent configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read, parsed, or validation fails.
     pub fn load(path: &Path) -> Result<Self> {
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
@@ -215,7 +212,6 @@ impl AgentConfig {
             }
         }
 
-        // Validate collection level
         const VALID_LEVELS: &[&str] = &["shallow", "neutral", "deep"];
         if !VALID_LEVELS.contains(&self.collection.level.as_str()) {
             return Err(anyhow!(
@@ -224,7 +220,6 @@ impl AgentConfig {
             ));
         }
 
-        // Validate node class
         const VALID_CLASSES: &[&str] = &["compute", "networking", "iot"];
         if !VALID_CLASSES.contains(&self.node.class.as_str()) {
             return Err(anyhow!(
@@ -233,7 +228,6 @@ impl AgentConfig {
             ));
         }
 
-        // Validate node type
         const VALID_TYPES: &[&str] = &["physical", "logical"];
         if !VALID_TYPES.contains(&self.node.node_type.as_str()) {
             return Err(anyhow!(
@@ -242,7 +236,6 @@ impl AgentConfig {
             ));
         }
 
-        // Validate collectors if specified
         const VALID_COLLECTORS: &[&str] = &["hardware", "network", "storage", "software", "services"];
         for collector in &self.collection.collectors {
             if !VALID_COLLECTORS.contains(&collector.as_str()) {

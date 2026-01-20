@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useSearchParams } from 'react-router-dom';
 import {
   Globe,
   RefreshCw,
@@ -25,7 +26,6 @@ import {
   AuditLogSection,
 } from './components';
 
-// Top section tabs - high access rate, less critical
 type TopTab = {
   id: string;
   label: string;
@@ -40,7 +40,6 @@ const topTabs: TopTab[] = [
   { id: 'users', label: 'Users', icon: Users, roles: ['admin'] },
 ];
 
-// Bottom section tabs - admin/critical functions
 type BottomTab = {
   id: string;
   label: string;
@@ -57,11 +56,11 @@ const bottomTabs: BottomTab[] = [
 export default function SettingsPage() {
   useDocumentTitle('Settings');
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const { hasAnyRole } = useAuthStore();
   const [topActiveTab, setTopActiveTab] = useState('general');
   const [bottomActiveTab, setBottomActiveTab] = useState('agent');
 
-  // Filter tabs based on user role
   const visibleTopTabs = topTabs.filter((tab) => {
     if (!tab.roles) return true;
     return hasAnyRole(tab.roles);
@@ -72,7 +71,6 @@ export default function SettingsPage() {
     return hasAnyRole(tab.roles);
   });
 
-  // Make sure active tabs are visible
   useEffect(() => {
     if (!visibleTopTabs.find((t) => t.id === topActiveTab)) {
       setTopActiveTab(visibleTopTabs[0]?.id || 'general');
@@ -85,10 +83,41 @@ export default function SettingsPage() {
     }
   }, [visibleBottomTabs, bottomActiveTab]);
 
+  useEffect(() => {
+    const topParam = searchParams.get('top');
+    if (topParam && visibleTopTabs.some((tab) => tab.id === topParam)) {
+      setTopActiveTab(topParam);
+    }
+  }, [searchParams, visibleTopTabs]);
+
+  useEffect(() => {
+    const bottomParam = searchParams.get('bottom');
+    if (bottomParam && visibleBottomTabs.some((tab) => tab.id === bottomParam)) {
+      setBottomActiveTab(bottomParam);
+    }
+  }, [searchParams, visibleBottomTabs]);
+
+  const handleTopTabChange = (value: string) => {
+    setTopActiveTab(value);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('top', value);
+      return next;
+    });
+  };
+
+  const handleBottomTabChange = (value: string) => {
+    setBottomActiveTab(value);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('bottom', value);
+      return next;
+    });
+  };
+
   return (
     <TooltipProvider>
       <div className="space-y-8">
-        {/* Page Header */}
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Settings</h2>
           <p className="text-sm text-muted-foreground">
@@ -96,9 +125,8 @@ export default function SettingsPage() {
           </p>
         </div>
 
-        {/* Top Section - General Settings */}
         <div className="space-y-4">
-          <Tabs value={topActiveTab} onValueChange={setTopActiveTab}>
+          <Tabs value={topActiveTab} onValueChange={handleTopTabChange}>
             <TabsList className="bg-card border border-border p-1 h-auto">
               {visibleTopTabs.map((tab) => {
                 const Icon = tab.icon;
@@ -133,7 +161,6 @@ export default function SettingsPage() {
           </Tabs>
         </div>
 
-        {/* Divider */}
         {visibleBottomTabs.length > 0 && (
           <div className="relative">
             <Separator className="bg-muted" />
@@ -143,10 +170,9 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Bottom Section - Admin Settings */}
         {visibleBottomTabs.length > 0 && (
           <div className="space-y-4">
-            <Tabs value={bottomActiveTab} onValueChange={setBottomActiveTab}>
+            <Tabs value={bottomActiveTab} onValueChange={handleBottomTabChange}>
               <TabsList className="bg-card border border-border p-1 h-auto">
                 {visibleBottomTabs.map((tab) => {
                   const Icon = tab.icon;

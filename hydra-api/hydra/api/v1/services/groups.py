@@ -38,7 +38,19 @@ class GroupsService:
         resolve_members: bool = False,
         member_limit: int = 20,
     ) -> dict:
-        """Get a single group by ID."""
+        """Retrieve a group by its identifier.
+
+        Args:
+            group_id: The unique group identifier.
+            resolve_members: Whether to resolve and include group members.
+            member_limit: Maximum number of members to return if resolving.
+
+        Returns:
+            The formatted group document, optionally with resolved members.
+
+        Raises:
+            GroupNotFoundError: If no group exists with the given ID.
+        """
         group = await self.db.groups.find_one({"groupId": group_id})
         if not group:
             raise GroupNotFoundError(group_id)
@@ -52,11 +64,13 @@ class GroupsService:
         return result
 
     async def list_groups(self, params: GroupListParams) -> tuple[list[dict], int]:
-        """
-        List groups with filters and pagination.
+        """List groups with filtering and pagination.
+
+        Args:
+            params: Filter, sort, and pagination parameters.
 
         Returns:
-            Tuple of (groups list, total count)
+            Tuple of (groups list, total count).
         """
         filter_query: dict[str, Any] = {}
 
@@ -104,12 +118,22 @@ class GroupsService:
         return groups, total
 
     async def create_group(self, request: CreateGroupRequest) -> dict:
-        """Create a new group."""
+        """Create a new group with selectors.
+
+        Args:
+            request: Group creation request with selectors.
+
+        Returns:
+            The created group document.
+
+        Raises:
+            GroupAlreadyExistsError: If a group with the same ID exists.
+            ValidationError: If a parent group does not exist.
+        """
         existing = await self.db.groups.find_one({"groupId": request.group_id})
         if existing:
             raise GroupAlreadyExistsError(request.group_id)
 
-        # Validate parent groups if specified
         for parent_id in request.parent_group_ids:
             parent = await self.db.groups.find_one({"groupId": parent_id})
             if not parent:
@@ -138,8 +162,6 @@ class GroupsService:
         }
 
         await self.db.groups.insert_one(group_doc)
-
-        # Resolve members after creation
         await self._update_member_count(request.group_id)
 
         logger.info("group_created", group_id=request.group_id)
@@ -147,7 +169,19 @@ class GroupsService:
         return await self.get_group(request.group_id)
 
     async def update_group(self, group_id: str, request: UpdateGroupRequest) -> dict:
-        """Update group metadata."""
+        """Update group metadata and selectors.
+
+        Args:
+            group_id: The group identifier to update.
+            request: Fields to update.
+
+        Returns:
+            The updated group document.
+
+        Raises:
+            GroupNotFoundError: If the group does not exist.
+            ValidationError: If validation fails for parent groups.
+        """
         existing = await self.db.groups.find_one({"groupId": group_id})
         if not existing:
             raise GroupNotFoundError(group_id)
@@ -161,7 +195,6 @@ class GroupsService:
         if request.selectors is not None:
             update_fields["selectors"] = request.selectors.model_dump(by_alias=True, exclude_none=True)
         if request.parent_group_ids is not None:
-            # Validate parent groups
             for parent_id in request.parent_group_ids:
                 if parent_id == group_id:
                     raise ValidationError("Group cannot be its own parent")
@@ -180,7 +213,6 @@ class GroupsService:
             {"$set": update_fields},
         )
 
-        # Re-resolve members if selectors changed
         if request.selectors is not None:
             await self._update_member_count(group_id)
 
@@ -189,12 +221,21 @@ class GroupsService:
         return await self.get_group(group_id)
 
     async def delete_group(self, group_id: str) -> dict:
-        """Delete a group."""
+        """Delete a group and remove it from parent references.
+
+        Args:
+            group_id: The group identifier to delete.
+
+        Returns:
+            The deleted group document.
+
+        Raises:
+            GroupNotFoundError: If the group does not exist.
+        """
         existing = await self.db.groups.find_one({"groupId": group_id})
         if not existing:
             raise GroupNotFoundError(group_id)
 
-        # Remove from parent references in other groups
         await self.db.groups.update_many(
             {"parentGroupIds": group_id},
             {"$pull": {"parentGroupIds": group_id}},
@@ -213,29 +254,34 @@ class GroupsService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[dict, dict]:
-        """
-        Get resolved members for a group with pagination.
+        """Get resolved members for a group with pagination.
+
+        Args:
+            group_id: The group identifier.
+            entity_type: Optional filter for entity type (node or service).
+            limit: Maximum number of members per type.
+            offset: Pagination offset.
 
         Returns:
-            Tuple of (members dict, totals dict)
+            Tuple of (members dict by type, totals dict).
+
+        Raises:
+            GroupNotFoundError: If the group does not exist.
         """
         group = await self.db.groups.find_one({"groupId": group_id})
         if not group:
             raise GroupNotFoundError(group_id)
 
         selectors = GroupSelectors(**group.get("selectors", {}))
-        types = [GroupEntityType(t) for t in group.get("types", [])]
 
         members = {"nodes": [], "services": []}
         totals = {"nodes": 0, "services": 0}
 
-        # Resolve nodes if applicable
         if (entity_type is None or entity_type == GroupEntityType.NODE) and GroupEntityType.NODE.value in group.get("types", []):
             nodes, node_total = await self._resolve_nodes(selectors, limit, offset)
             members["nodes"] = nodes
             totals["nodes"] = node_total
 
-        # Resolve services if applicable
         if (entity_type is None or entity_type == GroupEntityType.SERVICE) and GroupEntityType.SERVICE.value in group.get("types", []):
             services, service_total = await self._resolve_services(selectors, limit, offset)
             members["services"] = services
@@ -244,7 +290,17 @@ class GroupsService:
         return members, totals
 
     async def resolve_group(self, group_id: str) -> dict:
-        """Force re-resolution of group membership."""
+        """Force re-resolution of group membership counts.
+
+        Args:
+            group_id: The group identifier to resolve.
+
+        Returns:
+            Resolution result with old and new counts and changes.
+
+        Raises:
+            GroupNotFoundError: If the group does not exist.
+        """
         group = await self.db.groups.find_one({"groupId": group_id})
         if not group:
             raise GroupNotFoundError(group_id)
@@ -359,57 +415,45 @@ class GroupsService:
         """Build MongoDB filter for node selection."""
         conditions = []
 
-        # id.isAll - explicit node IDs
         if selectors.id and selectors.id.is_all:
             conditions.append({"nodeId": {"$in": selectors.id.is_all}})
 
-        # network.isAny - nodes in any listed network
         if selectors.network and selectors.network.is_any:
             conditions.append({"networkIds": {"$in": selectors.network.is_any}})
 
-        # status.isAny - nodes with any listed status
         if selectors.status and selectors.status.is_any:
             conditions.append({"status": {"$in": selectors.status.is_any}})
 
-        # kind.isAny - nodes with any listed kind
         if selectors.kind and selectors.kind.is_any:
             conditions.append({"kind": {"$in": selectors.kind.is_any}})
 
-        # tags.isAny - nodes with any listed tag
         if selectors.tags and selectors.tags.is_any:
             conditions.append({"tags": {"$in": selectors.tags.is_any}})
 
-        # tags.isAll - nodes with all listed tags
         if selectors.tags and selectors.tags.is_all:
             conditions.append({"tags": {"$all": selectors.tags.is_all}})
 
         if not conditions:
             return {}
 
-        # OR logic between different selector types
         return {"$or": conditions} if len(conditions) > 1 else conditions[0]
 
     def _build_service_filter(self, selectors: GroupSelectors) -> dict[str, Any]:
         """Build MongoDB filter for service selection."""
         conditions = []
 
-        # id.isAll - explicit service IDs
         if selectors.id and selectors.id.is_all:
             conditions.append({"serviceId": {"$in": selectors.id.is_all}})
 
-        # runtime.isAny - services with any listed runtime
         if selectors.runtime and selectors.runtime.is_any:
             conditions.append({"runtime": {"$in": selectors.runtime.is_any}})
 
-        # status.isAny - services with any listed status
         if selectors.status and selectors.status.is_any:
             conditions.append({"status": {"$in": selectors.status.is_any}})
 
-        # tags.isAny - services with any listed tag
         if selectors.tags and selectors.tags.is_any:
             conditions.append({"tags": {"$in": selectors.tags.is_any}})
 
-        # tags.isAll - services with all listed tags
         if selectors.tags and selectors.tags.is_all:
             conditions.append({"tags": {"$all": selectors.tags.is_all}})
 
@@ -427,40 +471,33 @@ class GroupsService:
         """Get list of selector names that matched this entity."""
         matched = []
 
-        # id.isAll
         if selectors.id and selectors.id.is_all:
             id_field = "nodeId" if entity_type == "node" else "serviceId"
             if entity.get(id_field) in selectors.id.is_all:
                 matched.append("id.isAll")
 
-        # network.isAny (nodes only)
         if entity_type == "node" and selectors.network and selectors.network.is_any:
             entity_networks = set(entity.get("networkIds", []))
             if entity_networks & set(selectors.network.is_any):
                 matched.append("network.isAny")
 
-        # status.isAny
         if selectors.status and selectors.status.is_any:
             if entity.get("status") in selectors.status.is_any:
                 matched.append("status.isAny")
 
-        # kind.isAny (nodes only)
         if entity_type == "node" and selectors.kind and selectors.kind.is_any:
             if entity.get("kind") in selectors.kind.is_any:
                 matched.append("kind.isAny")
 
-        # runtime.isAny (services only)
         if entity_type == "service" and selectors.runtime and selectors.runtime.is_any:
             if entity.get("runtime") in selectors.runtime.is_any:
                 matched.append("runtime.isAny")
 
-        # tags.isAny
         if selectors.tags and selectors.tags.is_any:
             entity_tags = set(entity.get("tags", []))
             if entity_tags & set(selectors.tags.is_any):
                 matched.append("tags.isAny")
 
-        # tags.isAll
         if selectors.tags and selectors.tags.is_all:
             entity_tags = set(entity.get("tags", []))
             if set(selectors.tags.is_all).issubset(entity_tags):

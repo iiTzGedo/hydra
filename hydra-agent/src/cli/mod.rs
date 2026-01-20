@@ -1,26 +1,24 @@
 //! Command-line interface for hydra-agent.
 //!
-//! Provides a modular CLI structure with subcommands for various operations:
-//! - `login` - Authenticate as admin/operator
-//! - `register` - Register agent system account
-//! - `unregister` - Unregister agent from Hydra
-//! - `config` - Manage configuration
-//! - `node` - Node management operations
-//! - `service` - Service lifecycle management
-//! - `run` - Run profile collection (legacy compatibility)
-//! - `status` - Show agent status
+//! Provides subcommands for agent operations:
+//! - [`login`] - Authenticate as admin/operator
+//! - [`register`] - Register agent system account
+//! - [`unregister`] - Unregister agent from Hydra
+//! - [`config`] - Manage configuration
+//! - [`node`] - Node management operations
+//! - [`service`] - Service lifecycle management
 
-pub mod login;
-pub mod register;
-pub mod unregister;
 pub mod config;
+pub mod login;
 pub mod node;
+pub mod register;
 pub mod service;
+pub mod unregister;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
-/// Operating mode for the agent
+/// Operating mode for the agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum OperatingMode {
     /// Normal operation with API communication
@@ -30,10 +28,7 @@ pub enum OperatingMode {
     Dev,
 }
 
-/// Hydra Agent - Infrastructure profiling agent
-///
-/// Root options (--config, --mode, --aliased) are only available when calling
-/// hydra-agent directly. Subcommands have their own specific options.
+/// Hydra Agent CLI.
 #[derive(Parser)]
 #[command(name = "hydra-agent")]
 #[command(author, version, about, long_about = None)]
@@ -59,6 +54,7 @@ pub struct Cli {
     pub command: Option<Commands>,
 }
 
+/// Available CLI subcommands.
 #[derive(Subcommand)]
 pub enum Commands {
     /// Authenticate as admin/operator to perform privileged operations

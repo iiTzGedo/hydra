@@ -45,7 +45,21 @@ async def get_node_state_at(
         description="Profile sections to include (hardware, network, storage, software)",
     ),
 ) -> SuccessResponse[NodeTimeMachineResponse]:
-    """Get node state at a specific time."""
+    """Reconstruct a node's complete state at a historical point in time.
+
+    Args:
+        node_id: Unique identifier of the node.
+        timemachine_service: Time machine service instance.
+        timestamp: Point in time to reconstruct state for.
+        sections: Specific profile sections to include in response.
+
+    Returns:
+        Node state as it existed at the specified timestamp.
+
+    Raises:
+        HTTPException 404: Node not found or no profile exists before timestamp.
+        HTTPException 403: Insufficient permissions.
+    """
     result = await timemachine_service.get_node_state_at(node_id, timestamp, sections)
     return SuccessResponse(data=NodeTimeMachineResponse(**result))
 
@@ -63,7 +77,21 @@ async def get_topology_at(
     timestamp: datetime = Query(..., description="Point in time to query topology at"),
     include_graph: bool = Query(default=True, alias="includeGraph"),
 ) -> SuccessResponse[TopologyTimeMachineResponse]:
-    """Get topology valid at a specific time."""
+    """Retrieve the infrastructure topology valid at a specific timestamp.
+
+    Args:
+        timemachine_service: Time machine service instance.
+        mode: Topology mode (infrastructure or network).
+        timestamp: Point in time to query.
+        include_graph: Include full graph data.
+
+    Returns:
+        Topology that was valid at the specified timestamp.
+
+    Raises:
+        HTTPException 404: No topology exists that covers the specified timestamp.
+        HTTPException 403: Insufficient permissions.
+    """
     result = await timemachine_service.get_topology_at(mode, timestamp, include_graph)
     return SuccessResponse(data=TopologyTimeMachineResponse(**result))
 
@@ -94,8 +122,23 @@ async def get_timeline(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> SuccessResponse[TimelineResponse]:
-    """Get timeline of infrastructure events."""
-    # Default time range
+    """Retrieve a timeline of infrastructure events within a time range.
+
+    Args:
+        timemachine_service: Time machine service instance.
+        since: Start of time range (defaults to 24 hours ago).
+        until: End of time range (defaults to now).
+        node_id: Filter events for a specific node.
+        event_types: Filter by event types (profile_submitted, node_registered, etc.).
+        limit: Maximum number of events to return.
+        offset: Number of events to skip.
+
+    Returns:
+        Timeline of events with pagination metadata.
+
+    Raises:
+        HTTPException 403: Insufficient permissions.
+    """
     now = datetime.now(timezone.utc)
     if until is None:
         until = now

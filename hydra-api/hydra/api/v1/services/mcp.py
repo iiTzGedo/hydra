@@ -310,6 +310,63 @@ class MCPService:
             ],
         }
 
+    async def list_resources(self, server_id: str, user_id: str) -> dict:
+        """List resources available on an MCP server."""
+        doc = await self.db.mcp_servers.find_one({
+            "serverId": server_id,
+            "ownerId": user_id,
+        })
+
+        if not doc:
+            raise MCPServerNotFoundError(server_id)
+
+        endpoint = doc["endpoint"]
+        auth_type = MCPAuthType(doc.get("authType", "none"))
+
+        # Prepare headers
+        headers = {}
+        if doc.get("authValueEncrypted"):
+            auth_value = decrypt_value(doc["authValueEncrypted"])
+            if auth_type == MCPAuthType.API_KEY:
+                headers["X-API-Key"] = auth_value
+            elif auth_type == MCPAuthType.BEARER:
+                headers["Authorization"] = f"Bearer {auth_value}"
+
+        resources = []
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                resources_url = f"{endpoint.rstrip('/')}/resources"
+                response = await client.get(resources_url, headers=headers)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if isinstance(data, list):
+                        resources = data
+                    elif isinstance(data, dict) and "resources" in data:
+                        resources = data["resources"]
+            except Exception as e:
+                logger.warning(
+                    "mcp_resources_fetch_failed",
+                    server_id=server_id,
+                    error=str(e),
+                )
+
+        return {
+            "server_id": server_id,
+            "resources": [
+                {
+                    "uri": r.get("uri", r) if isinstance(r, dict) else r,
+                    "name": r.get("name") if isinstance(r, dict) else None,
+                    "description": r.get("description") if isinstance(r, dict) else None,
+                    "mime_type": (
+                        r.get("mimeType") or r.get("mime_type") if isinstance(r, dict) else None
+                    ),
+                }
+                for r in resources
+            ],
+        }
+
     def _doc_to_response(self, doc: dict) -> dict:
         """Convert a database document to a response dictionary."""
         return {

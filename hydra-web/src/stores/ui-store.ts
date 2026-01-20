@@ -17,27 +17,17 @@ const defaultViewPrefs: ViewPreferences = {
 };
 
 interface UiState {
-  // Sidebar
   sidebarCollapsed: boolean;
   sidebarMobileOpen: boolean;
-
-  // Theme (handled by theme-provider, but stored here for convenience)
   theme: 'light' | 'dark' | 'system';
-
-  // Topology view
   topologyMode: 'infrastructure' | 'network' | 'service';
-
-  // Time machine
   timeMachineTimestamp: string | null;
-
-  // View preferences per page
   nodesView: ViewPreferences;
   networksView: ViewPreferences;
   servicesView: ViewPreferences;
   groupsView: ViewPreferences;
   profilesView: ViewPreferences;
 
-  // Actions
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarMobileOpen: (open: boolean) => void;

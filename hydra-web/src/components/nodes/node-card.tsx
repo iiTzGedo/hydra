@@ -6,7 +6,7 @@ import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS, STATUS_COLORS } from '@/li
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { staggerItemVariants } from '@/lib/animations';
 
-type NodeListItem = NodeSummary & { id: string; profileVersion?: string };
+type NodeListItem = NodeSummary & { id: string };
 
 interface NodeCardProps {
   node: NodeListItem;
@@ -96,16 +96,13 @@ export function NodeCard({ node }: NodeCardProps) {
 
         {/* Footer */}
         <div className="mt-4 pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
-          {node.profileVersion ? (
-            <span className="font-mono">{node.profileVersion}</span>
-          ) : (
-            <span>No profile</span>
-          )}
-          {node.lastProfileAt && (
+          {node.lastProfileAt ? (
             <div className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
               <span>{formatRelativeTime(new Date(node.lastProfileAt))}</span>
             </div>
+          ) : (
+            <span>No profiles yet</span>
           )}
         </div>
       </Link>
