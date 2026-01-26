@@ -61,7 +61,6 @@ export default function ProfileDetailPage() {
     );
   }
 
-  // Check if profile has any section data
   const hasSectionData =
     profile.hardware ||
     profile.network ||
@@ -93,7 +92,6 @@ export default function ProfileDetailPage() {
       >
         <ProfileMetadataSummary nodeId={nodeId!} profile={profile} />
 
-        {/* Show empty state when no sections have data */}
         {!hasSectionData && (
           <motion.div
             variants={staggerItemVariants}
@@ -153,7 +151,6 @@ export default function ProfileDetailPage() {
 }
 
 function ProfileMetadataSummary({ nodeId, profile }: { nodeId: string; profile: Profile }) {
-  // Count sections that have data
   const sectionsWithData = [
     profile.hardware,
     profile.network,

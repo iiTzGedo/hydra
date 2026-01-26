@@ -27,7 +27,11 @@ class MCPServerNotFoundError(NotFoundError):
 
 
 class MCPService:
-    """MCP server configuration management service."""
+    """MCP server configuration management service.
+
+    Manages user-configured MCP server connections including CRUD operations,
+    health checks, and capability discovery (tools and resources).
+    """
 
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
@@ -40,7 +44,18 @@ class MCPService:
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
-        """List MCP server configurations for a user."""
+        """List MCP server configurations for a user.
+
+        Args:
+            user_id: User identifier.
+            category: Optional category filter.
+            enabled_only: If True, return only enabled servers.
+            limit: Maximum number of results.
+            offset: Number of results to skip.
+
+        Returns:
+            Dict with "servers" list and "total" count.
+        """
         query: dict = {"ownerId": user_id}
         if category:
             query["category"] = category
@@ -63,7 +78,18 @@ class MCPService:
         return {"servers": servers, "total": total}
 
     async def get_server(self, server_id: str, user_id: str) -> dict:
-        """Get a specific MCP server configuration."""
+        """Get a specific MCP server configuration.
+
+        Args:
+            server_id: Server identifier.
+            user_id: User identifier.
+
+        Returns:
+            Server configuration dict.
+
+        Raises:
+            MCPServerNotFoundError: If the server does not exist.
+        """
         doc = await self.db.mcp_servers.find_one({
             "serverId": server_id,
             "ownerId": user_id,
@@ -79,11 +105,18 @@ class MCPService:
         request: MCPServerCreate,
         user_id: str,
     ) -> dict:
-        """Create a new MCP server configuration."""
+        """Create a new MCP server configuration.
+
+        Args:
+            request: Server creation payload.
+            user_id: User identifier.
+
+        Returns:
+            The created server configuration.
+        """
         now = datetime.now(timezone.utc)
         server_id = f"mcp_{secrets.token_urlsafe(8)}"
 
-        # Encrypt auth value if provided
         encrypted_auth = None
         if request.auth_value:
             encrypted_auth = encrypt_value(request.auth_value)
@@ -122,7 +155,22 @@ class MCPService:
         request: MCPServerUpdate,
         user_id: str,
     ) -> dict:
-        """Update an MCP server configuration."""
+        """Update an MCP server configuration.
+
+        Endpoint changes reset the server status to unknown and clear the
+        last health check timestamp.
+
+        Args:
+            server_id: Server identifier.
+            request: Fields to update.
+            user_id: User identifier.
+
+        Returns:
+            The updated server configuration.
+
+        Raises:
+            MCPServerNotFoundError: If the server does not exist.
+        """
         doc = await self.db.mcp_servers.find_one({
             "serverId": server_id,
             "ownerId": user_id,
@@ -138,7 +186,6 @@ class MCPService:
             update_fields["name"] = request.name
         if request.endpoint is not None:
             update_fields["endpoint"] = request.endpoint
-            # Reset status when endpoint changes
             update_fields["status"] = MCPServerStatus.UNKNOWN.value
             update_fields["lastHealthCheck"] = None
         if request.description is not None:
@@ -166,7 +213,18 @@ class MCPService:
         return self._doc_to_response(updated_doc)
 
     async def delete_server(self, server_id: str, user_id: str) -> dict:
-        """Delete an MCP server configuration."""
+        """Delete an MCP server configuration.
+
+        Args:
+            server_id: Server identifier.
+            user_id: User identifier.
+
+        Returns:
+            Dict with "deleted" status and "serverId".
+
+        Raises:
+            MCPServerNotFoundError: If the server does not exist.
+        """
         doc = await self.db.mcp_servers.find_one({
             "serverId": server_id,
             "ownerId": user_id,
@@ -182,7 +240,21 @@ class MCPService:
         return {"deleted": True, "serverId": server_id}
 
     async def check_health(self, server_id: str, user_id: str) -> dict:
-        """Check the health of an MCP server."""
+        """Check the health of an MCP server.
+
+        Attempts to reach the server's /health endpoint and updates the stored
+        status accordingly.
+
+        Args:
+            server_id: Server identifier.
+            user_id: User identifier.
+
+        Returns:
+            Health check result with status, message, tools, and resources.
+
+        Raises:
+            MCPServerNotFoundError: If the server does not exist.
+        """
         doc = await self.db.mcp_servers.find_one({
             "serverId": server_id,
             "ownerId": user_id,
@@ -195,7 +267,6 @@ class MCPService:
         endpoint = doc["endpoint"]
         auth_type = MCPAuthType(doc.get("authType", "none"))
 
-        # Prepare headers
         headers = {}
         if doc.get("authValueEncrypted"):
             auth_value = decrypt_value(doc["authValueEncrypted"])
@@ -204,7 +275,6 @@ class MCPService:
             elif auth_type == MCPAuthType.BEARER:
                 headers["Authorization"] = f"Bearer {auth_value}"
 
-        # Try to reach the MCP server health endpoint
         status = MCPServerStatus.UNHEALTHY
         message = ""
         tools = None
@@ -212,7 +282,6 @@ class MCPService:
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                # Try /health endpoint first
                 health_url = f"{endpoint.rstrip('/')}/health"
                 response = await client.get(health_url, headers=headers)
 
@@ -231,7 +300,6 @@ class MCPService:
             except Exception as e:
                 message = f"Health check failed: {str(e)}"
 
-        # Update server status in database
         await self.db.mcp_servers.update_one(
             {"serverId": server_id},
             {
@@ -259,7 +327,18 @@ class MCPService:
         }
 
     async def list_tools(self, server_id: str, user_id: str) -> dict:
-        """List tools available on an MCP server."""
+        """List tools available on an MCP server.
+
+        Args:
+            server_id: Server identifier.
+            user_id: User identifier.
+
+        Returns:
+            Dict with "server_id" and "tools" list.
+
+        Raises:
+            MCPServerNotFoundError: If the server does not exist.
+        """
         doc = await self.db.mcp_servers.find_one({
             "serverId": server_id,
             "ownerId": user_id,
@@ -271,7 +350,6 @@ class MCPService:
         endpoint = doc["endpoint"]
         auth_type = MCPAuthType(doc.get("authType", "none"))
 
-        # Prepare headers
         headers = {}
         if doc.get("authValueEncrypted"):
             auth_value = decrypt_value(doc["authValueEncrypted"])
@@ -284,13 +362,11 @@ class MCPService:
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                # Try to list tools via MCP protocol
                 tools_url = f"{endpoint.rstrip('/')}/tools"
                 response = await client.get(tools_url, headers=headers)
 
                 if response.status_code == 200:
                     data = response.json()
-                    # Handle both list and dict formats
                     if isinstance(data, list):
                         tools = data
                     elif isinstance(data, dict) and "tools" in data:
@@ -311,7 +387,18 @@ class MCPService:
         }
 
     async def list_resources(self, server_id: str, user_id: str) -> dict:
-        """List resources available on an MCP server."""
+        """List resources available on an MCP server.
+
+        Args:
+            server_id: Server identifier.
+            user_id: User identifier.
+
+        Returns:
+            Dict with "server_id" and "resources" list.
+
+        Raises:
+            MCPServerNotFoundError: If the server does not exist.
+        """
         doc = await self.db.mcp_servers.find_one({
             "serverId": server_id,
             "ownerId": user_id,
@@ -323,7 +410,6 @@ class MCPService:
         endpoint = doc["endpoint"]
         auth_type = MCPAuthType(doc.get("authType", "none"))
 
-        # Prepare headers
         headers = {}
         if doc.get("authValueEncrypted"):
             auth_value = decrypt_value(doc["authValueEncrypted"])

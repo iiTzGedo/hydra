@@ -71,7 +71,6 @@ export function ChatHeader({
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {/* LLM Selector */}
         <Select
           value={activeLLMProviderId || ''}
           onValueChange={onLLMProviderChange}

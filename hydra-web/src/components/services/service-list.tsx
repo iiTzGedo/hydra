@@ -86,14 +86,12 @@ export function ServiceList({ filters }: ServiceListProps) {
 
   return (
     <div className="space-y-4">
-      {/* Results count */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
           Showing {data.items.length} of {data.total} services
         </span>
       </div>
 
-      {/* Service list */}
       <motion.div
         variants={staggerContainerVariants}
         initial="hidden"
@@ -109,7 +107,6 @@ export function ServiceList({ filters }: ServiceListProps) {
         </div>
       </motion.div>
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
           <button
@@ -176,12 +173,10 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
       layout
       className="group flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
     >
-      {/* Icon */}
       <div className="rounded-lg bg-hydra-blue p-2.5">
         <Boxes className="h-5 w-5 text-white" />
       </div>
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <Link
@@ -212,14 +207,12 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
         </div>
       </div>
 
-      {/* Runtime badge */}
       <div className="hidden md:block">
         <span className="rounded-full bg-muted px-3 py-1 text-sm">
           {runtimeLabel}
         </span>
       </div>
 
-      {/* Node link */}
       <div className="hidden lg:block">
         <Link
           to={ROUTES.NODES + '/' + service.nodeId}
@@ -230,12 +223,10 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
         </Link>
       </div>
 
-      {/* Last seen */}
       <div className="hidden md:block text-right text-sm text-muted-foreground">
         {service.lastSeen && formatRelativeTime(new Date(service.lastSeen))}
       </div>
 
-      {/* Actions */}
       <div className="relative">
         <button
           onClick={() => setMenuOpen(!menuOpen)}

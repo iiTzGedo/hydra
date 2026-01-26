@@ -104,7 +104,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
 
   const snapshotsLoading = profileSnapshotsQueries.some((query) => query.isLoading);
 
-  // Check if profile has actual section data
   const hasProfileData =
     latestProfile?.hardware ||
     latestProfile?.network ||
@@ -118,7 +117,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* Quick Actions Bar */}
       <div className="flex flex-wrap items-center gap-2">
         <Link to={`${ROUTES.NODES}/${node.id}/profiles`}>
           <Button variant="outline" size="sm">
@@ -144,7 +142,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
         )}
       </div>
 
-      {/* Node Identity Card */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex items-start gap-6">
@@ -219,7 +216,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
         </CardContent>
       </Card>
 
-      {/* Key Stats Row */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard
           icon={<Activity className="h-4 w-4" />}
@@ -263,7 +259,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
         />
       </div>
 
-      {/* Empty state when no profile data */}
       {!latestLoading && latestProfile && !hasProfileData && (
         <Card className="border-dashed">
           <CardContent className="py-8">
@@ -290,7 +285,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
         </Card>
       )}
 
-      {/* No profiles at all */}
       {!latestLoading && !latestProfile && (
         <Card className="border-dashed">
           <CardContent className="py-8">
@@ -306,12 +300,9 @@ export function OverviewTab({ node }: OverviewTabProps) {
         </Card>
       )}
 
-      {/* Main content grid when we have profile data */}
       {hasProfileData && (
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* Left Column */}
           <div className="space-y-6">
-            {/* System Overview Card - OS Info */}
             {latestProfile?.software?.os && (
               <Card>
                 <CardHeader className="pb-3">
@@ -362,7 +353,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
               </Card>
             )}
 
-            {/* Hardware Summary */}
             {latestProfile?.hardware && (
               <Card>
                 <CardHeader className="pb-3">
@@ -464,9 +454,7 @@ export function OverviewTab({ node }: OverviewTabProps) {
 
           </div>
 
-          {/* Right Column */}
           <div className="space-y-6">
-            {/* Storage Usage */}
             {latestProfile?.storage?.filesystems && latestProfile.storage.filesystems.length > 0 && (
               <Card>
                 <CardHeader className="pb-3">
@@ -530,7 +518,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
               </Card>
             )}
 
-            {/* Network Summary */}
             {latestProfile?.network && (
               <Card>
                 <CardHeader className="pb-3">
@@ -541,7 +528,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {/* Identity */}
                     <div className="grid gap-3 sm:grid-cols-2">
                       {latestProfile.network.hostname && (
                         <div>
@@ -571,7 +557,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
                       )}
                     </div>
 
-                    {/* Interfaces Preview */}
                     {latestProfile.network.interfaces && latestProfile.network.interfaces.length > 0 && (
                       <div className="pt-4 border-t">
                         <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">
@@ -609,7 +594,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
               </Card>
             )}
 
-            {/* Services Preview */}
             {services.length > 0 && (
               <Card>
                 <CardHeader className="pb-3">
@@ -641,7 +625,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
               </Card>
             )}
 
-            {/* Users Preview */}
             {latestProfile?.users?.users && latestProfile.users.users.length > 0 && (
               <Card>
                 <CardHeader className="pb-3">
@@ -675,7 +658,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
         </div>
       )}
 
-      {/* Node Analytics Charts */}
       {profileSnapshots.length > 0 && (
         <NodeDashboardCharts
           profileSnapshots={profileSnapshots}
@@ -683,7 +665,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
         />
       )}
 
-      {/* Tags */}
       {node.tags && node.tags.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
@@ -704,7 +685,6 @@ export function OverviewTab({ node }: OverviewTabProps) {
         </Card>
       )}
 
-      {/* Relationships */}
       {(node.parentNodeId || (node.networkIds && node.networkIds.length > 0)) && (
         <Card>
           <CardHeader className="pb-3">
@@ -838,11 +818,9 @@ function NodeDashboardCharts({
       .slice()
       .sort((a, b) => new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime())
       .map((profile) => {
-        // Memory total (we don't have used/available in profiles)
         const memoryTotal = profile.hardware?.memory?.totalBytes;
         const memoryGB = memoryTotal ? Math.round(memoryTotal / (1024 * 1024 * 1024)) : null;
 
-        // Storage
         const filesystems = profile.storage?.filesystems || [];
         const storageTotals = filesystems.reduce(
           (acc, fs) => {

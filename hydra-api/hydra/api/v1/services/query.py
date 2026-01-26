@@ -36,16 +36,18 @@ class QueryService:
         return mapping[name]
 
     async def execute_query(self, request: QueryRequest) -> tuple[list[dict], int]:
-        """Execute a structured query."""
+        """Execute a structured query against a specified collection.
+
+        Args:
+            request: Query parameters including collection, filter, projection,
+                sort, skip, and limit.
+
+        Returns:
+            Tuple of (query results, total count).
+        """
         collection = self._get_collection(request.collection)
-
-        # Build query
         query = request.filter or {}
-
-        # Get total count
         total = await collection.count_documents(query)
-
-        # Build cursor
         cursor = collection.find(query, projection=request.projection)
 
         if request.sort:
@@ -56,7 +58,6 @@ class QueryService:
 
         results = await cursor.to_list(length=request.limit)
 
-        # Remove internal MongoDB _id field
         for r in results:
             r.pop("_id", None)
 
@@ -69,8 +70,20 @@ class QueryService:
         group_id: str | None = None,
         network_id: str | None = None,
     ) -> dict[str, Any]:
-        """Get infrastructure capacity summary."""
-        # Base query for physical nodes
+        """Get infrastructure capacity summary.
+
+        Aggregates hardware resources from latest profiles across nodes,
+        optionally grouped by class or location.
+
+        Args:
+            group_by: Optional grouping dimension (class, location).
+            include_logical: Include logical nodes in calculations.
+            group_id: Limit to nodes in a specific group.
+            network_id: Limit to nodes in a specific network.
+
+        Returns:
+            Capacity summary with totals and optional breakdowns by class/location.
+        """
         query: dict[str, Any] = {"status": "active"}
 
         if not include_logical:
@@ -79,17 +92,13 @@ class QueryService:
         if network_id:
             query["networkIds"] = network_id
 
-        # If group_id, we need to resolve group members first
         if group_id:
             group = await self.mongodb.groups.find_one({"groupId": group_id})
             if group:
-                # Get node IDs from group members
                 members = group.get("members", {})
                 node_ids = [m.get("nodeId") for m in members.get("nodes", []) if m.get("nodeId")]
                 if node_ids:
                     query["nodeId"] = {"$in": node_ids}
-
-        # Aggregate capacity from latest profiles
         pipeline = [
             {"$match": {"status": "active"}},
             {
@@ -152,7 +161,6 @@ class QueryService:
 
         response = {"summary": summary}
 
-        # Group by class
         if group_by == CapacityGroupBy.CLASS or group_by is None:
             class_pipeline = [
                 {"$match": {"status": "active"}},
@@ -198,7 +206,6 @@ class QueryService:
                     }
             response["byClass"] = by_class
 
-        # Group by location
         if group_by == CapacityGroupBy.LOCATION or group_by is None:
             location_pipeline = [
                 {"$match": {"status": "active", "location.site": {"$exists": True}}},
@@ -268,7 +275,22 @@ class AuditService:
         error: str | None = None,
         ip: str | None = None,
     ) -> str:
-        """Log an audited action."""
+        """Log an audited action.
+
+        Args:
+            action: The audit action type.
+            resource_type: Type of resource being acted upon.
+            resource_id: Identifier of the resource.
+            actor_type: Type of actor (user, agent, system).
+            actor_id: Identifier of the actor.
+            success: Whether the action succeeded.
+            details: Optional additional details.
+            error: Optional error message if action failed.
+            ip: Optional IP address of the actor.
+
+        Returns:
+            The generated audit entry ID.
+        """
         entry_id = f"audit-{uuid4().hex[:12]}"
         now = datetime.now(UTC)
 
@@ -307,7 +329,15 @@ class AuditService:
     async def list_entries(
         self, params: AuditListParams
     ) -> tuple[list[dict[str, Any]], int]:
-        """List audit log entries with filters."""
+        """List audit log entries with filters.
+
+        Args:
+            params: Query parameters including action, resource_type, resource_id,
+                actor_id, since, until, offset, and limit.
+
+        Returns:
+            Tuple of (audit entries, total count).
+        """
         query: dict[str, Any] = {}
 
         if params.action:
@@ -319,7 +349,6 @@ class AuditService:
         if params.actor_id:
             query["actor.id"] = params.actor_id
 
-        # Date range
         date_query = {}
         if params.since:
             date_query["$gte"] = params.since

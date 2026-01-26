@@ -86,8 +86,9 @@ struct CreateApiKeyResponse {
     created_at: String,
 }
 
-/// Agent registration response from /auth/register (role=agent)
-/// Per Some Updates.md: API no longer returns api_key or password - agent creates/manages these
+/// Agent registration response from /auth/register (role=agent).
+///
+/// The API no longer returns api_key or password - the agent creates and manages these locally.
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -39,8 +39,19 @@ class CommandsService:
         user_id: str | None = None,
         source: CommandSource = CommandSource.API,
     ) -> dict[str, Any]:
-        """Create and queue a new command."""
-        # Verify target node exists
+        """Create and queue a new command for execution on a target node.
+
+        Args:
+            request: Command creation payload with type, target, action, and parameters.
+            user_id: The requesting user's identifier (None for system commands).
+            source: The command source (API, MCP, etc.).
+
+        Returns:
+            The created command document.
+
+        Raises:
+            NodeNotFoundError: If the target node does not exist or is not active.
+        """
         node = await self.nodes.find_one({"nodeId": request.target.node_id, "status": "active"})
         if not node:
             raise NodeNotFoundError(request.target.node_id)
@@ -83,7 +94,17 @@ class CommandsService:
         return command_doc
 
     async def get_command(self, command_id: str) -> dict[str, Any]:
-        """Get a command by ID."""
+        """Get a command by its identifier.
+
+        Args:
+            command_id: The command identifier.
+
+        Returns:
+            The command document.
+
+        Raises:
+            CommandNotFoundError: If the command does not exist.
+        """
         command = await self.commands.find_one({"commandId": command_id})
         if not command:
             raise CommandNotFoundError(command_id)
@@ -92,7 +113,14 @@ class CommandsService:
     async def list_commands(
         self, params: CommandListParams
     ) -> tuple[list[dict[str, Any]], int]:
-        """List commands with filters."""
+        """List commands with optional filtering and pagination.
+
+        Args:
+            params: Query parameters including node_id, type, status, since, offset, limit.
+
+        Returns:
+            Tuple of (list of command documents, total count).
+        """
         query: dict[str, Any] = {}
 
         if params.node_id:
@@ -115,10 +143,20 @@ class CommandsService:
         return commands, total
 
     async def cancel_command(self, command_id: str) -> dict[str, Any]:
-        """Cancel a pending or queued command."""
+        """Cancel a pending or queued command.
+
+        Args:
+            command_id: The command identifier.
+
+        Returns:
+            Dict with command_id, status, and cancelled_at timestamp.
+
+        Raises:
+            CommandNotFoundError: If the command does not exist.
+            CommandNotCancellableError: If the command is already executing or completed.
+        """
         command = await self.get_command(command_id)
 
-        # Only pending or queued commands can be cancelled
         if command["status"] not in [CommandStatus.PENDING.value, CommandStatus.QUEUED.value]:
             raise CommandNotCancellableError(command_id, command["status"])
 
@@ -143,13 +181,24 @@ class CommandsService:
         }
 
     async def poll_commands(self, node_id: str) -> list[dict[str, Any]]:
-        """Poll for pending commands for a specific node (agent endpoint)."""
-        # Verify node exists
+        """Poll for pending commands for a specific node.
+
+        Atomically claims queued commands to prevent duplicate execution by
+        concurrent pollers. Used by agents to fetch work.
+
+        Args:
+            node_id: The node identifier to poll commands for.
+
+        Returns:
+            List of command payloads formatted for agent consumption.
+
+        Raises:
+            NodeNotFoundError: If the node does not exist.
+        """
         node = await self.nodes.find_one({"nodeId": node_id})
         if not node:
             raise NodeNotFoundError(node_id)
 
-        # Atomically claim commands so multiple pollers can't execute the same work.
         commands: list[dict[str, Any]] = []
         for _ in range(10):
             command = await self.commands.find_one_and_update(
@@ -170,7 +219,6 @@ class CommandsService:
                 break
             commands.append(command)
 
-        # Format for agent consumption
         result = []
         for cmd in commands:
             result.append({
@@ -187,7 +235,20 @@ class CommandsService:
         return result
 
     async def mark_command_executing(self, command_id: str) -> dict[str, Any]:
-        """Mark a command as executing (called by agent when it picks up the command)."""
+        """Mark a command as executing.
+
+        Called by the agent when it begins processing a command.
+
+        Args:
+            command_id: The command identifier.
+
+        Returns:
+            The updated command document.
+
+        Raises:
+            CommandNotFoundError: If the command does not exist.
+            HydraError: If the command is not in queued state.
+        """
         command = await self.get_command(command_id)
 
         if command["status"] != CommandStatus.QUEUED.value:
@@ -221,10 +282,22 @@ class CommandsService:
         command_id: str,
         result: SubmitCommandResultRequest,
     ) -> dict[str, Any]:
-        """Submit command execution result (agent endpoint)."""
+        """Submit command execution result from an agent.
+
+        Args:
+            node_id: The node identifier submitting the result.
+            command_id: The command identifier.
+            result: Execution result with success status, output, exit code, and error.
+
+        Returns:
+            Dict with command_id, final status, and completed_at timestamp.
+
+        Raises:
+            CommandNotFoundError: If the command does not exist.
+            HydraError: If the command is not assigned to the submitting node.
+        """
         command = await self.get_command(command_id)
 
-        # Verify the command is for this node
         if command["target"]["nodeId"] != node_id:
             raise HydraError(
                 "COMMAND_NODE_MISMATCH",
@@ -269,12 +342,17 @@ class CommandsService:
     async def timeout_stale_commands(self, timeout_minutes: int = 10) -> int:
         """Mark stale executing commands as timed out.
 
-        This would typically be called by a background task.
+        Typically called by a background task to clean up commands that have
+        been executing longer than the allowed timeout.
+
+        Args:
+            timeout_minutes: Number of minutes after which executing commands are timed out.
+
+        Returns:
+            The number of commands that were marked as timed out.
         """
-        cutoff = datetime.now(UTC)
-        # Use timedelta to calculate the cutoff time
         from datetime import timedelta
-        cutoff = cutoff - timedelta(minutes=timeout_minutes)
+        cutoff = datetime.now(UTC) - timedelta(minutes=timeout_minutes)
 
         result = await self.commands.update_many(
             {

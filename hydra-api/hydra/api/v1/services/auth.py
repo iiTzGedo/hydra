@@ -50,6 +50,7 @@ class AuthService:
 
     @staticmethod
     def _to_utc(value: datetime | None) -> datetime | None:
+        """Convert a datetime to UTC timezone."""
         if value is None:
             return None
         if value.tzinfo is None:
@@ -61,19 +62,21 @@ class AuthService:
     async def authenticate_user(
         self, username: str, password: str, allow_system_accounts: bool = False
     ) -> dict:
-        """Authenticate a user and return tokens.
+        """Authenticate a user and return access/refresh tokens.
 
         Args:
-            username: User's username
-            password: User's password
-            allow_system_accounts: If False, block system accounts (agent users) from login
+            username: User's username.
+            password: User's password.
+            allow_system_accounts: If False, block system accounts (agent users) from login.
+
+        Returns:
+            Dict with access_token, refresh_token, expires_in, and user details.
 
         Raises:
-            PendingApprovalError: If user is pending approval
-            InvalidCredentialsError: If credentials are invalid
-            SystemAccountLoginBlockedError: If system account tries to login via web
+            PendingApprovalError: If user is pending approval.
+            InvalidCredentialsError: If credentials are invalid.
+            SystemAccountLoginBlockedError: If system account tries to login via web.
         """
-        # Check if user is pending approval
         pending = await self.db.users_pending.find_one({"username": username})
         if pending:
             raise PendingApprovalError(username)
@@ -97,17 +100,14 @@ class AuthService:
         if user.get("status") != "active":
             raise InvalidCredentialsError()
 
-        # Block system accounts from web login unless explicitly allowed
         if not allow_system_accounts and user.get("isSystemAccount", False):
             raise SystemAccountLoginBlockedError(username)
 
-        # Update last login
         await self.db.users.update_one(
             {"userId": user["userId"]},
             {"$set": {"lastLogin": datetime.now(timezone.utc)}},
         )
 
-        # Get active temporary roles
         temp_roles = self.users.get_active_temporary_roles(user.get("temporaryRoles", []))
 
         access_token, refresh_token = create_token_pair(
@@ -134,7 +134,19 @@ class AuthService:
         }
 
     async def refresh_access_token(self, refresh_token: str) -> dict:
-        """Refresh an access token."""
+        """Refresh an access token using a valid refresh token.
+
+        Args:
+            refresh_token: The refresh token from initial authentication.
+
+        Returns:
+            Dict with new 'access_token' and 'expires_in'.
+
+        Raises:
+            InvalidTokenError: If the refresh token is invalid or expired.
+            UserNotFoundError: If the user no longer exists.
+            NodeNotFoundError: If the agent node no longer exists.
+        """
         try:
             payload = decode_token(refresh_token)
         except InvalidTokenError:
@@ -181,19 +193,21 @@ class AuthService:
     async def create_registration_token(
         self, request: CreateRegistrationTokenRequest, created_by: str, creator_role: str | None = None
     ) -> dict:
-        """
-        Create a new registration token.
+        """Create a new registration token for user or node registration.
 
-        Role-based restrictions:
-        - Admin can create tokens for any role
-        - Operator can create tokens for operator, viewer, family (same level or below)
-        - Family can create tokens for family only
-        - Viewer cannot create user tokens (only node tokens if permitted)
+        Role-based restrictions apply: users can only create tokens for roles
+        at or below their permission level.
 
         Args:
-            request: Token creation request
-            created_by: User ID of the creator
-            creator_role: Role of the creator (for validation)
+            request: Token creation request with scope, description, expiry, and allowed roles.
+            created_by: User ID of the creator.
+            creator_role: Role of the creator for permission validation.
+
+        Returns:
+            The created token details including the token string (shown only once).
+
+        Raises:
+            ValidationError: If creator lacks permission to grant specified roles.
         """
         token = f"reg_{secrets.token_urlsafe(32)}"
 
@@ -203,9 +217,8 @@ class AuthService:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
         max_uses = request.max_uses or self.settings.registration_token_max_uses
 
-        # For user scope tokens, validate role restrictions
         allowed_roles = None
-        creator_role_level = get_role_level(creator_role) if creator_role else 100  # Admin level if not specified
+        creator_role_level = get_role_level(creator_role) if creator_role else 100
 
         if request.scope.value == "user" and request.allowed_roles:
             allowed_roles = []
@@ -218,11 +231,8 @@ class AuthService:
                     )
                 allowed_roles.append(role.value)
 
-        # If no explicit allowed_roles but user scope, default based on creator's role
         if request.scope.value == "user" and not allowed_roles and creator_role:
-            # Non-admin creators must restrict roles to their level or below
             if creator_role != "admin":
-                # Get all roles at or below creator's level
                 allowed_roles = [
                     role for role, level in ROLE_LEVELS.items()
                     if level <= creator_role_level
@@ -265,7 +275,17 @@ class AuthService:
         }
 
     async def validate_registration_token(self, token: str) -> dict:
-        """Validate a registration token for node registration."""
+        """Validate a registration token for node registration.
+
+        Args:
+            token: The registration token string.
+
+        Returns:
+            The token document if valid.
+
+        Raises:
+            RegistrationTokenError: If token is invalid, expired, exhausted, or wrong scope.
+        """
         token_doc = await self.db.tokens.find_one({"token": token, "type": "registration"})
 
         if not token_doc:
@@ -274,8 +294,6 @@ class AuthService:
                 "Invalid registration token",
             )
 
-        # Check scope - must be "node" for node registration
-        # Legacy tokens without scope are assumed to be user tokens
         token_scope = token_doc.get("scope", "user")
         if token_scope != "node":
             raise RegistrationTokenError(
@@ -301,7 +319,7 @@ class AuthService:
     async def _use_registration_token(
         self, token: str, entity_id: str, entity_type: str
     ) -> None:
-        """Mark a registration token as used."""
+        """Mark a registration token as used by incrementing usage count."""
         await self.db.tokens.update_one(
             {"token": token},
             {
@@ -316,9 +334,8 @@ class AuthService:
             },
         )
 
-    # Legacy method for backwards compatibility
     async def use_registration_token(self, token: str, node_id: str) -> None:
-        """Mark a registration token as used (legacy - for nodes)."""
+        """Mark a registration token as used for node registration."""
         await self._use_registration_token(token, node_id, "node")
 
     async def list_registration_tokens(
@@ -329,28 +346,26 @@ class AuthService:
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
-        """
-        List registration tokens created by a user.
+        """List registration tokens created by a user.
 
         Args:
-            user_id: User ID to filter by (creator)
-            scope: Optional scope filter ('user' or 'node')
-            active_only: Only return tokens that are still usable
-            limit: Max results
-            offset: Pagination offset
+            user_id: User ID to filter by (creator).
+            scope: Optional scope filter ('user' or 'node').
+            active_only: Only return tokens that are still usable.
+            limit: Maximum results to return.
+            offset: Pagination offset.
+
+        Returns:
+            Dict with 'tokens' list and pagination info.
         """
         now = datetime.now(timezone.utc)
 
-        # Build query
         query: dict = {"type": "registration", "createdBy": user_id}
 
         if scope:
             query["scope"] = scope
 
-        # Count total before pagination
         total = await self.db.tokens.count_documents(query)
-
-        # Fetch tokens with pagination
         cursor = self.db.tokens.find(query).sort("createdAt", -1).skip(offset).limit(limit)
 
         tokens = []
@@ -359,16 +374,13 @@ class AuthService:
             max_uses = doc.get("maxUses")
             used_count = doc.get("usedCount", 0)
 
-            # Determine if token is still active
             is_expired = expires_at and expires_at < now
             is_exhausted = max_uses is not None and used_count >= max_uses
             is_active = not is_expired and not is_exhausted
 
-            # Skip inactive tokens if active_only is True
             if active_only and not is_active:
                 continue
 
-            # Mask token value (show only last 8 chars for identification)
             token_value = doc.get("token", "")
             token_id = f"...{token_value[-8:]}" if len(token_value) > 8 else token_value
 
@@ -398,15 +410,24 @@ class AuthService:
     async def register_node(
         self, request: NodeRegistrationRequest, registered_by: str
     ) -> dict:
-        """Register a new node and return API key credentials."""
-        # Check if node already exists
+        """Register a new node and return API key credentials.
+
+        Args:
+            request: Node registration payload with node_id, class, type, etc.
+            registered_by: User ID of the registering user.
+
+        Returns:
+            Registration details including the API key (shown only once).
+
+        Raises:
+            NodeAlreadyRegisteredError: If a node with this ID already exists.
+        """
         existing = await self.db.nodes.find_one({"nodeId": request.node_id})
         if existing:
             raise NodeAlreadyRegisteredError(request.node_id)
 
         now = datetime.now(timezone.utc)
 
-        # Create node document
         node_doc = {
             "nodeId": request.node_id,
             "class": request.node_class,
@@ -427,7 +448,6 @@ class AuthService:
 
         await self.db.nodes.insert_one(node_doc)
 
-        # Create API key for the node
         api_key = f"hyk_node_{secrets.token_urlsafe(32)}"
         key_id = f"key_node_{secrets.token_urlsafe(8)}"
 
@@ -451,7 +471,6 @@ class AuthService:
 
         await self.db.api_keys.insert_one(key_doc)
 
-        # Add node to user's registeredNodes
         await self.db.users.update_one(
             {"userId": registered_by},
             {"$addToSet": {"registeredNodes": request.node_id}},
@@ -476,20 +495,29 @@ class AuthService:
     async def refresh_node_api_key(
         self, node_id: str, refreshed_by: str | None = None
     ) -> dict:
-        """Refresh the API key for a node."""
+        """Refresh the API key for a node, revoking the previous key.
+
+        Args:
+            node_id: The node identifier.
+            refreshed_by: User ID performing the refresh.
+
+        Returns:
+            New API key details (the key is shown only once).
+
+        Raises:
+            NodeNotFoundError: If the node does not exist.
+        """
         node = await self.db.nodes.find_one({"nodeId": node_id})
         if not node:
             raise NodeNotFoundError(node_id)
 
         now = datetime.now(timezone.utc)
 
-        # Revoke existing API key
         await self.db.api_keys.update_many(
             {"nodeId": node_id, "revokedAt": None},
             {"$set": {"revokedAt": now}},
         )
 
-        # Create new API key
         api_key = f"hyk_node_{secrets.token_urlsafe(32)}"
         key_id = f"key_node_{secrets.token_urlsafe(8)}"
 
@@ -532,7 +560,15 @@ class AuthService:
     async def create_api_key(
         self, request: CreateApiKeyRequest, user_id: str
     ) -> dict:
-        """Create an API key for a user."""
+        """Create an API key for a user.
+
+        Args:
+            request: API key creation payload with name, optional roles, permissions, expiry.
+            user_id: The owning user's identifier.
+
+        Returns:
+            The created API key details including the key string (shown only once).
+        """
         key = f"hyk_live_{secrets.token_urlsafe(32)}"
         key_id = f"key_{secrets.token_urlsafe(8)}"
         now = datetime.now(timezone.utc)
@@ -572,7 +608,14 @@ class AuthService:
         }
 
     async def list_api_keys(self, user_id: str) -> dict:
-        """List API keys for a user."""
+        """List active API keys for a user.
+
+        Args:
+            user_id: The user identifier.
+
+        Returns:
+            Dict with 'api_keys' list and 'total' count.
+        """
         cursor = self.db.api_keys.find({
             "ownerId": user_id,
             "type": "user",
@@ -596,12 +639,23 @@ class AuthService:
         }
 
     async def revoke_api_key(self, key_id: str, user_id: str, user_role: str | None = None) -> dict:
-        """Revoke an API key."""
+        """Revoke an API key.
+
+        Args:
+            key_id: The API key identifier.
+            user_id: The user requesting revocation.
+            user_role: The user's role (admins can revoke any key).
+
+        Returns:
+            Dict with 'key_id', 'revoked' status, and 'revoked_at' timestamp.
+
+        Raises:
+            ApiKeyNotFoundError: If the key does not exist or user lacks permission.
+        """
         key_doc = await self.db.api_keys.find_one({"keyId": key_id})
         if not key_doc:
             raise ApiKeyNotFoundError(key_id)
 
-        # Check ownership (unless admin - handled at router level)
         if key_doc["ownerId"] != user_id and user_role != "admin":
             owner = await self.db.users.find_one({"userId": key_doc["ownerId"]})
             if not owner or owner.get("parentUserId") != user_id:
@@ -622,19 +676,26 @@ class AuthService:
         }
 
     async def validate_api_key(self, api_key: str) -> dict:
-        """Validate an API key and return its data."""
-        # API keys start with hyk_
+        """Validate an API key and return its associated data.
+
+        Args:
+            api_key: The API key string (must start with 'hyk_').
+
+        Returns:
+            The API key document if valid.
+
+        Raises:
+            InvalidTokenError: If the key is invalid, expired, or revoked.
+        """
         if not api_key.startswith("hyk_"):
             raise InvalidTokenError("Invalid API key format")
 
-        # Check in api_keys collection
         async for key_doc in self.db.api_keys.find({"revokedAt": None}):
             if verify_password(api_key, key_doc["keyHash"]):
                 expires_at = self._to_utc(key_doc.get("expiresAt"))
                 if expires_at and expires_at < datetime.now(timezone.utc):
                     raise InvalidTokenError("API key has expired")
 
-                # Update last used
                 await self.db.api_keys.update_one(
                     {"keyId": key_doc["keyId"]},
                     {"$set": {"lastUsedAt": datetime.now(timezone.utc)}},
@@ -653,27 +714,30 @@ class AuthService:
         password: str | None = None,
         registration_token: str | None = None,
     ) -> dict:
-        """
-        Register an agent system account.
+        """Register an agent system account.
 
         Creates a special system account for hydra-agent with auto-generated credentials
         and automatically links it as a sub-account of the parent user.
 
         Args:
-            parent_user_id: User ID of the authenticated admin/operator creating the agent
-            username: Optional custom username (auto-generated if not provided)
-            password: Optional password (auto-generated if not provided)
-            registration_token: Optional registration token for validation
+            parent_user_id: User ID of the authenticated admin/operator creating the agent.
+            username: Optional custom username (auto-generated if not provided).
+            password: Optional password (auto-generated if not provided).
+            registration_token: Optional registration token for validation.
 
         Returns:
-            Agent account details with credentials (only shown once)
+            Agent account details including user_id, username, role, and parent info.
+
+        Raises:
+            RegistrationTokenError: If token is invalid, expired, or wrong scope.
+            ValidationError: If parent user lacks permission to create agent accounts.
+            UserNotFoundError: If parent user does not exist.
         """
         import string
 
         now = datetime.now(timezone.utc)
 
         token_doc = None
-        # Validate registration token if provided
         if registration_token:
             token_doc = await self.db.tokens.find_one({
                 "token": registration_token,
@@ -685,7 +749,6 @@ class AuthService:
                     "Invalid registration token",
                 )
 
-            # Check token scope - must allow 'user' scope for agent registration
             token_scope = token_doc.get("scope", "user")
             if token_scope != "user":
                 raise RegistrationTokenError(
@@ -693,7 +756,6 @@ class AuthService:
                     f"This token is for '{token_scope}' registration, not user/agent registration",
                 )
 
-            # Check expiration
             expires_at = self._to_utc(token_doc.get("expiresAt"))
             if expires_at and expires_at < datetime.now(timezone.utc):
                 raise RegistrationTokenError(
@@ -701,7 +763,6 @@ class AuthService:
                     "Registration token has expired",
                 )
 
-            # Check max uses
             max_uses = token_doc.get("maxUses")
             used_count = token_doc.get("usedCount", 0)
             if max_uses is not None and used_count >= max_uses:
@@ -727,17 +788,14 @@ class AuthService:
                 raise ValidationError(
                     "Only admin or operator registration tokens can create agent accounts"
                 )
-            # Token validation passed, mark it used later
 
         if not parent_user_id:
             raise ValidationError("Parent user is required to create agent account")
 
-        # Get parent user to validate
         parent = await self.db.users.find_one({"userId": parent_user_id})
         if not parent:
             raise UserNotFoundError(parent_user_id)
 
-        # Only admin and operator can create agent accounts
         if parent["role"] not in ["admin", "operator"]:
             raise ValidationError(
                 "Only admin or operator users can create agent accounts"
@@ -745,26 +803,22 @@ class AuthService:
         if parent.get("parentUserId"):
             raise ValidationError("Sub-accounts cannot create agent accounts")
 
-        # Generate username if not provided (pattern: agent-XXXXXXXX)
         if not username:
             chars = string.ascii_uppercase + string.digits
             suffix = "".join(secrets.choice(chars) for _ in range(8))
             username = f"agent-{suffix}"
 
-        # Check username availability
         existing = await self.db.users.find_one({"username": username})
         if existing:
             raise ValidationError(f"Username '{username}' is already taken")
 
-        # Generate password if not provided
         generated_password = None
         if not password:
             generated_password = secrets.token_urlsafe(16)
             password = generated_password
 
-        # Create agent user
         user_id = f"user_{secrets.token_urlsafe(8)}"
-        email = f"{username}@system.hydra.local"  # System email
+        email = f"{username}@system.hydra.local"
         agent_permissions = [
             "profiles:write",
             "profiles:read",
@@ -798,7 +852,6 @@ class AuthService:
 
         await self.db.users.insert_one(user_doc)
 
-        # Add to parent's sub_accounts list
         sub_account_info = {
             "userId": user_id,
             "username": username,
@@ -814,11 +867,6 @@ class AuthService:
             },
         )
 
-        # NOTE: API key is NOT created here. Per Some Updates.md specification,
-        # the agent creates its own API key after logging in with credentials.
-        # This keeps credential generation on the agent side and simplifies the flow.
-
-        # Mark registration token as used if provided
         if registration_token:
             await self._use_registration_token(registration_token, user_id, "agent")
 
@@ -829,8 +877,6 @@ class AuthService:
             parent_user_id=parent_user_id,
         )
 
-        # Return minimal response - agent already has credentials locally
-        # Agent will login and create its own API key via /auth/apikeys
         return {
             "user_id": user_id,
             "username": username,

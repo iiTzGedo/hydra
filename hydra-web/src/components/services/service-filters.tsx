@@ -34,7 +34,6 @@ export function ServiceFilters({ filters, onFiltersChange }: ServiceFiltersProps
   return (
     <div className="rounded-xl border bg-card p-4 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-        {/* Search */}
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -50,9 +49,7 @@ export function ServiceFilters({ filters, onFiltersChange }: ServiceFiltersProps
           />
         </div>
 
-        {/* Filters */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Runtime filter */}
           <select
             value={filters.runtime || ''}
             onChange={(e) => updateFilter('runtime', (e.target.value as ServiceRuntime) || null)}
@@ -69,7 +66,6 @@ export function ServiceFilters({ filters, onFiltersChange }: ServiceFiltersProps
             ))}
           </select>
 
-          {/* Status filter */}
           <select
             value={filters.status || ''}
             onChange={(e) => updateFilter('status', (e.target.value as ServiceStatus) || null)}
@@ -86,7 +82,6 @@ export function ServiceFilters({ filters, onFiltersChange }: ServiceFiltersProps
             <option value="unknown">Unknown</option>
           </select>
 
-          {/* Node filter */}
           <input
             type="text"
             placeholder="Filter by node..."
@@ -99,7 +94,6 @@ export function ServiceFilters({ filters, onFiltersChange }: ServiceFiltersProps
             )}
           />
 
-          {/* Clear filters */}
           {hasActiveFilters && (
             <button
               onClick={clearFilters}

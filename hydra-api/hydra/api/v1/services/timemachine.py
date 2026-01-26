@@ -27,34 +27,38 @@ class TimeMachineService:
         timestamp: datetime,
         sections: list[str] | None = None,
     ) -> dict:
-        """
-        Reconstruct node state at a specific timestamp.
+        """Reconstruct node state at a specific timestamp.
 
-        This will:
-        1. Verify node existed at that time
-        2. Find the latest profile before the timestamp
-        3. Find services from that profile
-        4. Return merged state
+        Finds the latest profile before the timestamp and merges node,
+        profile, and service data into a unified state snapshot.
+
+        Args:
+            node_id: The node identifier.
+            timestamp: Target timestamp for reconstruction.
+            sections: Optional list of profile sections to include.
+
+        Returns:
+            State snapshot with node, profile, services, and metadata.
+
+        Raises:
+            NodeNotFoundError: If the node does not exist.
+            ValidationError: If the node did not exist at the requested time.
         """
-        # Find node
         node = await self.db.nodes.find_one({"nodeId": node_id})
         if not node:
             raise NodeNotFoundError(node_id)
 
-        # Check node existed at that time
         if node.get("registeredAt") and node["registeredAt"] > timestamp:
             raise ValidationError(
                 f"Node '{node_id}' did not exist at {timestamp.isoformat()}",
                 {"nodeId": node_id, "registeredAt": node["registeredAt"].isoformat()},
             )
 
-        # Find closest profile at or before timestamp
         profile = await self.db.profiles.find_one(
             {"nodeId": node_id, "submittedAt": {"$lte": timestamp}},
             sort=[("submittedAt", DESCENDING)],
         )
 
-        # Calculate delta from requested timestamp
         delta_minutes = 0
         profile_at = None
         if profile:
@@ -62,7 +66,6 @@ class TimeMachineService:
             delta = timestamp - profile_at
             delta_minutes = int(delta.total_seconds() // 60)
 
-        # Find services from that profile (if it exists)
         services = []
         if profile:
             service_ids = profile.get("serviceIds", [])
@@ -74,7 +77,6 @@ class TimeMachineService:
                 async for svc in cursor:
                     services.append(self._format_service_snapshot(svc))
 
-        # Build state
         state = {
             "node": self._format_node_snapshot(node),
             "profile": self._format_profile_snapshot(profile, sections) if profile else None,
@@ -97,12 +99,21 @@ class TimeMachineService:
         timestamp: datetime,
         include_graph: bool = True,
     ) -> dict:
-        """
-        Get topology valid at a specific timestamp.
+        """Get topology valid at a specific timestamp.
 
-        Finds topology where validFrom <= timestamp < validUntil (or validUntil is null).
+        Finds topology where validFrom <= timestamp < validUntil.
+
+        Args:
+            mode: The topology mode (infrastructure, network).
+            timestamp: Target timestamp for lookup.
+            include_graph: Whether to include the full graph data.
+
+        Returns:
+            Topology snapshot with metadata and optionally graph data.
+
+        Raises:
+            ValidationError: If no topology exists for the mode at the timestamp.
         """
-        # Find topology valid at timestamp
         topology = await self.db.topologies.find_one({
             "mode": mode.value,
             "validFrom": {"$lte": timestamp},
@@ -113,7 +124,6 @@ class TimeMachineService:
         })
 
         if not topology:
-            # Try to find closest topology
             topology = await self.db.topologies.find_one(
                 {"mode": mode.value, "validFrom": {"$lte": timestamp}},
                 sort=[("validFrom", DESCENDING)],
@@ -152,17 +162,24 @@ class TimeMachineService:
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
-        """
-        Get timeline events for Time Machine visualization.
+        """Get timeline events for Time Machine visualization.
 
-        Aggregates events from:
-        - Profile submissions
-        - Topology generations
-        - Node registrations
+        Aggregates events from profile submissions, topology generations,
+        node registrations, and network creations within the time range.
+
+        Args:
+            since: Start of the time range.
+            until: End of the time range.
+            node_id: Optional node filter for profile and node events.
+            event_types: Optional filter for specific event types.
+            limit: Maximum events to return.
+            offset: Pagination offset.
+
+        Returns:
+            Tuple of (timeline events, total count).
         """
         events: list[dict] = []
 
-        # Query profiles
         profile_filter: dict[str, Any] = {
             "submittedAt": {"$gte": since, "$lte": until}
         }
@@ -185,7 +202,6 @@ class TimeMachineService:
                     },
                 })
 
-        # Query topologies
         if not event_types or TimelineEventType.TOPOLOGY_GENERATED in event_types:
             topo_filter: dict[str, Any] = {
                 "generatedAt": {"$gte": since, "$lte": until}
@@ -206,7 +222,6 @@ class TimeMachineService:
                     },
                 })
 
-        # Query nodes for registration events
         if not event_types or TimelineEventType.NODE_REGISTERED in event_types:
             node_filter: dict[str, Any] = {
                 "registeredAt": {"$gte": since, "$lte": until}
@@ -229,7 +244,6 @@ class TimeMachineService:
                     },
                 })
 
-        # Query networks for creation events
         if not event_types or TimelineEventType.NETWORK_CREATED in event_types:
             network_filter: dict[str, Any] = {
                 "createdAt": {"$gte": since, "$lte": until}
@@ -249,12 +263,8 @@ class TimeMachineService:
                     },
                 })
 
-        # Sort all events by timestamp
         events.sort(key=lambda x: x["timestamp"], reverse=True)
-
         total = len(events)
-
-        # Apply pagination
         paginated_events = events[offset:offset + limit]
 
         logger.info(
@@ -288,7 +298,6 @@ class TimeMachineService:
             "submittedAt": doc["submittedAt"],
         }
 
-        # Include requested sections or all by default
         all_sections = ["hardware", "network", "storage", "software"]
         include_sections = sections if sections else all_sections
 

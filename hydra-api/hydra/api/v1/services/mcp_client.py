@@ -20,12 +20,16 @@ class MCPClientError(ValidationError):
 
 
 class MCPClient:
-    """Client for calling MCP servers over HTTP."""
+    """Client for calling MCP servers over HTTP.
+
+    Provides methods to interact with MCP servers including the built-in
+    hydra-mcp server and user-configured external servers. Handles tool
+    discovery, tool execution, resource access, and health checks.
+    """
 
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
         self.settings = get_settings()
-        # Built-in hydra-mcp server URL (from docker-compose or config)
         self._builtin_mcp_url: str | None = None
 
     @property
@@ -36,8 +40,18 @@ class MCPClient:
         return self._builtin_mcp_url
 
     async def get_server_config(self, server_id: str, user_id: str) -> dict:
-        """Get MCP server configuration."""
-        # Check if this is the built-in server
+        """Get MCP server configuration.
+
+        Args:
+            server_id: Server identifier or "hydra-mcp"/"builtin" for built-in.
+            user_id: User identifier for authorization.
+
+        Returns:
+            Server config dict with server_id, name, url, is_builtin, and transport.
+
+        Raises:
+            MCPClientError: If the server is not found.
+        """
         if server_id == "hydra-mcp" or server_id == "builtin":
             return {
                 "server_id": "hydra-mcp",
@@ -46,7 +60,6 @@ class MCPClient:
                 "is_builtin": True,
             }
 
-        # Look up user-configured server
         doc = await self.db.mcp_servers.find_one({
             "serverId": server_id,
             "createdBy": user_id,
@@ -64,7 +77,17 @@ class MCPClient:
         }
 
     async def get_tools(self, server_config: dict) -> list[dict]:
-        """Get available tools from an MCP server."""
+        """Get available tools from an MCP server.
+
+        Args:
+            server_config: Server configuration from get_server_config.
+
+        Returns:
+            List of tool definitions with name, description, and inputSchema.
+
+        Raises:
+            MCPClientError: If the server URL is not configured or request fails.
+        """
         url = server_config.get("url")
         if not url:
             raise MCPClientError("Server URL not configured")
@@ -88,11 +111,13 @@ class MCPClient:
     ) -> dict:
         """Call a tool on an MCP server.
 
+        Args:
+            server_config: Server configuration from get_server_config.
+            tool_name: Name of the tool to call.
+            arguments: Tool arguments as a dictionary.
+
         Returns:
-            {
-                "content": str,  # Tool result content
-                "is_error": bool,  # Whether the tool returned an error
-            }
+            Dict with "content" (str) and "is_error" (bool) keys.
         """
         url = server_config.get("url")
         if not url:
@@ -138,7 +163,17 @@ class MCPClient:
                 }
 
     async def get_resources(self, server_config: dict) -> list[dict]:
-        """Get available resources from an MCP server."""
+        """Get available resources from an MCP server.
+
+        Args:
+            server_config: Server configuration from get_server_config.
+
+        Returns:
+            List of resource definitions with uri, name, and description.
+
+        Raises:
+            MCPClientError: If the server URL is not configured or request fails.
+        """
         url = server_config.get("url")
         if not url:
             raise MCPClientError("Server URL not configured")
@@ -155,7 +190,18 @@ class MCPClient:
                 raise MCPClientError(f"Failed to connect to MCP server: {str(e)}")
 
     async def read_resource(self, server_config: dict, uri: str) -> str:
-        """Read a resource from an MCP server."""
+        """Read a resource from an MCP server.
+
+        Args:
+            server_config: Server configuration from get_server_config.
+            uri: Resource URI to read.
+
+        Returns:
+            Resource content as a string.
+
+        Raises:
+            MCPClientError: If the server URL is not configured or request fails.
+        """
         url = server_config.get("url")
         if not url:
             raise MCPClientError("Server URL not configured")
@@ -175,7 +221,15 @@ class MCPClient:
                 raise MCPClientError(f"Failed to connect to MCP server: {str(e)}")
 
     async def check_health(self, server_config: dict) -> dict:
-        """Check the health of an MCP server."""
+        """Check the health of an MCP server.
+
+        Args:
+            server_config: Server configuration from get_server_config.
+
+        Returns:
+            Health status dict with healthy, server_name, version, tools_count,
+            resources_count, and optionally error.
+        """
         url = server_config.get("url")
         if not url:
             return {"healthy": False, "error": "Server URL not configured"}
@@ -204,7 +258,15 @@ class MCPClient:
     ) -> list[dict]:
         """Get all tools from multiple MCP servers for a chat session.
 
-        Returns tools with server_id attached for routing.
+        Fetches tools from each enabled server and attaches server metadata
+        for routing tool calls back to the correct server.
+
+        Args:
+            server_ids: List of MCP server identifiers to query.
+            user_id: User identifier for authorization.
+
+        Returns:
+            List of tools with server_id and server_name attached to each.
         """
         all_tools = []
 
@@ -213,7 +275,6 @@ class MCPClient:
                 config = await self.get_server_config(server_id, user_id)
                 tools = await self.get_tools(config)
 
-                # Attach server info to each tool (copy to avoid mutating original)
                 for tool in tools:
                     tool_with_server = {
                         **tool,
@@ -240,19 +301,21 @@ class MCPClient:
     ) -> dict:
         """Execute a tool call, routing to the correct server.
 
+        If server_id is specified in the tool_call, routes directly to that server.
+        Otherwise, searches enabled servers for one that provides the tool.
+
         Args:
-            tool_call: {"id": "...", "name": "...", "input": {...}, "server_id": "..."}
-            server_ids: List of enabled server IDs for this session
-            user_id: User ID for authorization
+            tool_call: Dict with id, name, input, and optionally server_id.
+            server_ids: List of enabled server IDs for this session.
+            user_id: User identifier for authorization.
 
         Returns:
-            {"content": "...", "is_error": bool}
+            Dict with "content" (str) and "is_error" (bool) keys.
         """
         tool_name = tool_call.get("name", "")
         tool_input = tool_call.get("input", {})
         server_id = tool_call.get("server_id")
 
-        # If server_id is specified, use that server
         if server_id:
             try:
                 config = await self.get_server_config(server_id, user_id)
@@ -260,13 +323,11 @@ class MCPClient:
             except MCPClientError as e:
                 return {"content": str(e), "is_error": True}
 
-        # Otherwise, search for the tool across enabled servers
         for sid in server_ids:
             try:
                 config = await self.get_server_config(sid, user_id)
                 tools = await self.get_tools(config)
 
-                # Check if this server has the tool
                 if any(t.get("name") == tool_name for t in tools):
                     return await self.call_tool(config, tool_name, tool_input)
 

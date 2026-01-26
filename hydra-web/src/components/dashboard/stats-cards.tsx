@@ -13,28 +13,23 @@ export function StatsCards() {
   const { data: servicesData, isLoading: servicesLoading } = useServices({});
   const { data: networksData, isLoading: networksLoading } = useNetworks({});
 
-  // Calculate node stats
   const totalNodes = nodesData?.total ?? 0;
   const onlineNodes = nodesData?.items?.filter((n) => n.status === 'active').length ?? 0;
   const offlineNodes = nodesData?.items?.filter((n) => n.status === 'inactive' || n.status === 'archived').length ?? 0;
   const warningNodes = nodesData?.items?.filter((n) => n.status === 'pending').length ?? 0;
 
-  // Calculate service stats
   const totalServices = servicesData?.total ?? 0;
   const runningServices = servicesData?.items?.filter((s) => s.status === 'running').length ?? 0;
   const stoppedServices = servicesData?.items?.filter((s) => s.status !== 'running').length ?? 0;
 
-  // Calculate network stats
   const totalNetworks = networksData?.total ?? 0;
   const physicalNetworks = networksData?.items?.filter((n) => n.type === 'physical').length ?? 0;
 
-  // Mock active alerts count (since alerts API may not exist yet)
   const criticalAlerts = 2;
   const warningAlerts = 3;
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      {/* Total Nodes */}
       <Link to={ROUTES.NODES}>
         <Card className="bg-card border-border hover:border-foreground/20 transition-colors cursor-pointer">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -71,7 +66,6 @@ export function StatsCards() {
         </Card>
       </Link>
 
-      {/* Services */}
       <Link to={ROUTES.SERVICES}>
         <Card className="bg-card border-border hover:border-foreground/20 transition-colors cursor-pointer">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -101,7 +95,6 @@ export function StatsCards() {
         </Card>
       </Link>
 
-      {/* Networks */}
       <Link to={ROUTES.NETWORKS}>
         <Card className="bg-card border-border hover:border-foreground/20 transition-colors cursor-pointer">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -123,7 +116,6 @@ export function StatsCards() {
         </Card>
       </Link>
 
-      {/* Active Alerts */}
       <Link to="/alerts">
         <Card className="bg-card border-border hover:border-foreground/20 transition-colors cursor-pointer">
           <CardHeader className="flex flex-row items-center justify-between pb-2">

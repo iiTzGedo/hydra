@@ -80,14 +80,12 @@ export function GroupList({ filters }: GroupListProps) {
 
   return (
     <div className="space-y-4">
-      {/* Results count */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
           Showing {data.items.length} of {data.total} groups
         </span>
       </div>
 
-      {/* Group grid */}
       <motion.div
         variants={staggerContainerVariants}
         initial="hidden"
@@ -101,7 +99,6 @@ export function GroupList({ filters }: GroupListProps) {
         </AnimatePresence>
       </motion.div>
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
           <button
@@ -147,7 +144,6 @@ function GroupCard({ group }: { group: GroupListItem }) {
       layout
       className="group relative rounded-xl border bg-card p-5 shadow-sm hover:border-primary/50 transition-colors"
     >
-      {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="rounded-lg bg-iot p-2.5">
           <FolderTree className="h-5 w-5 text-white" />
@@ -197,7 +193,6 @@ function GroupCard({ group }: { group: GroupListItem }) {
         </div>
       </div>
 
-      {/* Content */}
       <Link to={ROUTES.GROUPS + '/' + group.id}>
         <h3 className="font-semibold hover:text-primary transition-colors mb-2">
           {group.name}
@@ -221,7 +216,6 @@ function GroupCard({ group }: { group: GroupListItem }) {
         </div>
       </Link>
 
-      {/* Member count */}
       {group.memberCount && group.memberCount.nodes + group.memberCount.services > 0 && (
         <div className="mt-4 pt-4 border-t">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">

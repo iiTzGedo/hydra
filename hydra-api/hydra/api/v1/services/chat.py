@@ -48,7 +48,16 @@ class ChatService:
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
-        """List chat projects for a user."""
+        """List chat projects for a user.
+
+        Args:
+            user_id: The user identifier.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip for pagination.
+
+        Returns:
+            Dict with 'projects' list and 'total' count.
+        """
         cursor = (
             self.db.chat_projects.find({"ownerId": user_id})
             .sort("updatedAt", -1)
@@ -58,7 +67,6 @@ class ChatService:
 
         projects = []
         async for doc in cursor:
-            # Get session count for this project
             session_count = await self.db.chat_sessions.count_documents({
                 "projectId": doc["projectId"]
             })
@@ -69,7 +77,18 @@ class ChatService:
         return {"projects": projects, "total": total}
 
     async def get_project(self, project_id: str, user_id: str) -> dict:
-        """Get a specific chat project."""
+        """Get a specific chat project by ID.
+
+        Args:
+            project_id: The project identifier.
+            user_id: The owner's user identifier.
+
+        Returns:
+            The project details with session count.
+
+        Raises:
+            ChatProjectNotFoundError: If project does not exist or is not owned by user.
+        """
         doc = await self.db.chat_projects.find_one({
             "projectId": project_id,
             "ownerId": user_id,
@@ -89,7 +108,15 @@ class ChatService:
         request: ChatProjectCreate,
         user_id: str,
     ) -> dict:
-        """Create a new chat project."""
+        """Create a new chat project.
+
+        Args:
+            request: Project creation payload with name and optional description.
+            user_id: The owner's user identifier.
+
+        Returns:
+            The created project details.
+        """
         now = datetime.now(timezone.utc)
         project_id = f"proj_{secrets.token_urlsafe(8)}"
 
@@ -114,7 +141,19 @@ class ChatService:
         request: ChatProjectUpdate,
         user_id: str,
     ) -> dict:
-        """Update a chat project."""
+        """Update a chat project.
+
+        Args:
+            project_id: The project identifier.
+            request: Update payload with optional name and description.
+            user_id: The owner's user identifier.
+
+        Returns:
+            The updated project details.
+
+        Raises:
+            ChatProjectNotFoundError: If project does not exist or is not owned by user.
+        """
         doc = await self.db.chat_projects.find_one({
             "projectId": project_id,
             "ownerId": user_id,
@@ -151,7 +190,19 @@ class ChatService:
         user_id: str,
         cascade: bool = True,
     ) -> dict:
-        """Delete a chat project."""
+        """Delete a chat project.
+
+        Args:
+            project_id: The project identifier.
+            user_id: The owner's user identifier.
+            cascade: If True, delete all associated sessions and messages.
+
+        Returns:
+            Dict with 'deleted' status and 'projectId'.
+
+        Raises:
+            ChatProjectNotFoundError: If project does not exist or is not owned by user.
+        """
         doc = await self.db.chat_projects.find_one({
             "projectId": project_id,
             "ownerId": user_id,
@@ -161,7 +212,6 @@ class ChatService:
             raise ChatProjectNotFoundError(project_id)
 
         if cascade:
-            # Delete all sessions and their messages
             sessions = self.db.chat_sessions.find({"projectId": project_id})
             async for session in sessions:
                 await self.db.chat_messages.delete_many({
@@ -189,7 +239,17 @@ class ChatService:
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
-        """List chat sessions for a user."""
+        """List chat sessions for a user.
+
+        Args:
+            user_id: The user identifier.
+            project_id: Optional project filter.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip for pagination.
+
+        Returns:
+            Dict with 'sessions' list and 'total' count.
+        """
         query = {"ownerId": user_id}
         if project_id:
             query["projectId"] = project_id
@@ -213,7 +273,18 @@ class ChatService:
         return {"sessions": sessions, "total": total}
 
     async def get_session(self, session_id: str, user_id: str) -> dict:
-        """Get a specific chat session."""
+        """Get a specific chat session by ID.
+
+        Args:
+            session_id: The session identifier.
+            user_id: The owner's user identifier.
+
+        Returns:
+            The session details with message count.
+
+        Raises:
+            ChatSessionNotFoundError: If session does not exist or is not owned by user.
+        """
         doc = await self.db.chat_sessions.find_one({
             "sessionId": session_id,
             "ownerId": user_id,
@@ -233,11 +304,21 @@ class ChatService:
         request: ChatSessionCreate,
         user_id: str,
     ) -> dict:
-        """Create a new chat session."""
+        """Create a new chat session.
+
+        Args:
+            request: Session creation payload with optional project, title, LLM provider.
+            user_id: The owner's user identifier.
+
+        Returns:
+            The created session details.
+
+        Raises:
+            ChatProjectNotFoundError: If specified project does not exist.
+        """
         now = datetime.now(timezone.utc)
         session_id = f"sess_{secrets.token_urlsafe(8)}"
 
-        # Verify project exists if specified
         if request.project_id:
             project = await self.db.chat_projects.find_one({
                 "projectId": request.project_id,
@@ -271,7 +352,20 @@ class ChatService:
         request: ChatSessionUpdate,
         user_id: str,
     ) -> dict:
-        """Update a chat session."""
+        """Update a chat session.
+
+        Args:
+            session_id: The session identifier.
+            request: Update payload with optional title, status, project, LLM provider.
+            user_id: The owner's user identifier.
+
+        Returns:
+            The updated session details.
+
+        Raises:
+            ChatSessionNotFoundError: If session does not exist or is not owned by user.
+            ChatProjectNotFoundError: If specified project does not exist.
+        """
         doc = await self.db.chat_sessions.find_one({
             "sessionId": session_id,
             "ownerId": user_id,
@@ -288,7 +382,6 @@ class ChatService:
         if request.status is not None:
             update_fields["status"] = request.status.value
         if request.project_id is not None:
-            # Verify project exists
             if request.project_id:
                 project = await self.db.chat_projects.find_one({
                     "projectId": request.project_id,
@@ -321,7 +414,18 @@ class ChatService:
         session_id: str,
         user_id: str,
     ) -> dict:
-        """Delete a chat session and its messages."""
+        """Delete a chat session and all its messages.
+
+        Args:
+            session_id: The session identifier.
+            user_id: The owner's user identifier.
+
+        Returns:
+            Dict with 'deleted' status and 'sessionId'.
+
+        Raises:
+            ChatSessionNotFoundError: If session does not exist or is not owned by user.
+        """
         doc = await self.db.chat_sessions.find_one({
             "sessionId": session_id,
             "ownerId": user_id,
@@ -330,10 +434,7 @@ class ChatService:
         if not doc:
             raise ChatSessionNotFoundError(session_id)
 
-        # Delete all messages in the session
         await self.db.chat_messages.delete_many({"sessionId": session_id})
-
-        # Delete the session
         await self.db.chat_sessions.delete_one({"sessionId": session_id})
 
         logger.info("chat_session_deleted", session_id=session_id, user_id=user_id)
@@ -350,8 +451,21 @@ class ChatService:
         offset: int = 0,
         order: str = "asc",
     ) -> dict:
-        """List messages in a chat session."""
-        # Verify session ownership
+        """List messages in a chat session.
+
+        Args:
+            session_id: The session identifier.
+            user_id: The owner's user identifier.
+            limit: Maximum number of messages to return.
+            offset: Number of messages to skip for pagination.
+            order: Sort order ('asc' or 'desc').
+
+        Returns:
+            Dict with 'messages' list, 'total' count, and 'has_more' flag.
+
+        Raises:
+            ChatSessionNotFoundError: If session does not exist or is not owned by user.
+        """
         session = await self.db.chat_sessions.find_one({
             "sessionId": session_id,
             "ownerId": user_id,
@@ -383,8 +497,19 @@ class ChatService:
         request: ChatMessageCreate,
         user_id: str,
     ) -> dict:
-        """Create a new message in a chat session."""
-        # Verify session ownership
+        """Create a new message in a chat session.
+
+        Args:
+            session_id: The session identifier.
+            request: Message creation payload with role, content, and optional tool calls.
+            user_id: The owner's user identifier.
+
+        Returns:
+            The created message details.
+
+        Raises:
+            ChatSessionNotFoundError: If session does not exist or is not owned by user.
+        """
         session = await self.db.chat_sessions.find_one({
             "sessionId": session_id,
             "ownerId": user_id,
@@ -396,7 +521,6 @@ class ChatService:
         now = datetime.now(timezone.utc)
         message_id = f"msg_{secrets.token_urlsafe(8)}"
 
-        # Get current max order
         last_message = await self.db.chat_messages.find_one(
             {"sessionId": session_id},
             sort=[("order", -1)],
@@ -419,7 +543,6 @@ class ChatService:
 
         await self.db.chat_messages.insert_one(doc)
 
-        # Update session's lastMessageAt
         await self.db.chat_sessions.update_one(
             {"sessionId": session_id},
             {"$set": {"lastMessageAt": now, "updatedAt": now}},
@@ -440,8 +563,22 @@ class ChatService:
         messages: list[ChatMessageUpsert],
         user_id: str,
     ) -> dict:
-        """Bulk upsert messages for background save."""
-        # Verify session ownership
+        """Bulk upsert messages for efficient batch saving.
+
+        Updates existing messages by ID or creates new ones. Used for background
+        persistence of chat conversations.
+
+        Args:
+            session_id: The session identifier.
+            messages: List of messages to upsert (with optional message_id for updates).
+            user_id: The owner's user identifier.
+
+        Returns:
+            Dict with 'upserted_count' and 'session_id'.
+
+        Raises:
+            ChatSessionNotFoundError: If session does not exist or is not owned by user.
+        """
         session = await self.db.chat_sessions.find_one({
             "sessionId": session_id,
             "ownerId": user_id,
@@ -453,7 +590,6 @@ class ChatService:
         now = datetime.now(timezone.utc)
         upserted_count = 0
 
-        # Get current max order for new messages
         last_message = await self.db.chat_messages.find_one(
             {"sessionId": session_id},
             sort=[("order", -1)],
@@ -462,7 +598,6 @@ class ChatService:
 
         for msg in messages:
             if msg.message_id:
-                # Update existing message
                 result = await self.db.chat_messages.update_one(
                     {"messageId": msg.message_id, "sessionId": session_id},
                     {
@@ -479,7 +614,6 @@ class ChatService:
                 if result.modified_count > 0:
                     upserted_count += 1
             else:
-                # Create new message
                 message_id = f"msg_{secrets.token_urlsafe(8)}"
                 current_max_order += 1
 
@@ -499,7 +633,6 @@ class ChatService:
                 await self.db.chat_messages.insert_one(doc)
                 upserted_count += 1
 
-        # Update session's lastMessageAt
         await self.db.chat_sessions.update_one(
             {"sessionId": session_id},
             {"$set": {"lastMessageAt": now, "updatedAt": now}},

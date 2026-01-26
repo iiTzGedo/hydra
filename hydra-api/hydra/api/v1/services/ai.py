@@ -37,8 +37,16 @@ class AIService:
         limit: int = 50,
         offset: int = 0,
     ) -> dict:
-        """List LLM providers for a user."""
-        # Get providers created by this user or marked as shared
+        """List LLM providers configured by a user.
+
+        Args:
+            user_id: The user identifier.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip for pagination.
+
+        Returns:
+            Dict containing 'providers' list and 'total' count.
+        """
         cursor = (
             self.db.ai_models.find({"createdBy": user_id})
             .sort("createdAt", -1)
@@ -58,7 +66,18 @@ class AIService:
         }
 
     async def get_provider(self, provider_id: str, user_id: str) -> dict:
-        """Get a specific LLM provider."""
+        """Get a specific LLM provider by ID.
+
+        Args:
+            provider_id: The unique provider identifier.
+            user_id: The owner's user identifier.
+
+        Returns:
+            The provider configuration as a dict.
+
+        Raises:
+            LLMProviderNotFoundError: If the provider does not exist or is not owned by user.
+        """
         doc = await self.db.ai_models.find_one({
             "providerId": provider_id,
             "createdBy": user_id,
@@ -74,18 +93,24 @@ class AIService:
         request: LLMProviderCreate,
         user_id: str,
     ) -> dict:
-        """Create a new LLM provider configuration."""
+        """Create a new LLM provider configuration.
+
+        Args:
+            request: Provider creation payload with name, type, API key, etc.
+            user_id: The owner's user identifier.
+
+        Returns:
+            The created provider configuration.
+        """
         now = datetime.now(timezone.utc)
         provider_id = f"llm_{secrets.token_urlsafe(8)}"
 
-        # If setting as default, clear other defaults first
         if request.is_default:
             await self.db.ai_models.update_many(
                 {"createdBy": user_id, "isDefault": True},
                 {"$set": {"isDefault": False, "updatedAt": now}},
             )
 
-        # Encrypt the API key if provided
         encrypted_key = None
         api_key_last4 = None
         if request.api_key:
@@ -125,7 +150,19 @@ class AIService:
         request: LLMProviderUpdate,
         user_id: str,
     ) -> dict:
-        """Update an LLM provider configuration."""
+        """Update an LLM provider configuration.
+
+        Args:
+            provider_id: The unique provider identifier.
+            request: Update payload with optional name, API key, base URL, model.
+            user_id: The owner's user identifier.
+
+        Returns:
+            The updated provider configuration.
+
+        Raises:
+            LLMProviderNotFoundError: If the provider does not exist or is not owned by user.
+        """
         doc = await self.db.ai_models.find_one({
             "providerId": provider_id,
             "createdBy": user_id,
@@ -145,7 +182,6 @@ class AIService:
             update_fields["apiKeyLast4"] = (
                 request.api_key[-4:] if len(request.api_key) >= 4 else request.api_key
             )
-            # Reset validation status when key changes
             update_fields["isValid"] = None
             update_fields["lastValidatedAt"] = None
 
@@ -157,7 +193,6 @@ class AIService:
 
         if request.is_default is not None:
             if request.is_default:
-                # Clear other defaults first
                 await self.db.ai_models.update_many(
                     {"createdBy": user_id, "isDefault": True, "providerId": {"$ne": provider_id}},
                     {"$set": {"isDefault": False, "updatedAt": now}},
@@ -169,7 +204,6 @@ class AIService:
             {"$set": update_fields},
         )
 
-        # Fetch updated document
         updated_doc = await self.db.ai_models.find_one({"providerId": provider_id})
 
         logger.info(
@@ -181,7 +215,18 @@ class AIService:
         return self._doc_to_response(updated_doc)
 
     async def delete_provider(self, provider_id: str, user_id: str) -> dict:
-        """Delete an LLM provider configuration."""
+        """Delete an LLM provider configuration.
+
+        Args:
+            provider_id: The unique provider identifier.
+            user_id: The owner's user identifier.
+
+        Returns:
+            Dict with 'deleted' status and 'providerId'.
+
+        Raises:
+            LLMProviderNotFoundError: If the provider does not exist or is not owned by user.
+        """
         doc = await self.db.ai_models.find_one({
             "providerId": provider_id,
             "createdBy": user_id,
@@ -201,7 +246,20 @@ class AIService:
         return {"deleted": True, "providerId": provider_id}
 
     async def validate_provider(self, provider_id: str, user_id: str) -> dict:
-        """Validate an LLM provider by testing the API key."""
+        """Validate an LLM provider by testing the API connection.
+
+        Makes a request to the provider's API to verify the configuration is valid.
+
+        Args:
+            provider_id: The unique provider identifier.
+            user_id: The owner's user identifier.
+
+        Returns:
+            Validation result with 'is_valid', 'message', 'validated_at', and optional 'models' list.
+
+        Raises:
+            LLMProviderNotFoundError: If the provider does not exist or is not owned by user.
+        """
         doc = await self.db.ai_models.find_one({
             "providerId": provider_id,
             "createdBy": user_id,
@@ -213,12 +271,10 @@ class AIService:
         provider_type = LLMProviderType(doc["type"])
         now = datetime.now(timezone.utc)
 
-        # Decrypt API key if present
         api_key = None
         if doc.get("apiKeyEncrypted"):
             api_key = decrypt_value(doc["apiKeyEncrypted"])
 
-        # Validate based on provider type
         is_valid = False
         message = ""
         models = None
@@ -236,7 +292,6 @@ class AIService:
             logger.error("provider_validation_error", provider_id=provider_id, error=str(e))
             message = f"Validation failed: {str(e)}"
 
-        # Update validation status
         await self.db.ai_models.update_one(
             {"providerId": provider_id},
             {"$set": {"isValid": is_valid, "lastValidatedAt": now, "updatedAt": now}},
@@ -257,14 +312,12 @@ class AIService:
         }
 
     async def _validate_anthropic(self, api_key: str | None) -> tuple[bool, str, list[str] | None]:
-        """Validate Anthropic API key."""
+        """Validate Anthropic API key by fetching available models."""
         if not api_key:
             return False, "API key is required for Anthropic", None
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                # Use messages API to validate - list models isn't available
-                # We'll try a minimal request that fails gracefully
                 response = await client.get(
                     "https://api.anthropic.com/v1/models",
                     headers={
@@ -289,7 +342,7 @@ class AIService:
     async def _validate_openai(
         self, api_key: str | None, base_url: str | None
     ) -> tuple[bool, str, list[str] | None]:
-        """Validate OpenAI API key."""
+        """Validate OpenAI API key by fetching available models."""
         if not api_key:
             return False, "API key is required for OpenAI", None
 
@@ -316,7 +369,7 @@ class AIService:
                 return False, f"Request failed: {str(e)}", None
 
     async def _validate_ollama(self, base_url: str | None) -> tuple[bool, str, list[str] | None]:
-        """Validate Ollama server connection."""
+        """Validate Ollama server by checking connectivity and listing models."""
         if not base_url:
             return False, "Base URL is required for Ollama", None
 
@@ -338,7 +391,7 @@ class AIService:
                 return False, f"Cannot reach Ollama server: {str(e)}", None
 
     def _doc_to_response(self, doc: dict) -> dict:
-        """Convert a database document to a response dictionary."""
+        """Convert a database document to an API response dictionary."""
         return {
             "provider_id": doc["providerId"],
             "name": doc["name"],

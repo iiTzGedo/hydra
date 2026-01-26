@@ -31,7 +31,6 @@ interface ProfileTabProps {
   nodeId: string;
 }
 
-// Helper to get sections that have data
 function getSectionsWithData(profile: Profile): string[] {
   const sections: string[] = [];
   if (profile.hardware) sections.push('hardware');
@@ -60,7 +59,6 @@ export function ProfileTab({ nodeId }: ProfileTabProps) {
 
   const isDiffMode = selectedProfiles.length === 2;
 
-  // Get versions from profile summaries for diff comparison
   const firstVersion = useMemo(() => {
     const profile = profileItems.find(p => p.profileId === firstSelectedId);
     return profile?.version;
@@ -71,7 +69,6 @@ export function ProfileTab({ nodeId }: ProfileTabProps) {
     return profile?.version;
   }, [profileItems, secondSelectedId]);
 
-  // Use versions for diff API (API compares by version, not profile ID)
   const { data: diffData, isLoading: diffLoading } = useProfileDiff(
     nodeId,
     isDiffMode ? firstVersion : undefined,

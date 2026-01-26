@@ -35,18 +35,15 @@ function getDaysInMonth(year: number, month: number): Date[] {
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
 
-  // Add days from previous month to fill first week
   const startPadding = firstDay.getDay();
   for (let i = startPadding - 1; i >= 0; i--) {
     days.push(new Date(year, month, -i));
   }
 
-  // Add all days in current month
   for (let d = 1; d <= lastDay.getDate(); d++) {
     days.push(new Date(year, month, d));
   }
 
-  // Add days from next month to fill last week
   const endPadding = 6 - lastDay.getDay();
   for (let i = 1; i <= endPadding; i++) {
     days.push(new Date(year, month + 1, i));
@@ -67,7 +64,6 @@ function EventMarkers({ events }: { events: TimelineEvent[] }) {
 
   if (types.length === 0) return null;
 
-  // Show max 3 markers
   const displayTypes = types.slice(0, 3);
 
   return (
@@ -157,7 +153,6 @@ export function CalendarView({
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  // Calculate event summary for current view
   const totalEvents = events.filter((event) => {
     const eventDate = new Date(event.timestamp);
     const monthStart = new Date(year, month, 1);
@@ -167,7 +162,6 @@ export function CalendarView({
 
   return (
     <div className="rounded-xl border bg-card p-4 shadow-sm">
-      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <CalendarDays className="h-5 w-5 text-muted-foreground" />
@@ -180,7 +174,6 @@ export function CalendarView({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Granularity toggle */}
           <div className="flex rounded-lg border bg-muted/40 p-0.5">
             <button
               onClick={() => setGranularity('day')}
@@ -220,7 +213,6 @@ export function CalendarView({
         </div>
       </div>
 
-      {/* Month Navigation */}
       <div className="flex items-center justify-between mb-4">
         <button
           onClick={prevMonth}
@@ -239,7 +231,6 @@ export function CalendarView({
         </button>
       </div>
 
-      {/* Day Headers */}
       <div className="grid grid-cols-7 gap-1 mb-2">
         {dayNames.map((day) => (
           <div
@@ -251,7 +242,6 @@ export function CalendarView({
         ))}
       </div>
 
-      {/* Calendar Grid */}
       <div className="grid grid-cols-7 gap-1">
         {dayData.map((day, idx) => (
           <motion.button
@@ -286,7 +276,6 @@ export function CalendarView({
         ))}
       </div>
 
-      {/* Legend */}
       <div className="mt-4 pt-3 border-t">
         <p className="text-xs font-medium text-muted-foreground mb-2">Event Types</p>
         <div className="flex flex-wrap gap-3">

@@ -18,7 +18,6 @@ export function PermissionGate({
 }: PermissionGateProps) {
   const { hasPermission, hasAnyRole, hasRole } = useAuthStore();
 
-  // Check role requirements
   if (roles && roles.length > 0) {
     if (requireAll) {
       const hasAllRoles = roles.every((r) => hasRole(r));
@@ -28,7 +27,6 @@ export function PermissionGate({
     }
   }
 
-  // Check permission requirements
   if (permissions && permissions.length > 0) {
     if (requireAll) {
       const hasAllPermissions = permissions.every((p) => hasPermission(p));

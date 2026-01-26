@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress';
 import { useCapacity } from '@/api/query';
 
-// Generate mock metrics data for 24h chart
 const generateMetricsData = () => {
   const data = [];
   const now = Date.now();
@@ -23,7 +22,6 @@ export function CapacityOverview() {
   const { data, isLoading } = useCapacity();
   const metricsData = useMemo(() => generateMetricsData(), []);
 
-  // Mock average values (in real app, calculate from actual data)
   const avgCpu = 58;
   const avgMemory = 67;
   const avgStorage = 42;
@@ -37,7 +35,6 @@ export function CapacityOverview() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {/* Chart */}
         <div className="h-[250px]">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={metricsData}>
@@ -91,7 +88,6 @@ export function CapacityOverview() {
           </ResponsiveContainer>
         </div>
 
-        {/* Resource Gauges */}
         <div className="grid grid-cols-3 gap-4 mt-6">
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">

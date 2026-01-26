@@ -29,8 +29,18 @@ class DocsService:
         request: CreateDocRequest,
         author: str | None = None,
     ) -> dict[str, Any]:
-        """Create new documentation."""
-        # Check if doc already exists
+        """Create new documentation entry.
+
+        Args:
+            request: Documentation creation payload.
+            author: The author's user identifier.
+
+        Returns:
+            The created document.
+
+        Raises:
+            ConflictError: If a document with the same ID already exists.
+        """
         existing = await self.docs.find_one({"docId": request.doc_id})
         if existing:
             raise ConflictError("doc", request.doc_id)
@@ -56,7 +66,6 @@ class DocsService:
             "status": DocStatus.PUBLISHED.value,
             "createdAt": now,
             "updatedAt": now,
-            # Store version history
             "versions": [
                 {
                     "version": 1,
@@ -79,12 +88,22 @@ class DocsService:
         return doc
 
     async def get_doc(self, doc_id: str, version: int | None = None) -> dict[str, Any]:
-        """Get documentation by ID."""
+        """Get documentation by ID.
+
+        Args:
+            doc_id: The document identifier.
+            version: Optional specific version number to retrieve.
+
+        Returns:
+            The document, with content from specified version if requested.
+
+        Raises:
+            DocNotFoundError: If the document does not exist.
+        """
         doc = await self.docs.find_one({"docId": doc_id})
         if not doc:
             raise DocNotFoundError(doc_id)
 
-        # If specific version requested, get that version's content
         if version is not None:
             versions = doc.get("versions", [])
             for v in versions:
@@ -96,7 +115,14 @@ class DocsService:
         return doc
 
     async def list_docs(self, params: DocListParams) -> tuple[list[dict[str, Any]], int]:
-        """List documentation with filters."""
+        """List documentation with filtering and pagination.
+
+        Args:
+            params: Query parameters with filters, search, and pagination.
+
+        Returns:
+            Tuple of (documents list, total count).
+        """
         query: dict[str, Any] = {}
 
         if params.type:
@@ -134,7 +160,22 @@ class DocsService:
         request: UpdateDocRequest,
         author: str | None = None,
     ) -> dict[str, Any]:
-        """Update documentation."""
+        """Update documentation entry.
+
+        Content updates increment the version and store the previous content
+        in version history for retrieval.
+
+        Args:
+            doc_id: The document identifier.
+            request: Fields to update.
+            author: The author's user identifier.
+
+        Returns:
+            The updated document.
+
+        Raises:
+            DocNotFoundError: If the document does not exist.
+        """
         doc = await self.get_doc(doc_id)
         now = datetime.now(UTC)
 
@@ -160,13 +201,11 @@ class DocsService:
                 for e in request.linked_entities
             ]
 
-        # If content is updated, increment version and store in history
         if request.content is not None:
             new_version = doc["version"] + 1
             update_fields["content"] = request.content
             update_fields["version"] = new_version
 
-            # Add to version history
             await self.docs.update_one(
                 {"docId": doc_id},
                 {
@@ -192,7 +231,18 @@ class DocsService:
         return updated_doc
 
     async def delete_doc(self, doc_id: str, permanent: bool = False) -> dict[str, Any]:
-        """Delete or archive documentation."""
+        """Delete or archive documentation.
+
+        Args:
+            doc_id: The document identifier.
+            permanent: If True, permanently delete. Otherwise, archive (soft delete).
+
+        Returns:
+            Dict with doc_id and final status.
+
+        Raises:
+            DocNotFoundError: If the document does not exist.
+        """
         doc = await self.get_doc(doc_id)
 
         if permanent:
@@ -200,7 +250,6 @@ class DocsService:
             logger.info("doc_deleted_permanently", doc_id=doc_id)
             return {"docId": doc_id, "status": "deleted"}
         else:
-            # Soft delete - archive
             await self.docs.update_one(
                 {"docId": doc_id},
                 {
@@ -219,7 +268,16 @@ class DocsService:
         entity_id: str,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Get all documentation linked to a specific entity."""
+        """Get all documentation linked to a specific entity.
+
+        Args:
+            entity_type: The entity type (node, service, etc.).
+            entity_id: The entity identifier.
+            limit: Maximum number of documents to return.
+
+        Returns:
+            List of published documents linked to the entity.
+        """
         cursor = self.docs.find({
             "linkedEntities": {
                 "$elemMatch": {

@@ -178,7 +178,7 @@ pub fn resolve_path(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
-// Import dirs crate for home directory
+/// Platform-specific home directory resolution.
 mod dirs {
     use std::path::PathBuf;
 

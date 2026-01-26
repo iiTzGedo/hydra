@@ -50,7 +50,6 @@ export function ThemeProvider({
     setResolvedTheme(resolved);
   }, [theme]);
 
-  // Listen for system theme changes
   useEffect(() => {
     if (theme !== 'system') return;
 

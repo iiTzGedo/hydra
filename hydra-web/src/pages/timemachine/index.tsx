@@ -73,7 +73,6 @@ function parseDateInput(value: string): Date | null {
   return new Date(year, month - 1, day);
 }
 
-// Event type categories for Atlas view
 const EVENT_CATEGORIES = [
   {
     id: 'nodes',
@@ -180,7 +179,6 @@ function DateRangeSelector({
   );
 }
 
-// Event Atlas - Horizontal timeline with event icons per category
 function EventAtlas({
   events,
   selectedEventId,
@@ -194,7 +192,6 @@ function EventAtlas({
 }) {
   const scrollRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
 
-  // Group events by category
   const eventsByCategory = useMemo(() => {
     const groups = new Map<string, TimelineEvent[]>();
     EVENT_CATEGORIES.forEach((cat) => {
@@ -206,7 +203,6 @@ function EventAtlas({
     return groups;
   }, [events]);
 
-  // Auto-scroll selected event into view
   useEffect(() => {
     if (!selectedEventId) return;
     const event = events.find((e) => e.eventId === selectedEventId);
@@ -253,7 +249,6 @@ function EventAtlas({
 
           return (
             <div key={category.id} className="space-y-2">
-              {/* Category Header */}
               <div className="flex items-center gap-2">
                 <div className={cn('h-6 w-6 rounded flex items-center justify-center', category.color)}>
                   <Icon className="h-3.5 w-3.5 text-foreground" />
@@ -264,7 +259,6 @@ function EventAtlas({
                 </Badge>
               </div>
 
-              {/* Horizontal Timeline Track */}
               <div className="relative my-3">
                 <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-0.5 bg-muted" />
 
@@ -290,7 +284,6 @@ function EventAtlas({
                                 isSelected && 'scale-110 z-10'
                               )}
                             >
-                              {/* Event Dot with Icon */}
                               <div
                                 className={cn(
                                   'h-6 w-6 rounded-full flex items-center justify-center transition-all',
@@ -303,7 +296,6 @@ function EventAtlas({
                                 <EventIcon className="h-3 w-3 text-foreground" />
                               </div>
 
-                              {/* Selection Indicator */}
                               {isSelected && (
                                 <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-blue-500" />
                               )}
@@ -329,7 +321,6 @@ function EventAtlas({
           );
         })}
 
-        {/* Time Range Indicator */}
         <div className="flex items-center justify-between pt-2 text-[10px] text-muted-foreground border-t border-border">
           <span>{formatDate(range.start)}</span>
           <span>{events.length} total events</span>
@@ -340,7 +331,6 @@ function EventAtlas({
   );
 }
 
-// Event Timeline - Vertical list with timeline line (from prototype)
 function EventTimeline({
   events,
   selectedEventId,
@@ -352,7 +342,6 @@ function EventTimeline({
 }) {
   const selectedRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to selected event
   useEffect(() => {
     if (selectedRef.current) {
       selectedRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -371,7 +360,6 @@ function EventTimeline({
   return (
     <ScrollArea className="h-[400px] pr-4">
       <div className="relative">
-        {/* Timeline Line */}
         <div className="absolute left-[15px] top-0 bottom-0 w-px bg-muted" />
 
         <div className="space-y-3">
@@ -390,7 +378,6 @@ function EventTimeline({
                 )}
                 onClick={() => onSelect(event)}
               >
-                {/* Event Dot */}
                 <div
                   className={cn(
                     'relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all',
@@ -403,7 +390,6 @@ function EventTimeline({
                   <Icon className="h-4 w-4 text-foreground" />
                 </div>
 
-                {/* Event Content */}
                 <div
                   className={cn(
                     'flex-1 rounded-lg p-3 transition-colors',
@@ -459,7 +445,6 @@ export default function TimeMachinePage() {
     new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   );
 
-  // Update date range when preset changes
   useEffect(() => {
     if (dateRangePreset === 'custom') return;
 
@@ -481,7 +466,6 @@ export default function TimeMachinePage() {
     );
   }, [timeline]);
 
-  // Events sorted chronologically for stepping
   const chronologicalEvents = useMemo(() => {
     return [...events].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -580,7 +564,6 @@ export default function TimeMachinePage() {
     }
   };
 
-  // Use chronological order for stepping
   const selectedChronologicalIndex = chronologicalEvents.findIndex(
     (event) => event.eventId === selectedEventId
   );
@@ -618,7 +601,6 @@ export default function TimeMachinePage() {
     ? Object.entries(selectedEvent.metadata)
     : [];
 
-  // Calculate event stats
   const eventStats = useMemo(() => {
     if (!events.length) return { nodeEvents: 0, serviceEvents: 0, topologyEvents: 0, profiles: 0 };
     return {
@@ -633,7 +615,6 @@ export default function TimeMachinePage() {
     };
   }, [events]);
 
-  // Topology data transformation
   const topologyData = useMemo(() => {
     if (!topologyState?.graph) return null;
     return {
@@ -668,7 +649,6 @@ export default function TimeMachinePage() {
   return (
     <TooltipProvider>
       <div className="p-6 space-y-6">
-        {/* Header */}
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">Time Machine</h1>
@@ -678,7 +658,6 @@ export default function TimeMachinePage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
-            {/* Date Range Selector */}
             <DateRangeSelector
               preset={dateRangePreset}
               onPresetChange={setDateRangePreset}
@@ -688,7 +667,6 @@ export default function TimeMachinePage() {
               onEndChange={setEndDate}
             />
 
-            {/* View Mode Toggle */}
             <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
               <TabsList className="h-8 bg-muted border-border">
                 <TabsTrigger value="atlas" className="gap-1.5 text-xs px-2 h-6 data-[state=active]:bg-muted data-[state=active]:text-foreground">
@@ -702,7 +680,6 @@ export default function TimeMachinePage() {
               </TabsList>
             </Tabs>
 
-            {/* Playback Controls */}
             <div className="flex items-center gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -754,7 +731,6 @@ export default function TimeMachinePage() {
                 <TooltipContent className="bg-popover border-border text-popover-foreground">Next event</TooltipContent>
               </Tooltip>
 
-              {/* Position Indicator */}
               <div className="ml-2 px-2 py-1 rounded bg-muted text-[10px] text-muted-foreground">
                 {selectedChronologicalIndex >= 0
                   ? `${selectedChronologicalIndex + 1} / ${chronologicalEvents.length}`
@@ -764,7 +740,6 @@ export default function TimeMachinePage() {
           </div>
         </div>
 
-        {/* Event Atlas - Full Width */}
         <motion.div variants={staggerContainerVariants} initial="hidden" animate="visible">
           <motion.div variants={staggerItemVariants}>
             {viewMode === 'atlas' ? (
@@ -790,9 +765,7 @@ export default function TimeMachinePage() {
           </motion.div>
         </motion.div>
 
-        {/* Event Timeline + Event Details - Side by Side */}
         <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
-          {/* Event Timeline (Vertical) */}
           <motion.div variants={staggerItemVariants}>
             <Card className="bg-card border-border">
               <CardHeader className="pb-2">
@@ -814,7 +787,6 @@ export default function TimeMachinePage() {
             </Card>
           </motion.div>
 
-          {/* Event Details */}
           <motion.div variants={staggerItemVariants}>
             <Card className="bg-card border-border h-full">
               <CardHeader className="pb-3">
@@ -880,7 +852,6 @@ export default function TimeMachinePage() {
                       </div>
                     )}
 
-                    {/* View Resource Link */}
                     {selectedEvent.entityId && (
                       <Button
                         variant="outline"
@@ -898,7 +869,6 @@ export default function TimeMachinePage() {
           </motion.div>
         </div>
 
-        {/* Topology Snapshot - Full Width */}
         <motion.div variants={staggerItemVariants}>
           <Card className="overflow-hidden bg-card border-border">
             <CardHeader className="border-b border-border py-3">
@@ -945,7 +915,6 @@ export default function TimeMachinePage() {
         </motion.div>
       </div>
 
-      {/* Topology Full-Screen Modal */}
       <Dialog open={showTopologyModal} onOpenChange={setShowTopologyModal}>
         <DialogContent className="max-w-[95vw] max-h-[95vh] w-full h-full bg-card border-border p-0">
           <DialogHeader className="p-4 border-b border-border">

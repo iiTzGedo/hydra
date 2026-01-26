@@ -14,11 +14,9 @@ const badgeVariants = cva(
         success: 'border-transparent bg-success/10 text-success',
         warning: 'border-transparent bg-warning/10 text-warning',
         info: 'border-transparent bg-info/10 text-info',
-        // Node class variants
         compute: 'border-transparent bg-compute/10 text-compute',
         network: 'border-transparent bg-network/10 text-network',
         iot: 'border-transparent bg-iot/10 text-iot',
-        // Status variants
         online: 'border-transparent bg-success/10 text-success',
         offline: 'border-transparent bg-destructive/10 text-destructive',
         pending: 'border-transparent bg-warning/10 text-warning',

@@ -1,8 +1,3 @@
-/**
- * Chat Page with MCP Integration - Redesigned with Left Sidebar
- * Allows users to interact with their infrastructure through AI
- */
-
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { Link } from 'react-router-dom';
@@ -76,7 +71,6 @@ import { useToast } from '@/components/ui/use-toast';
 import { ChatHeader, ChatInput, MessageBubble } from './components';
 import { NewProjectModal, MCPConfigModal, LLMConfigModal } from './modals';
 
-// Suggested queries for users
 const suggestedPrompts = [
   { icon: Server, text: 'List all compute nodes', category: 'nodes' },
   { icon: Boxes, text: 'Show services with health issues', category: 'services' },
@@ -84,7 +78,6 @@ const suggestedPrompts = [
   { icon: AlertTriangle, text: 'Show unacknowledged alerts', category: 'alerts' },
 ];
 
-// Mock infrastructure context (replace with real data)
 const useInfrastructureContext = () => {
   return useMemo(
     () => ({
@@ -164,7 +157,6 @@ export default function ChatPage() {
     [sessions]
   );
 
-  // Helper to get sessions for a project
   const getProjectSessions = (projectId: string) =>
     sessions.filter((session) => session.projectId === projectId);
 
@@ -254,7 +246,6 @@ export default function ChatPage() {
     ]);
   };
 
-  // WebSocket chat hook
   const {
     isConnected: wsConnected,
     isStreaming,
@@ -282,14 +273,12 @@ export default function ChatPage() {
     },
   });
 
-  // Update streaming content display
   useEffect(() => {
     setStreamingContent(currentResponse);
   }, [currentResponse]);
 
   const hasBootstrappedRef = useRef(false);
 
-  // Auto-select or create a session
   useEffect(() => {
     if (!sessionsData) {
       return;
@@ -341,7 +330,6 @@ export default function ChatPage() {
     }
   }, [currentSession, defaultProvider, updateSessionMutation]);
 
-  // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [allMessages, isStreaming]);
@@ -351,7 +339,6 @@ export default function ChatPage() {
     setStreamingContent('');
   }, [currentSessionId]);
 
-  // Connect WebSocket when session and provider are ready
   useEffect(() => {
     const isProviderReady =
       activeLLMProvider?.apiKeySet || activeLLMProvider?.type === 'ollama';
@@ -360,7 +347,6 @@ export default function ChatPage() {
     }
   }, [currentSessionId, activeLLMProvider, wsConnected, wsConnect]);
 
-  // Disconnect WebSocket when component unmounts
   useEffect(() => {
     return () => {
       wsDisconnect();
@@ -371,7 +357,6 @@ export default function ChatPage() {
     const messageText = text || input.trim();
     if (!messageText || isStreaming || !currentSessionId) return;
 
-    // Check if LLM provider is configured
     const providerReady =
       activeLLMProvider?.apiKeySet || activeLLMProvider?.type === 'ollama';
     if (!providerReady) {
@@ -380,7 +365,6 @@ export default function ChatPage() {
     }
 
     if (!wsConnected) {
-      // Try to connect if not connected
       wsConnect();
       appendLocalMessage({
         role: 'assistant',
@@ -392,13 +376,11 @@ export default function ChatPage() {
 
     setInput('');
 
-    // Add user message
     appendLocalMessage({
       role: 'user',
       content: messageText,
     });
 
-    // Send message via WebSocket
     wsSendMessage(messageText);
   };
 
@@ -620,7 +602,6 @@ export default function ChatPage() {
   return (
     <TooltipProvider>
       <div className="h-[calc(100vh-3.5rem)] flex gap-4 p-4 bg-background relative">
-        {/* Mobile sidebar toggle */}
         <Button
           variant="outline"
           size="icon"
@@ -631,7 +612,6 @@ export default function ChatPage() {
           {mobileSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
 
-        {/* Mobile overlay */}
         {mobileSidebarOpen && (
           <div
             className="fixed inset-0 bg-black/50 z-30 md:hidden"
@@ -640,7 +620,6 @@ export default function ChatPage() {
           />
         )}
 
-        {/* Left Sidebar - Chats & Tools */}
         <div
           className={cn(
             'flex flex-col bg-card border border-border rounded-lg overflow-hidden min-h-0',
@@ -671,7 +650,6 @@ export default function ChatPage() {
               </TabsTrigger>
             </TabsList>
 
-            {/* Chats Tab */}
             <TabsContent value="chats" className="data-[state=inactive]:hidden flex-1 m-0 overflow-hidden flex flex-col">
               <div className="p-2 border-b border-border shrink-0 flex gap-2">
                 <Button
@@ -702,7 +680,6 @@ export default function ChatPage() {
 
               <ScrollArea className="flex-1">
                 <div className="p-2">
-                  {/* Projects Section */}
                   {projects.length > 0 && (
                     <div className="mb-3">
                       <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
@@ -771,7 +748,6 @@ export default function ChatPage() {
                     </div>
                   )}
 
-                  {/* Standalone/Recent Chats Section */}
                   <div>
                     <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
                       Recent Chats
@@ -800,11 +776,9 @@ export default function ChatPage() {
               </ScrollArea>
             </TabsContent>
 
-            {/* Tools Tab */}
             <TabsContent value="tools" className="flex-1 min-h-0 m-0 p-0 overflow-hidden flex flex-col">
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <div className="p-3 space-y-4">
-                  {/* MCP Services Section */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
@@ -890,7 +864,6 @@ export default function ChatPage() {
                     </div>
                   </div>
 
-                  {/* Available Tools Section */}
                   <div className="space-y-3">
                     <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                       <Wrench className="h-3.5 w-3.5 text-blue-500" />
@@ -923,7 +896,6 @@ export default function ChatPage() {
                     )}
                   </div>
 
-                  {/* Available Prompts Section */}
                   <div className="space-y-2">
                     <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                       <Sparkles className="h-3.5 w-3.5 text-amber-500" />
@@ -949,9 +921,7 @@ export default function ChatPage() {
                 </div>
               </div>
 
-              {/* Fixed bottom section - Quick Actions, Context, LLM */}
               <div className="border-t border-border p-3 space-y-3 shrink-0">
-                {/* Quick Actions Section */}
                 <div className="space-y-2">
                   <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                     <Zap className="h-3 w-3 text-cyan-500" />
@@ -977,7 +947,6 @@ export default function ChatPage() {
                     ))}
                   </div>
                 </div>
-                {/* Infrastructure Context */}
                 <div>
                   <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                     Context
@@ -1002,7 +971,6 @@ export default function ChatPage() {
                   </div>
                 </div>
 
-                {/* Active Model */}
                 <div className="flex items-center gap-2 p-2 rounded-md bg-blue-500/5 border border-blue-500/20">
                   <Sparkles className="h-4 w-4 text-blue-500 shrink-0" />
                   <div className="flex-1 min-w-0">
@@ -1027,9 +995,7 @@ export default function ChatPage() {
           </Tabs>
         </div>
 
-        {/* Main Chat Area */}
         <div className="flex-1 flex flex-col bg-card border border-border rounded-lg overflow-hidden min-w-0">
-          {/* Chat Header */}
           <ChatHeader
             currentSession={currentSession}
             activeLLMProvider={activeLLMProvider}
@@ -1044,7 +1010,6 @@ export default function ChatPage() {
             onDeleteSession={handleDeleteSession}
           />
 
-          {/* MCP Warning */}
           {!isHydraMcpConnected && (
             <div className="mx-4 mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-amber-500" />
@@ -1056,7 +1021,6 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* Messages Area */}
           <div className="flex-1 overflow-y-auto">
             <div className="p-4 space-y-4 max-w-4xl mx-auto">
               {allMessages.length === 0 ? (
@@ -1072,7 +1036,6 @@ export default function ChatPage() {
                     topology, and answer questions about your setup.
                   </p>
 
-                  {/* Suggested prompts */}
                   <div className="mt-8 max-w-2xl">
                     <div className="flex items-center gap-2 mb-3 justify-center">
                       <Sparkles className="h-4 w-4 text-amber-500" />
@@ -1125,7 +1088,6 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* Input Area */}
           <ChatInput
             value={input}
             onChange={setInput}
@@ -1134,7 +1096,6 @@ export default function ChatPage() {
           />
         </div>
 
-        {/* Modals */}
         <NewProjectModal
           open={showNewProjectModal}
           onOpenChange={setShowNewProjectModal}

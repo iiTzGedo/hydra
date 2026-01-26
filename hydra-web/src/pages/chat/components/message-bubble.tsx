@@ -56,7 +56,6 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         >
           <div className="text-sm whitespace-pre-wrap break-words">{message.content}</div>
 
-          {/* Tool Calls */}
           {message.toolCalls && message.toolCalls.length > 0 && (
             <div className="mt-3 space-y-2">
               {message.toolCalls.map((tool) => (

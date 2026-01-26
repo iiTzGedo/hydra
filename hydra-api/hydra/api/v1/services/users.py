@@ -60,26 +60,37 @@ class UsersService:
         return self._get_active_temporary_roles(temp_roles)
 
     async def register_user(self, request: UserRegistrationRequest) -> dict:
-        """Register a new user account."""
-        # Check if this is bootstrap (first user)
+        """Register a new user account.
+
+        Handles bootstrap (first user must be admin), token-based registration,
+        and pending approval flows.
+
+        Args:
+            request: Registration request with username, email, password, role,
+                and optional registration token.
+
+        Returns:
+            User registration result with status and user details.
+
+        Raises:
+            BootstrapRequiresAdminError: If first user is not admin role.
+            UsernameExistsError: If username is already taken.
+            EmailExistsError: If email is already registered.
+            RoleLimitExceededError: If role limit has been reached.
+            RegistrationTokenError: If provided token is invalid.
+        """
         user_count = await self.db.users.count_documents({})
         is_bootstrap = user_count == 0
 
         if is_bootstrap:
-            # First user must be admin
             if request.role != Role.ADMIN:
                 raise BootstrapRequiresAdminError()
-            # Create admin immediately
             return await self._create_active_user(request, is_bootstrap=True)
 
-        # Check username uniqueness across both collections
         await self._check_username_availability(request.username)
         await self._check_email_availability(request.email)
-
-        # Check role limits
         await self._check_role_limit(request.role.value)
 
-        # If registration token provided, validate and create user immediately
         if request.registration_token:
             await self._validate_user_registration_token(
                 request.registration_token, request.role
@@ -92,7 +103,6 @@ class UsersService:
             )
             return result
 
-        # No token - create pending user for approval
         return await self._create_pending_user(request)
 
     async def _check_username_availability(self, username: str) -> None:
@@ -119,7 +129,7 @@ class UsersService:
         """Check if role limit has been reached."""
         limit = ROLE_LIMITS.get(role)
         if limit is None:
-            return  # No limit
+            return
 
         count = await self.db.users.count_documents({"role": role})
         if count >= limit:
@@ -203,7 +213,19 @@ class UsersService:
     async def _validate_user_registration_token(
         self, token: str, requested_role: Role
     ) -> dict:
-        """Validate a registration token for user registration."""
+        """Validate a registration token for user registration.
+
+        Args:
+            token: The registration token string.
+            requested_role: The role being requested.
+
+        Returns:
+            The validated token document.
+
+        Raises:
+            RegistrationTokenError: If token is invalid, expired, exhausted,
+                wrong scope, or does not allow the requested role.
+        """
         token_doc = await self.db.tokens.find_one({"token": token, "type": "registration"})
 
         if not token_doc:
@@ -212,8 +234,6 @@ class UsersService:
                 "Invalid registration token",
             )
 
-        # Check scope - must be "user" for user registration
-        # Legacy tokens without scope are assumed to be user tokens
         token_scope = token_doc.get("scope", "user")
         if token_scope != "user":
             raise RegistrationTokenError(
@@ -234,7 +254,6 @@ class UsersService:
                 "Registration token has reached maximum uses",
             )
 
-        # Check if role is allowed
         allowed_roles = token_doc.get("allowedRoles")
         if allowed_roles and requested_role.value not in allowed_roles:
             raise RegistrationTokenError(
@@ -302,8 +321,19 @@ class UsersService:
     async def approve_user(
         self, request: ApproveUserRequest, approved_by: str
     ) -> dict:
-        """Approve a pending user registration."""
-        # Find the pending user
+        """Approve a pending user registration.
+
+        Args:
+            request: Approval request with user_id or username.
+            approved_by: User ID of the approving admin.
+
+        Returns:
+            Approved user details with status and approval timestamp.
+
+        Raises:
+            PendingUserNotFoundError: If pending user not found.
+            RoleLimitExceededError: If role limit has been reached.
+        """
         query = {}
         if request.user_id:
             query["userId"] = request.user_id
@@ -315,10 +345,8 @@ class UsersService:
             identifier = request.user_id or request.username
             raise PendingUserNotFoundError(identifier)
 
-        # Check role limit
         await self._check_role_limit(pending["role"])
 
-        # Create active user from pending
         now = datetime.now(timezone.utc)
         new_user_id = f"user_{secrets.token_urlsafe(8)}"
 
@@ -385,7 +413,21 @@ class UsersService:
     async def elevate_role(
         self, user_id: str, request: ElevateRoleRequest, elevated_by: str
     ) -> dict:
-        """Permanently elevate a user's role."""
+        """Permanently elevate a user's role.
+
+        Args:
+            user_id: User to elevate.
+            request: Elevation request with new role.
+            elevated_by: User ID performing the elevation.
+
+        Returns:
+            Elevation result with previous and new roles.
+
+        Raises:
+            UserNotFoundError: If user not found.
+            CannotElevateAgentError: If attempting to elevate an agent.
+            RoleLimitExceededError: If new role limit has been reached.
+        """
         user = await self.db.users.find_one({"userId": user_id})
         if not user:
             raise UserNotFoundError(user_id)
@@ -393,11 +435,9 @@ class UsersService:
         current_role = user["role"]
         new_role = request.new_role.value
 
-        # Check if user is an agent (cannot elevate)
         if current_role == Role.AGENT.value:
             raise CannotElevateAgentError()
 
-        # Check role limit for new role
         await self._check_role_limit(new_role)
 
         now = datetime.now(timezone.utc)
@@ -430,12 +470,24 @@ class UsersService:
     async def grant_temporary_role(
         self, user_id: str, request: GrantTemporaryRoleRequest, granted_by: str
     ) -> dict:
-        """Grant a temporary role to a user."""
+        """Grant a temporary role to a user.
+
+        Args:
+            user_id: User to grant role to.
+            request: Grant request with role, expiration, and reason.
+            granted_by: User ID granting the role.
+
+        Returns:
+            User's base role and active temporary roles.
+
+        Raises:
+            UserNotFoundError: If user not found.
+            TempRoleAlreadyActiveError: If user already has this temporary role.
+        """
         user = await self.db.users.find_one({"userId": user_id})
         if not user:
             raise UserNotFoundError(user_id)
 
-        # Check if user already has this temporary role active
         temp_roles = user.get("temporaryRoles", [])
         now = datetime.now(timezone.utc)
         for tr in temp_roles:
@@ -459,7 +511,6 @@ class UsersService:
             },
         )
 
-        # Get updated temporary roles
         updated_user = await self.db.users.find_one({"userId": user_id})
         active_temp_roles = self._get_active_temporary_roles(
             updated_user.get("temporaryRoles", [])
@@ -482,14 +533,25 @@ class UsersService:
     async def revoke_temporary_role(
         self, user_id: str, role: str, revoked_by: str
     ) -> dict:
-        """Revoke a temporary role from a user."""
+        """Revoke a temporary role from a user.
+
+        Args:
+            user_id: User to revoke role from.
+            role: Role name to revoke.
+            revoked_by: User ID performing the revocation.
+
+        Returns:
+            Revocation result with timestamp.
+
+        Raises:
+            UserNotFoundError: If user not found.
+        """
         user = await self.db.users.find_one({"userId": user_id})
         if not user:
             raise UserNotFoundError(user_id)
 
         now = datetime.now(timezone.utc)
 
-        # Remove all instances of this temporary role
         await self.db.users.update_one(
             {"userId": user_id},
             {
@@ -543,8 +605,8 @@ class UsersService:
                 "commands:execute",
                 "ha:*",
                 "tokens:create",
-                "tokens:create:user",  # Can create user registration tokens (role-restricted)
-                "tokens:create:node",  # Can create node registration tokens
+                "tokens:create:user",
+                "tokens:create:node",
             ],
             Role.VIEWER.value: [
                 "nodes:read",
@@ -561,7 +623,7 @@ class UsersService:
                 "iot:control",
                 "ha:read",
                 "ha:control",
-                "tokens:create:user",  # Can create user registration tokens (family only)
+                "tokens:create:user",
             ],
             Role.AGENT.value: [
                 "profiles:write",
@@ -691,7 +753,18 @@ class UsersService:
         return child.get("parentUserId") == parent_user_id
 
     async def get_current_user(self, token_payload: dict) -> dict:
-        """Get current user/agent info from token payload."""
+        """Get current user/agent info from token payload.
+
+        Args:
+            token_payload: Decoded JWT payload with subject and type.
+
+        Returns:
+            User or agent info with permissions.
+
+        Raises:
+            NodeNotFoundError: If agent node not found.
+            UserNotFoundError: If user not found.
+        """
         sub_type = token_payload.get("sub_type", "user")
         subject = token_payload["sub"]
 
@@ -706,25 +779,21 @@ class UsersService:
                 "permissions": ["profiles:write", "commands:poll"],
             }
         elif sub_type == "api_key":
-            # API key authentication
             permissions = token_payload.get("permissions", [])
             roles = token_payload.get("roles", [])
             node_id = token_payload.get("node_id")
 
             if node_id:
-                # Node API key
                 return {
                     "type": "agent",
                     "node_id": node_id,
                     "permissions": permissions,
                 }
             else:
-                # User API key - get user info
                 user = await self.db.users.find_one({"userId": subject})
                 if not user:
                     raise UserNotFoundError(subject)
 
-                # Combine role permissions with API key permissions
                 all_permissions = []
                 for role in roles or []:
                     all_permissions.extend(self._get_role_permissions(role))
@@ -743,10 +812,8 @@ class UsersService:
             if not user:
                 raise UserNotFoundError(subject)
 
-            # Get active temporary roles
             temp_roles = self._get_active_temporary_roles(user.get("temporaryRoles", []))
 
-            # Combine base role + temporary roles permissions
             all_permissions = self._get_role_permissions(user["role"])
             for tr in temp_roles:
                 all_permissions.extend(self._get_role_permissions(tr["role"]))
@@ -763,22 +830,25 @@ class UsersService:
             }
 
     async def request_password_reset(self, email: str, settings) -> dict:
-        """
-        Request a password reset.
+        """Request a password reset.
 
-        Returns success even if email doesn't exist (to prevent email enumeration).
+        Returns success even if email does not exist to prevent email enumeration.
+
+        Args:
+            email: Email address to send reset link to.
+            settings: Application settings with SMTP configuration.
+
+        Returns:
+            Dict with email_sent boolean indicating if email was sent.
         """
         from hydra.api.v1.core.email import get_email_service
 
-        # Find user by email
         user = await self.db.users.find_one({"email": email})
 
         if not user:
-            # Don't reveal that email doesn't exist
             logger.info("password_reset_requested_unknown_email", email=email)
             return {"email_sent": False}
 
-        # Check if user is active
         if user.get("status") != "active":
             logger.info(
                 "password_reset_requested_inactive_user",
@@ -787,12 +857,10 @@ class UsersService:
             )
             return {"email_sent": False}
 
-        # Generate reset token
         reset_token = f"prt_{secrets.token_urlsafe(32)}"
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(hours=settings.password_reset_token_expire_hours)
 
-        # Store token in database
         token_doc = {
             "token": reset_token,
             "userId": user["userId"],
@@ -803,7 +871,6 @@ class UsersService:
         }
         await self.db.password_reset_tokens.insert_one(token_doc)
 
-        # Send email
         email_service = get_email_service(settings)
         try:
             email_sent = await email_service.send_password_reset_email(
@@ -829,15 +896,20 @@ class UsersService:
         return {"email_sent": email_sent}
 
     async def reset_password(self, token: str, new_password: str) -> dict:
-        """
-        Reset password using a reset token.
+        """Reset password using a reset token.
+
+        Args:
+            token: Password reset token.
+            new_password: New password to set.
+
+        Returns:
+            Dict with reset_at timestamp.
 
         Raises:
-            PasswordResetTokenError: If token is invalid or expired
+            PasswordResetTokenError: If token is invalid, used, or expired.
         """
         now = datetime.now(timezone.utc)
 
-        # Find and validate token
         token_doc = await self.db.password_reset_tokens.find_one({"token": token})
 
         if not token_doc:
@@ -856,12 +928,10 @@ class UsersService:
                 "This reset token has expired",
             )
 
-        # Get user
         user = await self.db.users.find_one({"userId": token_doc["userId"]})
         if not user:
             raise PasswordResetTokenError()
 
-        # Update password
         password_hash = hash_password(new_password)
         await self.db.users.update_one(
             {"userId": user["userId"]},
@@ -873,13 +943,11 @@ class UsersService:
             },
         )
 
-        # Mark token as used
         await self.db.password_reset_tokens.update_one(
             {"token": token},
             {"$set": {"used": True, "usedAt": now}},
         )
 
-        # Invalidate all other reset tokens for this user
         await self.db.password_reset_tokens.update_many(
             {"userId": user["userId"], "used": False, "token": {"$ne": token}},
             {"$set": {"used": True, "usedAt": now}},
@@ -892,22 +960,27 @@ class UsersService:
     async def change_password(
         self, user_id: str, current_password: str, new_password: str
     ) -> dict:
-        """
-        Change password for authenticated user.
+        """Change password for authenticated user.
+
+        Args:
+            user_id: User changing their password.
+            current_password: Current password for verification.
+            new_password: New password to set.
+
+        Returns:
+            Dict with changed_at timestamp.
 
         Raises:
-            UserNotFoundError: If user doesn't exist
-            InvalidPasswordError: If current password is wrong
+            UserNotFoundError: If user does not exist.
+            InvalidPasswordError: If current password is wrong.
         """
         user = await self.db.users.find_one({"userId": user_id})
         if not user:
             raise UserNotFoundError(user_id)
 
-        # Verify current password
         if not verify_password(current_password, user["passwordHash"]):
             raise InvalidPasswordError()
 
-        # Update password
         now = datetime.now(timezone.utc)
         password_hash = hash_password(new_password)
 
@@ -934,66 +1007,57 @@ class UsersService:
         target_password: str,
         reset_password: bool = False,
     ) -> dict:
-        """
-        Link an existing user as a sub-account of the parent user.
+        """Link an existing user as a sub-account of the parent user.
 
         Args:
-            parent_user_id: User ID of the parent (admin/operator)
-            target_user_id: User ID of the target to become sub-account
-            target_password: Password of the target user (for verification)
-            reset_password: If true, reset sub-account password to match parent
+            parent_user_id: User ID of the parent (admin/operator).
+            target_user_id: User ID of the target to become sub-account.
+            target_password: Password of the target user (for verification).
+            reset_password: If true, reset sub-account password to match parent.
 
         Returns:
-            Sub-account linking result
+            Sub-account linking result with timestamps.
 
         Raises:
-            UserNotFoundError: If parent or target user not found
-            CannotHaveSubAccountsError: If parent role cannot have sub-accounts
-            InvalidSubAccountRoleError: If target role cannot be a sub-account
-            AlreadyHasParentError: If target already has a parent
-            InvalidPasswordError: If target password verification fails
+            ValidationError: If attempting self-linking or parent is a sub-account.
+            UserNotFoundError: If parent or target user not found.
+            CannotHaveSubAccountsError: If parent role cannot have sub-accounts.
+            InvalidSubAccountRoleError: If target role cannot be a sub-account.
+            AlreadyHasParentError: If target already has a parent.
+            InvalidPasswordError: If target password verification fails.
         """
-        # Prevent self-linking
         if parent_user_id == target_user_id:
             raise ValidationError("Cannot link a user as a sub-account of themselves")
 
-        # Get parent user
         parent = await self.db.users.find_one({"userId": parent_user_id})
         if not parent:
             raise UserNotFoundError(parent_user_id)
 
-        # Validate parent can have sub-accounts
         if not can_have_sub_accounts(parent["role"]):
             raise CannotHaveSubAccountsError(parent["role"])
         if parent.get("parentUserId"):
             raise ValidationError("Sub-accounts cannot have sub-accounts")
 
-        # Get target user
         target = await self.db.users.find_one({"userId": target_user_id})
         if not target:
             raise UserNotFoundError(target_user_id)
 
-        # Validate target role can be a sub-account
         if not is_valid_sub_account_role(target["role"]):
             raise InvalidSubAccountRoleError(target["role"])
 
-        # Check if target already has a parent
         if target.get("parentUserId"):
             raise AlreadyHasParentError(target_user_id, target["parentUserId"])
 
-        # Verify target password
         if not verify_password(target_password, target["passwordHash"]):
             raise InvalidPasswordError()
 
         now = datetime.now(timezone.utc)
 
-        # Update target user with parent reference
         update_fields = {
             "parentUserId": parent_user_id,
             "updatedAt": now,
         }
 
-        # Optionally reset password to match parent
         password_reset = False
         if reset_password:
             update_fields["passwordHash"] = parent["passwordHash"]
@@ -1004,7 +1068,6 @@ class UsersService:
             {"$set": update_fields},
         )
 
-        # Add to parent's sub_accounts list
         sub_account_info = {
             "userId": target_user_id,
             "username": target["username"],
@@ -1041,37 +1104,32 @@ class UsersService:
         parent_user_id: str,
         sub_account_user_id: str,
     ) -> dict:
-        """
-        Unlink a sub-account from its parent.
+        """Unlink a sub-account from its parent.
 
         Args:
-            parent_user_id: User ID of the parent
-            sub_account_user_id: User ID of the sub-account to unlink
+            parent_user_id: User ID of the parent.
+            sub_account_user_id: User ID of the sub-account to unlink.
 
         Returns:
-            Unlinking result
+            Unlinking result with timestamp.
 
         Raises:
-            UserNotFoundError: If parent or sub-account not found
-            NotASubAccountError: If target is not a sub-account of parent
+            UserNotFoundError: If parent or sub-account not found.
+            NotASubAccountError: If target is not a sub-account of parent.
         """
-        # Get parent user
         parent = await self.db.users.find_one({"userId": parent_user_id})
         if not parent:
             raise UserNotFoundError(parent_user_id)
 
-        # Get sub-account user
         sub_account = await self.db.users.find_one({"userId": sub_account_user_id})
         if not sub_account:
             raise UserNotFoundError(sub_account_user_id)
 
-        # Verify it's actually a sub-account of this parent
         if sub_account.get("parentUserId") != parent_user_id:
             raise NotASubAccountError(sub_account_user_id)
 
         now = datetime.now(timezone.utc)
 
-        # Remove parent reference from sub-account
         await self.db.users.update_one(
             {"userId": sub_account_user_id},
             {
@@ -1080,7 +1138,6 @@ class UsersService:
             },
         )
 
-        # Remove from parent's sub_accounts list
         await self.db.users.update_one(
             {"userId": parent_user_id},
             {
@@ -1102,17 +1159,16 @@ class UsersService:
         }
 
     async def list_sub_accounts(self, user_id: str) -> dict:
-        """
-        List sub-accounts of a user.
+        """List sub-accounts of a user.
 
         Args:
-            user_id: User ID to list sub-accounts for
+            user_id: User ID to list sub-accounts for.
 
         Returns:
-            List of sub-accounts with details
+            List of sub-accounts with current status and details.
 
         Raises:
-            UserNotFoundError: If user not found
+            UserNotFoundError: If user not found.
         """
         user = await self.db.users.find_one({"userId": user_id})
         if not user:
@@ -1120,7 +1176,6 @@ class UsersService:
 
         sub_accounts = user.get("subAccounts", [])
 
-        # Enrich with current status from database
         enriched_subs = []
         for sub in sub_accounts:
             sub_user = await self.db.users.find_one({"userId": sub["userId"]})
@@ -1142,26 +1197,23 @@ class UsersService:
         }
 
     async def get_user_detail(self, user_id: str) -> dict:
-        """
-        Get detailed user information including sub-accounts.
+        """Get detailed user information including sub-accounts.
 
         Args:
-            user_id: User ID
+            user_id: User ID to retrieve.
 
         Returns:
-            Full user details
+            Full user details including roles, permissions, and sub-accounts.
 
         Raises:
-            UserNotFoundError: If user not found
+            UserNotFoundError: If user not found.
         """
         user = await self.db.users.find_one({"userId": user_id})
         if not user:
             raise UserNotFoundError(user_id)
 
-        # Get active temporary roles
         temp_roles = self._get_active_temporary_roles(user.get("temporaryRoles", []))
 
-        # Get sub-account details if any
         sub_accounts = []
         for sub in user.get("subAccounts", []):
             sub_accounts.append({

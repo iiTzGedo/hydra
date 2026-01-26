@@ -35,7 +35,6 @@ export function Breadcrumbs() {
     const path = '/' + pathSegments.slice(0, index + 1).join('/');
     const label = routeLabels[segment] || segment;
 
-    // Don't link the last item
     if (index === pathSegments.length - 1) {
       return { label };
     }

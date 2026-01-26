@@ -21,19 +21,17 @@ class SearchService:
         tags: list[str] | None = None,
         limit: int = 20,
     ) -> dict:
-        """
-        Search across nodes, services, groups, and networks.
+        """Search across nodes, services, groups, and networks.
 
         Args:
-            query: Search query string
-            types: Entity types to search (all if not specified)
-            tags: Filter by tags (AND logic)
-            limit: Max results per entity type
+            query: Search query string.
+            types: Entity types to search (all if not specified).
+            tags: Filter by tags (AND logic).
+            limit: Max results per entity type.
 
         Returns:
-            Grouped search results
+            Grouped search results with query, results, and total.
         """
-        # Default to all types if not specified
         search_types = types or list(SearchEntityType)
 
         results = []
@@ -77,15 +75,12 @@ class SearchService:
         """Search nodes using text index."""
         search_query: dict = {}
 
-        # Use text search if query is provided
         if query:
             search_query["$text"] = {"$search": query}
 
-        # Add tag filter
         if tags:
             search_query["tags"] = {"$all": tags}
 
-        # Only search active/inactive nodes (not archived)
         search_query["status"] = {"$ne": "archived"}
 
         items = []
@@ -117,7 +112,6 @@ class SearchService:
                     "score": doc.get("score"),
                 })
         except Exception as e:
-            # Text index might not exist, fall back to regex search
             logger.warning("text_search_failed", collection="nodes", error=str(e))
             items = await self._regex_search_nodes(query, tags, limit)
 

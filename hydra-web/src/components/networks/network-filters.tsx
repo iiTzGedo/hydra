@@ -30,7 +30,6 @@ export function NetworkFilters({ filters, onFiltersChange }: NetworkFiltersProps
   return (
     <div className="rounded-xl border bg-card p-4 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-        {/* Search */}
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -46,9 +45,7 @@ export function NetworkFilters({ filters, onFiltersChange }: NetworkFiltersProps
           />
         </div>
 
-        {/* Filters */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Type filter */}
           <select
             value={filters.type || ''}
             onChange={(e) => updateFilter('type', (e.target.value as NetworkType) || null)}
@@ -65,7 +62,6 @@ export function NetworkFilters({ filters, onFiltersChange }: NetworkFiltersProps
             ))}
           </select>
 
-          {/* Clear filters */}
           {hasActiveFilters && (
             <button
               onClick={clearFilters}

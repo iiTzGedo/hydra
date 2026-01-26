@@ -34,7 +34,6 @@ import {
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 
-// Page title mapping
 const pathTitles: Record<string, string> = {
   '/': 'Dashboard',
   '/dashboard': 'Dashboard',
@@ -53,12 +52,10 @@ const pathTitles: Record<string, string> = {
 };
 
 function getPageTitle(pathname: string): string {
-  // Direct match
   if (pathTitles[pathname]) {
     return pathTitles[pathname];
   }
 
-  // Check for detail pages
   if (pathname.startsWith('/nodes/')) return 'Node Details';
   if (pathname.startsWith('/services/')) return 'Service Details';
   if (pathname.startsWith('/networks/')) return 'Network Details';
@@ -82,15 +79,12 @@ export function Header() {
     navigate(ROUTES.LOGIN);
   };
 
-  // Mock alerts (in real app, fetch from API)
   const unacknowledgedAlerts = 3;
   const criticalAlerts = 1;
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4 sm:px-6 shrink-0">
-      {/* Left side - Page title */}
       <div className="flex items-center gap-4 min-w-0">
-        {/* Mobile menu button */}
         <Button
           variant="ghost"
           size="icon"
@@ -102,9 +96,7 @@ export function Header() {
         <h1 className="text-lg font-semibold text-foreground truncate">{pageTitle}</h1>
       </div>
 
-      {/* Right side - Search, notifications, user */}
       <div className="flex items-center gap-2 sm:gap-4">
-        {/* Search - Hidden on mobile */}
         <div className="relative hidden sm:block">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -118,7 +110,6 @@ export function Header() {
           </kbd>
         </div>
 
-        {/* Mobile search button */}
         <Button
           variant="ghost"
           size="icon"
@@ -128,10 +119,8 @@ export function Header() {
           <Search className="h-5 w-5" />
         </Button>
 
-        {/* Command Palette */}
         <CommandPalette isOpen={commandPalette.isOpen} onClose={commandPalette.close} />
 
-        {/* Theme Toggle */}
         <Button
           variant="ghost"
           size="icon"
@@ -141,7 +130,6 @@ export function Header() {
           {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
 
-        {/* Notifications */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -188,7 +176,6 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* User Menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="flex items-center gap-2 px-2">

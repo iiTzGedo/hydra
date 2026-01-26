@@ -107,7 +107,6 @@ export default function ProfileComparePage() {
         animate="visible"
         className="space-y-6"
       >
-        {/* Profile headers comparison */}
         <motion.div
           variants={staggerItemVariants}
           className="rounded-xl border bg-card p-6 shadow-sm"
@@ -132,7 +131,6 @@ export default function ProfileComparePage() {
           </div>
         </motion.div>
 
-        {/* Diff summary */}
         {diff && (
           <motion.div
             variants={staggerItemVariants}
@@ -166,7 +164,6 @@ export default function ProfileComparePage() {
               />
             </div>
 
-            {/* Changed sections badges */}
             {diff.changedSections && diff.changedSections.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {diff.changedSections.map((section) => {
@@ -194,7 +191,6 @@ export default function ProfileComparePage() {
           </motion.div>
         )}
 
-        {/* Section-by-section comparison */}
         <HardwareComparison
           hardwareA={profileA.hardware}
           hardwareB={profileB.hardware}
@@ -305,7 +301,6 @@ function StatCard({
   );
 }
 
-// ========== Hardware Comparison ==========
 function HardwareComparison({
   hardwareA,
   hardwareB,
@@ -327,7 +322,6 @@ function HardwareComparison({
         onlyInB={!hardwareA && !!hardwareB}
       >
         <div className="space-y-4">
-          {/* CPU Comparison */}
           {(hardwareA?.cpu || hardwareB?.cpu) && (
             <ComparisonCard title="CPU" icon={<Cpu className="h-4 w-4" />}>
               <ComparisonRow
@@ -363,7 +357,6 @@ function HardwareComparison({
             </ComparisonCard>
           )}
 
-          {/* Memory Comparison */}
           {(hardwareA?.memory || hardwareB?.memory) && (
             <ComparisonCard title="Memory" icon={<MemoryStick className="h-4 w-4" />}>
               <ComparisonRow
@@ -394,7 +387,6 @@ function HardwareComparison({
             </ComparisonCard>
           )}
 
-          {/* System Comparison */}
           {(hardwareA?.systemManufacturer || hardwareA?.systemModel || hardwareB?.systemManufacturer || hardwareB?.systemModel) && (
             <ComparisonCard title="System" icon={<Database className="h-4 w-4" />}>
               <ComparisonRow
@@ -416,7 +408,6 @@ function HardwareComparison({
             </ComparisonCard>
           )}
 
-          {/* BIOS Comparison */}
           {(hardwareA?.biosVendor || hardwareA?.biosVersion || hardwareB?.biosVendor || hardwareB?.biosVersion) && (
             <ComparisonCard title="BIOS" icon={<Shield className="h-4 w-4" />}>
               <ComparisonRow
@@ -432,7 +423,6 @@ function HardwareComparison({
             </ComparisonCard>
           )}
 
-          {/* GPU Comparison */}
           {((hardwareA?.gpus && hardwareA.gpus.length > 0) || (hardwareB?.gpus && hardwareB.gpus.length > 0)) && (
             <ComparisonCard title="GPU" icon={<Database className="h-4 w-4" />}>
               <ArrayComparison
@@ -456,7 +446,6 @@ function HardwareComparison({
   );
 }
 
-// ========== Network Comparison ==========
 function NetworkComparison({
   networkA,
   networkB,
@@ -478,7 +467,6 @@ function NetworkComparison({
         onlyInB={!networkA && !!networkB}
       >
         <div className="space-y-4">
-          {/* Identity */}
           <ComparisonCard title="Identity">
             <ComparisonRow label="Hostname" valueA={networkA?.hostname} valueB={networkB?.hostname} mono />
             <ComparisonRow label="Domain" valueA={networkA?.domain} valueB={networkB?.domain} mono />
@@ -497,7 +485,6 @@ function NetworkComparison({
             />
           </ComparisonCard>
 
-          {/* Interfaces */}
           {((networkA?.interfaces && networkA.interfaces.length > 0) || (networkB?.interfaces && networkB.interfaces.length > 0)) && (
             <ComparisonCard title="Network Interfaces">
               <ArrayComparison
@@ -536,7 +523,6 @@ function NetworkComparison({
   );
 }
 
-// ========== Storage Comparison ==========
 function StorageComparison({
   storageA,
   storageB,
@@ -558,7 +544,6 @@ function StorageComparison({
         onlyInB={!storageA && !!storageB}
       >
         <div className="space-y-4">
-          {/* Block Devices */}
           {((storageA?.blockDevices && storageA.blockDevices.length > 0) || (storageB?.blockDevices && storageB.blockDevices.length > 0)) && (
             <ComparisonCard title="Block Devices">
               <ArrayComparison
@@ -577,7 +562,6 @@ function StorageComparison({
             </ComparisonCard>
           )}
 
-          {/* Filesystems */}
           {((storageA?.filesystems && storageA.filesystems.length > 0) || (storageB?.filesystems && storageB.filesystems.length > 0)) && (
             <ComparisonCard title="Filesystems">
               <FilesystemComparison
@@ -665,7 +649,6 @@ function FilesystemComparison({
   );
 }
 
-// ========== Software Comparison ==========
 function SoftwareComparison({
   softwareA,
   softwareB,
@@ -687,7 +670,6 @@ function SoftwareComparison({
         onlyInB={!softwareA && !!softwareB}
       >
         <div className="space-y-4">
-          {/* OS */}
           {(softwareA?.os || softwareB?.os) && (
             <ComparisonCard title="Operating System">
               <ComparisonRow label="Name" valueA={softwareA?.os?.name} valueB={softwareB?.os?.name} />
@@ -698,7 +680,6 @@ function SoftwareComparison({
             </ComparisonCard>
           )}
 
-          {/* Packages Summary */}
           {(softwareA?.packageCount !== undefined || softwareB?.packageCount !== undefined) && (
             <ComparisonCard title="Packages">
               <ComparisonRow
@@ -714,7 +695,6 @@ function SoftwareComparison({
   );
 }
 
-// ========== Services Comparison ==========
 function ServicesComparison({
   serviceIdsA,
   serviceIdsB,
@@ -753,7 +733,6 @@ function ServicesComparison({
   );
 }
 
-// ========== Users Comparison ==========
 function UsersComparison({
   usersA,
   usersB,
@@ -823,8 +802,6 @@ function UsersComparison({
     </motion.div>
   );
 }
-
-// ========== Shared Components ==========
 
 function ComparisonSection({
   title,

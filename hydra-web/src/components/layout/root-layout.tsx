@@ -9,15 +9,11 @@ interface RootLayoutProps {
 export function RootLayout({ children }: RootLayoutProps) {
   return (
     <div className="flex h-screen bg-background text-foreground">
-      {/* Sidebar */}
       <Sidebar />
 
-      {/* Main content area */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Header */}
         <Header />
 
-        {/* Page content */}
         <main className="flex-1 overflow-auto bg-background p-6">
           {children}
         </main>

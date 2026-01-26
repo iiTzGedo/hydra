@@ -92,7 +92,6 @@ export function Sidebar() {
   const sidebarContent = (
     <TooltipProvider>
       <>
-        {/* Logo */}
         <div
           className={cn(
             'flex h-14 items-center border-b border-sidebar-border px-4 shrink-0',
@@ -108,7 +107,6 @@ export function Sidebar() {
             )}
           </Link>
 
-          {/* Mobile close button */}
           <button
             className="ml-auto md:hidden text-sidebar-foreground/70 hover:text-sidebar-foreground"
             onClick={() => setSidebarMobileOpen(false)}
@@ -117,7 +115,6 @@ export function Sidebar() {
           </button>
         </div>
 
-        {/* Main Navigation */}
         <ScrollArea className="flex-1 px-3 py-4">
           <nav className="flex flex-col gap-2">
             {filteredMainItems.map((item) => (
@@ -126,11 +123,8 @@ export function Sidebar() {
           </nav>
         </ScrollArea>
 
-        {/* Bottom Section - Settings, Profile, Collapse */}
         <div className="border-t border-sidebar-border p-3 shrink-0 space-y-2">
-          {/* Settings & Profile Icons */}
           <div className={cn('flex gap-1', sidebarCollapsed ? 'flex-col' : 'flex-row')}>
-            {/* Settings */}
             {sidebarCollapsed ? (
               <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
@@ -168,7 +162,6 @@ export function Sidebar() {
               </Link>
             )}
 
-            {/* Profile */}
             {sidebarCollapsed ? (
               <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
@@ -207,7 +200,6 @@ export function Sidebar() {
             )}
           </div>
 
-          {/* Collapse Toggle */}
           <Button
             variant="ghost"
             size="sm"
@@ -233,7 +225,6 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Mobile overlay */}
       {sidebarMobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -241,7 +232,6 @@ export function Sidebar() {
         />
       )}
 
-      {/* Mobile sidebar */}
       <div
         className={cn(
           'fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-sidebar border-r border-sidebar-border md:hidden',
@@ -252,7 +242,6 @@ export function Sidebar() {
         {sidebarContent}
       </div>
 
-      {/* Desktop sidebar */}
       <aside
         className={cn(
           'hidden h-screen flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 shrink-0 md:flex',

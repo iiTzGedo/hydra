@@ -62,7 +62,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-// Runtime colors
 const runtimeColors: Record<ServiceRuntime, string> = {
   systemd: 'text-green-500',
   docker: 'text-blue-500',
@@ -79,7 +78,6 @@ const runtimeColors: Record<ServiceRuntime, string> = {
   unknown: 'text-muted-foreground',
 };
 
-// Status icons
 const statusIcons: Record<ServiceStatus, typeof Play> = {
   running: Play,
   stopped: Square,
@@ -126,7 +124,6 @@ export default function ServicesPage() {
   });
   const limit = 20;
 
-  // Build query params
   const queryParams = useMemo(() => {
     const params: Record<string, unknown> = { limit, offset: page * limit };
     if (filters.search) params.search = filters.search;
@@ -138,7 +135,6 @@ export default function ServicesPage() {
 
   const { data, isLoading, error } = useServices(queryParams);
 
-  // Calculate stats from current data
   const stats = useMemo(() => {
     const items = data?.items ?? [];
     return {
@@ -168,8 +164,7 @@ export default function ServicesPage() {
   return (
     <TooltipProvider>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-2xl font-semibold text-foreground">Service Explorer</h2>
             <p className="text-sm text-muted-foreground">
@@ -178,8 +173,7 @@ export default function ServicesPage() {
           </div>
         </div>
 
-        {/* Status Summary Cards */}
-        <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+                <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
           <Card>
             <CardContent className="flex items-center justify-between p-4">
               <div>
@@ -218,12 +212,10 @@ export default function ServicesPage() {
           </Card>
         </div>
 
-        {/* Filter Bar */}
-        <Card>
+                <Card>
           <CardContent className="p-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-              {/* Search */}
-              <div className="relative flex-1">
+                            <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   placeholder="Search by name or image..."
@@ -236,8 +228,7 @@ export default function ServicesPage() {
                 />
               </div>
 
-              {/* Filters */}
-              <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2">
                 <Filter className="h-4 w-4 text-muted-foreground" />
                 <Select
                   value={filters.runtime}
@@ -289,8 +280,7 @@ export default function ServicesPage() {
                   </Button>
                 )}
 
-                {/* View Mode Toggle */}
-                <div className="flex items-center border rounded-md">
+                                <div className="flex items-center border rounded-md">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -411,8 +401,7 @@ export default function ServicesPage() {
           </CardContent>
         </Card>
 
-        {/* Error State */}
-        {error && (
+                {error && (
           <Card className="border-destructive/40">
             <CardContent className="p-8 text-center">
               <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
@@ -422,8 +411,7 @@ export default function ServicesPage() {
           </Card>
         )}
 
-        {/* Loading State */}
-        {isLoading && !error && (
+                {isLoading && !error && (
           <Card>
             <Table className={cn(tableDensity === 'compact' && 'table-compact')}>
               <TableHeader>
@@ -481,8 +469,7 @@ export default function ServicesPage() {
           </Card>
         )}
 
-        {/* Empty State */}
-        {!isLoading && !error && !data?.items?.length && (
+                {!isLoading && !error && !data?.items?.length && (
           <Card>
             <CardContent className="p-8 text-center">
               <Boxes className="mx-auto h-12 w-12 text-muted-foreground" />
@@ -501,8 +488,7 @@ export default function ServicesPage() {
           </Card>
         )}
 
-        {/* Services Table */}
-        {!isLoading && !error && data?.items && data.items.length > 0 && (
+                {!isLoading && !error && data?.items && data.items.length > 0 && (
           <Card>
             <Table className={cn(tableDensity === 'compact' && 'table-compact')}>
               <TableHeader>
@@ -605,8 +591,7 @@ export default function ServicesPage() {
               </TableBody>
             </Table>
 
-            {/* Pagination */}
-            <Pagination
+                        <Pagination
               page={page}
               totalPages={totalPages}
               onPageChange={setPage}

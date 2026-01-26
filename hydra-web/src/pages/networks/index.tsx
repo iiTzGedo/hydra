@@ -76,7 +76,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-// Network type configuration
 const TYPE_CONFIG: Record<NetworkType, {
   icon: typeof Network;
   color: string;
@@ -158,7 +157,6 @@ export default function NetworksPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const limit = 20;
 
-  // Build query params
   const queryParams = useMemo(() => {
     const params: Record<string, unknown> = { limit, offset: page * limit };
     if (filters.search) params.search = filters.search;
@@ -168,7 +166,6 @@ export default function NetworksPage() {
 
   const { data, isLoading, error } = useNetworks(queryParams);
 
-  // Calculate stats from current data
   const stats = useMemo(() => {
     const items = data?.items ?? [];
     return {
@@ -192,8 +189,7 @@ export default function NetworksPage() {
   return (
     <TooltipProvider>
       <div className="p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Networks</h1>
             <p className="text-muted-foreground">
@@ -206,8 +202,7 @@ export default function NetworksPage() {
           </Button>
         </div>
 
-        {/* Status Summary Cards */}
-        <motion.div
+                <motion.div
           variants={staggerContainerVariants}
           initial="hidden"
           animate="visible"
@@ -294,12 +289,10 @@ export default function NetworksPage() {
           </motion.div>
         </motion.div>
 
-        {/* Filter Bar */}
-        <Card>
+                <Card>
           <CardContent className="p-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-              {/* Search */}
-              <div className="relative flex-1">
+                            <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   placeholder="Search networks by name or CIDR..."
@@ -312,8 +305,7 @@ export default function NetworksPage() {
                 />
               </div>
 
-              {/* Filters */}
-              <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                 <Select
                   value={filters.type}
                   onValueChange={(value) => {
@@ -343,8 +335,7 @@ export default function NetworksPage() {
                   </Button>
                 )}
 
-                {/* View Mode Toggle */}
-                <div className="flex items-center border rounded-md">
+                                <div className="flex items-center border rounded-md">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -474,8 +465,7 @@ export default function NetworksPage() {
           </CardContent>
         </Card>
 
-        {/* Error State */}
-        {error && (
+                {error && (
           <Card className="border-destructive">
             <CardContent className="p-8 text-center">
               <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
@@ -485,8 +475,7 @@ export default function NetworksPage() {
           </Card>
         )}
 
-        {/* Loading State */}
-        {isLoading && !error && (
+                {isLoading && !error && (
           <Card>
             <Table className={cn(tableDensity === 'compact' && 'table-compact')}>
               <TableHeader>
@@ -553,8 +542,7 @@ export default function NetworksPage() {
           </Card>
         )}
 
-        {/* Empty State */}
-        {!isLoading && !error && !data?.items?.length && (
+                {!isLoading && !error && !data?.items?.length && (
           <Card>
             <CardContent className="p-8 text-center">
               <Network className="mx-auto h-12 w-12 text-muted-foreground" />
@@ -579,8 +567,7 @@ export default function NetworksPage() {
           </Card>
         )}
 
-        {/* Networks Table/Grid */}
-        {!isLoading && !error && data?.items && data.items.length > 0 && (
+                {!isLoading && !error && data?.items && data.items.length > 0 && (
           <motion.div
             variants={staggerContainerVariants}
             initial="hidden"
@@ -626,8 +613,7 @@ export default function NetworksPage() {
                   </TableBody>
                 </Table>
 
-                {/* Pagination */}
-                <Pagination
+                                <Pagination
                   page={page}
                   totalPages={totalPages}
                   onPageChange={setPage}
@@ -657,8 +643,7 @@ export default function NetworksPage() {
           </motion.div>
         )}
 
-        {/* Create Network Modal */}
-        <CreateNetworkModal
+                <CreateNetworkModal
           open={showCreateModal}
           onOpenChange={setShowCreateModal}
         />
@@ -788,8 +773,7 @@ function NetworkRow({
       variants={staggerItemVariants}
       className="group hover:bg-muted/50 transition-colors"
     >
-      {/* Network Info */}
-      {visibleColumns.network && (
+            {visibleColumns.network && (
         <TableCell>
           <div className="flex items-center gap-3">
             <div className={cn('rounded-lg p-2', typeConfig.bgColor)}>
@@ -810,8 +794,7 @@ function NetworkRow({
         </TableCell>
       )}
 
-      {/* Type */}
-      {visibleColumns.type && (
+            {visibleColumns.type && (
         <TableCell>
           <Badge
             variant="secondary"
@@ -822,8 +805,7 @@ function NetworkRow({
         </TableCell>
       )}
 
-      {/* CIDR */}
-      {visibleColumns.cidr && (
+            {visibleColumns.cidr && (
         <TableCell>
           {network.cidr ? (
             <code className="text-sm bg-muted px-2 py-1 rounded font-mono">
@@ -835,8 +817,7 @@ function NetworkRow({
         </TableCell>
       )}
 
-      {/* Gateway */}
-      {visibleColumns.gateway && (
+            {visibleColumns.gateway && (
         <TableCell>
           {network.gatewayV4 ? (
             <code className="text-sm bg-muted px-2 py-1 rounded font-mono">
@@ -848,8 +829,7 @@ function NetworkRow({
         </TableCell>
       )}
 
-      {/* VLAN ID */}
-      {visibleColumns.vlan && (
+            {visibleColumns.vlan && (
         <TableCell>
           {network.vlanId ? (
             <Badge variant="outline" className="font-mono">
@@ -861,8 +841,7 @@ function NetworkRow({
         </TableCell>
       )}
 
-      {/* Node Count */}
-      {visibleColumns.nodes && (
+            {visibleColumns.nodes && (
         <TableCell>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -877,8 +856,7 @@ function NetworkRow({
         </TableCell>
       )}
 
-      {/* Actions */}
-      {visibleColumns.actions && (
+            {visibleColumns.actions && (
         <TableCell>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -918,7 +896,6 @@ function NetworkRow({
   );
 }
 
-// Create Network Modal Component
 function CreateNetworkModal({
   open,
   onOpenChange
@@ -929,7 +906,6 @@ function CreateNetworkModal({
   const createNetworkMutation = useCreateNetwork();
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Form state
   const [formData, setFormData] = useState<Partial<CreateNetworkRequest>>({
     networkId: '',
     name: '',
@@ -1031,8 +1007,7 @@ function CreateNetworkModal({
         )}
 
         <div className="grid gap-4">
-          {/* Basic Info */}
-          <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="networkId">
                 Network ID <span className="text-destructive">*</span>
@@ -1057,8 +1032,7 @@ function CreateNetworkModal({
             </div>
           </div>
 
-          {/* Type and VLAN ID */}
-          <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="type">Type</Label>
               <Select
@@ -1094,8 +1068,7 @@ function CreateNetworkModal({
             </div>
           </div>
 
-          {/* CIDR */}
-          <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="cidr">CIDR (IPv4)</Label>
               <Input
@@ -1116,8 +1089,7 @@ function CreateNetworkModal({
             </div>
           </div>
 
-          {/* Gateway */}
-          <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="gatewayV4">Gateway (IPv4)</Label>
               <Input
@@ -1138,8 +1110,7 @@ function CreateNetworkModal({
             </div>
           </div>
 
-          {/* Parent/Router */}
-          <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="parentNetworkId">Parent Network ID</Label>
               <Input
@@ -1160,8 +1131,7 @@ function CreateNetworkModal({
             </div>
           </div>
 
-          {/* Description */}
-          <div className="space-y-2">
+                    <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
             <Textarea
               id="description"
@@ -1172,8 +1142,7 @@ function CreateNetworkModal({
             />
           </div>
 
-          {/* DNS */}
-          <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="dnsServers">DNS Servers</Label>
               <Input
@@ -1207,8 +1176,7 @@ function CreateNetworkModal({
             />
           </div>
 
-          {/* Tags */}
-          <div className="space-y-2">
+                    <div className="space-y-2">
             <Label htmlFor="tags">Tags</Label>
             <Input
               id="tags"

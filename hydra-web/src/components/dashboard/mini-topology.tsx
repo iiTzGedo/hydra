@@ -18,7 +18,6 @@ import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
-// Custom node component for topology
 function TopologyNode({ data }: { data: { label: string; class: string; type: string } }) {
   const classColors: Record<string, string> = {
     compute: 'bg-compute',
@@ -49,7 +48,6 @@ const nodeTypes = {
 export function MiniTopology() {
   const { data: topology, isLoading } = useLatestTopology();
 
-  // Convert topology data to ReactFlow nodes and edges
   const { initialNodes, initialEdges } = useMemo(() => {
     const topologyNodes = topology?.graph?.nodes || [];
     const topologyEdges = topology?.graph?.edges || [];
@@ -58,7 +56,6 @@ export function MiniTopology() {
       return { initialNodes: [], initialEdges: [] };
     }
 
-    // Create nodes with positions (simple grid layout for mini view)
     const nodes: Node[] = topologyNodes.slice(0, 12).map((node, index) => ({
       id: node.id,
       type: 'topology',
@@ -75,7 +72,6 @@ export function MiniTopology() {
       targetPosition: Position.Left,
     }));
 
-    // Create edges from topology edges
     const edges: Edge[] = topologyEdges
       .filter((edge) => {
         const sourceExists = nodes.some((n) => n.id === edge.source);
@@ -169,7 +165,6 @@ export function MiniTopology() {
           </ReactFlow>
         </motion.div>
 
-        {/* Legend */}
         <div className="mt-4 flex flex-wrap gap-3">
           <div className="flex items-center gap-2 text-xs">
             <div className="h-2 w-2 rounded-full bg-compute" />

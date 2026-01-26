@@ -25,7 +25,6 @@ import { cn, formatRelativeTime } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import { useUiStore, ViewLayout } from '@/stores/ui-store';
 
-// Extended type with id alias (matching what the API returns)
 type NodeListItem = NodeSummary & { id: string };
 
 interface NodeListProps {
@@ -135,7 +134,6 @@ export function NodeList({ filters }: NodeListProps) {
 
   return (
     <div className="space-y-4">
-      {/* Header with results count and layout toggle */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
           Showing {data.items.length} of {data.total} nodes
@@ -143,7 +141,6 @@ export function NodeList({ filters }: NodeListProps) {
         <LayoutToggle layout={layout} onChange={(l) => setNodesView({ layout: l })} />
       </div>
 
-      {/* Node list with different layouts */}
       {layout === 'grid' ? (
         <motion.div
           variants={staggerContainerVariants}
@@ -189,7 +186,6 @@ export function NodeList({ filters }: NodeListProps) {
         </motion.div>
       )}
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
           <button
@@ -265,12 +261,10 @@ function NodeRow({ node }: { node: NodeListItem }) {
       layout
       className="group flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
     >
-      {/* Icon */}
       <div className={cn('rounded-lg p-2.5', colors?.bg || 'bg-muted')}>
         <Icon className="h-5 w-5 text-white" />
       </div>
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <Link
@@ -305,7 +299,6 @@ function NodeRow({ node }: { node: NodeListItem }) {
         </div>
       </div>
 
-      {/* Profile info */}
       <div className="hidden md:block text-right">
         {node.lastProfileAt && (
           <div className="text-xs text-muted-foreground">
@@ -317,7 +310,6 @@ function NodeRow({ node }: { node: NodeListItem }) {
         )}
       </div>
 
-      {/* Actions */}
       <div className="relative">
         <button
           onClick={() => setMenuOpen(!menuOpen)}
@@ -385,25 +377,20 @@ function CompactNodeRow({ node }: { node: NodeListItem }) {
         to={ROUTES.NODES + '/' + node.id}
         className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors"
       >
-        {/* Status dot */}
         <span className={cn('h-2 w-2 rounded-full shrink-0', statusColors.dot)} />
 
-        {/* Icon */}
         <div className={cn('rounded p-1.5', colors?.bg || 'bg-muted')}>
           <Icon className="h-3.5 w-3.5 text-white" />
         </div>
 
-        {/* Name */}
         <span className="font-medium truncate flex-1">
           {node.displayName || node.id}
         </span>
 
-        {/* Class */}
         <span className="text-xs text-muted-foreground capitalize hidden sm:inline">
           {node.class}
         </span>
 
-        {/* Last profiled */}
         {node.lastProfileAt && (
           <span className="text-xs text-muted-foreground hidden lg:inline">
             {formatRelativeTime(new Date(node.lastProfileAt))}

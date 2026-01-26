@@ -15,20 +15,17 @@ interface TopologyTabProps {
 export function TopologyTab({ nodeId }: TopologyTabProps) {
   const { data: topology, isLoading, error } = useLatestTopology('infrastructure', true);
 
-  // Extract subgraph for the current node from the full topology
   const subgraphData = useMemo(() => {
     if (!topology?.graph) return null;
 
     const currentNode = topology.graph.nodes.find(n => n.id === nodeId || n.data?.nodeId === nodeId);
     if (!currentNode) return null;
 
-    // Find all edges connected to this node
     const connectedEdges = topology.graph.edges.filter(
       e => e.source === nodeId || e.target === nodeId ||
            e.source === currentNode.id || e.target === currentNode.id
     );
 
-    // Find all adjacent node IDs
     const adjacentNodeIds = new Set<string>();
     connectedEdges.forEach(edge => {
       if (edge.source !== nodeId && edge.source !== currentNode.id) {
@@ -39,12 +36,10 @@ export function TopologyTab({ nodeId }: TopologyTabProps) {
       }
     });
 
-    // Get adjacent node details
     const adjacentNodes = topology.graph.nodes.filter(n =>
       adjacentNodeIds.has(n.id) || adjacentNodeIds.has(n.data?.nodeId || '')
     );
 
-    // Count services and networks from the current node's data
     const serviceCount = topology.graph.nodes.filter(n => n.data?.type === 'service').length;
     const networkCount = topology.graph.nodes.filter(n => n.data?.type === 'network').length;
 
@@ -100,7 +95,6 @@ export function TopologyTab({ nodeId }: TopologyTabProps) {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        {/* Stats */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Connection Statistics</CardTitle>
@@ -125,7 +119,6 @@ export function TopologyTab({ nodeId }: TopologyTabProps) {
           </CardContent>
         </Card>
 
-        {/* Connected nodes list */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Adjacent Nodes</CardTitle>

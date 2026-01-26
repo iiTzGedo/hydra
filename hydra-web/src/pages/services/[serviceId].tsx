@@ -140,8 +140,7 @@ export default function ServiceDetailPage() {
         animate="visible"
         className="space-y-6"
       >
-        {/* Overview card */}
-        <motion.div
+                <motion.div
           variants={staggerItemVariants}
           className="rounded-xl border bg-card p-6 shadow-sm"
         >
@@ -246,8 +245,7 @@ export default function ServiceDetailPage() {
             </div>
           </div>
 
-          {/* Tags */}
-          {service.tags && service.tags.length > 0 && (
+                    {service.tags && service.tags.length > 0 && (
             <div className="mt-6 pt-6 border-t">
               <h4 className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-3">
                 <Tag className="h-4 w-4" />
@@ -267,8 +265,7 @@ export default function ServiceDetailPage() {
           )}
         </motion.div>
 
-        {/* Exposure */}
-        {(exposurePorts.length > 0 || exposureEndpoints.length > 0) && (
+                {(exposurePorts.length > 0 || exposureEndpoints.length > 0) && (
           <motion.div
             variants={staggerItemVariants}
             className="rounded-xl border bg-card p-6 shadow-sm"
@@ -323,8 +320,7 @@ export default function ServiceDetailPage() {
           </motion.div>
         )}
 
-        {/* Origin */}
-        {service.origin && (
+                {service.origin && (
           <motion.div
             variants={staggerItemVariants}
             className="rounded-xl border bg-card p-6 shadow-sm"

@@ -72,14 +72,12 @@ export function NetworkList({ filters }: NetworkListProps) {
 
   return (
     <div className="space-y-4">
-      {/* Results count */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
           Showing {data.items.length} of {data.total} networks
         </span>
       </div>
 
-      {/* Network grid */}
       <motion.div
         variants={staggerContainerVariants}
         initial="hidden"
@@ -93,7 +91,6 @@ export function NetworkList({ filters }: NetworkListProps) {
         </AnimatePresence>
       </motion.div>
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
           <button
@@ -137,7 +134,6 @@ function NetworkCard({ network }: { network: NetworkListItem }) {
       layout
       className="group relative rounded-xl border bg-card p-5 shadow-sm hover:border-primary/50 transition-colors"
     >
-      {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="rounded-lg bg-networking p-2.5">
           <Network className="h-5 w-5 text-white" />
@@ -187,7 +183,6 @@ function NetworkCard({ network }: { network: NetworkListItem }) {
         </div>
       </div>
 
-      {/* Content */}
       <Link to={ROUTES.NETWORKS + '/' + network.id}>
         <h3 className="font-semibold hover:text-primary transition-colors mb-2">
           {network.name || network.cidr || 'Unnamed network'}
@@ -225,7 +220,6 @@ function NetworkCard({ network }: { network: NetworkListItem }) {
         </div>
       </Link>
 
-      {/* Node count */}
       {network.nodeCount !== undefined && network.nodeCount > 0 && (
         <div className="mt-4 pt-4 border-t">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">

@@ -34,12 +34,10 @@ export function NodeCard({ node }: NodeCardProps) {
         )}
       >
         <div className="flex items-start gap-3">
-          {/* Icon */}
           <div className={cn('rounded-lg p-2.5 shrink-0', colors?.bg || 'bg-muted')}>
             <Icon className="h-5 w-5 text-white" />
           </div>
 
-          {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="font-medium truncate">{node.displayName || node.id}</h3>
@@ -60,7 +58,6 @@ export function NodeCard({ node }: NodeCardProps) {
           </div>
         </div>
 
-        {/* Details */}
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <Box className="h-3.5 w-3.5" />
@@ -72,7 +69,6 @@ export function NodeCard({ node }: NodeCardProps) {
           </div>
         </div>
 
-        {/* Tags */}
         {node.tags && node.tags.length > 0 && (
           <div className="mt-3 flex items-center gap-1.5">
             <Tag className="h-3 w-3 text-muted-foreground shrink-0" />
@@ -94,7 +90,6 @@ export function NodeCard({ node }: NodeCardProps) {
           </div>
         )}
 
-        {/* Footer */}
         <div className="mt-4 pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
           {node.lastProfileAt ? (
             <div className="flex items-center gap-1">

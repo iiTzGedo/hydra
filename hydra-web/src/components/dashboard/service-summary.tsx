@@ -32,10 +32,8 @@ function StatusItem({ label, count, icon, color, bgColor }: StatusItemProps) {
 export function ServiceSummary() {
   const { data: servicesData, isLoading } = useServices({ limit: 100 });
 
-  // Calculate service status counts from actual data
   const statusCounts = servicesData?.items?.reduce(
     (acc, service) => {
-      // Cast to string to handle potential extended status values
       const status = (service.status || 'unknown') as string;
       if (status === 'running') {
         acc.running++;
@@ -108,7 +106,6 @@ export function ServiceSummary() {
           </div>
         )}
 
-        {/* Runtime breakdown */}
         <div className="mt-4 border-t border-border pt-4">
           <h4 className="mb-3 text-sm font-medium text-muted-foreground">By Runtime</h4>
           <div className="flex flex-wrap gap-2">

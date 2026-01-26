@@ -28,7 +28,18 @@ class LLMBridge:
         self.db = mongodb
 
     async def get_provider_config(self, provider_id: str, user_id: str) -> dict:
-        """Get and prepare provider configuration for API calls."""
+        """Get and prepare provider configuration for API calls.
+
+        Args:
+            provider_id: The LLM provider identifier.
+            user_id: The owner's user identifier.
+
+        Returns:
+            Provider config dict with type, api_key, base_url, and model.
+
+        Raises:
+            LLMProviderError: If provider not found.
+        """
         doc = await self.db.ai_models.find_one({
             "providerId": provider_id,
             "createdBy": user_id,
@@ -37,7 +48,6 @@ class LLMBridge:
         if not doc:
             raise LLMProviderError(f"LLM provider not found: {provider_id}")
 
-        # Decrypt API key if present
         api_key = None
         if doc.get("apiKeyEncrypted"):
             api_key = decrypt_value(doc["apiKeyEncrypted"])
@@ -60,11 +70,22 @@ class LLMBridge:
     ) -> AsyncIterator[dict]:
         """Stream a completion from the configured LLM provider.
 
-        Yields events in a normalized format:
-        - {"type": "text_delta", "text": "..."}
-        - {"type": "tool_use", "id": "...", "name": "...", "input": {...}}
-        - {"type": "done", "stop_reason": "..."}
-        - {"type": "error", "error": "..."}
+        Routes the request to the appropriate provider-specific streaming method
+        based on the provider type in the configuration.
+
+        Args:
+            provider_config: Provider configuration from get_provider_config.
+            messages: Conversation messages in the internal format.
+            tools: Optional list of tools available for the model.
+            system_prompt: Optional system prompt to prepend.
+            max_tokens: Maximum tokens in the response.
+
+        Yields:
+            Normalized event dicts with one of:
+            - {"type": "text_delta", "text": "..."} for content chunks
+            - {"type": "tool_use", "id": "...", "name": "...", "input": {...}} for tool calls
+            - {"type": "done", "stop_reason": "..."} when complete
+            - {"type": "error", "error": "..."} on failure
         """
         provider_type = provider_config["type"]
 
@@ -106,7 +127,6 @@ class LLMBridge:
             "content-type": "application/json",
         }
 
-        # Build request body
         body: dict[str, Any] = {
             "model": config["model"],
             "messages": self._format_messages_anthropic(messages),
@@ -213,7 +233,6 @@ class LLMBridge:
             "Content-Type": "application/json",
         }
 
-        # Build messages with system prompt
         formatted_messages = []
         if system_prompt:
             formatted_messages.append({"role": "system", "content": system_prompt})
@@ -260,11 +279,9 @@ class LLMBridge:
                         delta = choice.get("delta", {})
                         finish_reason = choice.get("finish_reason")
 
-                        # Handle text content
                         if "content" in delta and delta["content"]:
                             yield {"type": "text_delta", "text": delta["content"]}
 
-                        # Handle tool calls
                         if "tool_calls" in delta:
                             for tc in delta["tool_calls"]:
                                 idx = tc.get("index", 0)
@@ -284,7 +301,6 @@ class LLMBridge:
                                     tool_calls[idx]["arguments"] += tc["function"]["arguments"]
 
                         if finish_reason:
-                            # Emit any completed tool calls
                             for tc in tool_calls.values():
                                 try:
                                     input_data = json.loads(tc["arguments"]) if tc["arguments"] else {}
@@ -319,7 +335,6 @@ class LLMBridge:
 
         url = f"{base_url.rstrip('/')}/api/chat"
 
-        # Build messages with system prompt
         formatted_messages = []
         if system_prompt:
             formatted_messages.append({"role": "system", "content": system_prompt})
@@ -365,13 +380,22 @@ class LLMBridge:
                 yield {"type": "error", "error": str(e)}
 
     def _format_messages_anthropic(self, messages: list[dict]) -> list[dict]:
-        """Format messages for Anthropic API."""
+        """Format messages for Anthropic API.
+
+        Converts internal message format to Anthropic's expected structure,
+        handling tool results and tool use messages appropriately.
+
+        Args:
+            messages: Messages in internal format.
+
+        Returns:
+            Messages formatted for Anthropic's Messages API.
+        """
         formatted = []
         for msg in messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
 
-            # Handle tool results
             if role == "tool":
                 formatted.append({
                     "role": "user",
@@ -382,7 +406,6 @@ class LLMBridge:
                     }],
                 })
             elif role == "assistant" and msg.get("tool_calls"):
-                # Assistant message with tool use - Anthropic expects content array
                 content_blocks: list[dict] = []
                 if content:
                     content_blocks.append({"type": "text", "text": content})
@@ -395,14 +418,23 @@ class LLMBridge:
                     })
                 formatted.append({"role": "assistant", "content": content_blocks})
             else:
-                # Map system to user for message content (system goes in system param)
                 api_role = "assistant" if role == "assistant" else "user"
                 formatted.append({"role": api_role, "content": content})
 
         return formatted
 
     def _format_messages_openai(self, messages: list[dict]) -> list[dict]:
-        """Format messages for OpenAI API."""
+        """Format messages for OpenAI API.
+
+        Converts internal message format to OpenAI's expected structure,
+        handling tool calls and tool results appropriately.
+
+        Args:
+            messages: Messages in internal format.
+
+        Returns:
+            Messages formatted for OpenAI's Chat Completions API.
+        """
         formatted = []
         for msg in messages:
             role = msg.get("role", "user")
@@ -415,7 +447,6 @@ class LLMBridge:
                     "content": content,
                 })
             elif role == "assistant" and msg.get("tool_calls"):
-                # Assistant message with tool calls
                 formatted.append({
                     "role": "assistant",
                     "content": content if content else None,
@@ -437,15 +468,23 @@ class LLMBridge:
         return formatted
 
     def _format_messages_ollama(self, messages: list[dict]) -> list[dict]:
-        """Format messages for Ollama API (no tool support yet)."""
+        """Format messages for Ollama API.
+
+        Converts internal message format to Ollama's simple role/content structure.
+        Tool results are included as user messages since Ollama lacks native tool support.
+
+        Args:
+            messages: Messages in internal format.
+
+        Returns:
+            Messages formatted for Ollama's Chat API.
+        """
         formatted = []
         for msg in messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
 
-            # Ollama uses simple role/content format
             if role == "tool":
-                # Include tool result as user message
                 formatted.append({
                     "role": "user",
                     "content": f"Tool result: {content}",
@@ -456,7 +495,14 @@ class LLMBridge:
         return formatted
 
     def _format_tools_anthropic(self, tools: list[dict]) -> list[dict]:
-        """Format tools for Anthropic API."""
+        """Format tools for Anthropic API.
+
+        Args:
+            tools: Tools in internal format with name, description, and inputSchema.
+
+        Returns:
+            Tools formatted for Anthropic's tool use feature.
+        """
         return [
             {
                 "name": tool["name"],
@@ -467,7 +513,14 @@ class LLMBridge:
         ]
 
     def _format_tools_openai(self, tools: list[dict]) -> list[dict]:
-        """Format tools for OpenAI API."""
+        """Format tools for OpenAI API.
+
+        Args:
+            tools: Tools in internal format with name, description, and inputSchema.
+
+        Returns:
+            Tools formatted for OpenAI's function calling feature.
+        """
         return [
             {
                 "type": "function",

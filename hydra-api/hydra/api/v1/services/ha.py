@@ -78,7 +78,11 @@ class HomeAssistantService:
             raise HomeAssistantUnavailableError(f"Home Assistant returned error: {e.response.status_code}")
 
     async def get_status(self) -> dict[str, Any]:
-        """Get Home Assistant integration status."""
+        """Get Home Assistant integration status.
+
+        Returns:
+            Status dict with enabled, connected, url, lastSync, entityCount, and mappedNodes.
+        """
         status = {
             "enabled": self.enabled,
             "connected": False,
@@ -91,23 +95,19 @@ class HomeAssistantService:
         if not self.enabled:
             return status
 
-        # Try to connect and get basic info
         try:
             api_status = await self._ha_request("GET", "/api/")
             status["connected"] = True
 
-            # Get entity count
             states = await self._ha_request("GET", "/api/states")
             status["entityCount"] = len(states) if isinstance(states, list) else 0
 
-            # Get mapped nodes count from our database
             mapped_count = await self.mongodb.nodes.count_documents({
                 "tags": "ha-device",
                 "status": "active",
             })
             status["mappedNodes"] = mapped_count
 
-            # Get last sync time from metadata
             sync_meta = await self.mongodb.db.ha_sync_meta.find_one({"type": "last_sync"})
             if sync_meta:
                 status["lastSync"] = sync_meta.get("timestamp")
@@ -121,11 +121,20 @@ class HomeAssistantService:
     async def list_devices(
         self, params: HADeviceListParams
     ) -> tuple[list[dict[str, Any]], int]:
-        """List Home Assistant devices/entities."""
+        """List Home Assistant devices/entities.
+
+        Args:
+            params: Query parameters with domain, area, and mapped filters.
+
+        Returns:
+            Tuple of (devices list, total count).
+
+        Raises:
+            HomeAssistantUnavailableError: If HA integration is not enabled.
+        """
         if not self.enabled:
             raise HomeAssistantUnavailableError("Home Assistant integration is not enabled")
 
-        # Get all states from HA
         states = await self._ha_request("GET", "/api/states")
 
         devices = []
@@ -133,16 +142,13 @@ class HomeAssistantService:
             entity_id = state.get("entity_id", "")
             domain = entity_id.split(".")[0] if "." in entity_id else ""
 
-            # Apply filters
             if params.domain and domain != params.domain:
                 continue
 
-            # Get area from registry if available
             area = state.get("attributes", {}).get("area_id")
             if params.area and area != params.area:
                 continue
 
-            # Check if mapped to Hydra node
             hydra_node = await self.mongodb.nodes.find_one({
                 "metadata.haEntityId": entity_id,
                 "status": "active",
@@ -170,24 +176,32 @@ class HomeAssistantService:
 
             devices.append(device)
 
-        # Apply pagination
         total = len(devices)
         devices = devices[params.offset : params.offset + params.limit]
 
         return devices, total
 
     async def sync_devices(self, request: HASyncRequest) -> dict[str, Any]:
-        """Trigger sync from Home Assistant."""
+        """Trigger sync from Home Assistant.
+
+        Fetches entities from HA and optionally creates/updates Hydra nodes
+        for each device.
+
+        Args:
+            request: Sync configuration with domains filter and create_nodes flag.
+
+        Returns:
+            Sync result with job_id, status, and created/updated counts.
+
+        Raises:
+            HomeAssistantUnavailableError: If HA integration is not enabled.
+        """
         if not self.enabled:
             raise HomeAssistantUnavailableError("Home Assistant integration is not enabled")
 
         job_id = f"job-ha-sync-{uuid4().hex[:8]}"
         now = datetime.now(UTC)
 
-        # In a real implementation, this would be a background task
-        # For now, we'll do a simple sync
-
-        # Get states from HA
         states = await self._ha_request("GET", "/api/states")
 
         created_nodes = 0
@@ -197,18 +211,15 @@ class HomeAssistantService:
             entity_id = state.get("entity_id", "")
             domain = entity_id.split(".")[0] if "." in entity_id else ""
 
-            # Filter by domains if specified
             if request.domains and domain not in request.domains:
                 continue
 
             if request.create_nodes:
-                # Create or update Hydra node for this device
                 node_id = f"ha-{domain}-{entity_id.replace('.', '-')}"
                 friendly_name = state.get("attributes", {}).get("friendly_name", entity_id)
 
                 existing = await self.mongodb.nodes.find_one({"nodeId": node_id})
                 if existing:
-                    # Update existing
                     await self.mongodb.nodes.update_one(
                         {"nodeId": node_id},
                         {
@@ -223,7 +234,6 @@ class HomeAssistantService:
                     )
                     updated_nodes += 1
                 else:
-                    # Create new node
                     await self.mongodb.nodes.insert_one({
                         "nodeId": node_id,
                         "class": "iot",
@@ -244,7 +254,6 @@ class HomeAssistantService:
                     })
                     created_nodes += 1
 
-        # Store sync metadata
         await self.mongodb.db.ha_sync_meta.update_one(
             {"type": "last_sync"},
             {
@@ -273,14 +282,23 @@ class HomeAssistantService:
         }
 
     async def control_device(self, request: HAControlRequest) -> dict[str, Any]:
-        """Control a Home Assistant device."""
+        """Control a Home Assistant device.
+
+        Args:
+            request: Control request with entity_id, service, and optional data.
+
+        Returns:
+            Control result with entity_id, service, success status, and new state.
+
+        Raises:
+            HomeAssistantUnavailableError: If HA integration is not enabled.
+        """
         if not self.enabled:
             raise HomeAssistantUnavailableError("Home Assistant integration is not enabled")
 
         entity_id = request.entity_id
         domain = entity_id.split(".")[0] if "." in entity_id else ""
 
-        # Call HA service
         service_data = {
             "entity_id": entity_id,
             **(request.data or {}),
@@ -293,7 +311,6 @@ class HomeAssistantService:
                 json_data=service_data,
             )
 
-            # Get new state
             new_state = await self._ha_request("GET", f"/api/states/{entity_id}")
 
             return {
@@ -315,18 +332,23 @@ class HomeAssistantService:
             }
 
     async def list_areas(self) -> tuple[list[dict[str, Any]], int]:
-        """List Home Assistant areas."""
+        """List Home Assistant areas.
+
+        Aggregates area information from entity attributes since the REST API
+        does not provide a direct areas endpoint.
+
+        Returns:
+            Tuple of (areas list, total count).
+
+        Raises:
+            HomeAssistantUnavailableError: If HA integration is not enabled.
+        """
         if not self.enabled:
             raise HomeAssistantUnavailableError("Home Assistant integration is not enabled")
 
         try:
-            # Get areas from HA registry
-            # Note: This requires websocket API in real implementation
-            # For REST API, we can aggregate from device/entity attributes
-
             states = await self._ha_request("GET", "/api/states")
 
-            # Aggregate areas from entities
             areas: dict[str, dict] = {}
             for state in states:
                 area_id = state.get("attributes", {}).get("area_id")

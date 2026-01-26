@@ -28,11 +28,17 @@ class SettingsService:
     # ==================== User Settings ====================
 
     async def get_user_settings(self, user_id: str) -> dict:
-        """Get settings for a user, creating defaults if not exist."""
+        """Get settings for a user, creating defaults if not exist.
+
+        Args:
+            user_id: The user identifier.
+
+        Returns:
+            User settings dict with ui, views, and notifications sections.
+        """
         doc = await self.db.user_settings.find_one({"userId": user_id})
 
         if not doc:
-            # Create default settings
             doc = await self._create_default_user_settings(user_id)
 
         return self._user_settings_doc_to_response(doc)
@@ -42,24 +48,31 @@ class SettingsService:
         user_id: str,
         request: UserSettingsUpdate,
     ) -> dict:
-        """Update user settings."""
+        """Update user settings.
+
+        Merges provided settings with existing values, preserving unset fields.
+
+        Args:
+            user_id: The user identifier.
+            request: Settings update payload.
+
+        Returns:
+            The updated user settings.
+        """
         now = datetime.now(timezone.utc)
 
-        # Get existing or create default
         existing = await self.db.user_settings.find_one({"userId": user_id})
         if not existing:
             existing = await self._create_default_user_settings(user_id)
 
         update_fields = {"updatedAt": now}
 
-        # Merge UI settings
         if request.ui is not None:
             existing_ui = existing.get("ui", {})
             for key, value in request.ui.model_dump(by_alias=True, exclude_none=True).items():
                 existing_ui[key] = value
             update_fields["ui"] = existing_ui
 
-        # Merge view settings
         if request.views is not None:
             existing_views = existing.get("views", {})
             for page_key, page_settings in request.views.model_dump(by_alias=True, exclude_none=True).items():
@@ -69,7 +82,6 @@ class SettingsService:
                     existing_views[page_key][key] = value
             update_fields["views"] = existing_views
 
-        # Merge notification settings
         if request.notifications is not None:
             existing_notif = existing.get("notifications", {})
             for key, value in request.notifications.model_dump(by_alias=True, exclude_none=True).items():
@@ -119,11 +131,14 @@ class SettingsService:
     # ==================== System Settings ====================
 
     async def get_system_settings(self) -> dict:
-        """Get system-wide settings."""
+        """Get system-wide settings.
+
+        Returns:
+            System settings dict with smtp, object_storage, and defaults sections.
+        """
         doc = await self.db.system_settings.find_one({"_id": "system"})
 
         if not doc:
-            # Create default system settings
             doc = await self._create_default_system_settings()
 
         return self._system_settings_doc_to_response(doc)
@@ -133,10 +148,17 @@ class SettingsService:
         request: SystemSettingsUpdate,
         admin_user_id: str,
     ) -> dict:
-        """Update system settings (admin only)."""
+        """Update system settings (admin only).
+
+        Args:
+            request: Settings update payload.
+            admin_user_id: The admin user making the change.
+
+        Returns:
+            The updated system settings.
+        """
         now = datetime.now(timezone.utc)
 
-        # Get existing or create default
         existing = await self.db.system_settings.find_one({"_id": "system"})
         if not existing:
             existing = await self._create_default_system_settings()
@@ -146,21 +168,18 @@ class SettingsService:
             "updatedBy": admin_user_id,
         }
 
-        # Merge SMTP settings
         if request.smtp is not None:
             existing_smtp = existing.get("smtp", {})
             for key, value in request.smtp.model_dump(by_alias=True, exclude_none=True).items():
                 existing_smtp[key] = value
             update_fields["smtp"] = existing_smtp
 
-        # Merge object storage settings
         if request.object_storage is not None:
             existing_storage = existing.get("objectStorage", {})
             for key, value in request.object_storage.model_dump(by_alias=True, exclude_none=True).items():
                 existing_storage[key] = value
             update_fields["objectStorage"] = existing_storage
 
-        # Merge default settings
         if request.defaults is not None:
             existing_defaults = existing.get("defaults", {})
             for key, value in request.defaults.model_dump(by_alias=True, exclude_none=True).items():

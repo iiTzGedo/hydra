@@ -329,7 +329,7 @@ class NetworksService:
         return await self._get_network_nodes(network_id)
 
     async def _get_network_nodes(self, network_id: str) -> list[dict]:
-        """Internal method to get nodes in a network."""
+        """Get nodes belonging to a specific network."""
         nodes = []
         cursor = self.db.nodes.find({"networkIds": network_id})
         async for node in cursor:
