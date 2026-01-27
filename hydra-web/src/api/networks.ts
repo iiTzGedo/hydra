@@ -46,12 +46,15 @@ export function useNetworks(params?: NetworkListParams) {
   });
 }
 
+type NetworkWithId = Network & { id: string };
+
 export function useNetwork(networkId: string) {
   return useQuery({
     queryKey: queryKeys.networks.detail(networkId),
-    queryFn: async () => {
+    queryFn: async (): Promise<NetworkWithId> => {
       const response = await apiClient.get<ApiResponse<Network>>(`/networks/${networkId}`);
-      return response.data.data;
+      const network = response.data.data;
+      return { ...network, id: network.networkId };
     },
     enabled: !!networkId,
   });

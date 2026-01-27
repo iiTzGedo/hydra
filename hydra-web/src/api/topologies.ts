@@ -9,6 +9,7 @@ import type {
   TopologyMode,
   TopologyDiffResponse,
   GenerateTopologyRequest,
+  SubgraphResponse,
 } from '@/types/topology';
 
 export function useTopologies(params?: TopologyListParams) {
@@ -91,4 +92,49 @@ export function useTopologyDiff(fromId?: string, toId?: string, mode?: TopologyM
     },
     enabled: !!(fromId || toId || mode),
   });
+}
+
+/**
+ * Fetch subgraph data for a specific node
+ * Returns connected services, networks, and relationships
+ */
+export function useTopologySubgraph(nodeId?: string, depth = 1) {
+  return useQuery({
+    queryKey: ['topologies', 'subgraph', nodeId, depth],
+    queryFn: async () => {
+      const response = await apiClient.get<ApiResponse<SubgraphResponse>>('/topologies/subgraph', {
+        params: { nodeId, depth },
+      });
+      return response.data.data;
+    },
+    enabled: !!nodeId,
+  });
+}
+
+/**
+ * Hook to prefetch topology data for other modes.
+ * Call this when the user views one mode to prefetch the others.
+ */
+export function usePrefetchTopologyModes() {
+  const queryClient = useQueryClient();
+
+  return {
+    prefetch: (excludeMode?: TopologyMode) => {
+      const modes: TopologyMode[] = ['infrastructure', 'network', 'service'];
+      modes
+        .filter((mode) => mode !== excludeMode)
+        .forEach((mode) => {
+          queryClient.prefetchQuery({
+            queryKey: queryKeys.topologies.latest(mode),
+            queryFn: async () => {
+              const response = await apiClient.get<ApiResponse<Topology>>('/topologies/latest', {
+                params: { mode, includeGraph: true },
+              });
+              return response.data.data;
+            },
+            staleTime: 5 * 60 * 1000, // Consider fresh for 5 minutes
+          });
+        });
+    },
+  };
 }

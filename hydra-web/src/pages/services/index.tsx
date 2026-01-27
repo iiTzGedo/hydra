@@ -1,6 +1,7 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { Link, useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import {
   Boxes,
   Search,
@@ -19,10 +20,15 @@ import {
   LayoutList,
   SlidersHorizontal,
   Columns3,
+  MoreHorizontal,
+  Eye,
 } from 'lucide-react';
 import { useServices } from '@/api/services';
+import { useCreateCommand } from '@/api/commands';
+import { ConfirmDialog } from '@/components/modals/confirm-dialog';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { ServiceRuntime, ServiceStatus } from '@/types/service';
-import { ROUTES, SERVICE_RUNTIME_LABELS } from '@/lib/constants';
+import { ROUTES, SERVICE_RUNTIME_LABELS, SERVICE_RUNTIME_COLORS } from '@/lib/constants';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -62,21 +68,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-const runtimeColors: Record<ServiceRuntime, string> = {
-  systemd: 'text-green-500',
-  docker: 'text-blue-500',
-  podman: 'text-orange-500',
-  kubernetes: 'text-cyan-500',
-  lxc: 'text-emerald-500',
-  supervisord: 'text-rose-500',
-  pm2: 'text-purple-500',
-  rc: 'text-amber-500',
-  openrc: 'text-amber-500',
-  winservice: 'text-sky-500',
-  launchd: 'text-muted-foreground',
-  containerd: 'text-indigo-500',
-  unknown: 'text-muted-foreground',
-};
 
 const statusIcons: Record<ServiceStatus, typeof Play> = {
   running: Play,
@@ -123,6 +114,30 @@ export default function ServicesPage() {
     lastSeen: true,
   });
   const limit = 20;
+
+  // Service action state
+  const [actionService, setActionService] = useState<{ serviceId: string; nodeId: string; name: string; action: 'start' | 'stop' | 'restart' } | null>(null);
+
+  const createCommandMutation = useCreateCommand();
+
+  const handleServiceAction = useCallback(async () => {
+    if (!actionService) return;
+    try {
+      await createCommandMutation.mutateAsync({
+        type: 'service',
+        target: {
+          nodeId: actionService.nodeId,
+          serviceId: actionService.serviceId,
+        },
+        action: actionService.action,
+      });
+      toast.success(`Command queued: ${actionService.action} ${actionService.name}`);
+      setActionService(null);
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      toast.error(error.response?.data?.detail || `Failed to ${actionService.action} service`);
+    }
+  }, [actionService, createCommandMutation]);
 
   const queryParams = useMemo(() => {
     const params: Record<string, unknown> = { limit, offset: page * limit };
@@ -511,12 +526,13 @@ export default function ServicesPage() {
                   {visibleColumns.lastSeen && (
                     <TableHead className="text-muted-foreground">Last Seen</TableHead>
                   )}
+                  <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.items.map((service) => {
                   const StatusIcon = statusIcons[service.status] || HelpCircle;
-                  const runtimeColor = runtimeColors[service.runtime] || 'text-muted-foreground';
+                  const runtimeColor = SERVICE_RUNTIME_COLORS[service.runtime]?.text || 'text-muted-foreground';
                   const runtimeLabel = SERVICE_RUNTIME_LABELS[service.runtime] || service.runtime;
                   const statusVariant =
                     service.status === 'running'
@@ -530,7 +546,7 @@ export default function ServicesPage() {
                             : 'outline';
 
                   return (
-                    <TableRow key={service.serviceId} className="border-border hover:bg-muted/60">
+                    <TableRow key={service.serviceId} className="group border-border hover:bg-muted/60">
                       {visibleColumns.service && (
                         <TableCell>
                           <Link to={`${ROUTES.SERVICES}/${encodeURIComponent(service.serviceId)}`} className="flex flex-col">
@@ -585,6 +601,63 @@ export default function ServicesPage() {
                           {service.lastSeen ? formatRelativeTime(service.lastSeen) : '-'}
                         </TableCell>
                       )}
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link to={`${ROUTES.SERVICES}/${encodeURIComponent(service.serviceId)}`}>
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Details
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setActionService({
+                                serviceId: service.serviceId,
+                                nodeId: service.nodeId,
+                                name: service.displayName || service.name,
+                                action: 'start',
+                              })}
+                              disabled={service.status === 'running'}
+                            >
+                              <Play className="h-4 w-4 mr-2" />
+                              Start
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => setActionService({
+                                serviceId: service.serviceId,
+                                nodeId: service.nodeId,
+                                name: service.displayName || service.name,
+                                action: 'stop',
+                              })}
+                              disabled={service.status !== 'running'}
+                            >
+                              <Square className="h-4 w-4 mr-2" />
+                              Stop
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => setActionService({
+                                serviceId: service.serviceId,
+                                nodeId: service.nodeId,
+                                name: service.displayName || service.name,
+                                action: 'restart',
+                              })}
+                            >
+                              <RotateCcw className="h-4 w-4 mr-2" />
+                              Restart
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -598,6 +671,17 @@ export default function ServicesPage() {
             />
           </Card>
         )}
+
+        <ConfirmDialog
+          open={!!actionService}
+          onOpenChange={(open) => !open && setActionService(null)}
+          title={`${actionService?.action.charAt(0).toUpperCase()}${actionService?.action.slice(1)} Service`}
+          description={`Are you sure you want to ${actionService?.action} "${actionService?.name}"? This will queue the command to be executed on the host node.`}
+          confirmLabel={actionService?.action.charAt(0).toUpperCase() + (actionService?.action.slice(1) || '')}
+          variant="default"
+          onConfirm={handleServiceAction}
+          isLoading={createCommandMutation.isPending}
+        />
       </div>
     </TooltipProvider>
   );

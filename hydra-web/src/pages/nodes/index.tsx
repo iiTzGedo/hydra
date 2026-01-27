@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { toast } from 'sonner';
 import {
   Plus,
   Copy,
@@ -18,9 +19,15 @@ import {
   Wifi,
   Cpu,
   AlertTriangle,
+  Eye,
+  Edit,
+  Archive,
+  MoreHorizontal,
 } from 'lucide-react';
 import { EmptyState } from '@/components/common/empty-state';
-import { useNodes, useRegisterNode } from '@/api/nodes';
+import { useNodes, useRegisterNode, useUpdateNode, useArchiveNode } from '@/api/nodes';
+import { ConfirmDialog } from '@/components/modals/confirm-dialog';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -64,8 +71,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { ROUTES } from '@/lib/constants';
-import type { NodeKind, NodeClass, NodeType, NodeStatus } from '@/types/node';
+import type { NodeKind, NodeClass, NodeType, NodeStatus, NodeSummary, UpdateNodeRequest } from '@/types/node';
 
+type NodeSummaryWithId = NodeSummary & { id: string };
 type ViewMode = 'grid' | 'table';
 type TableDensity = 'comfortable' | 'compact';
 type NodeColumnKey = 'node' | 'class' | 'type' | 'status' | 'lastProfile';
@@ -98,6 +106,9 @@ export default function NodesPage() {
     lastProfile: true,
   });
   const [showRegisterForm, setShowRegisterForm] = useState(false);
+  const [editingNode, setEditingNode] = useState<NodeSummaryWithId | null>(null);
+  const [archivingNode, setArchivingNode] = useState<NodeSummaryWithId | null>(null);
+  const navigate = useNavigate();
 
   const { data: nodesData, isLoading, error, refetch } = useNodes({
     search: search || undefined,
@@ -105,6 +116,8 @@ export default function NodesPage() {
     status: statusFilter !== 'all' ? statusFilter : undefined,
   });
   const registerMutation = useRegisterNode();
+  const updateNodeMutation = useUpdateNode();
+  const archiveNodeMutation = useArchiveNode();
 
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [registeredNodeId, setRegisteredNodeId] = useState<string | null>(null);
@@ -181,6 +194,30 @@ export default function NodesPage() {
       setFormError(error.response?.data?.detail || 'Failed to register node');
     }
   };
+
+  const handleArchiveNode = useCallback(async () => {
+    if (!archivingNode) return;
+    try {
+      await archiveNodeMutation.mutateAsync(archivingNode.nodeId);
+      toast.success(`Node "${archivingNode.displayName}" archived successfully`);
+      setArchivingNode(null);
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      toast.error(error.response?.data?.detail || 'Failed to archive node');
+    }
+  }, [archivingNode, archiveNodeMutation]);
+
+  const handleEditNode = useCallback(async (data: UpdateNodeRequest) => {
+    if (!editingNode) return;
+    try {
+      await updateNodeMutation.mutateAsync({ nodeId: editingNode.nodeId, data });
+      toast.success(`Node "${editingNode.displayName}" updated successfully`);
+      setEditingNode(null);
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { detail?: string } } };
+      toast.error(error.response?.data?.detail || 'Failed to update node');
+    }
+  }, [editingNode, updateNodeMutation]);
 
   return (
     <div className="space-y-6">
@@ -474,49 +511,83 @@ export default function NodesPage() {
 
             return (
               <motion.div key={node.nodeId} variants={staggerItemVariants}>
-                <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
-                  <Card className="transition-all hover:border-foreground/20 hover:bg-muted/60 cursor-pointer h-full">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between">
-                        <div className={cn('h-10 w-10 flex items-center justify-center rounded-lg bg-muted', classColors[node.class])}>
-                          <NodeIcon className="h-5 w-5" />
-                        </div>
+                <Card
+                  className="group transition-all hover:border-foreground/20 hover:bg-muted/60 cursor-pointer h-full"
+                  onClick={() => navigate(`${ROUTES.NODES}/${node.nodeId}`)}
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <div className={cn('h-10 w-10 flex items-center justify-center rounded-lg bg-muted', classColors[node.class])}>
+                        <NodeIcon className="h-5 w-5" />
+                      </div>
+                      <div className="flex items-center gap-2">
                         <div className={cn('h-2.5 w-2.5 rounded-full shrink-0', statusColor)} />
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem asChild>
+                              <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Details
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setEditingNode(node)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setArchivingNode(node)}
+                              className="text-destructive"
+                            >
+                              <Archive className="h-4 w-4 mr-2" />
+                              Archive
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
-                      <CardTitle className="text-base text-foreground mt-2 truncate">
-                        {node.displayName}
-                      </CardTitle>
-                      <CardDescription className="text-muted-foreground font-mono text-xs truncate">
-                        {node.nodeId}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="pt-0">
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">Type</span>
-                          <Badge
-                            variant="secondary"
-                            className={`text-[10px] ${classColors[node.class]} bg-transparent border border-current`}
-                          >
-                            {node.type} / {node.kind || 'unknown'}
+                    </div>
+                    <CardTitle className="text-base text-foreground mt-2 truncate">
+                      {node.displayName}
+                    </CardTitle>
+                    <CardDescription className="text-muted-foreground font-mono text-xs truncate">
+                      {node.nodeId}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Type</span>
+                        <Badge
+                          variant="secondary"
+                          className={`text-[10px] ${classColors[node.class]} bg-transparent border border-current`}
+                        >
+                          {node.type} / {node.kind || 'unknown'}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {node.tags?.slice(0, 3).map((tag) => (
+                          <Badge key={tag} variant="outline" className="text-[10px] border-border text-muted-foreground">
+                            {tag}
                           </Badge>
-                        </div>
-                        <div className="flex flex-wrap gap-1 pt-1">
-                          {node.tags?.slice(0, 3).map((tag) => (
-                            <Badge key={tag} variant="outline" className="text-[10px] border-border text-muted-foreground">
-                              {tag}
-                            </Badge>
-                          ))}
-                          {(node.tags?.length ?? 0) > 3 && (
-                            <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
-                              +{(node.tags?.length ?? 0) - 3}
-                            </Badge>
-                          )}
-                        </div>
+                        ))}
+                        {(node.tags?.length ?? 0) > 3 && (
+                          <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
+                            +{(node.tags?.length ?? 0) - 3}
+                          </Badge>
+                        )}
                       </div>
-                    </CardContent>
-                  </Card>
-                </Link>
+                    </div>
+                  </CardContent>
+                </Card>
               </motion.div>
             );
           })}
@@ -542,6 +613,7 @@ export default function NodesPage() {
                   {visibleColumns.lastProfile && (
                     <TableHead className="text-muted-foreground">Last Profile</TableHead>
                   )}
+                  <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -556,7 +628,7 @@ export default function NodesPage() {
                           ? 'offline'
                           : 'unknown';
                   return (
-                    <TableRow key={node.nodeId} className="border-border hover:bg-muted/60 cursor-pointer">
+                    <TableRow key={node.nodeId} className="group border-border hover:bg-muted/60 cursor-pointer">
                       {visibleColumns.node && (
                         <TableCell>
                           <Link
@@ -601,6 +673,39 @@ export default function NodesPage() {
                             : 'Never'}
                         </TableCell>
                       )}
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Details
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setEditingNode(node)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setArchivingNode(node)}
+                              className="text-destructive"
+                            >
+                              <Archive className="h-4 w-4 mr-2" />
+                              Archive
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -790,6 +895,134 @@ export default function NodesPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!archivingNode}
+        onOpenChange={(open) => !open && setArchivingNode(null)}
+        title="Archive Node"
+        description={`Are you sure you want to archive "${archivingNode?.displayName}"? This will mark the node as archived and stop collecting profiles from it.`}
+        confirmLabel="Archive"
+        variant="destructive"
+        onConfirm={handleArchiveNode}
+        isLoading={archiveNodeMutation.isPending}
+      />
+
+      <NodeEditModal
+        node={editingNode}
+        open={!!editingNode}
+        onOpenChange={(open) => !open && setEditingNode(null)}
+        onSave={handleEditNode}
+        isLoading={updateNodeMutation.isPending}
+      />
     </div>
+  );
+}
+
+interface NodeEditModalProps {
+  node: NodeSummaryWithId | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (data: UpdateNodeRequest) => Promise<void>;
+  isLoading: boolean;
+}
+
+function NodeEditModal({ node, open, onOpenChange, onSave, isLoading }: NodeEditModalProps) {
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editTags, setEditTags] = useState('');
+  const [editParentNodeId, setEditParentNodeId] = useState('');
+
+  // Reset form when node changes
+  useEffect(() => {
+    if (node) {
+      setEditDisplayName(node.displayName || '');
+      setEditDescription('');
+      setEditTags(node.tags?.join(', ') || '');
+      setEditParentNodeId('');
+    }
+  }, [node]);
+
+  const handleSave = async () => {
+    const data: UpdateNodeRequest = {};
+    if (editDisplayName.trim() && editDisplayName.trim() !== node?.displayName) {
+      data.displayName = editDisplayName.trim();
+    }
+    if (editDescription.trim()) {
+      data.description = editDescription.trim();
+    }
+    const newTags = editTags.split(',').map(t => t.trim()).filter(Boolean);
+    if (newTags.length > 0 || (node?.tags && node.tags.length > 0)) {
+      data.tags = newTags;
+    }
+    if (editParentNodeId.trim()) {
+      data.parentNodeId = editParentNodeId.trim();
+    }
+    await onSave(data);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Node</DialogTitle>
+          <DialogDescription>
+            Update details for {node?.nodeId}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label htmlFor="editDisplayName">Display Name</Label>
+            <Input
+              id="editDisplayName"
+              value={editDisplayName}
+              onChange={(e) => setEditDisplayName(e.target.value)}
+              placeholder="Display name"
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="editDescription">Description</Label>
+            <Textarea
+              id="editDescription"
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              placeholder="Optional description"
+              rows={2}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="editTags">Tags</Label>
+            <Input
+              id="editTags"
+              value={editTags}
+              onChange={(e) => setEditTags(e.target.value)}
+              placeholder="Comma-separated tags"
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="editParentNodeId">Parent Node ID</Label>
+            <Input
+              id="editParentNodeId"
+              value={editParentNodeId}
+              onChange={(e) => setEditParentNodeId(e.target.value)}
+              placeholder="Optional parent node"
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={isLoading || !editDisplayName.trim()}>
+            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -264,10 +264,10 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                     >
                       <div className={cn(
                         'flex h-8 w-8 items-center justify-center rounded-lg',
-                        result.type === 'node' && 'bg-blue-500/10 text-blue-500',
-                        result.type === 'service' && 'bg-green-500/10 text-green-500',
-                        result.type === 'network' && 'bg-purple-500/10 text-purple-500',
-                        result.type === 'group' && 'bg-orange-500/10 text-orange-500',
+                        result.type === 'node' && 'bg-compute/10 text-compute',
+                        result.type === 'service' && 'bg-success/10 text-success',
+                        result.type === 'network' && 'bg-network/10 text-network',
+                        result.type === 'group' && 'bg-warning/10 text-warning',
                         result.type === 'page' && 'bg-muted text-muted-foreground'
                       )}>
                         <result.icon className="h-4 w-4" />

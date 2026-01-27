@@ -9,6 +9,9 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  optimizeDeps: {
+    include: ['elkjs'],
+  },
   server: {
     port: 5173,
     proxy: {
@@ -20,6 +23,9 @@ export default defineConfig({
   },
   build: {
     sourcemap: true,
+    commonjsOptions: {
+      include: [/elkjs/, /node_modules/],
+    },
     rollupOptions: {
       output: {
         manualChunks: {

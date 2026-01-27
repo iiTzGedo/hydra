@@ -7,11 +7,15 @@ import {
   Cpu,
   ExternalLink,
   Clock,
+  Boxes,
+  Loader2,
 } from 'lucide-react';
 import { TopologyNode } from '@/types/topology';
 import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS, STATUS_COLORS } from '@/lib/constants';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { slideInVariants } from '@/lib/animations';
+import { useTopologySubgraph } from '@/api/topologies';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface TopologyDetailPanelProps {
   node: TopologyNode;
@@ -28,11 +32,19 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
   const nodeClass = node.data.class as string | undefined;
   const nodeStatus = node.data.status as string | undefined;
   const nodeKind = node.data.kind as string | undefined;
+  const nodeId = node.data.nodeId as string | undefined;
+
+  // Fetch subgraph data for this node
+  const { data: subgraph, isLoading: subgraphLoading } = useTopologySubgraph(nodeId);
 
   const Icon = classIcons[nodeClass as keyof typeof classIcons] || Server;
   const colors = NODE_CLASS_COLORS[nodeClass as keyof typeof NODE_CLASS_COLORS];
   const statusColors = STATUS_COLORS[nodeStatus as keyof typeof STATUS_COLORS] || STATUS_COLORS.inactive;
   const kindLabel = NODE_KIND_LABELS[nodeKind as keyof typeof NODE_KIND_LABELS] || nodeKind;
+
+  // Extract services and networks from subgraph
+  const connectedServices = subgraph?.graph?.nodes?.filter(n => n.data?.serviceId) || [];
+  const connectedNetworks = subgraph?.graph?.nodes?.filter(n => n.data?.networkId) || [];
 
   return (
     <motion.div
@@ -90,6 +102,67 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
             <span className="text-muted-foreground">Last profiled:</span>
             <span>{formatRelativeTime(new Date(node.data.lastProfileAt as string))}</span>
           </div>
+        )}
+
+        {/* Subgraph data: Connected services and networks */}
+        {subgraphLoading ? (
+          <div className="space-y-2 pt-2 border-t">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        ) : (
+          <>
+            {connectedServices.length > 0 && (
+              <div className="pt-2 border-t">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                  <Boxes className="h-4 w-4" />
+                  <span>Services ({connectedServices.length})</span>
+                </div>
+                <div className="space-y-1 max-h-24 overflow-y-auto">
+                  {connectedServices.slice(0, 5).map((service) => (
+                    <Link
+                      key={service.id}
+                      to={`${ROUTES.SERVICES}/${service.data?.serviceId}`}
+                      className="block px-2 py-1 text-xs rounded bg-muted hover:bg-muted/80 truncate"
+                    >
+                      {service.label || service.data?.serviceId}
+                    </Link>
+                  ))}
+                  {connectedServices.length > 5 && (
+                    <div className="text-xs text-muted-foreground px-2">
+                      +{connectedServices.length - 5} more
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {connectedNetworks.length > 0 && (
+              <div className="pt-2 border-t">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                  <Network className="h-4 w-4" />
+                  <span>Networks ({connectedNetworks.length})</span>
+                </div>
+                <div className="space-y-1 max-h-24 overflow-y-auto">
+                  {connectedNetworks.slice(0, 5).map((network) => (
+                    <Link
+                      key={network.id}
+                      to={`${ROUTES.NETWORKS}/${network.data?.networkId}`}
+                      className="block px-2 py-1 text-xs rounded bg-muted hover:bg-muted/80 truncate"
+                    >
+                      {network.label || network.data?.networkId}
+                    </Link>
+                  ))}
+                  {connectedNetworks.length > 5 && (
+                    <div className="text-xs text-muted-foreground px-2">
+                      +{connectedNetworks.length - 5} more
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

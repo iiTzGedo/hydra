@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Handle, Position, NodeProps, Node } from '@xyflow/react';
 import { Server, Network, Cpu } from 'lucide-react';
 import { NODE_CLASS_COLORS, STATUS_COLORS } from '@/lib/constants';
+import { NODE_KIND_ICONS } from '@/components/icons/node-icons';
 import { cn } from '@/lib/utils';
 
 const classIcons = {
@@ -26,9 +27,14 @@ export type TopologyFlowNode = Node<TopologyNodeData, 'topology'>;
 
 export const TopologyNodeComponent = memo(({ data, selected }: NodeProps<TopologyFlowNode>) => {
   const nodeClass = data.class as string | undefined;
+  const nodeKind = data.kind as string | undefined;
   const nodeStatus = data.status as string | undefined;
+  const isHighlighted = data.isHighlighted as boolean | undefined;
 
-  const Icon = classIcons[nodeClass as keyof typeof classIcons] || Server;
+  // Use kind-specific icon if available, otherwise fall back to class icon
+  const KindIcon = nodeKind ? NODE_KIND_ICONS[nodeKind] : undefined;
+  const ClassIcon = classIcons[nodeClass as keyof typeof classIcons] || Server;
+  const Icon = KindIcon || ClassIcon;
   const colors = NODE_CLASS_COLORS[nodeClass as keyof typeof NODE_CLASS_COLORS];
   const statusColors = STATUS_COLORS[nodeStatus as keyof typeof STATUS_COLORS] || STATUS_COLORS.inactive;
 
@@ -44,12 +50,13 @@ export const TopologyNodeComponent = memo(({ data, selected }: NodeProps<Topolog
         className={cn(
           'rounded-xl border-2 bg-card shadow-lg min-w-[140px] transition-all duration-200',
           selected ? 'ring-2 ring-primary border-primary scale-105' : 'border-border hover:border-primary/50',
+          isHighlighted && !selected && 'ring-2 ring-amber-400 border-amber-400 shadow-amber-400/50 shadow-lg',
           'cursor-pointer'
         )}
       >
         <div className={cn('flex items-center gap-2 rounded-t-lg px-3 py-2', colors?.bg || 'bg-muted')}>
-          <Icon className="h-4 w-4 text-white" />
-          <span className="text-xs font-medium text-white capitalize">{nodeClass}</span>
+          <Icon size={16} className="h-4 w-4 text-white" />
+          <span className="text-xs font-medium text-white capitalize">{nodeKind || nodeClass}</span>
         </div>
 
         <div className="px-3 py-2">
@@ -67,12 +74,6 @@ export const TopologyNodeComponent = memo(({ data, selected }: NodeProps<Topolog
           {data.type && (
             <div className="mt-1 text-xs text-muted-foreground capitalize">
               {data.type as string}
-            </div>
-          )}
-
-          {data.kind && (
-            <div className="text-xs text-muted-foreground">
-              {data.kind as string}
             </div>
           )}
         </div>

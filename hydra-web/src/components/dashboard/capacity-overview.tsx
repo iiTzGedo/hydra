@@ -1,125 +1,109 @@
-import { useMemo } from 'react';
-import { Cpu, MemoryStick, HardDrive } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { Cpu, MemoryStick, HardDrive, Server, Layers } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useCapacity } from '@/api/query';
-
-const generateMetricsData = () => {
-  const data = [];
-  const now = Date.now();
-  for (let i = 23; i >= 0; i--) {
-    data.push({
-      time: new Date(now - i * 3600000).toLocaleTimeString([], { hour: '2-digit' }),
-      cpu: Math.floor(Math.random() * 30) + 40,
-      memory: Math.floor(Math.random() * 20) + 55,
-    });
-  }
-  return data;
-};
+import { formatMemoryGB, formatStorageTB } from '@/lib/utils';
 
 export function CapacityOverview() {
   const { data, isLoading } = useCapacity();
-  const metricsData = useMemo(() => generateMetricsData(), []);
 
-  const avgCpu = 58;
-  const avgMemory = 67;
-  const avgStorage = 42;
+  const summary = data?.summary;
+  const byClass = data?.byClass;
 
   return (
     <Card className="bg-card border-border">
       <CardHeader>
-        <CardTitle className="text-foreground">Capacity Snapshot</CardTitle>
+        <CardTitle className="text-foreground">Infrastructure Capacity</CardTitle>
         <CardDescription className="text-muted-foreground">
-          Last captured utilization across all nodes with recent snapshots below
+          Aggregated hardware resources from profiled nodes
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="h-[250px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={metricsData}>
-              <defs>
-                <linearGradient id="cpuGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="memoryGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="hsl(var(--chart-2))" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="hsl(var(--chart-2))" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis
-                dataKey="time"
-                stroke="hsl(var(--muted-foreground))"
-                fontSize={12}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                stroke="hsl(var(--muted-foreground))"
-                fontSize={12}
-                tickLine={false}
-                axisLine={false}
-                domain={[0, 100]}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(var(--popover))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '8px',
-                }}
-                labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
-              />
-              <Area
-                type="monotone"
-                dataKey="cpu"
-                stroke="hsl(var(--chart-1))"
-                fill="url(#cpuGradient)"
-                name="CPU %"
-              />
-              <Area
-                type="monotone"
-                dataKey="memory"
-                stroke="hsl(var(--chart-2))"
-                fill="url(#memoryGradient)"
-                name="Memory %"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
+        {isLoading ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="h-20 rounded-lg" />
+              ))}
+            </div>
+            <Skeleton className="h-32 rounded-lg" />
+          </div>
+        ) : !summary ? (
+          <div className="flex h-32 items-center justify-center rounded-lg bg-muted/60">
+            <p className="text-sm text-muted-foreground">No capacity data available</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Server className="h-4 w-4" />
+                  <span className="text-xs font-medium uppercase">Nodes</span>
+                </div>
+                <div className="text-2xl font-bold text-foreground">{summary.totalNodes}</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {summary.physicalNodes} physical, {summary.logicalNodes} logical
+                </div>
+              </div>
 
-        <div className="grid grid-cols-3 gap-4 mt-6">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center text-muted-foreground">
-                <Cpu className="mr-2 h-4 w-4 text-chart-1" />
-                CPU
-              </span>
-              <span className="text-foreground font-medium">{avgCpu}%</span>
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <Cpu className="h-4 w-4 text-chart-1" />
+                  <span className="text-xs font-medium uppercase">CPU Cores</span>
+                </div>
+                <div className="text-2xl font-bold text-foreground">{summary.totalCores}</div>
+                <div className="text-xs text-muted-foreground mt-1">total cores</div>
+              </div>
+
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <MemoryStick className="h-4 w-4 text-chart-2" />
+                  <span className="text-xs font-medium uppercase">Memory</span>
+                </div>
+                <div className="text-2xl font-bold text-foreground">
+                  {formatMemoryGB(summary.totalMemoryGB)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">total RAM</div>
+              </div>
+
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-2">
+                  <HardDrive className="h-4 w-4 text-chart-3" />
+                  <span className="text-xs font-medium uppercase">Storage</span>
+                </div>
+                <div className="text-2xl font-bold text-foreground">
+                  {formatStorageTB(summary.totalStorageTB)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">total capacity</div>
+              </div>
             </div>
-            <Progress value={avgCpu} className="h-2 bg-muted" indicatorClassName="bg-chart-1" />
+
+            {byClass && Object.keys(byClass).length > 0 && (
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-3">
+                  <Layers className="h-4 w-4" />
+                  <span className="text-xs font-medium uppercase">By Node Class</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {Object.entries(byClass).map(([className, capacity]) => (
+                    <div key={className} className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium capitalize text-foreground">{className}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {capacity.nodes} node{capacity.nodes !== 1 ? 's' : ''}
+                        </div>
+                      </div>
+                      <div className="text-right text-sm text-muted-foreground">
+                        {capacity.cores && <div>{capacity.cores} cores</div>}
+                        {capacity.memoryGB && <div>{formatMemoryGB(capacity.memoryGB)}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center text-muted-foreground">
-                <MemoryStick className="mr-2 h-4 w-4 text-chart-2" />
-                Memory
-              </span>
-              <span className="text-foreground font-medium">{avgMemory}%</span>
-            </div>
-            <Progress value={avgMemory} className="h-2 bg-muted" indicatorClassName="bg-chart-2" />
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center text-muted-foreground">
-                <HardDrive className="mr-2 h-4 w-4 text-chart-3" />
-                Storage
-              </span>
-              <span className="text-foreground font-medium">{avgStorage}%</span>
-            </div>
-            <Progress value={avgStorage} className="h-2 bg-muted" indicatorClassName="bg-chart-3" />
-          </div>
-        </div>
+        )}
       </CardContent>
     </Card>
   );

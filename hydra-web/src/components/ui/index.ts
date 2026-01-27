@@ -1,7 +1,22 @@
 // UI Components barrel export
+
+// Layout utilities
+export * from './container';
+export * from './stack';
+export * from './grid';
+export * from './page-header';
+
+// Form utilities
+export * from './form-field';
+
+// Typography
+export * from './typography';
+
+// Core components
 export * from './action-menu';
 export * from './avatar';
 export * from './badge';
+export * from './editable-text';
 export * from './button';
 export * from './card';
 export * from './checkbox';
@@ -11,6 +26,7 @@ export * from './dialog';
 export * from './dropdown-menu';
 export * from './input';
 export * from './label';
+export * from './loading-spinner';
 export * from './pagination';
 export * from './popover';
 export * from './progress';
@@ -25,3 +41,4 @@ export * from './table';
 export * from './tabs';
 export * from './textarea';
 export * from './tooltip';
+export * from './use-toast';

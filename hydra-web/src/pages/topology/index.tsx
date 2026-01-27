@@ -2,17 +2,20 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   Controls,
   MiniMap,
   Panel,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   Node,
   Edge,
   Position,
   ConnectionMode,
   MarkerType,
+  type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -27,14 +30,18 @@ import {
   Search,
   X,
   Share2,
+  Users,
 } from 'lucide-react';
-import { useLatestTopology, useGenerateTopology } from '@/api/topologies';
+import { useLatestTopology, useGenerateTopology, usePrefetchTopologyModes } from '@/api/topologies';
+import { useGroups, useGroup } from '@/api/groups';
 import { TopologyNode as TopologyNodeType, TopologyMode } from '@/types/topology';
 import { TopologyNodeComponent } from '@/components/topology/topology-node';
 import { TopologyDetailPanel } from '@/components/topology/detail-panel';
 import { NODE_CLASS_COLORS } from '@/lib/constants';
+import { getLayoutedElements, getGridLayout, getLayoutOptionsForMode } from '@/lib/topology-layout';
 import { cn } from '@/lib/utils';
 import { useUiStore } from '@/stores/ui-store';
+import { useTopologyStore } from '@/stores/topology-store';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -84,26 +91,71 @@ export default function TopologyPage() {
   useDocumentTitle('Topology');
 
   const { topologyMode, setTopologyMode } = useUiStore();
+  const {
+    selectedGroupId,
+    setSelectedGroupId,
+    highlightedNodeIds,
+    setHighlightedNodeIds,
+    setViewport,
+    getViewport,
+  } = useTopologyStore();
   const { data: topology, isLoading, refetch } = useLatestTopology(topologyMode);
   const generateMutation = useGenerateTopology();
+  const { prefetch: prefetchTopologyModes } = usePrefetchTopologyModes();
+  const { data: groupsData } = useGroups({});
+  const { data: selectedGroup } = useGroup(selectedGroupId || '');
+
+  // Prefetch other topology modes when current mode loads
+  useEffect(() => {
+    if (!isLoading && topology) {
+      prefetchTopologyModes(topologyMode);
+    }
+  }, [isLoading, topology, topologyMode, prefetchTopologyModes]);
 
   const [selectedNode, setSelectedNode] = useState<TopologyNodeType | null>(null);
   const [showMiniMap, setShowMiniMap] = useState(true);
   const [filterClass, setFilterClass] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { initialNodes, initialEdges } = useMemo(() => {
+  // Get saved viewport for current mode
+  const savedViewport = getViewport(topologyMode);
+
+  // Handler to save viewport on move end
+  const handleMoveEnd = useCallback(
+    (_event: unknown, viewport: Viewport) => {
+      setViewport(topologyMode, {
+        x: viewport.x,
+        y: viewport.y,
+        zoom: viewport.zoom,
+      });
+    },
+    [topologyMode, setViewport]
+  );
+
+  // Update highlighted nodes when selected group changes
+  useEffect(() => {
+    if (selectedGroup?.members) {
+      setHighlightedNodeIds(selectedGroup.members);
+    } else {
+      setHighlightedNodeIds([]);
+    }
+  }, [selectedGroup, setHighlightedNodeIds]);
+
+  // Build nodes and edges from topology data
+  const { rawNodes, rawEdges, layoutOptions } = useMemo(() => {
     const topologyNodes = topology?.graph?.nodes || [];
     const topologyEdges = topology?.graph?.edges || [];
 
     if (!topologyNodes.length) {
-      return { initialNodes: [], initialEdges: [] };
+      return { rawNodes: [], rawEdges: [], layoutOptions: getLayoutOptionsForMode(topologyMode, 0) };
     }
 
+    // Apply filters
     let filteredTopologyNodes = filterClass !== 'all'
       ? topologyNodes.filter((n) => n.data?.class === filterClass)
       : topologyNodes;
 
+    // Apply search
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filteredTopologyNodes = filteredTopologyNodes.filter((n) => {
@@ -122,44 +174,27 @@ export default function TopologyPage() {
       });
     }
 
+    // Create ReactFlow nodes with initial positions
     const nodeCount = filteredTopologyNodes.length;
-    const cols = Math.ceil(Math.sqrt(nodeCount));
-    const spacing = { x: 200, y: 150 };
-
-    const nodesByClass: Record<string, typeof filteredTopologyNodes> = {};
-    filteredTopologyNodes.forEach((node) => {
-      const nodeClass = node.data?.class || node.type || 'unknown';
-      if (!nodesByClass[nodeClass]) nodesByClass[nodeClass] = [];
-      nodesByClass[nodeClass].push(node);
+    const nodes: Node[] = filteredTopologyNodes.map((node) => {
+      const nodeId = node.data?.nodeId as string | undefined;
+      const isHighlighted = nodeId ? highlightedNodeIds.includes(nodeId) : false;
+      return {
+        id: node.id,
+        type: 'topology',
+        position: node.position || { x: 0, y: 0 }, // Will be set by layout
+        data: {
+          ...node,
+          label: node.label || node.id,
+          isHighlighted,
+        },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+      };
     });
 
-    let nodeIndex = 0;
-    const nodes: Node[] = [];
-
-    Object.entries(nodesByClass).forEach(([, classNodes]) => {
-      classNodes.forEach((node) => {
-        const row = Math.floor(nodeIndex / cols);
-        const col = nodeIndex % cols;
-        nodes.push({
-          id: node.id,
-          type: 'topology',
-          position: node.position || {
-            x: col * spacing.x + 50,
-            y: row * spacing.y + 50,
-          },
-          data: {
-            ...node,
-            label: node.label || node.id,
-          },
-          sourcePosition: Position.Right,
-          targetPosition: Position.Left,
-        });
-        nodeIndex++;
-      });
-    });
-
+    // Create ReactFlow edges
     const nodeIds = new Set(nodes.map((n) => n.id));
-
     const edges: Edge[] = topologyEdges
       .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
       .map((edge, index) => ({
@@ -181,20 +216,51 @@ export default function TopologyPage() {
         labelStyle: { fontSize: 10, fill: 'hsl(var(--muted-foreground))' },
       }));
 
-    return { initialNodes: nodes, initialEdges: edges };
-  }, [topology, filterClass, searchQuery]);
+    // Get layout options for this mode
+    const options = getLayoutOptionsForMode(topologyMode, nodeCount);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+    // Apply grid layout initially (sync) - ELK layout will be applied async
+    const gridLayoutedNodes = getGridLayout(nodes, options);
 
+    return { rawNodes: gridLayoutedNodes, rawEdges: edges, layoutOptions: options };
+  }, [topology, topologyMode, filterClass, searchQuery, highlightedNodeIds]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  // Apply async ELK layout when nodes change
   useEffect(() => {
-    setNodes(initialNodes);
-    setEdges(initialEdges);
-  }, [initialNodes, initialEdges, setNodes, setEdges]);
+    if (rawNodes.length === 0) {
+      setNodes([]);
+      setEdges([]);
+      return;
+    }
+
+    // Set grid layout immediately for quick feedback
+    setNodes(rawNodes);
+    setEdges(rawEdges);
+
+    // Then compute ELK layout asynchronously
+    let cancelled = false;
+    getLayoutedElements(rawNodes, rawEdges, layoutOptions)
+      .then(({ nodes: elkNodes }) => {
+        if (!cancelled) {
+          setNodes(elkNodes);
+        }
+      })
+      .catch((error) => {
+        console.error('ELK layout failed:', error);
+        // Keep grid layout on error
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rawNodes, rawEdges, layoutOptions, setNodes, setEdges]);
 
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
-      const topologyNode = topology?.graph?.nodes.find((n) => n.id === node.id);
+      const topologyNode = topology?.graph?.nodes?.find((n) => n.id === node.id);
       setSelectedNode(topologyNode || null);
     },
     [topology]
@@ -211,91 +277,13 @@ export default function TopologyPage() {
 
   const handleModeChange = (mode: string) => {
     setTopologyMode(mode as TopologyMode);
-    setFilterClass('all');
-    setSearchQuery('');
-    setSelectedNode(null);
+    // Don't reset filters/search/selection on mode change to preserve user context
   };
 
   const currentModeOption = modeOptions.find((m) => m.value === topologyMode) || modeOptions[0];
 
-  if (isLoading) {
-    return (
-      <TooltipProvider>
-        <div className="h-[calc(100vh-3.5rem)] flex flex-col">
-          <div className="border-b p-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Skeleton className="h-10 w-80" />
-              <div>
-                <Skeleton className="h-5 w-40" />
-                <Skeleton className="h-4 w-32 mt-1" />
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Skeleton className="h-10 w-48" />
-              <Skeleton className="h-10 w-32" />
-            </div>
-          </div>
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-              <p className="mt-2 text-muted-foreground">Loading {currentModeOption.label.toLowerCase()} topology...</p>
-            </div>
-          </div>
-        </div>
-      </TooltipProvider>
-    );
-  }
-
-  if (!topology?.graph?.nodes?.length) {
-    return (
-      <TooltipProvider>
-        <div className="p-6 space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Topology</h1>
-            <p className="text-muted-foreground">
-              Visualize your infrastructure relationships
-            </p>
-          </div>
-
-          <Tabs value={topologyMode} onValueChange={handleModeChange}>
-            <TabsList>
-              {modeOptions.map((option) => {
-                const Icon = option.icon;
-                return (
-                  <TabsTrigger key={option.value} value={option.value} className="gap-2">
-                    <Icon className="h-4 w-4" />
-                    {option.label}
-                  </TabsTrigger>
-                );
-              })}
-            </TabsList>
-          </Tabs>
-
-          <Card>
-            <CardContent className="p-8 text-center">
-              <Share2 className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No {currentModeOption.label.toLowerCase()} topology data</h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Generate a {currentModeOption.label.toLowerCase()} topology from your registered nodes
-              </p>
-              <Button
-                onClick={handleRegenerateTopology}
-                disabled={generateMutation.isPending}
-                className="mt-4"
-              >
-                {generateMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                )}
-                Generate Topology
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </TooltipProvider>
-    );
-  }
+  // Check if we have no data (not just loading)
+  const hasNoData = !isLoading && !topology?.graph?.nodes?.length;
 
   return (
     <TooltipProvider>
@@ -326,8 +314,8 @@ export default function TopologyPage() {
             <div>
               <h1 className="text-lg font-semibold">{currentModeOption.label} Topology</h1>
               <div className="text-sm text-muted-foreground">
-                <Badge variant="secondary" className="mr-2">{topology.graph?.nodes.length || 0} nodes</Badge>
-                <Badge variant="outline">{topology.graph?.edges?.length || 0} connections</Badge>
+                <Badge variant="secondary" className="mr-2">{topology?.graph?.nodes?.length || 0} nodes</Badge>
+                <Badge variant="outline">{topology?.graph?.edges?.length || 0} connections</Badge>
               </div>
             </div>
           </div>
@@ -381,6 +369,33 @@ export default function TopologyPage() {
 
             <Tooltip>
               <TooltipTrigger asChild>
+                <div>
+                  <Select
+                    value={selectedGroupId || 'none'}
+                    onValueChange={(value) => setSelectedGroupId(value === 'none' ? null : value)}
+                  >
+                    <SelectTrigger className="w-[150px]">
+                      <Users className="h-4 w-4 mr-2" />
+                      <SelectValue placeholder="Highlight Group" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No Highlight</SelectItem>
+                      {groupsData?.items?.map((group) => (
+                        <SelectItem key={group.id} value={group.id}>
+                          {group.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                Highlight group members
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
                   variant={showMiniMap ? 'secondary' : 'outline'}
                   size="icon"
@@ -415,6 +430,43 @@ export default function TopologyPage() {
         </div>
 
         <div className="flex-1 relative">
+          {/* Loading overlay - only covers the graph area */}
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-50">
+              <div className="text-center">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+                <p className="mt-2 text-muted-foreground">Loading {currentModeOption.label.toLowerCase()} topology...</p>
+              </div>
+            </div>
+          )}
+
+          {/* Empty state - shown when no data */}
+          {hasNoData && (
+            <div className="absolute inset-0 flex items-center justify-center z-40">
+              <Card className="max-w-md">
+                <CardContent className="p-8 text-center">
+                  <Share2 className="mx-auto h-12 w-12 text-muted-foreground" />
+                  <h3 className="mt-4 text-lg font-semibold">No {currentModeOption.label.toLowerCase()} topology data</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Generate a {currentModeOption.label.toLowerCase()} topology from your registered nodes
+                  </p>
+                  <Button
+                    onClick={handleRegenerateTopology}
+                    disabled={generateMutation.isPending}
+                    className="mt-4"
+                  >
+                    {generateMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
+                    Generate Topology
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -422,9 +474,11 @@ export default function TopologyPage() {
             onEdgesChange={onEdgesChange}
             onNodeClick={handleNodeClick}
             onPaneClick={handlePaneClick}
+            onMoveEnd={handleMoveEnd}
             nodeTypes={nodeTypes}
-            fitView
+            fitView={!savedViewport}
             fitViewOptions={{ padding: 0.2 }}
+            defaultViewport={savedViewport || undefined}
             minZoom={0.1}
             maxZoom={2}
             connectionMode={ConnectionMode.Loose}

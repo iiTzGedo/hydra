@@ -28,7 +28,7 @@ import {
   PlayCircle,
   PauseCircle,
 } from 'lucide-react';
-import { ROUTES } from '@/lib/constants';
+import { ROUTES, SERVICE_RUNTIME_COLORS } from '@/lib/constants';
 import {
   AreaChart,
   Area,
@@ -776,12 +776,7 @@ function ServiceItem({ service }: { service: ServiceSummary; nodeId: string }) {
     unknown: <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />,
   };
 
-  const runtimeColors: Record<string, string> = {
-    docker: 'bg-blue-500/10 text-blue-600',
-    podman: 'bg-purple-500/10 text-purple-600',
-    kubernetes: 'bg-cyan-500/10 text-cyan-600',
-    systemd: 'bg-gray-500/10 text-gray-600',
-  };
+  const runtimeStyle = SERVICE_RUNTIME_COLORS[service.runtime];
 
   return (
     <Link
@@ -794,7 +789,7 @@ function ServiceItem({ service }: { service: ServiceSummary; nodeId: string }) {
       </div>
       <Badge
         variant="outline"
-        className={cn('text-[10px] px-1.5 py-0 shrink-0', runtimeColors[service.runtime] || '')}
+        className={cn('text-[10px] px-1.5 py-0 shrink-0', runtimeStyle?.bg, runtimeStyle?.text)}
       >
         {service.runtime}
       </Badge>

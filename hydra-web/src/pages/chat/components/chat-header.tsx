@@ -3,7 +3,6 @@ import {
   Bot,
   Settings,
   MoreHorizontal,
-  Pencil,
   Copy,
   Download,
   Trash2,
@@ -11,6 +10,7 @@ import {
 import type { ChatSessionResponse } from '@/api/chat';
 import type { LLMProviderResponse } from '@/api/ai';
 import { Button } from '@/components/ui/button';
+import { EditableText } from '@/components/ui/editable-text';
 import {
   Select,
   SelectContent,
@@ -34,7 +34,7 @@ interface ChatHeaderProps {
   activeToolsCount: number;
   onLLMProviderChange: (providerId: string) => void;
   onOpenLLMConfig: () => void;
-  onRenameSession: () => void;
+  onRenameSession: (newTitle: string) => void;
   onDuplicateSession: () => void;
   onExportSession: () => void;
   onDeleteSession: () => void;
@@ -59,12 +59,18 @@ export function ChatHeader({
 
   return (
     <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-3 min-w-0 flex-1">
         <MessageSquare className="h-5 w-5 text-blue-500 shrink-0" />
-        <div className="min-w-0">
-          <h2 className="font-medium text-foreground truncate">
-            {currentSession?.title || 'Chat'}
-          </h2>
+        <div className="min-w-0 flex-1">
+          <EditableText
+            value={currentSession?.title || 'Chat'}
+            onSave={onRenameSession}
+            placeholder="Untitled Chat"
+            className="font-medium text-foreground"
+            inputClassName="font-medium"
+            disabled={!currentSession}
+            showEditHint
+          />
           <p className="text-xs text-muted-foreground">
             Using {activeLLMProvider?.name || 'No LLM'} &bull; {activeToolsCount} tools available
           </p>
@@ -111,13 +117,6 @@ export function ChatHeader({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              className="text-foreground focus:bg-muted focus:text-foreground"
-              onClick={onRenameSession}
-            >
-              <Pencil className="h-4 w-4 mr-2" />
-              Rename Chat
-            </DropdownMenuItem>
             <DropdownMenuItem
               className="text-foreground focus:bg-muted focus:text-foreground"
               onClick={onDuplicateSession}

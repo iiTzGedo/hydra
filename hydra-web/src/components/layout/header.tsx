@@ -10,7 +10,6 @@ import {
   Monitor,
   User,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/constants';
 import { useUiStore } from '@/stores/ui-store';
 import { useAuthStore } from '@/stores/auth-store';
@@ -19,7 +18,6 @@ import { CommandPalette, useCommandPalette } from '@/components/search/command-p
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -79,9 +77,6 @@ export function Header() {
     navigate(ROUTES.LOGIN);
   };
 
-  const unacknowledgedAlerts = 3;
-  const criticalAlerts = 1;
-
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4 sm:px-6 shrink-0">
       <div className="flex items-center gap-4 min-w-0">
@@ -138,39 +133,22 @@ export function Header() {
               className="relative text-muted-foreground"
             >
               <Bell className="h-5 w-5" />
-              {unacknowledgedAlerts > 0 && (
-                <span
-                  className={cn(
-                    'absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-medium text-white',
-                    criticalAlerts > 0 ? 'bg-destructive' : 'bg-warning'
-                  )}
-                >
-                  {unacknowledgedAlerts}
-                </span>
-              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-80">
-            <DropdownMenuLabel>Alerts</DropdownMenuLabel>
+            <DropdownMenuLabel>Notifications</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="flex flex-col items-start gap-1 p-3">
-              <div className="flex items-center gap-2">
-                <Badge variant="destructive" className="text-[10px]">critical</Badge>
-                <span className="text-sm font-medium text-foreground">High CPU Usage</span>
-              </div>
-              <span className="text-xs text-muted-foreground">proxmox-01 CPU at 95%</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex flex-col items-start gap-1 p-3">
-              <div className="flex items-center gap-2">
-                <Badge variant="warning" className="text-[10px]">warning</Badge>
-                <span className="text-sm font-medium text-foreground">Service Unhealthy</span>
-              </div>
-              <span className="text-xs text-muted-foreground">nginx container health check failing</span>
-            </DropdownMenuItem>
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Bell className="h-8 w-8 text-muted-foreground/50 mb-2" />
+              <p className="text-sm text-muted-foreground">No notifications</p>
+              <p className="text-xs text-muted-foreground/70 mt-1">
+                Alerts will appear here when configured
+              </p>
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <a href="/alerts" className="text-center text-sm text-primary hover:text-primary/80 justify-center">
-                View all alerts
+                View alerts page
               </a>
             </DropdownMenuItem>
           </DropdownMenuContent>

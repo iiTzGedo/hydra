@@ -6,6 +6,8 @@ import { RecentActivity } from '@/components/dashboard/recent-activity';
 import { NodeStatusGrid } from '@/components/dashboard/node-status-grid';
 import { ServiceSummary } from '@/components/dashboard/service-summary';
 import { MiniTopology } from '@/components/dashboard/mini-topology';
+import { TimeRangeSelector } from '@/components/dashboard/time-range-selector';
+import { WidgetGrid, Widget, WidgetCustomizer } from '@/components/dashboard/widget-grid';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { Button } from '@/components/ui/button';
 import { ROUTES } from '@/lib/constants';
@@ -21,6 +23,8 @@ export default function DashboardPage() {
           <p className="text-muted-foreground">Overview of your infrastructure</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <TimeRangeSelector />
+          <WidgetCustomizer />
           <Link to={ROUTES.TOPOLOGY}>
             <Button variant="outline" size="sm">
               <Network className="mr-2 h-4 w-4" />
@@ -48,21 +52,33 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <StatsCards />
+      <WidgetGrid>
+        <Widget id="stats">
+          <StatsCards />
+        </Widget>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <CapacityOverview />
+        <Widget id="capacity" className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <CapacityOverview />
+          </div>
+          <Widget id="alerts">
+            <RecentActivity />
+          </Widget>
+        </Widget>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Widget id="services">
+            <ServiceSummary />
+          </Widget>
+          <Widget id="topology-mini">
+            <MiniTopology />
+          </Widget>
         </div>
-        <RecentActivity />
-      </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ServiceSummary />
-        <MiniTopology />
-      </div>
-
-      <NodeStatusGrid />
+        <Widget id="activity">
+          <NodeStatusGrid />
+        </Widget>
+      </WidgetGrid>
     </div>
   );
 }

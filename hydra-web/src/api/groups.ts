@@ -45,12 +45,15 @@ export function useGroups(params?: GroupListParams) {
   });
 }
 
+type GroupDetailWithId = Group & { id: string };
+
 export function useGroup(groupId: string) {
   return useQuery({
     queryKey: queryKeys.groups.detail(groupId),
-    queryFn: async () => {
+    queryFn: async (): Promise<GroupDetailWithId> => {
       const response = await apiClient.get<ApiResponse<Group>>(`/groups/${groupId}`);
-      return response.data.data;
+      const group = response.data.data;
+      return { ...group, id: group.groupId };
     },
     enabled: !!groupId,
   });

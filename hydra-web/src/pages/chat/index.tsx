@@ -1,7 +1,9 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { Link } from 'react-router-dom';
 import { useQueries } from '@tanstack/react-query';
+import { DndProvider } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
 import {
   MessageSquare,
   Loader2,
@@ -11,8 +13,6 @@ import {
   Server,
   Plus,
   AlertCircle,
-  ChevronDown,
-  ChevronRight,
   FolderOpen,
   Store,
   Globe,
@@ -59,7 +59,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Tooltip,
   TooltipContent,
@@ -68,8 +67,18 @@ import {
 } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
 
-import { ChatHeader, ChatInput, MessageBubble } from './components';
+import {
+  ChatHeader,
+  ChatInput,
+  MessageBubble,
+  ChatListItem,
+  ProjectFolder,
+  UnorganizedDropTarget,
+} from './components';
 import { NewProjectModal, MCPConfigModal, LLMConfigModal } from './modals';
+import { useNodes } from '@/api/nodes';
+import { useServices } from '@/api/services';
+import { useNetworks } from '@/api/networks';
 
 const suggestedPrompts = [
   { icon: Server, text: 'List all compute nodes', category: 'nodes' },
@@ -79,14 +88,18 @@ const suggestedPrompts = [
 ];
 
 const useInfrastructureContext = () => {
+  const { data: nodesData } = useNodes({ limit: 1 });
+  const { data: servicesData } = useServices({ limit: 1 });
+  const { data: networksData } = useNetworks({ limit: 1 });
+
   return useMemo(
     () => ({
-      nodes: 12,
-      services: 48,
-      networks: 5,
-      alerts: 3,
+      nodes: nodesData?.total ?? 0,
+      services: servicesData?.total ?? 0,
+      networks: networksData?.total ?? 0,
+      alerts: 0, // TODO: Wire to alerts API when ready
     }),
-    []
+    [nodesData, servicesData, networksData]
   );
 };
 
@@ -466,80 +479,113 @@ export default function ChatPage() {
     });
   };
 
-  const handleDeleteSession = () => {
-    if (!currentSessionId) return;
-    deleteSessionMutation.mutate(currentSessionId, {
-      onSuccess: () => {
-        setCurrentSessionId(null);
-      },
-      onError: () => {
+  const handleDeleteSession = useCallback(
+    (sessionId?: string) => {
+      const targetSessionId = sessionId || currentSessionId;
+      if (!targetSessionId) return;
+
+      deleteSessionMutation.mutate(targetSessionId, {
+        onSuccess: () => {
+          if (targetSessionId === currentSessionId) {
+            setCurrentSessionId(null);
+          }
+        },
+        onError: () => {
+          toast({
+            title: 'Failed to delete chat',
+            description: 'Please try again.',
+            variant: 'destructive',
+          });
+        },
+      });
+    },
+    [currentSessionId, deleteSessionMutation, toast]
+  );
+
+  const handleRenameSession = useCallback(
+    (sessionId: string, newTitle: string) => {
+      if (!newTitle.trim()) return;
+      updateSessionMutation.mutate({
+        sessionId,
+        data: { title: newTitle.trim() },
+      });
+    },
+    [updateSessionMutation]
+  );
+
+  const handleMoveSessionToProject = useCallback(
+    (sessionId: string, projectId: string | null) => {
+      updateSessionMutation.mutate({
+        sessionId,
+        data: { projectId: projectId || null },
+      });
+    },
+    [updateSessionMutation]
+  );
+
+  const handleDuplicateSession = useCallback(
+    async (sessionId?: string) => {
+      const targetSession = sessionId
+        ? sessions.find((s) => s.sessionId === sessionId)
+        : currentSession;
+      if (!targetSession) return;
+
+      try {
+        const newSession = await createSessionMutation.mutateAsync({
+          title: `${targetSession.title || 'Chat'} (copy)`,
+          projectId: targetSession.projectId || undefined,
+          llmProviderId: targetSession.llmProviderId || undefined,
+          mcpServerIds: targetSession.mcpServerIds || [],
+        });
+
+        // Only copy messages if duplicating the current session
+        if (!sessionId && messages.length > 0) {
+          await bulkUpsertMessagesMutation.mutateAsync({
+            sessionId: newSession.sessionId,
+            messages: messages.map((message) => ({
+              role: message.role,
+              content: message.content,
+              toolCalls: message.toolCalls,
+              order: message.order,
+            })),
+          });
+        }
+
+        setCurrentSessionId(newSession.sessionId);
+      } catch (error) {
         toast({
-          title: 'Failed to delete chat',
+          title: 'Failed to duplicate chat',
           description: 'Please try again.',
           variant: 'destructive',
         });
-      },
-    });
-  };
-
-  const handleRenameSession = () => {
-    if (!currentSession) return;
-    const nextTitle = window.prompt('Rename chat', currentSession.title || 'Chat');
-    if (!nextTitle || !nextTitle.trim()) return;
-    updateSessionMutation.mutate({
-      sessionId: currentSession.sessionId,
-      data: { title: nextTitle.trim() },
-    });
-  };
-
-  const handleDuplicateSession = async () => {
-    if (!currentSession) return;
-    try {
-      const newSession = await createSessionMutation.mutateAsync({
-        title: `${currentSession.title || 'Chat'} (copy)`,
-        projectId: currentSession.projectId || undefined,
-        llmProviderId: currentSession.llmProviderId || undefined,
-        mcpServerIds: currentSession.mcpServerIds || [],
-      });
-
-      if (messages.length > 0) {
-        await bulkUpsertMessagesMutation.mutateAsync({
-          sessionId: newSession.sessionId,
-          messages: messages.map((message) => ({
-            role: message.role,
-            content: message.content,
-            toolCalls: message.toolCalls,
-            order: message.order,
-          })),
-        });
       }
+    },
+    [sessions, currentSession, messages, createSessionMutation, bulkUpsertMessagesMutation, toast]
+  );
 
-      setCurrentSessionId(newSession.sessionId);
-    } catch (error) {
-      toast({
-        title: 'Failed to duplicate chat',
-        description: 'Please try again.',
-        variant: 'destructive',
+  const handleExportSession = useCallback(
+    (sessionId?: string) => {
+      const targetSession = sessionId
+        ? sessions.find((s) => s.sessionId === sessionId)
+        : currentSession;
+      if (!targetSession) return;
+
+      const exportData = {
+        session: targetSession,
+        messages: sessionId === currentSessionId || !sessionId ? messages : [],
+      };
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+        type: 'application/json',
       });
-    }
-  };
-
-  const handleExportSession = () => {
-    if (!currentSession) return;
-    const exportData = {
-      session: currentSession,
-      messages,
-    };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${currentSession.title || 'chat'}-${currentSession.sessionId}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${targetSession.title || 'chat'}-${targetSession.sessionId}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+    [sessions, currentSession, currentSessionId, messages]
+  );
 
   const handleCreateProvider = (data: LLMProviderCreate) => {
     createProviderMutation.mutate(data, {
@@ -679,100 +725,91 @@ export default function ChatPage() {
               </div>
 
               <ScrollArea className="flex-1">
-                <div className="p-2">
-                  {projects.length > 0 && (
-                    <div className="mb-3">
+                <DndProvider backend={HTML5Backend}>
+                  <div className="p-2">
+                    {projects.length > 0 && (
+                      <div className="mb-3">
+                        <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
+                          Projects
+                        </h4>
+                        <div className="space-y-0.5">
+                          {projects.map((project) => {
+                            const projectSessions = getProjectSessions(project.projectId);
+                            return (
+                              <ProjectFolder
+                                key={project.projectId}
+                                project={project}
+                                sessionCount={projectSessions.length}
+                                isOpen={expandedProjects.includes(project.projectId)}
+                                onOpenChange={() => toggleProjectExpand(project.projectId)}
+                                onDrop={(sessionId) =>
+                                  handleMoveSessionToProject(sessionId, project.projectId)
+                                }
+                              >
+                                {projectSessions.map((session) => (
+                                  <ChatListItem
+                                    key={session.sessionId}
+                                    session={session}
+                                    isActive={currentSessionId === session.sessionId}
+                                    onSelect={() => handleSelectSession(session.sessionId)}
+                                    onRename={(newTitle) =>
+                                      handleRenameSession(session.sessionId, newTitle)
+                                    }
+                                    onMoveToProject={(projectId) =>
+                                      handleMoveSessionToProject(session.sessionId, projectId)
+                                    }
+                                    onDuplicate={() => handleDuplicateSession(session.sessionId)}
+                                    onExport={() => handleExportSession(session.sessionId)}
+                                    onDelete={() => handleDeleteSession(session.sessionId)}
+                                    projects={projects}
+                                  />
+                                ))}
+                                <button
+                                  onClick={() => handleNewChat(project.projectId)}
+                                  className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                  New Chat
+                                </button>
+                              </ProjectFolder>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <UnorganizedDropTarget
+                      onDrop={(sessionId) => handleMoveSessionToProject(sessionId, null)}
+                    >
                       <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
-                        Projects
+                        Recent Chats
                       </h4>
                       <div className="space-y-0.5">
-                        {projects.map((project) => {
-                          const projectSessions = getProjectSessions(project.projectId);
-                          return (
-                            <Collapsible
-                              key={project.projectId}
-                              open={expandedProjects.includes(project.projectId)}
-                              onOpenChange={() => toggleProjectExpand(project.projectId)}
-                            >
-                              <CollapsibleTrigger asChild>
-                                <button
-                                  className={cn(
-                                    'w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs transition-colors',
-                                    'hover:bg-muted text-muted-foreground hover:text-foreground'
-                                  )}
-                                >
-                                  {expandedProjects.includes(project.projectId) ? (
-                                    <ChevronDown className="h-3 w-3 shrink-0" />
-                                  ) : (
-                                    <ChevronRight className="h-3 w-3 shrink-0" />
-                                  )}
-                                  <FolderOpen className="h-3 w-3 shrink-0" />
-                                  <span className="truncate flex-1 text-left">{project.name}</span>
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[9px] h-4 px-1 shrink-0 bg-muted text-muted-foreground"
-                                  >
-                                    {projectSessions.length}
-                                  </Badge>
-                                </button>
-                              </CollapsibleTrigger>
-                              <CollapsibleContent>
-                                <div className="ml-5 mt-0.5 space-y-0.5">
-                                  {projectSessions.map((session) => (
-                                    <button
-                                      key={session.sessionId}
-                                      onClick={() => handleSelectSession(session.sessionId)}
-                                      className={cn(
-                                        'w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-colors',
-                                        'hover:bg-muted text-muted-foreground hover:text-foreground',
-                                        currentSessionId === session.sessionId && 'bg-muted text-foreground'
-                                      )}
-                                    >
-                                      <MessageSquare className="h-3 w-3 shrink-0" />
-                                      <span className="truncate">{session.title || 'Untitled'}</span>
-                                    </button>
-                                  ))}
-                                  <button
-                                    onClick={() => handleNewChat(project.projectId)}
-                                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                                  >
-                                    <Plus className="h-3 w-3" />
-                                    New Chat
-                                  </button>
-                                </div>
-                              </CollapsibleContent>
-                            </Collapsible>
-                          );
-                        })}
+                        {standaloneSessions.map((session) => (
+                          <ChatListItem
+                            key={session.sessionId}
+                            session={session}
+                            isActive={currentSessionId === session.sessionId}
+                            onSelect={() => handleSelectSession(session.sessionId)}
+                            onRename={(newTitle) =>
+                              handleRenameSession(session.sessionId, newTitle)
+                            }
+                            onMoveToProject={(projectId) =>
+                              handleMoveSessionToProject(session.sessionId, projectId)
+                            }
+                            onDuplicate={() => handleDuplicateSession(session.sessionId)}
+                            onExport={() => handleExportSession(session.sessionId)}
+                            onDelete={() => handleDeleteSession(session.sessionId)}
+                            projects={projects}
+                          />
+                        ))}
+                        {standaloneSessions.length === 0 && sessions.length === 0 && (
+                          <p className="text-[11px] text-muted-foreground/70 px-2 py-2">No chats yet</p>
+                        )}
                       </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
-                      Recent Chats
-                    </h4>
-                    <div className="space-y-0.5">
-                      {standaloneSessions.map((session) => (
-                        <button
-                          key={session.sessionId}
-                          onClick={() => handleSelectSession(session.sessionId)}
-                          className={cn(
-                            'w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs transition-colors',
-                            'hover:bg-muted text-muted-foreground hover:text-foreground',
-                            currentSessionId === session.sessionId && 'bg-muted text-foreground'
-                          )}
-                        >
-                          <MessageSquare className="h-3 w-3 shrink-0" />
-                          <span className="truncate flex-1 text-left">{session.title || 'Untitled'}</span>
-                        </button>
-                      ))}
-                      {standaloneSessions.length === 0 && sessions.length === 0 && (
-                        <p className="text-[11px] text-muted-foreground/70 px-2 py-2">No chats yet</p>
-                      )}
-                    </div>
+                    </UnorganizedDropTarget>
                   </div>
-                </div>
+                </DndProvider>
               </ScrollArea>
             </TabsContent>
 
@@ -1004,10 +1041,12 @@ export default function ChatPage() {
             activeToolsCount={activeTools.length}
             onLLMProviderChange={handleSetActiveProvider}
             onOpenLLMConfig={() => setShowLLMConfigModal(true)}
-            onRenameSession={handleRenameSession}
-            onDuplicateSession={handleDuplicateSession}
-            onExportSession={handleExportSession}
-            onDeleteSession={handleDeleteSession}
+            onRenameSession={(newTitle) =>
+              currentSession && handleRenameSession(currentSession.sessionId, newTitle)
+            }
+            onDuplicateSession={() => handleDuplicateSession()}
+            onExportSession={() => handleExportSession()}
+            onDeleteSession={() => handleDeleteSession()}
           />
 
           {!isHydraMcpConnected && (

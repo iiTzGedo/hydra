@@ -1,9 +1,15 @@
 /**
  * WebSocket hook for MCP chat with streaming support.
+ *
+ * Connects to the Hydra API WebSocket endpoint for real-time chat with LLM streaming.
+ * Handles connection management, message streaming, tool calls, and automatic reconnection.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
+
+// Enable debug logging for WebSocket connections
+const WS_DEBUG = import.meta.env.DEV;
 
 // WebSocket message types from backend
 const WSMessageType = {
@@ -20,6 +26,11 @@ const WSMessageType = {
   ERROR: 'error',
   PONG: 'pong',
 } as const;
+
+// Reconnection configuration
+const RECONNECT_BASE_DELAY = 1000; // 1 second
+const RECONNECT_MAX_DELAY = 30000; // 30 seconds
+const RECONNECT_MAX_ATTEMPTS = 10;
 
 export interface MCPToolCall {
   id: string;
@@ -55,6 +66,8 @@ interface UseMCPChatReturn {
   isStreaming: boolean;
   currentResponse: string;
   currentToolCalls: MCPToolCall[];
+  hasPendingRefetch: boolean;
+  clearPendingRefetch: () => void;
   sendMessage: (content: string) => void;
   cancelStream: () => void;
   connect: () => void;
@@ -77,36 +90,85 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const pingIntervalRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const pendingRefetchRef = useRef(false);
 
   const [isConnected, setIsConnected] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentResponse, setCurrentResponse] = useState('');
   const [currentToolCalls, setCurrentToolCalls] = useState<MCPToolCall[]>([]);
 
-  // Build WebSocket URL
+  /**
+   * Build WebSocket URL from API URL configuration.
+   * The chat WebSocket endpoint is at /chat/ws relative to the API base path.
+   */
   const getWsUrl = useCallback(() => {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
-    // Convert http(s) to ws(s)
-    const wsProtocol = apiUrl.startsWith('https') ? 'wss' : 'ws';
-    const wsBase = apiUrl.replace(/^https?/, wsProtocol);
-    return `${wsBase}/chat/ws?token=${accessToken}`;
+
+    try {
+      // Parse the URL properly to handle all edge cases
+      const url = new URL(apiUrl);
+      const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+
+      // Ensure pathname doesn't have trailing slash before appending
+      const basePath = url.pathname.replace(/\/$/, '');
+      const wsUrl = `${wsProtocol}//${url.host}${basePath}/chat/ws?token=${accessToken}`;
+
+      if (WS_DEBUG) {
+        console.log('[WebSocket] Constructed URL:', wsUrl.replace(/token=[^&]+/, 'token=***'));
+      }
+
+      return wsUrl;
+    } catch {
+      // Fallback for malformed URLs - use current window location
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/chat/ws?token=${accessToken}`;
+
+      if (WS_DEBUG) {
+        console.warn('[WebSocket] URL parsing failed, using fallback:', wsUrl.replace(/token=[^&]+/, 'token=***'));
+      }
+
+      return wsUrl;
+    }
   }, [accessToken]);
 
   const connect = useCallback(() => {
+    // Don't reconnect if already connected or connecting
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      if (WS_DEBUG) console.log('[WebSocket] Already connected');
+      return;
+    }
+
+    if (wsRef.current?.readyState === WebSocket.CONNECTING) {
+      if (WS_DEBUG) console.log('[WebSocket] Connection in progress');
       return;
     }
 
     if (!accessToken) {
+      if (WS_DEBUG) console.warn('[WebSocket] No access token available');
       onError?.('Not authenticated');
       return;
     }
 
+    const wsUrl = getWsUrl();
+
     try {
-      const ws = new WebSocket(getWsUrl());
+      if (WS_DEBUG) {
+        console.log('[WebSocket] Attempting connection...', {
+          attempt: reconnectAttemptRef.current + 1,
+          maxAttempts: RECONNECT_MAX_ATTEMPTS,
+        });
+      }
+
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (WS_DEBUG) console.log('[WebSocket] Connected successfully');
+
+        // Reset reconnection counter on successful connection
+        reconnectAttemptRef.current = 0;
+
         setIsConnected(true);
         onConnected?.();
 
@@ -119,6 +181,14 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
       };
 
       ws.onclose = (event) => {
+        if (WS_DEBUG) {
+          console.log('[WebSocket] Connection closed', {
+            code: event.code,
+            reason: event.reason,
+            wasClean: event.wasClean,
+          });
+        }
+
         setIsConnected(false);
         setIsStreaming(false);
         onDisconnected?.();
@@ -129,16 +199,48 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
           pingIntervalRef.current = null;
         }
 
-        // Auto-reconnect on unexpected close (but not on auth errors)
-        if (event.code !== 4001 && event.code !== 4003 && event.code !== 1000) {
+        // Handle specific close codes
+        if (event.code === 4001) {
+          onError?.('Authentication failed - please log in again');
+          return;
+        }
+
+        if (event.code === 4003) {
+          onError?.('Access denied - agents cannot use chat');
+          return;
+        }
+
+        // Normal closure - don't reconnect
+        if (event.code === 1000) {
+          return;
+        }
+
+        // Unexpected close - attempt reconnection with exponential backoff
+        if (reconnectAttemptRef.current < RECONNECT_MAX_ATTEMPTS) {
+          const delay = Math.min(
+            RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttemptRef.current),
+            RECONNECT_MAX_DELAY
+          );
+          reconnectAttemptRef.current++;
+
+          if (WS_DEBUG) {
+            console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current}/${RECONNECT_MAX_ATTEMPTS})`);
+          }
+
           reconnectTimeoutRef.current = window.setTimeout(() => {
             connect();
-          }, 3000);
+          }, delay);
+        } else {
+          onError?.('Connection lost - maximum reconnection attempts reached');
         }
       };
 
-      ws.onerror = () => {
-        onError?.('WebSocket connection error');
+      ws.onerror = (event) => {
+        if (WS_DEBUG) {
+          console.error('[WebSocket] Connection error', event);
+        }
+        // Don't call onError here - onclose will be called after onerror
+        // and we handle the error there with proper context
       };
 
       ws.onmessage = (event) => {
@@ -146,30 +248,40 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
           const data = JSON.parse(event.data);
           handleMessage(data);
         } catch (e) {
-          console.error('Failed to parse WebSocket message:', e);
+          console.error('[WebSocket] Failed to parse message:', e);
         }
       };
     } catch (error) {
-      onError?.(`Failed to connect: ${error}`);
+      if (WS_DEBUG) {
+        console.error('[WebSocket] Failed to create WebSocket:', error);
+      }
+      onError?.(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
     }
   }, [accessToken, getWsUrl, onConnected, onDisconnected, onError]);
 
   const disconnect = useCallback(() => {
+    if (WS_DEBUG) console.log('[WebSocket] Disconnecting...');
+
+    // Clear reconnection timeout
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
 
+    // Clear ping interval
     if (pingIntervalRef.current) {
       clearInterval(pingIntervalRef.current);
       pingIntervalRef.current = null;
     }
 
+    // Close WebSocket connection
     if (wsRef.current) {
       wsRef.current.close(1000, 'User disconnected');
       wsRef.current = null;
     }
 
+    // Reset state
+    reconnectAttemptRef.current = 0;
     setIsConnected(false);
     setIsStreaming(false);
   }, []);
@@ -230,6 +342,13 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
           toolCalls: data.toolCalls as MCPToolCall[] || currentToolCalls,
         };
         onMessage?.(message);
+
+        // If tab was in background, mark for refetch when user returns
+        if (document.hidden) {
+          pendingRefetchRef.current = true;
+          if (WS_DEBUG) console.log('[WebSocket] Message completed while tab in background, will refetch on return');
+        }
+
         // Reset state for next message
         setCurrentResponse('');
         setCurrentToolCalls([]);
@@ -282,6 +401,28 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     setIsStreaming(false);
   }, []);
 
+  // Track pending refetch state
+  const [hasPendingRefetch, setHasPendingRefetch] = useState(false);
+
+  const clearPendingRefetch = useCallback(() => {
+    pendingRefetchRef.current = false;
+    setHasPendingRefetch(false);
+  }, []);
+
+  // Handle visibility change for background message handling
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && pendingRefetchRef.current) {
+        if (WS_DEBUG) console.log('[WebSocket] Tab visible again, pending refetch detected');
+        setHasPendingRefetch(true);
+        // Note: The actual refetch is handled by the chat page via the hasPendingRefetch flag
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -294,6 +435,8 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     isStreaming,
     currentResponse,
     currentToolCalls,
+    hasPendingRefetch,
+    clearPendingRefetch,
     sendMessage,
     cancelStream,
     connect,

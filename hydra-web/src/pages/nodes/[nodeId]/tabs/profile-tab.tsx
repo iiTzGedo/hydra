@@ -444,19 +444,19 @@ function ProfileDiffView({
                 <h4 className="font-medium capitalize">{section}</h4>
                 <div className="flex items-center gap-2 text-sm">
                   {summary?.added ? (
-                    <span className="flex items-center gap-1 text-green-600">
+                    <span className="flex items-center gap-1 text-success">
                       <Plus className="h-3.5 w-3.5" />
                       {summary.added} added
                     </span>
                   ) : null}
                   {summary?.removed ? (
-                    <span className="flex items-center gap-1 text-red-600">
+                    <span className="flex items-center gap-1 text-destructive">
                       <Minus className="h-3.5 w-3.5" />
                       {summary.removed} removed
                     </span>
                   ) : null}
                   {summary?.changed ? (
-                    <span className="flex items-center gap-1 text-yellow-600">
+                    <span className="flex items-center gap-1 text-warning">
                       <ArrowRight className="h-3.5 w-3.5" />
                       {summary.changed} modified
                     </span>
