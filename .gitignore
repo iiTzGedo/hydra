@@ -86,3 +86,8 @@ Plan.md
 prototypes/
 instructions/
 Web Audit.md
+.playwright-mcp/
+reviews/
+agent/
+testing/
+accessibility/

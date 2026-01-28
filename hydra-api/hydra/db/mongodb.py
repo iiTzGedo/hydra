@@ -172,6 +172,11 @@ class MongoDB:
         return self.db.ai_models
 
     @property
+    def global_api_keys(self):
+        """Global API keys collection for LLM providers."""
+        return self.db.global_api_keys
+
+    @property
     def mcp_servers(self):
         """MCP server configurations collection."""
         return self.db.mcp_servers

@@ -143,3 +143,44 @@ class MCPResourcesResponse(BaseModel):
     resources: list[MCPResourceInfo]
 
     model_config = {"populate_by_name": True}
+
+
+class MCPPromptArgument(BaseModel):
+    """Argument definition for an MCP prompt."""
+
+    name: str
+    description: str | None = None
+    required: bool = False
+
+
+class MCPPromptInfo(BaseModel):
+    """Information about an MCP prompt."""
+
+    name: str
+    description: str | None = None
+    arguments: list[MCPPromptArgument] = Field(default_factory=list)
+
+
+class MCPPromptsResponse(BaseModel):
+    """Response for listing MCP server prompts."""
+
+    server_id: str = Field(alias="serverId")
+    prompts: list[MCPPromptInfo]
+
+    model_config = {"populate_by_name": True}
+
+
+class HydraMCPHealthResponse(BaseModel):
+    """Dedicated health response for the built-in Hydra MCP server."""
+
+    status: MCPServerStatus
+    message: str
+    checked_at: datetime = Field(alias="checkedAt")
+    server_name: str | None = Field(default=None, alias="serverName")
+    version: str | None = None
+    tools_count: int = Field(default=0, alias="toolsCount")
+    prompts_count: int = Field(default=0, alias="promptsCount")
+    resources_count: int = Field(default=0, alias="resourcesCount")
+    endpoint: str | None = None
+
+    model_config = {"populate_by_name": True}

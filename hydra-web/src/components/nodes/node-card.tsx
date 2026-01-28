@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Server, Network, Cpu, Clock, Tag, Box } from 'lucide-react';
@@ -19,6 +20,7 @@ const classIcons = {
 };
 
 export function NodeCard({ node }: NodeCardProps) {
+  const [showAllTags, setShowAllTags] = useState(false);
   const Icon = classIcons[node.class] || Server;
   const colors = NODE_CLASS_COLORS[node.class];
   const statusColors = STATUS_COLORS[node.status] || STATUS_COLORS.inactive;
@@ -73,7 +75,7 @@ export function NodeCard({ node }: NodeCardProps) {
           <div className="mt-3 flex items-center gap-1.5">
             <Tag className="h-3 w-3 text-muted-foreground shrink-0" />
             <div className="flex flex-wrap gap-1">
-              {node.tags.slice(0, 3).map((tag) => (
+              {(showAllTags ? node.tags : node.tags.slice(0, 3)).map((tag) => (
                 <span
                   key={tag}
                   className="px-1.5 py-0.5 bg-muted rounded text-xs text-muted-foreground"
@@ -82,9 +84,16 @@ export function NodeCard({ node }: NodeCardProps) {
                 </span>
               ))}
               {node.tags.length > 3 && (
-                <span className="px-1.5 py-0.5 text-xs text-muted-foreground">
-                  +{node.tags.length - 3}
-                </span>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowAllTags(!showAllTags);
+                  }}
+                  className="px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+                >
+                  {showAllTags ? 'less' : `+${node.tags.length - 3}`}
+                </button>
               )}
             </div>
           </div>

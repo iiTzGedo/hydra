@@ -5,11 +5,13 @@ from datetime import datetime, timezone
 
 import structlog
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from pymongo import ReturnDocument
 
 from hydra.api.v1.core.security import decode_token
 from hydra.api.v1.models.chat import ToolCallStatus
 from hydra.api.v1.services.chat import ChatService, ChatSessionNotFoundError
-from hydra.api.v1.services.llm_bridge import LLMBridge, LLMProviderError
+from hydra.api.v1.services.chat_cache import ChatCacheService
+from hydra.api.v1.services.llm_bridge import LLMBridge, LLMConfigError
 from hydra.api.v1.services.mcp_client import MCPClient, MCPClientError
 from hydra.db.mongodb import MongoDB, get_mongodb
 
@@ -54,6 +56,7 @@ class ChatWebSocketHandler:
         self.chat_service = ChatService(mongodb)
         self.llm_bridge = LLMBridge(mongodb)
         self.mcp_client = MCPClient(mongodb)
+        self.cache_service = ChatCacheService()
         self._cancelled = False
 
     async def handle(self):
@@ -90,11 +93,17 @@ class ChatWebSocketHandler:
         """Process a chat request with LLM completion and MCP tool support.
 
         Args:
-            data: Request data containing sessionId, content, and optional providerId.
+            data: Request data containing sessionId, content, providerId, and feature flags.
         """
         session_id = data.get("sessionId")
         message_content = data.get("content", "")
         provider_id = data.get("providerId")
+        # Support both level-based (new) and boolean (legacy) reasoning config
+        reasoning_level = data.get("reasoningLevel", "none")
+        # Legacy fallback: if reasoningEnabled is true, use 'medium' level
+        if data.get("reasoningEnabled", False) and reasoning_level == "none":
+            reasoning_level = "medium"
+        web_search_enabled = data.get("webSearchEnabled", False)
 
         if not session_id:
             await self._send_error("sessionId is required")
@@ -112,7 +121,7 @@ class ChatWebSocketHandler:
                 await self._send_error("No LLM provider configured for session")
                 return
 
-            provider_config = await self.llm_bridge.get_provider_config(
+            provider_config = await self.llm_bridge.get_config(
                 active_provider_id, self.user_id
             )
 
@@ -140,12 +149,14 @@ class ChatWebSocketHandler:
                 tools=tools,
                 system_prompt=system_prompt,
                 mcp_server_ids=mcp_server_ids,
+                reasoning_level=reasoning_level,
+                web_search_enabled=web_search_enabled,
             )
 
         except ChatSessionNotFoundError:
             await self._send_error(f"Session not found: {session_id}")
-        except LLMProviderError as e:
-            await self._send_error(f"LLM provider error: {e.message}")
+        except LLMConfigError as e:
+            await self._send_error(f"LLM config error: {e.message}")
         except MCPClientError as e:
             await self._send_error(f"MCP error: {e.message}")
         except Exception as e:
@@ -160,10 +171,14 @@ class ChatWebSocketHandler:
         tools: list[dict],
         system_prompt: str,
         mcp_server_ids: list[str],
+        reasoning_level: str = "none",
+        web_search_enabled: bool = False,
     ):
         """Stream LLM response with iterative tool execution support.
 
         Handles multiple rounds of tool calls up to max_tool_rounds limit.
+        Also tracks session context (tokens, costs, tool calls) and locks
+        the LLM config after the first assistant response.
 
         Args:
             session_id: Chat session identifier.
@@ -172,10 +187,14 @@ class ChatWebSocketHandler:
             tools: Available MCP tools.
             system_prompt: System prompt for the LLM.
             mcp_server_ids: Connected MCP server IDs.
+            reasoning_level: Extended thinking level ('none', 'low', 'medium', 'high').
+            web_search_enabled: Whether to enable web search capability.
         """
         full_response = ""
         tool_calls: list[dict] = []
         max_tool_rounds = 10
+        total_tool_calls = 0
+        saved_response_length = 0  # Track how much text we've saved
 
         current_messages = messages.copy()
 
@@ -192,6 +211,8 @@ class ChatWebSocketHandler:
                 messages=current_messages,
                 tools=tools if tools else None,
                 system_prompt=system_prompt,
+                reasoning_level=reasoning_level,
+                web_search_enabled=web_search_enabled,
             ):
                 if self._cancelled:
                     break
@@ -216,6 +237,7 @@ class ChatWebSocketHandler:
                     }
                     round_tool_calls.append(tool_call)
                     tool_calls.append(tool_call)
+                    total_tool_calls += 1
 
                     await self._send({
                         "type": WSMessageType.TOOL_CALL_START,
@@ -234,7 +256,34 @@ class ChatWebSocketHandler:
                     break
 
             if not round_tool_calls:
+                # No tool calls in this round - save final text and break
+                # Only save if there's unsaved text
+                if round_text:
+                    await self._save_message(
+                        session_id,
+                        "assistant",
+                        round_text,
+                    )
                 break
+
+            # Save intermediate assistant message with tool calls to DB
+            # (required so tool responses can reference it in history)
+            if round_text or round_tool_calls:
+                await self._save_message(
+                    session_id,
+                    "assistant",
+                    round_text,
+                    tool_calls=round_tool_calls,
+                )
+                saved_response_length = len(full_response)
+                current_messages.append({
+                    "role": "assistant",
+                    "content": round_text,
+                    "tool_calls": [
+                        {"id": tc["id"], "name": tc["name"], "input": tc["input"]}
+                        for tc in round_tool_calls
+                    ],
+                })
 
             for tool_call in round_tool_calls:
                 result = await self.mcp_client.execute_tool_call(
@@ -248,6 +297,14 @@ class ChatWebSocketHandler:
                     else ToolCallStatus.SUCCESS.value
                 )
 
+                # Save tool response message to DB
+                await self._save_message(
+                    session_id,
+                    "tool",
+                    result["content"],
+                    tool_call_id=tool_call["id"],
+                )
+
                 await self._send({
                     "type": WSMessageType.TOOL_CALL_RESULT,
                     "toolCall": {
@@ -258,28 +315,17 @@ class ChatWebSocketHandler:
                     },
                 })
 
-            if round_text or round_tool_calls:
-                current_messages.append({
-                    "role": "assistant",
-                    "content": round_text,
-                    "tool_calls": [
-                        {"id": tc["id"], "name": tc["name"], "input": tc["input"]}
-                        for tc in round_tool_calls
-                    ],
-                })
-
-            for tc in round_tool_calls:
                 current_messages.append({
                     "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": tc.get("result", ""),
+                    "tool_call_id": tool_call["id"],
+                    "content": result["content"],
                 })
 
-        await self._save_message(
-            session_id,
-            "assistant",
-            full_response,
-            tool_calls=tool_calls if tool_calls else None,
+        # Lock the LLM config and update session context after first assistant response
+        await self._update_session_context(
+            session_id=session_id,
+            provider_config=provider_config,
+            tool_calls_count=total_tool_calls,
         )
 
         await self._send({
@@ -320,43 +366,94 @@ class ChatWebSocketHandler:
         Handles both camelCase (from database) and snake_case formats,
         normalizing tool call structures for the LLM bridge.
 
+        Ensures tool_calls and tool responses are properly paired:
+        - Tool calls without responses are stripped
+        - Tool responses without matching tool calls are stripped
+
         Args:
             messages: Raw message history from the database.
 
         Returns:
             Formatted message history for LLM API calls.
         """
+        # First pass: collect all tool_call_ids that have responses
+        tool_response_ids: set[str] = set()
+        for msg in messages:
+            if msg.get("role") == "tool":
+                tool_call_id = msg.get("toolCallId") or msg.get("tool_call_id", "")
+                if tool_call_id:
+                    tool_response_ids.add(tool_call_id)
+
+        # Second pass: format non-tool messages and track which tool_calls are kept
+        included_tool_call_ids: set[str] = set()
         formatted = []
+
         for msg in messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
 
             if role == "tool":
-                tool_call_id = msg.get("toolCallId") or msg.get("tool_call_id", "")
-                formatted.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "content": content,
-                })
+                # Skip tool messages in this pass - we'll add them in the third pass
+                continue
             elif msg.get("toolCalls") or msg.get("tool_calls"):
                 tool_calls = msg.get("toolCalls") or msg.get("tool_calls", [])
-                normalized_tool_calls = [
-                    {
-                        "id": tc.get("id", ""),
-                        "name": tc.get("name", ""),
-                        "input": tc.get("arguments") or tc.get("input", {}),
-                    }
-                    for tc in tool_calls
-                ]
-                formatted.append({
-                    "role": role,
-                    "content": content,
-                    "tool_calls": normalized_tool_calls,
-                })
+
+                # Only include tool_calls that have corresponding responses
+                valid_tool_calls = []
+                for tc in tool_calls:
+                    tc_id = tc.get("id", "")
+                    if tc_id in tool_response_ids:
+                        valid_tool_calls.append({
+                            "id": tc_id,
+                            "name": tc.get("name", ""),
+                            "input": tc.get("arguments") or tc.get("input", {}),
+                        })
+                        included_tool_call_ids.add(tc_id)
+
+                if valid_tool_calls:
+                    # Has valid tool calls with responses
+                    formatted.append({
+                        "role": role,
+                        "content": content,
+                        "tool_calls": valid_tool_calls,
+                    })
+                elif content:
+                    # No valid tool calls, but has content - treat as regular message
+                    formatted.append({"role": role, "content": content})
+                # If no content and no valid tool calls, skip the message entirely
             else:
                 formatted.append({"role": role, "content": content})
 
-        return formatted
+        # Third pass: insert tool messages at correct positions
+        # Only include tool messages whose tool_call_id was actually included
+        result = []
+        tool_messages = [
+            msg for msg in messages
+            if msg.get("role") == "tool"
+            and (msg.get("toolCallId") or msg.get("tool_call_id", "")) in included_tool_call_ids
+        ]
+        tool_msg_index = 0
+
+        for fmt_msg in formatted:
+            result.append(fmt_msg)
+
+            # After an assistant message with tool_calls, insert corresponding tool responses
+            if fmt_msg.get("tool_calls"):
+                tool_call_ids_in_msg = {tc["id"] for tc in fmt_msg["tool_calls"]}
+                while tool_msg_index < len(tool_messages):
+                    tool_msg = tool_messages[tool_msg_index]
+                    tool_call_id = tool_msg.get("toolCallId") or tool_msg.get("tool_call_id", "")
+                    if tool_call_id in tool_call_ids_in_msg:
+                        result.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call_id,
+                            "content": tool_msg.get("content", ""),
+                        })
+                        tool_msg_index += 1
+                    else:
+                        break
+
+        return result
 
     def _build_system_prompt(self, tools: list[dict]) -> str:
         """Build the system prompt with MCP tool context.
@@ -390,6 +487,7 @@ Available tools are from connected MCP servers for infrastructure management."""
         role: str,
         content: str,
         tool_calls: list[dict] | None = None,
+        tool_call_id: str | None = None,
     ):
         """Persist a message to the database.
 
@@ -397,16 +495,26 @@ Available tools are from connected MCP servers for infrastructure management."""
             session_id: Chat session identifier.
             role: Message role (user, assistant, tool).
             content: Message content text.
-            tool_calls: Optional list of tool calls made in this message.
+            tool_calls: Optional list of tool calls made in this message (for assistant).
+            tool_call_id: Optional tool call ID this message responds to (for tool role).
         """
         now = datetime.now(timezone.utc)
         message_id = f"msg_{secrets.token_urlsafe(8)}"
 
-        last_message = await self.mongodb.chat_messages.find_one(
+        # Atomically increment messageCount and get the new value for ordering
+        # This prevents race conditions where concurrent messages get the same order
+        session_result = await self.mongodb.chat_sessions.find_one_and_update(
             {"sessionId": session_id},
-            sort=[("order", -1)],
+            {
+                "$set": {"lastMessageAt": now, "updatedAt": now},
+                "$push": {"sessionContext.thread": message_id},
+                "$inc": {"sessionContext.messageCount": 1},
+            },
+            return_document=ReturnDocument.BEFORE,  # Get value BEFORE increment
         )
-        next_order = (last_message["order"] + 1) if last_message else 0
+
+        # Use the messageCount before increment as the order (0-indexed)
+        next_order = session_result.get("sessionContext", {}).get("messageCount", 0) if session_result else 0
 
         doc = {
             "messageId": message_id,
@@ -430,16 +538,15 @@ Available tools are from connected MCP servers for infrastructure management."""
                 if tool_calls
                 else None
             ),
+            "toolCallId": tool_call_id,  # For tool response messages
             "order": next_order,
             "createdAt": now,
         }
 
         await self.mongodb.chat_messages.insert_one(doc)
 
-        await self.mongodb.chat_sessions.update_one(
-            {"sessionId": session_id},
-            {"$set": {"lastMessageAt": now, "updatedAt": now}},
-        )
+        # Invalidate Redis cache so fresh data is fetched from MongoDB
+        await self.cache_service.invalidate_session_cache(session_id)
 
     async def _send(self, data: dict):
         """Send a JSON message to the WebSocket client.
@@ -457,6 +564,44 @@ Available tools are from connected MCP servers for infrastructure management."""
         """
         await self._send({"type": WSMessageType.ERROR, "error": error})
 
+    async def _update_session_context(
+        self,
+        session_id: str,
+        provider_config: dict,
+        tool_calls_count: int,
+    ):
+        """Update session context and lock the LLM config after first response.
+
+        Uses dot notation to update specific fields without overwriting the
+        entire sessionContext (which would destroy the thread array).
+
+        Args:
+            session_id: Chat session identifier.
+            provider_config: LLM provider configuration with model and type.
+            tool_calls_count: Number of tool calls made in this response.
+        """
+        now = datetime.now(timezone.utc)
+
+        # Use dot notation to update specific context fields without overwriting thread array
+        # Note: messageCount is already incremented by _save_message via $inc
+        update_ops: dict = {
+            "$set": {
+                "llmConfigLocked": True,
+                "sessionContext.modelUsed": provider_config.get("model"),
+                "sessionContext.providerType": provider_config.get("type"),
+                "updatedAt": now,
+            },
+        }
+
+        # Only increment toolCallsCount if there were tool calls
+        if tool_calls_count > 0:
+            update_ops["$inc"] = {"sessionContext.toolCallsCount": tool_calls_count}
+
+        await self.mongodb.chat_sessions.update_one(
+            {"sessionId": session_id},
+            update_ops,
+        )
+
 
 async def get_user_from_token(websocket: WebSocket) -> dict | None:
     """Extract and verify user from WebSocket authentication.
@@ -470,19 +615,24 @@ async def get_user_from_token(websocket: WebSocket) -> dict | None:
         Decoded user payload if valid, None otherwise.
     """
     token = websocket.query_params.get("token")
+    logger.debug("ws_auth_attempt", has_query_token=bool(token))
 
     if not token:
         auth_header = websocket.headers.get("authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header[7:]
+            logger.debug("ws_auth_using_header", has_header_token=bool(token))
 
     if not token:
+        logger.warning("ws_auth_no_token")
         return None
 
     try:
         payload = decode_token(token)
+        logger.info("ws_auth_success", user_id=payload.get("sub"))
         return payload
-    except Exception:
+    except Exception as e:
+        logger.warning("ws_auth_token_invalid", error=str(e))
         return None
 
 
@@ -523,7 +673,7 @@ async def chat_websocket(
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
-    if user.get("type") == "agent":
+    if user.get("sub_type") == "agent":
         await websocket.close(code=4003, reason="Agents cannot use chat")
         return
 
@@ -531,10 +681,10 @@ async def chat_websocket(
 
     handler = ChatWebSocketHandler(
         websocket=websocket,
-        user_id=user["user_id"],
+        user_id=user["sub"],
         mongodb=mongodb,
     )
 
-    logger.info("websocket_connected", user_id=user["user_id"])
+    logger.info("websocket_connected", user_id=user["sub"])
 
     await handler.handle()

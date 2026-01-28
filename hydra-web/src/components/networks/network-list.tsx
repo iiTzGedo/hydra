@@ -199,22 +199,10 @@ function NetworkCard({ network }: { network: NetworkListItem }) {
             <span className="text-muted-foreground">Type</span>
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{typeLabel}</span>
           </div>
-          {network.vlanId && (
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">VLAN ID</span>
-              <span className="font-mono">{network.vlanId}</span>
-            </div>
-          )}
           {network.gatewayV4 && (
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Gateway v4</span>
+              <span className="text-muted-foreground">Gateway</span>
               <span className="font-mono">{network.gatewayV4}</span>
-            </div>
-          )}
-          {network.gatewayV6 && (
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Gateway v6</span>
-              <span className="font-mono">{network.gatewayV6}</span>
             </div>
           )}
         </div>

@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, Path, Query
 from hydra.api.v1.core.deps import CurrentUser
 from hydra.api.v1.core.exceptions import AuthorizationError
 from hydra.api.v1.models.mcp import (
+    HydraMCPHealthResponse,
     MCPHealthResponse,
+    MCPPromptsResponse,
     MCPServerCategory,
     MCPServerCreate,
     MCPServerListResponse,
@@ -38,6 +40,107 @@ def _check_not_agent(current_user: dict) -> None:
     """
     if current_user.get("type") == "agent":
         raise AuthorizationError("mcp:read")
+
+
+# ============================================================================
+# Hydra MCP (Built-in) Endpoints
+# ============================================================================
+
+
+@router.get(
+    "/hydra/health",
+    response_model=HydraMCPHealthResponse,
+    summary="Check Hydra MCP Health",
+    description="Check the health of the built-in Hydra MCP server.",
+)
+async def check_hydra_health(
+    current_user: CurrentUser,
+    mcp_service: MCPService = Depends(get_mcp_service),
+) -> HydraMCPHealthResponse:
+    """Check the health of the built-in Hydra MCP server.
+
+    This endpoint directly checks the configured Hydra MCP server without
+    requiring a database lookup. It returns detailed status including
+    available tools count, prompts count, and resources count.
+
+    Args:
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+
+    Returns:
+        Health status of the Hydra MCP server.
+
+    Raises:
+        HTTPException 403: Agents cannot access MCP endpoints.
+    """
+    _check_not_agent(current_user)
+
+    result = await mcp_service.check_hydra_health()
+
+    return HydraMCPHealthResponse(**result)
+
+
+@router.get(
+    "/hydra/tools",
+    response_model=MCPToolsResponse,
+    summary="List Hydra MCP Tools",
+    description="List tools available on the built-in Hydra MCP server.",
+)
+async def list_hydra_tools(
+    current_user: CurrentUser,
+    mcp_service: MCPService = Depends(get_mcp_service),
+) -> MCPToolsResponse:
+    """List all tools available on the built-in Hydra MCP server.
+
+    Args:
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+
+    Returns:
+        List of tools with their names and descriptions.
+
+    Raises:
+        HTTPException 403: Agents cannot access MCP endpoints.
+    """
+    _check_not_agent(current_user)
+
+    result = await mcp_service.list_hydra_tools()
+
+    return MCPToolsResponse(**result)
+
+
+@router.get(
+    "/hydra/prompts",
+    response_model=MCPPromptsResponse,
+    summary="List Hydra MCP Prompts",
+    description="List prompts available on the built-in Hydra MCP server.",
+)
+async def list_hydra_prompts(
+    current_user: CurrentUser,
+    mcp_service: MCPService = Depends(get_mcp_service),
+) -> MCPPromptsResponse:
+    """List all prompts available on the built-in Hydra MCP server.
+
+    Args:
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+
+    Returns:
+        List of prompts with their names, descriptions, and arguments.
+
+    Raises:
+        HTTPException 403: Agents cannot access MCP endpoints.
+    """
+    _check_not_agent(current_user)
+
+    result = await mcp_service.list_hydra_prompts()
+
+    return MCPPromptsResponse(**result)
+
+
+# ============================================================================
+# User MCP Server Endpoints
+# ============================================================================
 
 
 @router.get(
@@ -337,3 +440,40 @@ async def list_resources(
     )
 
     return MCPResourcesResponse(**result)
+
+
+@router.get(
+    "/servers/{serverId}/prompts",
+    response_model=MCPPromptsResponse,
+    summary="List MCP Server Prompts",
+    description="List prompts available on an MCP server.",
+)
+async def list_prompts(
+    current_user: CurrentUser,
+    mcp_service: MCPService = Depends(get_mcp_service),
+    serverId: str = Path(description="Server ID"),
+) -> MCPPromptsResponse:
+    """List all prompts available on an MCP server.
+
+    Queries the MCP server for its prompt manifest and returns prompt definitions.
+
+    Args:
+        current_user: Authenticated user making the request.
+        mcp_service: MCP service instance.
+        serverId: Unique identifier of the MCP server.
+
+    Returns:
+        List of prompts with their names, descriptions, and arguments.
+
+    Raises:
+        HTTPException 403: Agents cannot manage MCP servers.
+        HTTPException 404: Server not found.
+    """
+    _check_not_agent(current_user)
+
+    result = await mcp_service.list_prompts(
+        server_id=serverId,
+        user_id=current_user["user_id"],
+    )
+
+    return MCPPromptsResponse(**result)

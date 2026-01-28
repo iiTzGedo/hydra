@@ -33,7 +33,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useLatestTopology, useGenerateTopology, usePrefetchTopologyModes } from '@/api/topologies';
-import { useGroups, useGroup } from '@/api/groups';
+import { useGroups, useGroup, useGroupMembers } from '@/api/groups';
 import { TopologyNode as TopologyNodeType, TopologyMode } from '@/types/topology';
 import { TopologyNodeComponent } from '@/components/topology/topology-node';
 import { TopologyDetailPanel } from '@/components/topology/detail-panel';
@@ -104,6 +104,10 @@ export default function TopologyPage() {
   const { prefetch: prefetchTopologyModes } = usePrefetchTopologyModes();
   const { data: groupsData } = useGroups({});
   const { data: selectedGroup } = useGroup(selectedGroupId || '');
+  const { data: selectedGroupMembers } = useGroupMembers(selectedGroupId || '', {
+    entityType: 'node',
+    limit: 1000,
+  });
 
   // Prefetch other topology modes when current mode loads
   useEffect(() => {
@@ -134,12 +138,16 @@ export default function TopologyPage() {
 
   // Update highlighted nodes when selected group changes
   useEffect(() => {
-    if (selectedGroup?.members) {
-      setHighlightedNodeIds(selectedGroup.members);
+    if (selectedGroupMembers?.items?.length) {
+      // Extract node IDs from group members
+      const nodeIds = selectedGroupMembers.items
+        .filter((m) => m.type === 'node')
+        .map((m) => m.id);
+      setHighlightedNodeIds(nodeIds);
     } else {
       setHighlightedNodeIds([]);
     }
-  }, [selectedGroup, setHighlightedNodeIds]);
+  }, [selectedGroupMembers, setHighlightedNodeIds]);
 
   // Build nodes and edges from topology data
   const { rawNodes, rawEdges, layoutOptions } = useMemo(() => {

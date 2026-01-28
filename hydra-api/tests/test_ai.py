@@ -13,13 +13,13 @@ from tests.utils import create_mock_cursor
 
 @pytest.fixture
 def sample_ai_provider():
-    """Sample AI provider configuration."""
+    """Sample AI provider configuration (database document format)."""
     api_key = "sk-ant-test123"
     encrypted_key = encrypt_value(api_key)
     now = datetime.now(timezone.utc)
     return {
-        "providerId": "llm_anthropic123",
-        "name": "Anthropic Claude",
+        "providerId": "llm_anthropic123",  # Database field name
+        "name": "anthropic-claude",
         "type": "anthropic",
         "apiKeyEncrypted": encrypted_key,
         "apiKeyLast4": api_key[-4:],
@@ -53,14 +53,15 @@ async def test_list_ai_providers(
     mock_mongodb.ai_models.count_documents = AsyncMock(return_value=1)
 
     response = await client.get(
-        "/api/v1/ai/models",
+        "/api/v1/ai/configs",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 1
-    assert data["providers"][0]["providerId"] == sample_ai_provider["providerId"]
+    # Response uses configId, fixture uses database field providerId
+    assert data["configs"][0]["configId"] == sample_ai_provider["providerId"]
 
 
 @pytest.mark.asyncio
@@ -81,13 +82,14 @@ async def test_get_ai_provider(
     mock_mongodb.ai_models.count_documents = AsyncMock(return_value=1)
 
     response = await client.get(
-        "/api/v1/ai/models/provider-test123",
+        "/api/v1/ai/configs/provider-test123",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
     assert response.status_code == 200
     data = response.json()
-    assert data["providerId"] == sample_ai_provider["providerId"]
+    # Response uses configId, fixture uses database field providerId
+    assert data["configId"] == sample_ai_provider["providerId"]
 
 
 @pytest.mark.asyncio
@@ -104,10 +106,10 @@ async def test_create_ai_provider(
     mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
 
     response = await client.post(
-        "/api/v1/ai/models",
+        "/api/v1/ai/configs",
         json={
             "type": "anthropic",
-            "name": "Anthropic Claude",
+            "name": "anthropic-claude",
             "apiKey": "sk-ant-test123",
             "model": "claude-3-5-sonnet-20241022",
         },
@@ -116,7 +118,7 @@ async def test_create_ai_provider(
 
     assert response.status_code == 201
     data = response.json()
-    assert data["name"] == "Anthropic Claude"
+    assert data["name"] == "anthropic-claude"
     assert data["type"] == "anthropic"
     assert data["apiKeyLast4"] == "t123"
 
@@ -132,7 +134,7 @@ async def test_ai_forbidden_for_agent(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.get(
-        "/api/v1/ai/models",
+        "/api/v1/ai/configs",
         headers={"Authorization": f"Bearer {agent_token}"},
     )
 
@@ -155,20 +157,20 @@ async def test_update_ai_provider(
     mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
 
     updated_provider = sample_ai_provider.copy()
-    updated_provider["name"] = "Updated Name"
+    updated_provider["name"] = "updated-name"
 
     mock_mongodb.ai_models.find_one = AsyncMock(side_effect=[sample_ai_provider, updated_provider])
     mock_mongodb.ai_models.update_one = AsyncMock()
 
     response = await client.put(
-        f"/api/v1/ai/models/{sample_ai_provider['providerId']}",
-        json={"name": "Updated Name"},
+        f"/api/v1/ai/configs/{sample_ai_provider['providerId']}",
+        json={"name": "updated-name"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
     assert response.status_code == 200
     data = response.json()
-    assert data["name"] == "Updated Name"
+    assert data["name"] == "updated-name"
 
 
 @pytest.mark.asyncio
@@ -189,7 +191,7 @@ async def test_delete_ai_provider(
     mock_mongodb.ai_models.delete_one = AsyncMock()
 
     response = await client.delete(
-        f"/api/v1/ai/models/{sample_ai_provider['providerId']}",
+        f"/api/v1/ai/configs/{sample_ai_provider['providerId']}",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -222,12 +224,13 @@ async def test_validate_ai_provider(
     monkeypatch.setattr(AIService, "_validate_anthropic", fake_validate)
 
     response = await client.post(
-        f"/api/v1/ai/models/{sample_ai_provider['providerId']}/validate",
+        f"/api/v1/ai/configs/{sample_ai_provider['providerId']}/validate",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["providerId"] == sample_ai_provider["providerId"]
+    # Response uses configId, fixture uses database field providerId
+    assert data["configId"] == sample_ai_provider["providerId"]
     assert data["isValid"] is True
 
 
@@ -246,7 +249,7 @@ async def test_get_ai_provider_not_found(
     mock_mongodb.ai_models.find_one = AsyncMock(return_value=None)
 
     response = await client.get(
-        "/api/v1/ai/models/nonexistent-provider",
+        "/api/v1/ai/configs/nonexistent-provider",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -270,7 +273,7 @@ async def test_ai_forbidden_for_viewer(
 
     # Viewer should be able to list (read)
     response = await client.get(
-        "/api/v1/ai/models",
+        "/api/v1/ai/configs",
         headers={"Authorization": f"Bearer {viewer_token}"},
     )
     assert response.status_code == 200
@@ -287,7 +290,7 @@ async def test_ai_agent_cannot_create(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.post(
-        "/api/v1/ai/models",
+        "/api/v1/ai/configs",
         json={
             "type": "anthropic",
             "name": "Test",
@@ -311,7 +314,7 @@ async def test_ai_agent_cannot_update(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.put(
-        "/api/v1/ai/models/some-provider",
+        "/api/v1/ai/configs/some-provider",
         json={"name": "Updated"},
         headers={"Authorization": f"Bearer {agent_token}"},
     )
@@ -330,7 +333,7 @@ async def test_ai_agent_cannot_delete(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.delete(
-        "/api/v1/ai/models/some-provider",
+        "/api/v1/ai/configs/some-provider",
         headers={"Authorization": f"Bearer {agent_token}"},
     )
 
@@ -348,7 +351,7 @@ async def test_ai_agent_cannot_validate(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.post(
-        "/api/v1/ai/models/some-provider/validate",
+        "/api/v1/ai/configs/some-provider/validate",
         headers={"Authorization": f"Bearer {agent_token}"},
     )
 

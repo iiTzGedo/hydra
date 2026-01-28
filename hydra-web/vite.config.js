@@ -8,17 +8,24 @@ export default defineConfig({
             '@': path.resolve(__dirname, './src'),
         },
     },
+    optimizeDeps: {
+        include: ['elkjs'],
+    },
     server: {
         port: 5173,
         proxy: {
             '/api': {
                 target: 'http://localhost:8080',
                 changeOrigin: true,
+                ws: true,
             },
         },
     },
     build: {
         sourcemap: true,
+        commonjsOptions: {
+            include: [/elkjs/, /node_modules/],
+        },
         rollupOptions: {
             output: {
                 manualChunks: {

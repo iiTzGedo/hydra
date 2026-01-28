@@ -61,7 +61,7 @@ class ApiKeyType(str, Enum):
 
 
 ROLE_LIMITS: dict[str, int | None] = {
-    Role.ADMIN.value: 2,
+    Role.ADMIN.value: 3,  # Allows primary admin, backup admin, and system_admin for testing
     Role.OPERATOR.value: 10,
     Role.VIEWER.value: None,  # Unlimited
     Role.FAMILY.value: None,  # Unlimited

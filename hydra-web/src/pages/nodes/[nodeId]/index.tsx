@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useArchiveNode, useNode, useUpdateNode } from '@/api/nodes';
+import type { NodeKind } from '@/types/node';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS } from '@/lib/constants';
@@ -142,7 +143,7 @@ export default function NodeDetailPage() {
         data: {
           displayName: editForm.displayName || undefined,
           description: editForm.description || undefined,
-          kind: editForm.kind || undefined,
+          kind: (editForm.kind || undefined) as NodeKind | undefined,
           status: editForm.status as typeof node.status,
           tags,
           parentNodeId: editForm.parentNodeId || undefined,

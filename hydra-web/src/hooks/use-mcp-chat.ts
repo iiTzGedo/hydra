@@ -3,10 +3,13 @@
  *
  * Connects to the Hydra API WebSocket endpoint for real-time chat with LLM streaming.
  * Handles connection management, message streaming, tool calls, and automatic reconnection.
+ *
+ * Uses refs for callbacks to avoid closure bugs where WebSocket handlers capture stale values.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
+import { STORAGE_KEYS } from '@/lib/constants';
 
 // Enable debug logging for WebSocket connections
 const WS_DEBUG = import.meta.env.DEV;
@@ -32,6 +35,52 @@ const RECONNECT_BASE_DELAY = 1000; // 1 second
 const RECONNECT_MAX_DELAY = 30000; // 30 seconds
 const RECONNECT_MAX_ATTEMPTS = 10;
 
+// API URL for token refresh
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+
+/**
+ * Refresh the access token using the refresh token.
+ * Returns the new access token or null if refresh failed.
+ */
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = localStorage.getItem(STORAGE_KEYS.refreshToken);
+  if (!refreshToken) {
+    if (WS_DEBUG) console.log('[WebSocket] No refresh token available');
+    return null;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    if (!response.ok) {
+      if (WS_DEBUG) console.log('[WebSocket] Token refresh failed:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const { accessToken, refreshToken: newRefreshToken } = data;
+
+    // Update localStorage
+    localStorage.setItem(STORAGE_KEYS.accessToken, accessToken);
+    localStorage.setItem(STORAGE_KEYS.refreshToken, newRefreshToken);
+
+    // Update Zustand store
+    useAuthStore.getState().setTokens(accessToken, newRefreshToken);
+
+    if (WS_DEBUG) console.log('[WebSocket] Token refreshed successfully');
+    return accessToken;
+  } catch (error) {
+    if (WS_DEBUG) console.error('[WebSocket] Token refresh error:', error);
+    return null;
+  }
+}
+
 export interface MCPToolCall {
   id: string;
   name: string;
@@ -50,9 +99,14 @@ export interface ChatMessage {
   error?: boolean;
 }
 
+// Reasoning level type - matches chat-input.tsx
+export type ReasoningLevel = 'none' | 'low' | 'medium' | 'high';
+
 interface UseMCPChatOptions {
   sessionId: string | null;
   providerId: string | null;
+  reasoningLevel?: ReasoningLevel;
+  webSearchEnabled?: boolean;
   onMessage?: (message: ChatMessage) => void;
   onToolCallStart?: (toolCall: MCPToolCall) => void;
   onToolCallResult?: (toolCall: MCPToolCall) => void;
@@ -78,6 +132,8 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
   const {
     sessionId,
     providerId,
+    reasoningLevel = 'none',
+    webSearchEnabled,
     onMessage,
     onToolCallStart,
     onToolCallResult,
@@ -86,23 +142,71 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     onDisconnected,
   } = options;
 
-  const { accessToken } = useAuthStore();
+  // Refs for WebSocket and timers
   const wsRef = useRef<WebSocket | null>(null);
   const pingIntervalRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
   const pendingRefetchRef = useRef(false);
 
+  // Refs for callbacks - these allow WebSocket handlers to always use latest callbacks
+  // without needing to recreate the handlers when callbacks change
+  const onMessageRef = useRef(onMessage);
+  const onToolCallStartRef = useRef(onToolCallStart);
+  const onToolCallResultRef = useRef(onToolCallResult);
+  const onErrorRef = useRef(onError);
+  const onConnectedRef = useRef(onConnected);
+  const onDisconnectedRef = useRef(onDisconnected);
+
+  // Refs for streaming state - allows handlers to access current values without closure issues
+  const currentResponseRef = useRef('');
+  const currentToolCallsRef = useRef<MCPToolCall[]>([]);
+
+  // Update callback refs when they change
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
+
+  useEffect(() => {
+    onToolCallStartRef.current = onToolCallStart;
+  }, [onToolCallStart]);
+
+  useEffect(() => {
+    onToolCallResultRef.current = onToolCallResult;
+  }, [onToolCallResult]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    onConnectedRef.current = onConnected;
+  }, [onConnected]);
+
+  useEffect(() => {
+    onDisconnectedRef.current = onDisconnected;
+  }, [onDisconnected]);
+
+  // State for UI
   const [isConnected, setIsConnected] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentResponse, setCurrentResponse] = useState('');
   const [currentToolCalls, setCurrentToolCalls] = useState<MCPToolCall[]>([]);
 
+  // Sync state to refs for access in handlers
+  useEffect(() => {
+    currentResponseRef.current = currentResponse;
+  }, [currentResponse]);
+
+  useEffect(() => {
+    currentToolCallsRef.current = currentToolCalls;
+  }, [currentToolCalls]);
+
   /**
    * Build WebSocket URL from API URL configuration.
    * The chat WebSocket endpoint is at /chat/ws relative to the API base path.
    */
-  const getWsUrl = useCallback(() => {
+  const getWsUrl = useCallback((token: string) => {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
 
     try {
@@ -112,7 +216,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
 
       // Ensure pathname doesn't have trailing slash before appending
       const basePath = url.pathname.replace(/\/$/, '');
-      const wsUrl = `${wsProtocol}//${url.host}${basePath}/chat/ws?token=${accessToken}`;
+      const wsUrl = `${wsProtocol}//${url.host}${basePath}/chat/ws?token=${token}`;
 
       if (WS_DEBUG) {
         console.log('[WebSocket] Constructed URL:', wsUrl.replace(/token=[^&]+/, 'token=***'));
@@ -122,7 +226,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     } catch {
       // Fallback for malformed URLs - use current window location
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/chat/ws?token=${accessToken}`;
+      const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/chat/ws?token=${token}`;
 
       if (WS_DEBUG) {
         console.warn('[WebSocket] URL parsing failed, using fallback:', wsUrl.replace(/token=[^&]+/, 'token=***'));
@@ -130,9 +234,97 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
 
       return wsUrl;
     }
-  }, [accessToken]);
+  }, []);
 
-  const connect = useCallback(() => {
+  /**
+   * Handle incoming WebSocket messages.
+   * Uses refs to access current callbacks and state to avoid closure bugs.
+   */
+  const handleMessage = useCallback((data: Record<string, unknown>) => {
+    const type = data.type as string;
+
+    switch (type) {
+      case WSMessageType.TEXT_DELTA:
+        setCurrentResponse(prev => prev + (data.text as string || ''));
+        break;
+
+      case WSMessageType.TOOL_CALL_START: {
+        const toolCall = data.toolCall as MCPToolCall;
+        const newToolCall: MCPToolCall = {
+          id: toolCall.id,
+          name: toolCall.name,
+          arguments: toolCall.arguments || {},
+          status: 'pending',
+        };
+        setCurrentToolCalls(prev => [...prev, newToolCall]);
+        onToolCallStartRef.current?.(newToolCall);
+        break;
+      }
+
+      case WSMessageType.TOOL_CALL_RESULT: {
+        const result = data.toolCall as { id: string; result: string; isError: boolean };
+        setCurrentToolCalls(prev =>
+          prev.map(tc =>
+            tc.id === result.id
+              ? {
+                  ...tc,
+                  result: result.result,
+                  status: result.isError ? 'error' : 'success',
+                  error: result.isError ? result.result : undefined,
+                }
+              : tc
+          )
+        );
+        const updatedToolCall: MCPToolCall = {
+          id: result.id,
+          name: '',
+          arguments: {},
+          result: result.result,
+          status: result.isError ? 'error' : 'success',
+          error: result.isError ? result.result : undefined,
+        };
+        onToolCallResultRef.current?.(updatedToolCall);
+        break;
+      }
+
+      case WSMessageType.MESSAGE_COMPLETE: {
+        setIsStreaming(false);
+        const message: ChatMessage = {
+          id: data.messageId as string || crypto.randomUUID(),
+          role: 'assistant',
+          // Use refs to get current values, not stale closure values
+          content: data.content as string || currentResponseRef.current,
+          toolCalls: data.toolCalls as MCPToolCall[] || currentToolCallsRef.current,
+        };
+        onMessageRef.current?.(message);
+
+        // If tab was in background, mark for refetch when user returns
+        if (document.hidden) {
+          pendingRefetchRef.current = true;
+          if (WS_DEBUG) console.log('[WebSocket] Message completed while tab in background, will refetch on return');
+        }
+
+        // Reset state for next message
+        setCurrentResponse('');
+        setCurrentToolCalls([]);
+        break;
+      }
+
+      case WSMessageType.ERROR:
+        setIsStreaming(false);
+        onErrorRef.current?.(data.error as string || 'Unknown error');
+        break;
+
+      case WSMessageType.PONG:
+        // Heartbeat response, no action needed
+        break;
+
+      default:
+        console.warn('Unknown WebSocket message type:', type);
+    }
+  }, []); // No dependencies - uses refs for everything
+
+  const connect = useCallback(async () => {
     // Don't reconnect if already connected or connecting
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       if (WS_DEBUG) console.log('[WebSocket] Already connected');
@@ -144,13 +336,23 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
       return;
     }
 
-    if (!accessToken) {
+    // Proactively refresh token before connecting to ensure it's not expired
+    if (WS_DEBUG) console.log('[WebSocket] Refreshing token before connection...');
+    let tokenToUse = await refreshAccessToken();
+
+    // If refresh failed, try using current token from store as fallback
+    if (!tokenToUse) {
+      tokenToUse = useAuthStore.getState().accessToken;
+      if (WS_DEBUG) console.log('[WebSocket] Using existing token from store');
+    }
+
+    if (!tokenToUse) {
       if (WS_DEBUG) console.warn('[WebSocket] No access token available');
-      onError?.('Not authenticated');
+      onErrorRef.current?.('Not authenticated');
       return;
     }
 
-    const wsUrl = getWsUrl();
+    const wsUrl = getWsUrl(tokenToUse);
 
     try {
       if (WS_DEBUG) {
@@ -170,7 +372,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
         reconnectAttemptRef.current = 0;
 
         setIsConnected(true);
-        onConnected?.();
+        onConnectedRef.current?.();
 
         // Start ping interval to keep connection alive
         pingIntervalRef.current = window.setInterval(() => {
@@ -191,7 +393,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
 
         setIsConnected(false);
         setIsStreaming(false);
-        onDisconnected?.();
+        onDisconnectedRef.current?.();
 
         // Clear ping interval
         if (pingIntervalRef.current) {
@@ -201,12 +403,12 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
 
         // Handle specific close codes
         if (event.code === 4001) {
-          onError?.('Authentication failed - please log in again');
+          onErrorRef.current?.('Authentication failed - please log in again');
           return;
         }
 
         if (event.code === 4003) {
-          onError?.('Access denied - agents cannot use chat');
+          onErrorRef.current?.('Access denied - agents cannot use chat');
           return;
         }
 
@@ -231,7 +433,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
             connect();
           }, delay);
         } else {
-          onError?.('Connection lost - maximum reconnection attempts reached');
+          onErrorRef.current?.('Connection lost - maximum reconnection attempts reached');
         }
       };
 
@@ -255,9 +457,9 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
       if (WS_DEBUG) {
         console.error('[WebSocket] Failed to create WebSocket:', error);
       }
-      onError?.(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
+      onErrorRef.current?.(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [accessToken, getWsUrl, onConnected, onDisconnected, onError]);
+  }, [getWsUrl, handleMessage]); // Minimal dependencies - callbacks accessed via refs
 
   const disconnect = useCallback(() => {
     if (WS_DEBUG) console.log('[WebSocket] Disconnecting...');
@@ -286,97 +488,36 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     setIsStreaming(false);
   }, []);
 
-  const handleMessage = useCallback((data: Record<string, unknown>) => {
-    const type = data.type as string;
+  // Refs for sendMessage to avoid recreating it when these change
+  const sessionIdRef = useRef(sessionId);
+  const providerIdRef = useRef(providerId);
+  const reasoningLevelRef = useRef(reasoningLevel);
+  const webSearchEnabledRef = useRef(webSearchEnabled);
 
-    switch (type) {
-      case WSMessageType.TEXT_DELTA:
-        setCurrentResponse(prev => prev + (data.text as string || ''));
-        break;
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
-      case WSMessageType.TOOL_CALL_START: {
-        const toolCall = data.toolCall as MCPToolCall;
-        const newToolCall: MCPToolCall = {
-          id: toolCall.id,
-          name: toolCall.name,
-          arguments: toolCall.arguments || {},
-          status: 'pending',
-        };
-        setCurrentToolCalls(prev => [...prev, newToolCall]);
-        onToolCallStart?.(newToolCall);
-        break;
-      }
+  useEffect(() => {
+    providerIdRef.current = providerId;
+  }, [providerId]);
 
-      case WSMessageType.TOOL_CALL_RESULT: {
-        const result = data.toolCall as { id: string; result: string; isError: boolean };
-        setCurrentToolCalls(prev =>
-          prev.map(tc =>
-            tc.id === result.id
-              ? {
-                  ...tc,
-                  result: result.result,
-                  status: result.isError ? 'error' : 'success',
-                  error: result.isError ? result.result : undefined,
-                }
-              : tc
-          )
-        );
-        const updatedToolCall: MCPToolCall = {
-          id: result.id,
-          name: '',
-          arguments: {},
-          result: result.result,
-          status: result.isError ? 'error' : 'success',
-          error: result.isError ? result.result : undefined,
-        };
-        onToolCallResult?.(updatedToolCall);
-        break;
-      }
+  useEffect(() => {
+    reasoningLevelRef.current = reasoningLevel;
+  }, [reasoningLevel]);
 
-      case WSMessageType.MESSAGE_COMPLETE: {
-        setIsStreaming(false);
-        const message: ChatMessage = {
-          id: data.messageId as string || crypto.randomUUID(),
-          role: 'assistant',
-          content: data.content as string || currentResponse,
-          toolCalls: data.toolCalls as MCPToolCall[] || currentToolCalls,
-        };
-        onMessage?.(message);
-
-        // If tab was in background, mark for refetch when user returns
-        if (document.hidden) {
-          pendingRefetchRef.current = true;
-          if (WS_DEBUG) console.log('[WebSocket] Message completed while tab in background, will refetch on return');
-        }
-
-        // Reset state for next message
-        setCurrentResponse('');
-        setCurrentToolCalls([]);
-        break;
-      }
-
-      case WSMessageType.ERROR:
-        setIsStreaming(false);
-        onError?.(data.error as string || 'Unknown error');
-        break;
-
-      case WSMessageType.PONG:
-        // Heartbeat response, no action needed
-        break;
-
-      default:
-        console.warn('Unknown WebSocket message type:', type);
-    }
-  }, [currentResponse, currentToolCalls, onMessage, onToolCallStart, onToolCallResult, onError]);
+  useEffect(() => {
+    webSearchEnabledRef.current = webSearchEnabled;
+  }, [webSearchEnabled]);
 
   const sendMessage = useCallback((content: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      onError?.('Not connected to chat server');
+      onErrorRef.current?.('Not connected to chat server');
       return;
     }
 
-    if (!sessionId) {
-      onError?.('No session selected');
+    if (!sessionIdRef.current) {
+      onErrorRef.current?.('No session selected');
       return;
     }
 
@@ -385,14 +526,16 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     setCurrentToolCalls([]);
     setIsStreaming(true);
 
-    // Send chat request
+    // Send chat request with feature flags
     wsRef.current.send(JSON.stringify({
       type: WSMessageType.CHAT_REQUEST,
-      sessionId,
+      sessionId: sessionIdRef.current,
       content,
-      providerId,
+      providerId: providerIdRef.current,
+      reasoningLevel: reasoningLevelRef.current ?? 'none',
+      webSearchEnabled: webSearchEnabledRef.current ?? false,
     }));
-  }, [sessionId, providerId, onError]);
+  }, []); // No dependencies - uses refs for everything
 
   const cancelStream = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

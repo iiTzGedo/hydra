@@ -14,6 +14,7 @@ from hydra.api.v1.models.mcp import (
     MCPServerStatus,
     MCPServerUpdate,
 )
+from hydra.core.config import get_settings
 from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
@@ -470,4 +471,235 @@ class MCPService:
             "owner_id": doc["ownerId"],
             "created_at": doc["createdAt"],
             "updated_at": doc["updatedAt"],
+        }
+
+    async def check_hydra_health(self) -> dict:
+        """Check health of the built-in Hydra MCP server.
+
+        This doesn't require DB lookup - uses the configured MCP server URL directly.
+
+        Returns:
+            Health check result with status, tools count, prompts count, etc.
+        """
+        settings = get_settings()
+        endpoint = settings.mcp_server_url
+        now = datetime.now(timezone.utc)
+
+        status = MCPServerStatus.UNHEALTHY
+        message = ""
+        server_name = None
+        version = None
+        tools_count = 0
+        prompts_count = 0
+        resources_count = 0
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                health_url = f"{endpoint.rstrip('/')}/health"
+                response = await client.get(health_url)
+
+                if response.status_code == 200:
+                    status = MCPServerStatus.HEALTHY
+                    message = "Hydra MCP is reachable"
+                    data = response.json()
+                    server_name = data.get("server")
+                    version = data.get("version")
+                    tools_count = len(data.get("tools", []))
+                    resources_count = len(data.get("resources", []))
+
+                    # Fetch prompts count separately
+                    try:
+                        prompts_url = f"{endpoint.rstrip('/')}/prompts"
+                        prompts_response = await client.get(prompts_url)
+                        if prompts_response.status_code == 200:
+                            prompts_data = prompts_response.json()
+                            if isinstance(prompts_data, list):
+                                prompts_count = len(prompts_data)
+                            elif isinstance(prompts_data, dict) and "prompts" in prompts_data:
+                                prompts_count = len(prompts_data["prompts"])
+                    except Exception:
+                        pass  # Prompts endpoint may not exist
+                else:
+                    message = f"Health check returned status {response.status_code}"
+            except httpx.TimeoutException:
+                message = "Connection timed out - is hydra-mcp service running?"
+            except httpx.ConnectError:
+                message = "Cannot connect to Hydra MCP - check if the service is running"
+            except Exception as e:
+                message = f"Health check failed: {str(e)}"
+
+        logger.info(
+            "hydra_mcp_health_checked",
+            status=status.value,
+            tools_count=tools_count,
+            prompts_count=prompts_count,
+        )
+
+        return {
+            "status": status,
+            "message": message,
+            "checked_at": now,
+            "server_name": server_name,
+            "version": version,
+            "tools_count": tools_count,
+            "prompts_count": prompts_count,
+            "resources_count": resources_count,
+            "endpoint": endpoint,
+        }
+
+    async def list_prompts(self, server_id: str, user_id: str) -> dict:
+        """List prompts available on an MCP server.
+
+        Args:
+            server_id: Server identifier.
+            user_id: User identifier.
+
+        Returns:
+            Dict with "server_id" and "prompts" list.
+
+        Raises:
+            MCPServerNotFoundError: If the server does not exist.
+        """
+        doc = await self.db.mcp_servers.find_one({
+            "serverId": server_id,
+            "ownerId": user_id,
+        })
+
+        if not doc:
+            raise MCPServerNotFoundError(server_id)
+
+        endpoint = doc["endpoint"]
+        auth_type = MCPAuthType(doc.get("authType", "none"))
+
+        headers = {}
+        if doc.get("authValueEncrypted"):
+            auth_value = decrypt_value(doc["authValueEncrypted"])
+            if auth_type == MCPAuthType.API_KEY:
+                headers["X-API-Key"] = auth_value
+            elif auth_type == MCPAuthType.BEARER:
+                headers["Authorization"] = f"Bearer {auth_value}"
+
+        prompts = []
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                prompts_url = f"{endpoint.rstrip('/')}/prompts"
+                response = await client.get(prompts_url, headers=headers)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if isinstance(data, list):
+                        prompts = data
+                    elif isinstance(data, dict) and "prompts" in data:
+                        prompts = data["prompts"]
+            except Exception as e:
+                logger.warning(
+                    "mcp_prompts_fetch_failed",
+                    server_id=server_id,
+                    error=str(e),
+                )
+
+        return {
+            "server_id": server_id,
+            "prompts": [
+                {
+                    "name": p.get("name", p) if isinstance(p, dict) else p,
+                    "description": p.get("description") if isinstance(p, dict) else None,
+                    "arguments": [
+                        {
+                            "name": arg.get("name", ""),
+                            "description": arg.get("description"),
+                            "required": arg.get("required", False),
+                        }
+                        for arg in (p.get("arguments", []) if isinstance(p, dict) else [])
+                    ],
+                }
+                for p in prompts
+            ],
+        }
+
+    async def list_hydra_prompts(self) -> dict:
+        """List prompts available on the built-in Hydra MCP server.
+
+        Returns:
+            Dict with "server_id" as "hydra-mcp" and "prompts" list.
+        """
+        settings = get_settings()
+        endpoint = settings.mcp_server_url
+
+        prompts = []
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                prompts_url = f"{endpoint.rstrip('/')}/prompts"
+                response = await client.get(prompts_url)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if isinstance(data, list):
+                        prompts = data
+                    elif isinstance(data, dict) and "prompts" in data:
+                        prompts = data["prompts"]
+            except Exception as e:
+                logger.warning(
+                    "hydra_mcp_prompts_fetch_failed",
+                    error=str(e),
+                )
+
+        return {
+            "server_id": "hydra-mcp",
+            "prompts": [
+                {
+                    "name": p.get("name", p) if isinstance(p, dict) else p,
+                    "description": p.get("description") if isinstance(p, dict) else None,
+                    "arguments": [
+                        {
+                            "name": arg.get("name", ""),
+                            "description": arg.get("description"),
+                            "required": arg.get("required", False),
+                        }
+                        for arg in (p.get("arguments", []) if isinstance(p, dict) else [])
+                    ],
+                }
+                for p in prompts
+            ],
+        }
+
+    async def list_hydra_tools(self) -> dict:
+        """List tools available on the built-in Hydra MCP server.
+
+        Returns:
+            Dict with "server_id" as "hydra-mcp" and "tools" list.
+        """
+        settings = get_settings()
+        endpoint = settings.mcp_server_url
+
+        tools = []
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                tools_url = f"{endpoint.rstrip('/')}/tools"
+                response = await client.get(tools_url)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if isinstance(data, list):
+                        tools = data
+                    elif isinstance(data, dict) and "tools" in data:
+                        tools = data["tools"]
+            except Exception as e:
+                logger.warning(
+                    "hydra_mcp_tools_fetch_failed",
+                    error=str(e),
+                )
+
+        return {
+            "server_id": "hydra-mcp",
+            "tools": [
+                {
+                    "name": t.get("name", t) if isinstance(t, dict) else t,
+                    "description": t.get("description") if isinstance(t, dict) else None,
+                }
+                for t in tools
+            ],
         }

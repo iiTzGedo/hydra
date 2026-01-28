@@ -37,6 +37,8 @@ export interface NetworkSummary {
 export interface Network extends NetworkSummary {
   description?: string;
   cidrV6?: string | null;
+  gatewayV6?: string;
+  vlanId?: number;
   parentNetworkId?: string;
   subnetIds?: string[];
   dhcp?: DhcpConfig;

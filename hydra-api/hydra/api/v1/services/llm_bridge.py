@@ -14,8 +14,8 @@ from hydra.db.mongodb import MongoDB
 logger = structlog.get_logger(__name__)
 
 
-class LLMProviderError(ValidationError):
-    """LLM provider error."""
+class LLMConfigError(ValidationError):
+    """LLM configuration error."""
 
     def __init__(self, message: str, details: dict | None = None):
         super().__init__(message, details or {})
@@ -27,38 +27,121 @@ class LLMBridge:
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
 
-    async def get_provider_config(self, provider_id: str, user_id: str) -> dict:
-        """Get and prepare provider configuration for API calls.
+    async def get_config(self, config_id: str, user_id: str) -> dict:
+        """Get and prepare LLM configuration for API calls.
 
         Args:
-            provider_id: The LLM provider identifier.
+            config_id: The LLM configuration identifier.
             user_id: The owner's user identifier.
 
         Returns:
-            Provider config dict with type, api_key, base_url, and model.
+            Config dict with type, api_key, base_url, and model.
 
         Raises:
-            LLMProviderError: If provider not found.
+            LLMConfigError: If config not found.
         """
         doc = await self.db.ai_models.find_one({
-            "providerId": provider_id,
+            "providerId": config_id,
             "createdBy": user_id,
         })
 
         if not doc:
-            raise LLMProviderError(f"LLM provider not found: {provider_id}")
+            raise LLMConfigError(f"LLM configuration not found: {config_id}")
 
         api_key = None
         if doc.get("apiKeyEncrypted"):
             api_key = decrypt_value(doc["apiKeyEncrypted"])
 
         return {
-            "provider_id": doc["providerId"],
+            "config_id": doc["providerId"],
             "type": LLMProviderType(doc["type"]),
             "api_key": api_key,
             "base_url": doc.get("baseUrl"),
             "model": doc["model"],
         }
+
+    # =========================================================================
+    # Model Parameter Helpers
+    # =========================================================================
+
+    def _get_openai_token_param(self, model: str) -> str:
+        """Determine the correct token limit parameter for an OpenAI model.
+
+        Different OpenAI model families require different parameter names:
+        - O-series reasoning models (o1, o3, o4): max_completion_tokens
+        - GPT-5 series: max_output_tokens
+        - Standard models (GPT-3.5, GPT-4, GPT-4.1, GPT-4o): max_tokens
+
+        Args:
+            model: The OpenAI model identifier.
+
+        Returns:
+            The correct parameter name for token limits.
+        """
+        model_lower = model.lower()
+
+        # O-series reasoning models require max_completion_tokens
+        if any(model_lower.startswith(p) for p in ["o1", "o3", "o4"]):
+            return "max_completion_tokens"
+
+        # GPT-5 series uses max_output_tokens
+        if model_lower.startswith("gpt-5"):
+            return "max_output_tokens"
+
+        # Standard models (GPT-3.5, GPT-4, GPT-4.1, GPT-4o) use max_tokens
+        return "max_tokens"
+
+    def _get_openrouter_token_param(self, model: str) -> str:
+        """Determine the correct token limit parameter for OpenRouter model.
+
+        OpenRouter routes to various underlying providers. When routing to
+        OpenAI models, we need to use the appropriate token parameter.
+
+        Args:
+            model: The OpenRouter model identifier (e.g., 'openai/o1-preview').
+
+        Returns:
+            The correct parameter name for token limits.
+        """
+        model_lower = model.lower()
+
+        # OpenAI o-series via OpenRouter
+        if any(x in model_lower for x in ["openai/o1", "openai/o3", "openai/o4"]):
+            return "max_completion_tokens"
+
+        # OpenAI GPT-5 via OpenRouter
+        if "openai/gpt-5" in model_lower:
+            return "max_output_tokens"
+
+        # Most models (including Anthropic, Mistral, etc.) use max_tokens
+        return "max_tokens"
+
+    def _ollama_model_supports_tools(self, model: str) -> bool:
+        """Check if an Ollama model supports tool calling.
+
+        Only certain Ollama models support the tool calling feature.
+        Note: Original llama3 (without .1+) does NOT support tools.
+
+        Args:
+            model: The Ollama model name.
+
+        Returns:
+            True if the model supports tool calling.
+        """
+        tool_capable_models = [
+            "llama3.1", "llama3.2", "llama3.3",  # llama3.1+ only
+            "mistral", "mixtral",
+            "qwen2", "qwen2.5", "qwen3",
+            "deepseek", "deepseek-v2", "deepseek-v3",
+            "command-r", "command-r-plus",
+            "granite",
+        ]
+        model_lower = model.lower()
+        return any(tm in model_lower for tm in tool_capable_models)
+
+    # =========================================================================
+    # Streaming Methods
+    # =========================================================================
 
     async def stream_completion(
         self,
@@ -67,6 +150,8 @@ class LLMBridge:
         tools: list[dict] | None = None,
         system_prompt: str | None = None,
         max_tokens: int = 4096,
+        reasoning_level: str = "none",
+        web_search_enabled: bool = False,
     ) -> AsyncIterator[dict]:
         """Stream a completion from the configured LLM provider.
 
@@ -79,6 +164,8 @@ class LLMBridge:
             tools: Optional list of tools available for the model.
             system_prompt: Optional system prompt to prepend.
             max_tokens: Maximum tokens in the response.
+            reasoning_level: Extended thinking level ('none', 'low', 'medium', 'high').
+            web_search_enabled: Whether to enable web search (provider-dependent).
 
         Yields:
             Normalized event dicts with one of:
@@ -86,7 +173,20 @@ class LLMBridge:
             - {"type": "tool_use", "id": "...", "name": "...", "input": {...}} for tool calls
             - {"type": "done", "stop_reason": "..."} when complete
             - {"type": "error", "error": "..."} on failure
+
+        Note:
+            Extended thinking (reasoning_level) support is planned for Anthropic
+            claude-3.5+ and OpenAI o1/o3 models. Web search (web_search_enabled)
+            is primarily supported through OpenRouter.
         """
+        # Log feature flag usage for debugging
+        if reasoning_level != "none" or web_search_enabled:
+            logger.debug(
+                "llm_feature_flags",
+                reasoning_level=reasoning_level,
+                web_search_enabled=web_search_enabled,
+                provider_type=str(provider_config.get("type")),
+            )
         provider_type = provider_config["type"]
 
         if provider_type == LLMProviderType.ANTHROPIC:
@@ -101,7 +201,12 @@ class LLMBridge:
                 yield event
         elif provider_type == LLMProviderType.OLLAMA:
             async for event in self._stream_ollama(
-                provider_config, messages, system_prompt, max_tokens
+                provider_config, messages, tools, system_prompt, max_tokens
+            ):
+                yield event
+        elif provider_type == LLMProviderType.OPENROUTER:
+            async for event in self._stream_openrouter(
+                provider_config, messages, tools, system_prompt, max_tokens
             ):
                 yield event
         else:
@@ -238,15 +343,24 @@ class LLMBridge:
             formatted_messages.append({"role": "system", "content": system_prompt})
         formatted_messages.extend(self._format_messages_openai(messages))
 
+        # Use the correct token parameter based on model family
+        token_param = self._get_openai_token_param(config["model"])
         body: dict[str, Any] = {
             "model": config["model"],
             "messages": formatted_messages,
-            "max_tokens": max_tokens,
+            token_param: max_tokens,
             "stream": True,
         }
 
         if tools:
             body["tools"] = self._format_tools_openai(tools)
+
+        logger.debug(
+            "openai_request",
+            model=config["model"],
+            token_param=token_param,
+            max_tokens=max_tokens,
+        )
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             try:
@@ -324,10 +438,16 @@ class LLMBridge:
         self,
         config: dict,
         messages: list[dict],
+        tools: list[dict] | None,
         system_prompt: str | None,
         max_tokens: int,
     ) -> AsyncIterator[dict]:
-        """Stream from Ollama's Chat API."""
+        """Stream from Ollama's Chat API.
+
+        Supports tool calling for compatible models (llama3.1+, mistral, qwen2+, etc.).
+        Note that Ollama does not support streaming tool calls - they are returned
+        in the final message when done=true.
+        """
         base_url = config.get("base_url")
         if not base_url:
             yield {"type": "error", "error": "Base URL required for Ollama"}
@@ -340,7 +460,7 @@ class LLMBridge:
             formatted_messages.append({"role": "system", "content": system_prompt})
         formatted_messages.extend(self._format_messages_ollama(messages))
 
-        body = {
+        body: dict[str, Any] = {
             "model": config["model"],
             "messages": formatted_messages,
             "stream": True,
@@ -348,6 +468,15 @@ class LLMBridge:
                 "num_predict": max_tokens,
             },
         }
+
+        # Add tools if provided and model supports them
+        if tools and self._ollama_model_supports_tools(config["model"]):
+            body["tools"] = self._format_tools_ollama(tools)
+            logger.debug(
+                "ollama_tools_enabled",
+                model=config["model"],
+                tool_count=len(tools),
+            )
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             try:
@@ -367,6 +496,20 @@ class LLMBridge:
                             continue
 
                         if data.get("done"):
+                            # Check for tool calls in the final message
+                            message = data.get("message", {})
+                            tool_calls = message.get("tool_calls", [])
+
+                            # Yield any tool calls before done
+                            for tc in tool_calls:
+                                func = tc.get("function", {})
+                                yield {
+                                    "type": "tool_use",
+                                    "id": tc.get("id", f"call_{func.get('name', 'unknown')}"),
+                                    "name": func.get("name", ""),
+                                    "input": func.get("arguments", {}),
+                                }
+
                             yield {"type": "done", "stop_reason": "stop"}
                         elif "message" in data:
                             content = data["message"].get("content", "")
@@ -377,6 +520,129 @@ class LLMBridge:
                 yield {"type": "error", "error": "Request timed out"}
             except Exception as e:
                 logger.exception("ollama_stream_error", error=str(e))
+                yield {"type": "error", "error": str(e)}
+
+    async def _stream_openrouter(
+        self,
+        config: dict,
+        messages: list[dict],
+        tools: list[dict] | None,
+        system_prompt: str | None,
+        max_tokens: int,
+    ) -> AsyncIterator[dict]:
+        """Stream from OpenRouter's Chat Completions API.
+
+        OpenRouter provides access to multiple LLM providers through a unified API.
+        It uses an OpenAI-compatible format for requests and responses.
+        """
+        if not config.get("api_key"):
+            yield {"type": "error", "error": "API key required for OpenRouter"}
+            return
+
+        url = "https://openrouter.ai/api/v1/chat/completions"
+
+        headers = {
+            "Authorization": f"Bearer {config['api_key']}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://hydra.local",  # Required by OpenRouter
+            "X-Title": "Hydra Infrastructure Manager",  # Recommended by OpenRouter
+        }
+
+        # OpenRouter uses OpenAI-compatible message format
+        formatted_messages = []
+        if system_prompt:
+            formatted_messages.append({"role": "system", "content": system_prompt})
+        formatted_messages.extend(self._format_messages_openai(messages))
+
+        # Use model-aware token parameter (for OpenAI models via OpenRouter)
+        token_param = self._get_openrouter_token_param(config["model"])
+        body: dict[str, Any] = {
+            "model": config["model"],
+            "messages": formatted_messages,
+            token_param: max_tokens,
+            "stream": True,
+        }
+
+        if tools:
+            body["tools"] = self._format_tools_openai(tools)
+
+        logger.debug(
+            "openrouter_request",
+            model=config["model"],
+            token_param=token_param,
+            max_tokens=max_tokens,
+        )
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            try:
+                async with client.stream("POST", url, headers=headers, json=body) as response:
+                    if response.status_code != 200:
+                        error_body = await response.aread()
+                        yield {"type": "error", "error": f"OpenRouter API error: {error_body.decode()}"}
+                        return
+
+                    tool_calls: dict[int, dict] = {}
+
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = data.get("choices", [])
+                        if not choices:
+                            continue
+
+                        choice = choices[0]
+                        delta = choice.get("delta", {})
+                        finish_reason = choice.get("finish_reason")
+
+                        if "content" in delta and delta["content"]:
+                            yield {"type": "text_delta", "text": delta["content"]}
+
+                        if "tool_calls" in delta:
+                            for tc in delta["tool_calls"]:
+                                idx = tc.get("index", 0)
+                                if idx not in tool_calls:
+                                    tool_calls[idx] = {
+                                        "id": tc.get("id", ""),
+                                        "name": tc.get("function", {}).get("name", ""),
+                                        "arguments": "",
+                                    }
+                                else:
+                                    if tc.get("id"):
+                                        tool_calls[idx]["id"] = tc["id"]
+                                    if tc.get("function", {}).get("name"):
+                                        tool_calls[idx]["name"] = tc["function"]["name"]
+
+                                if tc.get("function", {}).get("arguments"):
+                                    tool_calls[idx]["arguments"] += tc["function"]["arguments"]
+
+                        if finish_reason:
+                            for tc in tool_calls.values():
+                                try:
+                                    input_data = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                                except json.JSONDecodeError:
+                                    input_data = {}
+                                yield {
+                                    "type": "tool_use",
+                                    "id": tc["id"],
+                                    "name": tc["name"],
+                                    "input": input_data,
+                                }
+                            yield {"type": "done", "stop_reason": finish_reason}
+
+            except httpx.TimeoutException:
+                yield {"type": "error", "error": "Request timed out"}
+            except Exception as e:
+                logger.exception("openrouter_stream_error", error=str(e))
                 yield {"type": "error", "error": str(e)}
 
     def _format_messages_anthropic(self, messages: list[dict]) -> list[dict]:
@@ -470,8 +736,8 @@ class LLMBridge:
     def _format_messages_ollama(self, messages: list[dict]) -> list[dict]:
         """Format messages for Ollama API.
 
-        Converts internal message format to Ollama's simple role/content structure.
-        Tool results are included as user messages since Ollama lacks native tool support.
+        Converts internal message format to Ollama's expected structure.
+        Ollama now supports native tool results via the 'tool' role.
 
         Args:
             messages: Messages in internal format.
@@ -485,10 +751,28 @@ class LLMBridge:
             content = msg.get("content", "")
 
             if role == "tool":
+                # Ollama supports native tool results
                 formatted.append({
-                    "role": "user",
-                    "content": f"Tool result: {content}",
+                    "role": "tool",
+                    "content": content,
                 })
+            elif role == "assistant" and msg.get("tool_calls"):
+                # Assistant message with tool calls
+                formatted_msg: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": content if content else "",
+                }
+                # Format tool calls for Ollama
+                formatted_msg["tool_calls"] = [
+                    {
+                        "function": {
+                            "name": tc.get("name"),
+                            "arguments": tc.get("input", {}),
+                        },
+                    }
+                    for tc in msg["tool_calls"]
+                ]
+                formatted.append(formatted_msg)
             else:
                 formatted.append({"role": role, "content": content})
 
@@ -520,6 +804,29 @@ class LLMBridge:
 
         Returns:
             Tools formatted for OpenAI's function calling feature.
+        """
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("inputSchema", tool.get("input_schema", {})),
+                },
+            }
+            for tool in tools
+        ]
+
+    def _format_tools_ollama(self, tools: list[dict]) -> list[dict]:
+        """Format tools for Ollama API.
+
+        Ollama uses an OpenAI-compatible format for tool definitions.
+
+        Args:
+            tools: Tools in internal format with name, description, and inputSchema.
+
+        Returns:
+            Tools formatted for Ollama's tool calling feature.
         """
         return [
             {

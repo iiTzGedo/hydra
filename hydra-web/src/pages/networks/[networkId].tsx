@@ -343,25 +343,19 @@ export default function NetworkDetailPage() {
                 const colors = NODE_CLASS_COLORS[node.class];
                 return (
                   <Link
-                    key={node.id}
-                    to={ROUTES.NODES + '/' + node.id}
+                    key={node.nodeId}
+                    to={ROUTES.NODES + '/' + node.nodeId}
                     className="flex items-center gap-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
                   >
                     <div className={cn('rounded-lg p-2', colors?.bg || 'bg-muted')}>
                       <Server className="h-4 w-4 text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{node.id}</div>
+                      <div className="font-medium truncate">{node.displayName}</div>
                       <div className="text-xs text-muted-foreground capitalize">
-                        {node.class} • {node.kind}
+                        {node.class}
                       </div>
                     </div>
-                    <span
-                      className={cn(
-                        'h-2 w-2 rounded-full',
-                        node.status === 'active' ? 'bg-success' : 'bg-muted-foreground'
-                      )}
-                    />
                   </Link>
                 );
               })}

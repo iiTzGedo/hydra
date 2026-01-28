@@ -15,7 +15,7 @@ import { useGroups } from '@/api/groups';
 import { GroupSummary } from '@/types/group';
 import { GroupFilterState } from './group-filters';
 import { ROUTES } from '@/lib/constants';
-import { cn, formatDate } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 
 interface GroupListProps {
@@ -208,10 +208,6 @@ function GroupCard({ group }: { group: GroupListItem }) {
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Types</span>
             <span className="font-medium">{typeLabel}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Created</span>
-            <span>{group.createdAt ? formatDate(new Date(group.createdAt)) : '—'}</span>
           </div>
         </div>
       </Link>

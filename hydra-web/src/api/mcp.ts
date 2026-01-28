@@ -89,6 +89,35 @@ export interface MCPResourcesResponse {
   resources: MCPResourceInfo[];
 }
 
+export interface MCPPromptArgument {
+  name: string;
+  description?: string | null;
+  required: boolean;
+}
+
+export interface MCPPromptInfo {
+  name: string;
+  description?: string | null;
+  arguments: MCPPromptArgument[];
+}
+
+export interface MCPPromptsResponse {
+  serverId: string;
+  prompts: MCPPromptInfo[];
+}
+
+export interface HydraMCPHealthResponse {
+  status: MCPServerStatus;
+  message: string;
+  checkedAt: string;
+  serverName?: string | null;
+  version?: string | null;
+  toolsCount: number;
+  promptsCount: number;
+  resourcesCount: number;
+  endpoint?: string | null;
+}
+
 export function useMCPServers(params?: { category?: MCPServerCategory; enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.mcp.servers(),
@@ -214,5 +243,53 @@ export function useMCPServerResources(serverId: string) {
       return response.data;
     },
     enabled: !!serverId,
+  });
+}
+
+export function useMCPServerPrompts(serverId: string) {
+  return useQuery({
+    queryKey: queryKeys.mcp.prompts(serverId),
+    queryFn: async () => {
+      const response = await apiClient.get<MCPPromptsResponse>(
+        `/mcp/servers/${serverId}/prompts`
+      );
+      return response.data;
+    },
+    enabled: !!serverId,
+  });
+}
+
+// ============================================================================
+// Dedicated Hydra MCP Hooks
+// ============================================================================
+
+export function useHydraMCPHealth() {
+  return useQuery({
+    queryKey: queryKeys.mcp.hydra.health(),
+    queryFn: async () => {
+      const response = await apiClient.get<HydraMCPHealthResponse>('/mcp/hydra/health');
+      return response.data;
+    },
+    refetchInterval: 30000, // Poll every 30 seconds
+  });
+}
+
+export function useHydraMCPTools() {
+  return useQuery({
+    queryKey: queryKeys.mcp.hydra.tools(),
+    queryFn: async () => {
+      const response = await apiClient.get<MCPToolsResponse>('/mcp/hydra/tools');
+      return response.data;
+    },
+  });
+}
+
+export function useHydraMCPPrompts() {
+  return useQuery({
+    queryKey: queryKeys.mcp.hydra.prompts(),
+    queryFn: async () => {
+      const response = await apiClient.get<MCPPromptsResponse>('/mcp/hydra/prompts');
+      return response.data;
+    },
   });
 }

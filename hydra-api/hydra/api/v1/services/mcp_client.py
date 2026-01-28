@@ -62,7 +62,7 @@ class MCPClient:
 
         doc = await self.db.mcp_servers.find_one({
             "serverId": server_id,
-            "createdBy": user_id,
+            "ownerId": user_id,
         })
 
         if not doc:

@@ -109,6 +109,33 @@ class ChatSessionUpdate(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class SessionContext(BaseModel):
+    """Session context tracking for tokens, costs, and usage."""
+
+    total_tokens: int = Field(default=0, alias="totalTokens", description="Total tokens used")
+    input_tokens: int = Field(default=0, alias="inputTokens", description="Input tokens used")
+    output_tokens: int = Field(default=0, alias="outputTokens", description="Output tokens used")
+    estimated_cost: float = Field(default=0.0, alias="estimatedCost", description="Estimated cost in USD")
+    tool_calls_count: int = Field(default=0, alias="toolCallsCount", description="Number of tool calls made")
+    message_count: int = Field(default=0, alias="messageCount", description="Number of messages in session")
+    model_used: str | None = Field(default=None, alias="modelUsed", description="Model used for this session")
+    provider_type: str | None = Field(default=None, alias="providerType", description="LLM provider type")
+    thread: list[str] = Field(default_factory=list, description="Ordered list of messageIds - source of truth for message ordering")
+
+    model_config = {"populate_by_name": True}
+
+
+class SessionContextResponse(BaseModel):
+    """Response for session context endpoint."""
+
+    session_id: str = Field(alias="sessionId")
+    context: SessionContext
+    llm_config_locked: bool = Field(alias="llmConfigLocked")
+    last_updated: datetime = Field(alias="lastUpdated")
+
+    model_config = {"populate_by_name": True}
+
+
 class ChatSessionResponse(BaseModel):
     """Chat session response."""
 
@@ -119,6 +146,8 @@ class ChatSessionResponse(BaseModel):
     message_count: int = Field(alias="messageCount")
     llm_provider_id: str | None = Field(alias="llmProviderId")
     mcp_server_ids: list[str] = Field(default_factory=list, alias="mcpServerIds")
+    llm_config_locked: bool = Field(default=False, alias="llmConfigLocked", description="Whether LLM config is locked after first response")
+    session_context: SessionContext | None = Field(default=None, alias="sessionContext", description="Session usage context")
     owner_id: str = Field(alias="ownerId")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")

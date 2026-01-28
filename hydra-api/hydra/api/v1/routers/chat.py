@@ -19,6 +19,7 @@ from hydra.api.v1.models.chat import (
     ChatSessionListResponse,
     ChatSessionResponse,
     ChatSessionUpdate,
+    SessionContextResponse,
 )
 from hydra.api.v1.services.chat import ChatService
 from hydra.db.mongodb import MongoDB, get_mongodb
@@ -334,6 +335,49 @@ async def get_session(
     )
 
     return ChatSessionResponse(**result)
+
+
+@router.get(
+    "/sessions/{sessionId}/context",
+    response_model=SessionContextResponse,
+    summary="Get Session Context",
+    description="Get real-time session context for UI display.",
+)
+async def get_session_context(
+    current_user: CurrentUser,
+    chat_service: ChatService = Depends(get_chat_service),
+    sessionId: str = Path(description="Session ID"),
+) -> SessionContextResponse:
+    """Get real-time session context including token counts and costs.
+
+    This endpoint provides context information for the chat UI, including:
+    - Token usage (input, output, total)
+    - Estimated cost
+    - Tool call count
+    - Message count
+    - Model and provider information
+    - LLM config lock status
+
+    Args:
+        current_user: Authenticated user making the request.
+        chat_service: Chat service instance.
+        sessionId: Unique identifier of the session.
+
+    Returns:
+        Session context with usage metrics.
+
+    Raises:
+        HTTPException 403: Agents cannot access chat or session not owned by user.
+        HTTPException 404: Session not found.
+    """
+    _check_not_agent(current_user)
+
+    result = await chat_service.get_session_context(
+        session_id=sessionId,
+        user_id=current_user["user_id"],
+    )
+
+    return SessionContextResponse(**result)
 
 
 @router.put(

@@ -9,6 +9,7 @@ import {
   Users,
   Lock,
   FileText,
+  Bot,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import type { Role } from '@/types/user';
@@ -24,6 +25,7 @@ import {
   UserManagement,
   SecretsSection,
   AuditLogSection,
+  AISettings,
 } from './components';
 
 type TopTab = {
@@ -35,6 +37,7 @@ type TopTab = {
 
 const topTabs: TopTab[] = [
   { id: 'general', label: 'General', icon: Globe },
+  { id: 'ai', label: 'AI', icon: Bot },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'security', label: 'Security', icon: Shield, roles: ['admin'] },
   { id: 'users', label: 'Users', icon: Users, roles: ['admin'] },
@@ -145,6 +148,10 @@ export default function SettingsPage() {
 
             <TabsContent value="general" className="mt-4">
               <GeneralSettings />
+            </TabsContent>
+
+            <TabsContent value="ai" className="mt-4">
+              <AISettings />
             </TabsContent>
 
             <TabsContent value="notifications" className="mt-4">

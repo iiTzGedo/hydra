@@ -133,7 +133,7 @@ class HydraClient:
         if status:
             params["status"] = status
         if tags:
-            params["tags"] = ",".join(tags)
+            params["tags"] = tags  # httpx sends as tags=tag1&tags=tag2
         result = await self._request("GET", "/nodes", params=params)
         return result if isinstance(result, list) else result, 0
 
@@ -176,7 +176,7 @@ class HydraClient:
         """
         params = {}
         if sections:
-            params["sections"] = ",".join(sections)
+            params["sections"] = sections  # httpx sends as sections=s1&sections=s2
         return await self._request("GET", f"/nodes/{node_id}/profiles/latest", params=params)
 
     async def list_services(
@@ -240,9 +240,9 @@ class HydraClient:
         """
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if types:
-            params["types"] = ",".join(types)
+            params["types"] = types  # httpx sends as types=node&types=service
         if tags:
-            params["tags"] = ",".join(tags)
+            params["tags"] = tags  # httpx sends as tags=tag1&tags=tag2
         result = await self._request("GET", "/groups", params=params)
         return result if isinstance(result, list) else result, 0
 
@@ -353,7 +353,7 @@ class HydraClient:
         """
         params: dict[str, Any] = {"timestamp": timestamp.isoformat()}
         if sections:
-            params["sections"] = ",".join(sections)
+            params["sections"] = sections  # httpx sends as sections=s1&sections=s2
         return await self._request("GET", f"/timemachine/node/{node_id}", params=params)
 
     async def compare_profiles(

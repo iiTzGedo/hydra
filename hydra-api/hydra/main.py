@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 
 import structlog
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -16,7 +17,7 @@ from hydra.db.indexes import ensure_indexes
 from hydra.db.mongodb import get_mongodb
 from hydra.db.redis import get_redis
 from hydra.api.v1.main import app as v1_app
-from hydra.api.v1.routers import health
+from hydra.api.v1.routers import chat_ws, health
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent / "static"
@@ -59,6 +60,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 def create_app() -> FastAPI:
     """Create the root application and mount versioned APIs."""
+    settings = get_settings()
+
     app = FastAPI(
         title="Hydra API",
         description="AI-powered infrastructure management platform API",
@@ -67,6 +70,16 @@ def create_app() -> FastAPI:
         redoc_url=None,
         openapi_url=None,
         lifespan=lifespan,
+    )
+
+    # CORS middleware on root app for WebSocket support
+    # WebSocket upgrade requests are HTTP, so they need CORS at the root level
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # Landing page route
@@ -97,6 +110,10 @@ def create_app() -> FastAPI:
     # Mount static files (logo, etc.)
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    # Include WebSocket router at root level (before mount)
+    # This ensures WebSocket connections bypass the sub-application routing issues
+    app.include_router(chat_ws.router, prefix="/api/v1")
 
     # Mount versioned API
     app.mount("/api/v1", v1_app)

@@ -4,8 +4,9 @@ import secrets
 from datetime import datetime, timezone
 
 import structlog
+from pymongo import ReturnDocument
 
-from hydra.api.v1.core.exceptions import NotFoundError
+from hydra.api.v1.core.exceptions import NotFoundError, ValidationError
 from hydra.api.v1.models.chat import (
     ChatMessageCreate,
     ChatMessageUpsert,
@@ -15,6 +16,7 @@ from hydra.api.v1.models.chat import (
     ChatSessionStatus,
     ChatSessionUpdate,
 )
+from hydra.api.v1.services.chat_cache import ChatCacheService
 from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
@@ -37,8 +39,9 @@ class ChatSessionNotFoundError(NotFoundError):
 class ChatService:
     """Chat management service for projects, sessions, and messages."""
 
-    def __init__(self, mongodb: MongoDB):
+    def __init__(self, mongodb: MongoDB, cache: ChatCacheService | None = None):
         self.db = mongodb
+        self._cache = cache or ChatCacheService()
 
     # ==================== Projects ====================
 
@@ -334,6 +337,18 @@ class ChatService:
             "status": ChatSessionStatus.ACTIVE.value,
             "llmProviderId": request.llm_provider_id,
             "mcpServerIds": request.mcp_server_ids,
+            "llmConfigLocked": False,
+            "sessionContext": {
+                "totalTokens": 0,
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "estimatedCost": 0.0,
+                "toolCallsCount": 0,
+                "messageCount": 0,
+                "modelUsed": None,
+                "providerType": None,
+                "thread": [],  # Ordered list of messageIds - source of truth
+            },
             "ownerId": user_id,
             "createdAt": now,
             "updatedAt": now,
@@ -391,6 +406,12 @@ class ChatService:
                     raise ChatProjectNotFoundError(request.project_id)
             update_fields["projectId"] = request.project_id
         if request.llm_provider_id is not None:
+            # Enforce LLM config locking after first response
+            if doc.get("llmConfigLocked") and request.llm_provider_id != doc.get("llmProviderId"):
+                raise ValidationError(
+                    "Cannot change LLM configuration after first response",
+                    {"field": "llmProviderId", "reason": "session_locked"},
+                )
             update_fields["llmProviderId"] = request.llm_provider_id
         if request.mcp_server_ids is not None:
             update_fields["mcpServerIds"] = request.mcp_server_ids
@@ -437,9 +458,57 @@ class ChatService:
         await self.db.chat_messages.delete_many({"sessionId": session_id})
         await self.db.chat_sessions.delete_one({"sessionId": session_id})
 
+        # Invalidate cache for deleted session
+        await self._cache.invalidate_session_cache(session_id)
+
         logger.info("chat_session_deleted", session_id=session_id, user_id=user_id)
 
         return {"deleted": True, "sessionId": session_id}
+
+    async def get_session_context(self, session_id: str, user_id: str) -> dict:
+        """Get session context for real-time UI display.
+
+        Args:
+            session_id: The session identifier.
+            user_id: The owner's user identifier.
+
+        Returns:
+            Session context with usage metrics and lock status.
+
+        Raises:
+            ChatSessionNotFoundError: If session does not exist or is not owned by user.
+        """
+        doc = await self.db.chat_sessions.find_one({
+            "sessionId": session_id,
+            "ownerId": user_id,
+        })
+
+        if not doc:
+            raise ChatSessionNotFoundError(session_id)
+
+        message_count = await self.db.chat_messages.count_documents({
+            "sessionId": session_id
+        })
+
+        session_context = doc.get("sessionContext", {})
+        context_data = {
+            "total_tokens": session_context.get("totalTokens", 0),
+            "input_tokens": session_context.get("inputTokens", 0),
+            "output_tokens": session_context.get("outputTokens", 0),
+            "estimated_cost": session_context.get("estimatedCost", 0.0),
+            "tool_calls_count": session_context.get("toolCallsCount", 0),
+            "message_count": message_count,
+            "model_used": session_context.get("modelUsed"),
+            "provider_type": session_context.get("providerType"),
+            "thread": session_context.get("thread", []),  # Source of truth for message order
+        }
+
+        return {
+            "session_id": session_id,
+            "context": context_data,
+            "llm_config_locked": doc.get("llmConfigLocked", False),
+            "last_updated": doc.get("updatedAt"),
+        }
 
     # ==================== Messages ====================
 
@@ -450,6 +519,7 @@ class ChatService:
         limit: int = 100,
         offset: int = 0,
         order: str = "asc",
+        use_cache: bool = True,
     ) -> dict:
         """List messages in a chat session.
 
@@ -459,6 +529,7 @@ class ChatService:
             limit: Maximum number of messages to return.
             offset: Number of messages to skip for pagination.
             order: Sort order ('asc' or 'desc').
+            use_cache: Whether to use Redis cache (default True).
 
         Returns:
             Dict with 'messages' list, 'total' count, and 'has_more' flag.
@@ -474,6 +545,17 @@ class ChatService:
         if not session:
             raise ChatSessionNotFoundError(session_id)
 
+        # Try cache first for default queries (no offset, ascending order)
+        if use_cache and offset == 0 and order == "asc":
+            cached = await self._cache.get_cached_messages(session_id)
+            if cached is not None:
+                # Slice cached results to respect limit
+                messages = cached[:limit]
+                total = len(cached)
+                has_more = len(cached) > limit
+                return {"messages": messages, "total": total, "has_more": has_more}
+
+        # Fetch from database
         sort_dir = 1 if order == "asc" else -1
         cursor = (
             self.db.chat_messages.find({"sessionId": session_id})
@@ -488,6 +570,21 @@ class ChatService:
 
         total = await self.db.chat_messages.count_documents({"sessionId": session_id})
         has_more = offset + len(messages) < total
+
+        # Populate cache for default queries
+        if use_cache and offset == 0 and order == "asc":
+            # Fetch all messages for caching if we only got a partial result
+            if has_more:
+                all_cursor = (
+                    self.db.chat_messages.find({"sessionId": session_id})
+                    .sort("order", 1)
+                )
+                all_messages = []
+                async for doc in all_cursor:
+                    all_messages.append(self._message_doc_to_response(doc))
+                await self._cache.cache_session_messages(session_id, all_messages)
+            else:
+                await self._cache.cache_session_messages(session_id, messages)
 
         return {"messages": messages, "total": total, "has_more": has_more}
 
@@ -521,11 +618,20 @@ class ChatService:
         now = datetime.now(timezone.utc)
         message_id = f"msg_{secrets.token_urlsafe(8)}"
 
-        last_message = await self.db.chat_messages.find_one(
+        # Atomically increment messageCount and get the new value for ordering
+        # This prevents race conditions where concurrent messages get the same order
+        session_result = await self.db.chat_sessions.find_one_and_update(
             {"sessionId": session_id},
-            sort=[("order", -1)],
+            {
+                "$set": {"lastMessageAt": now, "updatedAt": now},
+                "$push": {"sessionContext.thread": message_id},
+                "$inc": {"sessionContext.messageCount": 1},
+            },
+            return_document=ReturnDocument.BEFORE,  # Get value BEFORE increment
         )
-        next_order = (last_message["order"] + 1) if last_message else 0
+
+        # Use the messageCount before increment as the order (0-indexed)
+        next_order = session_result.get("sessionContext", {}).get("messageCount", 0) if session_result else 0
 
         doc = {
             "messageId": message_id,
@@ -543,10 +649,10 @@ class ChatService:
 
         await self.db.chat_messages.insert_one(doc)
 
-        await self.db.chat_sessions.update_one(
-            {"sessionId": session_id},
-            {"$set": {"lastMessageAt": now, "updatedAt": now}},
-        )
+        message_response = self._message_doc_to_response(doc)
+
+        # Update cache with new message (write-around: DB is source of truth, cache is read optimization)
+        await self._cache.append_message_to_cache(session_id, message_response)
 
         logger.info(
             "chat_message_created",
@@ -555,7 +661,7 @@ class ChatService:
             role=request.role.value,
         )
 
-        return self._message_doc_to_response(doc)
+        return message_response
 
     async def bulk_upsert_messages(
         self,
@@ -589,6 +695,7 @@ class ChatService:
 
         now = datetime.now(timezone.utc)
         upserted_count = 0
+        new_message_ids: list[str] = []
 
         last_message = await self.db.chat_messages.find_one(
             {"sessionId": session_id},
@@ -631,12 +738,22 @@ class ChatService:
                     "createdAt": now,
                 }
                 await self.db.chat_messages.insert_one(doc)
+                new_message_ids.append(message_id)
                 upserted_count += 1
+
+        # Write-Around: Update session with new messageIds in thread array
+        update_ops: dict = {"$set": {"lastMessageAt": now, "updatedAt": now}}
+        if new_message_ids:
+            update_ops["$push"] = {"sessionContext.thread": {"$each": new_message_ids}}
+            update_ops["$inc"] = {"sessionContext.messageCount": len(new_message_ids)}
 
         await self.db.chat_sessions.update_one(
             {"sessionId": session_id},
-            {"$set": {"lastMessageAt": now, "updatedAt": now}},
+            update_ops,
         )
+
+        # Invalidate cache after bulk operations
+        await self._cache.invalidate_session_cache(session_id)
 
         logger.info(
             "chat_messages_bulk_upserted",
@@ -662,6 +779,21 @@ class ChatService:
 
     def _session_doc_to_response(self, doc: dict, message_count: int) -> dict:
         """Convert session document to response."""
+        session_context = doc.get("sessionContext")
+        context_data = None
+        if session_context:
+            context_data = {
+                "total_tokens": session_context.get("totalTokens", 0),
+                "input_tokens": session_context.get("inputTokens", 0),
+                "output_tokens": session_context.get("outputTokens", 0),
+                "estimated_cost": session_context.get("estimatedCost", 0.0),
+                "tool_calls_count": session_context.get("toolCallsCount", 0),
+                "message_count": session_context.get("messageCount", message_count),
+                "model_used": session_context.get("modelUsed"),
+                "provider_type": session_context.get("providerType"),
+                "thread": session_context.get("thread", []),  # Source of truth for message order
+            }
+
         return {
             "session_id": doc["sessionId"],
             "project_id": doc.get("projectId"),
@@ -670,6 +802,8 @@ class ChatService:
             "message_count": message_count,
             "llm_provider_id": doc.get("llmProviderId"),
             "mcp_server_ids": doc.get("mcpServerIds", []),
+            "llm_config_locked": doc.get("llmConfigLocked", False),
+            "session_context": context_data,
             "owner_id": doc["ownerId"],
             "created_at": doc["createdAt"],
             "updated_at": doc["updatedAt"],

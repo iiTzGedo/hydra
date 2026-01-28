@@ -133,7 +133,7 @@ interface FilterState {
 
 type TableDensity = 'comfortable' | 'compact';
 type ViewMode = 'table' | 'grid';
-type NetworkColumnKey = 'network' | 'type' | 'cidr' | 'gateway' | 'vlan' | 'nodes' | 'actions';
+type NetworkColumnKey = 'network' | 'type' | 'cidr' | 'gateway' | 'nodes' | 'actions';
 
 export default function NetworksPage() {
   useDocumentTitle('Network Explorer');
@@ -150,7 +150,6 @@ export default function NetworksPage() {
     type: true,
     cidr: true,
     gateway: true,
-    vlan: true,
     nodes: true,
     actions: true,
   });
@@ -430,15 +429,6 @@ export default function NetworksPage() {
                           Gateway
                         </DropdownMenuCheckboxItem>
                         <DropdownMenuCheckboxItem
-                          checked={visibleColumns.vlan}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, vlan: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.vlan}
-                        >
-                          VLAN ID
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
                           checked={visibleColumns.nodes}
                           onCheckedChange={(checked) =>
                             setVisibleColumns((prev) => ({ ...prev, nodes: Boolean(checked) }))
@@ -492,9 +482,6 @@ export default function NetworksPage() {
                   {visibleColumns.gateway && (
                     <TableHead className="text-muted-foreground">Gateway</TableHead>
                   )}
-                  {visibleColumns.vlan && (
-                    <TableHead className="text-muted-foreground">VLAN ID</TableHead>
-                  )}
                   {visibleColumns.nodes && (
                     <TableHead className="text-muted-foreground">Nodes</TableHead>
                   )}
@@ -525,9 +512,6 @@ export default function NetworksPage() {
                     )}
                     {visibleColumns.gateway && (
                       <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                    )}
-                    {visibleColumns.vlan && (
-                      <TableCell><Skeleton className="h-4 w-12" /></TableCell>
                     )}
                     {visibleColumns.nodes && (
                       <TableCell><Skeleton className="h-4 w-8" /></TableCell>
@@ -594,9 +578,6 @@ export default function NetworksPage() {
                       )}
                       {visibleColumns.gateway && (
                         <TableHead className="text-muted-foreground">Gateway</TableHead>
-                      )}
-                      {visibleColumns.vlan && (
-                        <TableHead className="text-muted-foreground">VLAN ID</TableHead>
                       )}
                       {visibleColumns.nodes && (
                         <TableHead className="text-muted-foreground">Nodes</TableHead>
@@ -739,14 +720,6 @@ function NetworkGridCard({ network }: { network: NetworkListItem }) {
                 </code>
               </div>
             )}
-            {network.vlanId && (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">VLAN ID</span>
-                <Badge variant="outline" className="font-mono">
-                  {network.vlanId}
-                </Badge>
-              </div>
-            )}
             <div className="flex items-center justify-between pt-2 border-t">
               <span className="text-muted-foreground">Nodes</span>
               <Badge variant="secondary">{network.nodeCount}</Badge>
@@ -823,18 +796,6 @@ function NetworkRow({
             <code className="text-sm bg-muted px-2 py-1 rounded font-mono">
               {network.gatewayV4}
             </code>
-          ) : (
-            <span className="text-muted-foreground text-sm">—</span>
-          )}
-        </TableCell>
-      )}
-
-            {visibleColumns.vlan && (
-        <TableCell>
-          {network.vlanId ? (
-            <Badge variant="outline" className="font-mono">
-              {network.vlanId}
-            </Badge>
           ) : (
             <span className="text-muted-foreground text-sm">—</span>
           )}

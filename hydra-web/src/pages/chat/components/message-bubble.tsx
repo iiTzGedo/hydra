@@ -42,7 +42,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         </div>
       )}
 
-      <div className={cn('flex-1 max-w-[80%]', isUser && 'flex justify-end')}>
+      <div className={cn('flex-1 max-w-[80%]', isUser && 'flex flex-col items-end')}>
         <div
           className={cn(
             'rounded-lg p-4',
@@ -64,22 +64,23 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 mt-1 px-1">
+        <div className={cn('flex items-center gap-2 mt-1 px-1', isUser && 'justify-end')}>
           <span className="text-[10px] text-muted-foreground">
             {formatRelativeTime(message.createdAt || new Date().toISOString())}
           </span>
-          {!isUser && (
-            <button
-              onClick={handleCopy}
-              className="rounded p-1 hover:bg-muted transition-colors"
-            >
-              {copied ? (
-                <Check className="h-3 w-3 text-emerald-500" />
-              ) : (
-                <Copy className="h-3 w-3 text-muted-foreground" />
-              )}
-            </button>
-          )}
+          <button
+            onClick={handleCopy}
+            className={cn(
+              'rounded p-1 transition-colors',
+              isUser ? 'hover:bg-blue-500/20' : 'hover:bg-muted'
+            )}
+          >
+            {copied ? (
+              <Check className={cn('h-3 w-3', isUser ? 'text-emerald-400' : 'text-emerald-500')} />
+            ) : (
+              <Copy className={cn('h-3 w-3', isUser ? 'text-muted-foreground' : 'text-muted-foreground')} />
+            )}
+          </button>
         </div>
       </div>
 

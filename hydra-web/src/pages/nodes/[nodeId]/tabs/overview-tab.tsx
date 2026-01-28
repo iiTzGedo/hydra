@@ -73,6 +73,11 @@ interface OverviewTabProps {
 const SNAPSHOT_LIMIT = 12;
 
 export function OverviewTab({ node }: OverviewTabProps) {
+  const [showAllFilesystems, setShowAllFilesystems] = useState(false);
+  const [showAllInterfaces, setShowAllInterfaces] = useState(false);
+  const [showAllUsers, setShowAllUsers] = useState(false);
+  const [showAllNetworks, setShowAllNetworks] = useState(false);
+
   const Icon = classIcons[node.class] || Server;
   const colors = NODE_CLASS_COLORS[node.class];
   const statusColors = STATUS_COLORS[node.status] || STATUS_COLORS.inactive;
@@ -470,7 +475,7 @@ export function OverviewTab({ node }: OverviewTabProps) {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {latestProfile.storage.filesystems.slice(0, 6).map((fs, idx) => {
+                    {(showAllFilesystems ? latestProfile.storage.filesystems : latestProfile.storage.filesystems.slice(0, 6)).map((fs, idx) => {
                       const usedPercent =
                         fs.sizeBytes && fs.usedBytes
                           ? Math.round((fs.usedBytes / fs.sizeBytes) * 100)
@@ -509,9 +514,12 @@ export function OverviewTab({ node }: OverviewTabProps) {
                       );
                     })}
                     {latestProfile.storage.filesystems.length > 6 && (
-                      <div className="text-xs text-muted-foreground text-center pt-2">
-                        +{latestProfile.storage.filesystems.length - 6} more filesystems
-                      </div>
+                      <button
+                        onClick={() => setShowAllFilesystems(!showAllFilesystems)}
+                        className="w-full text-xs text-muted-foreground hover:text-foreground text-center pt-2 hover:bg-muted/50 rounded transition-colors py-1"
+                      >
+                        {showAllFilesystems ? 'Show less' : `+${latestProfile.storage.filesystems.length - 6} more filesystems`}
+                      </button>
                     )}
                   </div>
                 </CardContent>
@@ -563,7 +571,7 @@ export function OverviewTab({ node }: OverviewTabProps) {
                           Interfaces ({latestProfile.network.interfaces.length})
                         </div>
                         <div className="grid gap-2 sm:grid-cols-2">
-                          {latestProfile.network.interfaces.slice(0, 2).map((iface) => (
+                          {(showAllInterfaces ? latestProfile.network.interfaces : latestProfile.network.interfaces.slice(0, 4)).map((iface) => (
                             <div key={iface.name} className="rounded-lg border p-2 text-sm">
                               <div className="flex items-center justify-between">
                                 <span className="font-mono">{iface.name}</span>
@@ -583,9 +591,12 @@ export function OverviewTab({ node }: OverviewTabProps) {
                           ))}
                         </div>
                         {latestProfile.network.interfaces.length > 4 && (
-                          <div className="text-xs text-muted-foreground mt-2">
-                            +{latestProfile.network.interfaces.length - 4} more interfaces
-                          </div>
+                          <button
+                            onClick={() => setShowAllInterfaces(!showAllInterfaces)}
+                            className="text-xs text-muted-foreground hover:text-foreground mt-2 hover:bg-muted/50 rounded transition-colors px-2 py-1"
+                          >
+                            {showAllInterfaces ? 'Show less' : `+${latestProfile.network.interfaces.length - 4} more interfaces`}
+                          </button>
                         )}
                       </div>
                     )}
@@ -635,15 +646,18 @@ export function OverviewTab({ node }: OverviewTabProps) {
                 </CardHeader>
                 <CardContent>
                   <div className="flex flex-wrap gap-2">
-                    {latestProfile.users.users.slice(0, 12).map((user) => (
+                    {(showAllUsers ? latestProfile.users.users : latestProfile.users.users.slice(0, 12)).map((user) => (
                       <Badge key={user.username} variant="outline" className="font-mono text-xs">
                         {user.username}
                       </Badge>
                     ))}
                     {latestProfile.users.users.length > 12 && (
-                      <Badge variant="secondary" className="text-xs">
-                        +{latestProfile.users.users.length - 12} more
-                      </Badge>
+                      <button
+                        onClick={() => setShowAllUsers(!showAllUsers)}
+                        className="px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+                      >
+                        {showAllUsers ? 'less' : `+${latestProfile.users.users.length - 12} more`}
+                      </button>
                     )}
                   </div>
                   {latestProfile.users.sshKeys && latestProfile.users.sshKeys.length > 0 && (
@@ -710,7 +724,7 @@ export function OverviewTab({ node }: OverviewTabProps) {
                 <div className="rounded-lg bg-muted/50 px-3 py-2">
                   <span className="text-muted-foreground">Networks</span>
                   <div className="mt-2 space-y-1">
-                    {node.networkIds.slice(0, 4).map((networkId) => (
+                    {(showAllNetworks ? node.networkIds : node.networkIds.slice(0, 4)).map((networkId) => (
                       <Link
                         key={networkId}
                         to={`${ROUTES.NETWORKS}/${networkId}`}
@@ -720,9 +734,12 @@ export function OverviewTab({ node }: OverviewTabProps) {
                       </Link>
                     ))}
                     {node.networkIds.length > 4 && (
-                      <span className="text-xs text-muted-foreground">
-                        +{node.networkIds.length - 4} more
-                      </span>
+                      <button
+                        onClick={() => setShowAllNetworks(!showAllNetworks)}
+                        className="text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded transition-colors px-1 py-0.5"
+                      >
+                        {showAllNetworks ? 'less' : `+${node.networkIds.length - 4} more`}
+                      </button>
                     )}
                   </div>
                 </div>

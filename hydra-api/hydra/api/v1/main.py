@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from hydra.api.v1 import __version__
 from hydra.core.config import get_settings
 from hydra.api.v1.core.exceptions import HydraError
-from hydra.api.v1.routers import ai, auth, chat, chat_ws, commands, docs, groups, ha, health, install, mcp, networks, nodes, profiles, query, search, services, settings as settings_router, timemachine, topologies, users
+from hydra.api.v1.routers import ai, auth, chat, commands, docs, groups, ha, health, install, mcp, networks, nodes, profiles, query, search, services, settings as settings_router, timemachine, topologies, users
 
 # Static files directory (shared with root app)
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
@@ -165,7 +165,7 @@ def create_app() -> FastAPI:
     app.include_router(install.router)
     app.include_router(ai.router)
     app.include_router(chat.router)
-    app.include_router(chat_ws.router)
+    # Note: chat_ws.router is included at root app level for WebSocket compatibility
     app.include_router(mcp.router)
     app.include_router(search.router)
     app.include_router(settings_router.router)
