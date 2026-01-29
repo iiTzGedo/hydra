@@ -1,3 +1,30 @@
+/**
+ * Alerts API - PREVIEW/MOCK IMPLEMENTATION
+ *
+ * This module provides mock data for the alerts feature preview.
+ * Real implementation requires backend support including:
+ *
+ * Backend requirements:
+ * - Alert rules engine (threshold-based, pattern-based)
+ * - Profile analysis integration (CPU, memory, disk monitoring)
+ * - Service health check integration
+ * - Node connectivity monitoring
+ * - Alert storage and lifecycle management
+ * - Notification delivery (email, webhooks)
+ *
+ * API endpoints to implement:
+ * - GET /api/v1/alerts - List alerts with filtering
+ * - GET /api/v1/alerts/:id - Get single alert details
+ * - GET /api/v1/alerts/stats - Get alert statistics
+ * - POST /api/v1/alerts/:id/acknowledge - Acknowledge an alert
+ * - POST /api/v1/alerts/acknowledge-all - Acknowledge all alerts
+ * - GET /api/v1/alerts/rules - List alert rules
+ * - POST /api/v1/alerts/rules - Create alert rule
+ *
+ * @module api/alerts
+ * @status preview
+ */
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Alert, AlertSummary, AlertStats, AlertListParams } from '@/types/alert';
 import type { PaginatedResponse } from '@/types/api';
@@ -10,7 +37,7 @@ export const alertQueryKeys = {
   detail: (id: string) => [...alertQueryKeys.all, 'detail', id] as const,
 };
 
-// Mock data generator - simulates real alerts
+// Mock data generator - PREVIEW ONLY, not connected to real backend
 function generateMockAlerts(params?: AlertListParams): PaginatedResponse<AlertSummary> {
   const now = new Date();
   const mockAlerts: AlertSummary[] = [

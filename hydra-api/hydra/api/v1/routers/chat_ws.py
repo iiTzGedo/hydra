@@ -11,9 +11,11 @@ from hydra.api.v1.core.security import decode_token
 from hydra.api.v1.models.chat import ToolCallStatus
 from hydra.api.v1.services.chat import ChatService, ChatSessionNotFoundError
 from hydra.api.v1.services.chat_cache import ChatCacheService
+from hydra.api.v1.services.conversation import ConversationBuilder
 from hydra.api.v1.services.llm_bridge import LLMBridge, LLMConfigError
 from hydra.api.v1.services.mcp_client import MCPClient, MCPClientError
 from hydra.db.mongodb import MongoDB, get_mongodb
+from hydra.db.redis import get_redis
 
 router = APIRouter(tags=["Chat WebSocket"])
 logger = structlog.get_logger(__name__)
@@ -22,10 +24,13 @@ logger = structlog.get_logger(__name__)
 class WSMessageType:
     """WebSocket message types for client-server communication."""
 
+    # Client -> Server
     CHAT_REQUEST = "chat_request"
+    RETRY_MESSAGE = "retry_message"  # Retry generating response for orphaned user message
     CANCEL = "cancel"
     PING = "ping"
 
+    # Server -> Client
     TEXT_DELTA = "text_delta"
     TOOL_CALL_START = "tool_call_start"
     TOOL_CALL_RESULT = "tool_call_result"
@@ -80,6 +85,10 @@ class ChatWebSocketHandler:
                     self._cancelled = False
                     await self._handle_chat_request(data)
 
+                elif msg_type == WSMessageType.RETRY_MESSAGE:
+                    self._cancelled = False
+                    await self._handle_retry_request(data)
+
                 else:
                     await self._send_error(f"Unknown message type: {msg_type}")
 
@@ -93,17 +102,29 @@ class ChatWebSocketHandler:
         """Process a chat request with LLM completion and MCP tool support.
 
         Args:
-            data: Request data containing sessionId, content, providerId, and feature flags.
+            data: Request data containing sessionId, content, providerId, modelConfig, and feature flags.
         """
         session_id = data.get("sessionId")
         message_content = data.get("content", "")
         provider_id = data.get("providerId")
+
         # Support both level-based (new) and boolean (legacy) reasoning config
         reasoning_level = data.get("reasoningLevel", "none")
         # Legacy fallback: if reasoningEnabled is true, use 'medium' level
         if data.get("reasoningEnabled", False) and reasoning_level == "none":
             reasoning_level = "medium"
         web_search_enabled = data.get("webSearchEnabled", False)
+
+        # Parse model configuration from request (all optional)
+        model_config_data = data.get("modelConfig", {})
+        model_config = {
+            "max_tokens": model_config_data.get("maxTokens"),
+            "temperature": model_config_data.get("temperature"),
+            "top_p": model_config_data.get("topP"),
+            "top_k": model_config_data.get("topK"),
+            "frequency_penalty": model_config_data.get("frequencyPenalty"),
+            "presence_penalty": model_config_data.get("presencePenalty"),
+        }
 
         if not session_id:
             await self._send_error("sessionId is required")
@@ -132,25 +153,61 @@ class ChatWebSocketHandler:
                     mcp_server_ids, self.user_id
                 )
 
-            history_result = await self.chat_service.list_messages(
-                session_id, self.user_id, limit=100, order="asc"
-            )
-            history = self._format_history(history_result.get("messages", []))
-            history.append({"role": "user", "content": message_content})
-
+            # Save the user message first
             await self._save_message(session_id, "user", message_content)
 
+            # Build token-optimized conversation using ConversationBuilder
             system_prompt = self._build_system_prompt(tools)
+
+            # Get all messages (thread) for conversation building
+            history_result = await self.chat_service.list_messages(
+                session_id, self.user_id, limit=1000, order="asc"  # Get all messages
+            )
+            thread = history_result.get("messages", [])
+
+            # Build conversation with sliding window and summarization
+            provider_type = str(provider_config.get("type", "")).lower()
+            model_name = provider_config.get("model", "")
+
+            conversation_builder = ConversationBuilder(
+                provider=provider_type,
+                model=model_name,
+                redis=get_redis(),
+                llm_bridge=self.llm_bridge,
+            )
+
+            conversation = await conversation_builder.build(
+                thread=thread,
+                system_prompt=system_prompt,
+                session_id=session_id,
+            )
+
+            # Format messages for the provider
+            formatted_messages = self._format_history(conversation.messages)
+
+            # Use system prompt with summary for Anthropic, otherwise add summary to messages
+            effective_system_prompt = system_prompt
+            if conversation.summary and provider_type == "anthropic":
+                effective_system_prompt = conversation.get_system_prompt_with_summary()
+            elif conversation.summary:
+                # For other providers, prepend summary message
+                formatted_messages.insert(0, {
+                    "role": "system",
+                    "content": f"[Previous conversation summary]\n{conversation.summary}",
+                })
 
             await self._stream_llm_response(
                 session_id=session_id,
                 provider_config=provider_config,
-                messages=history,
+                messages=formatted_messages,
                 tools=tools,
-                system_prompt=system_prompt,
+                system_prompt=effective_system_prompt,
                 mcp_server_ids=mcp_server_ids,
+                model_config=model_config,
                 reasoning_level=reasoning_level,
                 web_search_enabled=web_search_enabled,
+                conversation_token_count=conversation.token_count,
+                context_window=conversation.context_window,
             )
 
         except ChatSessionNotFoundError:
@@ -163,6 +220,154 @@ class ChatWebSocketHandler:
             logger.exception("chat_request_error", session_id=session_id, error=str(e))
             await self._send_error(f"Internal error: {str(e)}")
 
+    async def _handle_retry_request(self, data: dict):
+        """Retry generating a response for an orphaned user message.
+
+        This is used when a user message was saved but no assistant response was
+        received (e.g., due to network error, timeout, or cancelled request).
+        Unlike chat_request, this does NOT create a new user message.
+
+        Args:
+            data: Request data containing sessionId, messageId, providerId, modelConfig, and feature flags.
+        """
+        session_id = data.get("sessionId")
+        message_id = data.get("messageId")
+        provider_id = data.get("providerId")
+
+        # Support both level-based (new) and boolean (legacy) reasoning config
+        reasoning_level = data.get("reasoningLevel", "none")
+        if data.get("reasoningEnabled", False) and reasoning_level == "none":
+            reasoning_level = "medium"
+        web_search_enabled = data.get("webSearchEnabled", False)
+
+        # Parse model configuration from request (all optional)
+        model_config_data = data.get("modelConfig", {})
+        model_config = {
+            "max_tokens": model_config_data.get("maxTokens"),
+            "temperature": model_config_data.get("temperature"),
+            "top_p": model_config_data.get("topP"),
+            "top_k": model_config_data.get("topK"),
+            "frequency_penalty": model_config_data.get("frequencyPenalty"),
+            "presence_penalty": model_config_data.get("presencePenalty"),
+        }
+
+        if not session_id:
+            await self._send_error("sessionId is required")
+            return
+
+        if not message_id:
+            await self._send_error("messageId is required for retry")
+            return
+
+        try:
+            session = await self.chat_service.get_session(session_id, self.user_id)
+
+            # Verify the message exists and is from the user
+            message = await self.mongodb.chat_messages.find_one({
+                "messageId": message_id,
+                "sessionId": session_id,
+            })
+
+            if not message:
+                await self._send_error(f"Message not found: {message_id}")
+                return
+
+            if message.get("role") != "user":
+                await self._send_error("Can only retry user messages")
+                return
+
+            # Verify this is the last message (no assistant response after it)
+            message_order = message.get("order", 0)
+            later_messages = await self.mongodb.chat_messages.count_documents({
+                "sessionId": session_id,
+                "order": {"$gt": message_order},
+                "role": {"$in": ["assistant", "tool"]},
+            })
+
+            if later_messages > 0:
+                await self._send_error("Message already has a response - cannot retry")
+                return
+
+            active_provider_id = provider_id or session.get("llm_provider_id")
+            if not active_provider_id:
+                await self._send_error("No LLM provider configured for session")
+                return
+
+            provider_config = await self.llm_bridge.get_config(
+                active_provider_id, self.user_id
+            )
+
+            mcp_server_ids = session.get("mcp_server_ids", [])
+            tools = []
+            if mcp_server_ids:
+                tools = await self.mcp_client.get_all_tools_for_session(
+                    mcp_server_ids, self.user_id
+                )
+
+            # Build token-optimized conversation using ConversationBuilder
+            # NOTE: We do NOT save a new user message - it already exists
+            system_prompt = self._build_system_prompt(tools)
+
+            # Get all messages (thread) for conversation building
+            history_result = await self.chat_service.list_messages(
+                session_id, self.user_id, limit=1000, order="asc"
+            )
+            thread = history_result.get("messages", [])
+
+            # Build conversation with sliding window and summarization
+            provider_type = str(provider_config.get("type", "")).lower()
+            model_name = provider_config.get("model", "")
+
+            conversation_builder = ConversationBuilder(
+                provider=provider_type,
+                model=model_name,
+                redis=get_redis(),
+                llm_bridge=self.llm_bridge,
+            )
+
+            conversation = await conversation_builder.build(
+                thread=thread,
+                system_prompt=system_prompt,
+                session_id=session_id,
+            )
+
+            # Format messages for the provider
+            formatted_messages = self._format_history(conversation.messages)
+
+            # Use system prompt with summary for Anthropic, otherwise add summary to messages
+            effective_system_prompt = system_prompt
+            if conversation.summary and provider_type == "anthropic":
+                effective_system_prompt = conversation.get_system_prompt_with_summary()
+            elif conversation.summary:
+                formatted_messages.insert(0, {
+                    "role": "system",
+                    "content": f"[Previous conversation summary]\n{conversation.summary}",
+                })
+
+            await self._stream_llm_response(
+                session_id=session_id,
+                provider_config=provider_config,
+                messages=formatted_messages,
+                tools=tools,
+                system_prompt=effective_system_prompt,
+                mcp_server_ids=mcp_server_ids,
+                model_config=model_config,
+                reasoning_level=reasoning_level,
+                web_search_enabled=web_search_enabled,
+                conversation_token_count=conversation.token_count,
+                context_window=conversation.context_window,
+            )
+
+        except ChatSessionNotFoundError:
+            await self._send_error(f"Session not found: {session_id}")
+        except LLMConfigError as e:
+            await self._send_error(f"LLM config error: {e.message}")
+        except MCPClientError as e:
+            await self._send_error(f"MCP error: {e.message}")
+        except Exception as e:
+            logger.exception("retry_request_error", session_id=session_id, message_id=message_id, error=str(e))
+            await self._send_error(f"Internal error: {str(e)}")
+
     async def _stream_llm_response(
         self,
         session_id: str,
@@ -171,8 +376,11 @@ class ChatWebSocketHandler:
         tools: list[dict],
         system_prompt: str,
         mcp_server_ids: list[str],
+        model_config: dict | None = None,
         reasoning_level: str = "none",
         web_search_enabled: bool = False,
+        conversation_token_count: int = 0,
+        context_window: int = 0,
     ):
         """Stream LLM response with iterative tool execution support.
 
@@ -187,14 +395,16 @@ class ChatWebSocketHandler:
             tools: Available MCP tools.
             system_prompt: System prompt for the LLM.
             mcp_server_ids: Connected MCP server IDs.
+            model_config: Optional model parameters (max_tokens, temperature, etc.).
             reasoning_level: Extended thinking level ('none', 'low', 'medium', 'high').
             web_search_enabled: Whether to enable web search capability.
+            conversation_token_count: Token count of the input conversation.
+            context_window: The model's context window size.
         """
         full_response = ""
         tool_calls: list[dict] = []
         max_tool_rounds = 10
         total_tool_calls = 0
-        saved_response_length = 0  # Track how much text we've saved
 
         current_messages = messages.copy()
 
@@ -206,11 +416,19 @@ class ChatWebSocketHandler:
             round_text = ""
             round_tool_calls: list[dict] = []
 
+            # Unpack model_config parameters (all optional)
+            config = model_config or {}
             async for event in self.llm_bridge.stream_completion(
                 provider_config=provider_config,
                 messages=current_messages,
                 tools=tools if tools else None,
                 system_prompt=system_prompt,
+                max_tokens=config.get("max_tokens"),
+                temperature=config.get("temperature"),
+                top_p=config.get("top_p"),
+                top_k=config.get("top_k"),
+                frequency_penalty=config.get("frequency_penalty"),
+                presence_penalty=config.get("presence_penalty"),
                 reasoning_level=reasoning_level,
                 web_search_enabled=web_search_enabled,
             ):
@@ -275,7 +493,6 @@ class ChatWebSocketHandler:
                     round_text,
                     tool_calls=round_tool_calls,
                 )
-                saved_response_length = len(full_response)
                 current_messages.append({
                     "role": "assistant",
                     "content": round_text,
@@ -321,11 +538,16 @@ class ChatWebSocketHandler:
                     "content": result["content"],
                 })
 
+        # Estimate output tokens (rough: ~4 chars per token)
+        output_tokens = len(full_response) // 4 + 1 if full_response else 0
+
         # Lock the LLM config and update session context after first assistant response
         await self._update_session_context(
             session_id=session_id,
             provider_config=provider_config,
             tool_calls_count=total_tool_calls,
+            conversation_tokens=conversation_token_count,
+            output_tokens=output_tokens,
         )
 
         await self._send({
@@ -343,6 +565,12 @@ class ChatWebSocketHandler:
                 }
                 for tc in tool_calls
             ] if tool_calls else None,
+            "usage": {
+                "inputTokens": conversation_token_count,
+                "outputTokens": output_tokens,
+                "totalTokens": conversation_token_count + output_tokens,
+                "contextWindow": context_window,
+            },
         })
 
     def _find_tool_server(self, tool_name: str, tools: list[dict]) -> str | None:
@@ -545,8 +773,18 @@ Available tools are from connected MCP servers for infrastructure management."""
 
         await self.mongodb.chat_messages.insert_one(doc)
 
-        # Invalidate Redis cache so fresh data is fetched from MongoDB
-        await self.cache_service.invalidate_session_cache(session_id)
+        # Append to Redis cache instead of invalidating
+        # This maintains cache consistency while preserving cached data
+        message_response = {
+            "message_id": message_id,
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "tool_calls": doc.get("toolCalls"),
+            "order": next_order,
+            "created_at": now.isoformat(),
+        }
+        await self.cache_service.append_message_to_cache(session_id, message_response)
 
     async def _send(self, data: dict):
         """Send a JSON message to the WebSocket client.
@@ -569,16 +807,26 @@ Available tools are from connected MCP servers for infrastructure management."""
         session_id: str,
         provider_config: dict,
         tool_calls_count: int,
+        conversation_tokens: int = 0,
+        output_tokens: int = 0,
     ):
         """Update session context and lock the LLM config after first response.
 
         Uses dot notation to update specific fields without overwriting the
         entire sessionContext (which would destroy the thread array).
 
+        Note on token tracking:
+        - conversationTokens (inputTokens): SET to current conversation window size
+          This reflects the sliding window - not accumulated, but current state
+        - outputTokens: INCREMENT to track total output generated in this session
+        - totalTokens: SET to conversationTokens (current context usage)
+
         Args:
             session_id: Chat session identifier.
             provider_config: LLM provider configuration with model and type.
             tool_calls_count: Number of tool calls made in this response.
+            conversation_tokens: Current conversation window token count (sliding window).
+            output_tokens: Number of output tokens generated in this response.
         """
         now = datetime.now(timezone.utc)
 
@@ -589,13 +837,23 @@ Available tools are from connected MCP servers for infrastructure management."""
                 "llmConfigLocked": True,
                 "sessionContext.modelUsed": provider_config.get("model"),
                 "sessionContext.providerType": provider_config.get("type"),
+                # SET inputTokens to current conversation window (not accumulated)
+                # This reflects the sliding window conversation concept
+                "sessionContext.inputTokens": conversation_tokens,
+                "sessionContext.totalTokens": conversation_tokens,
                 "updatedAt": now,
             },
         }
 
-        # Only increment toolCallsCount if there were tool calls
+        # Increment tool calls count and output tokens (these ARE accumulated)
+        inc_ops = {}
         if tool_calls_count > 0:
-            update_ops["$inc"] = {"sessionContext.toolCallsCount": tool_calls_count}
+            inc_ops["sessionContext.toolCallsCount"] = tool_calls_count
+        if output_tokens > 0:
+            inc_ops["sessionContext.outputTokens"] = output_tokens
+
+        if inc_ops:
+            update_ops["$inc"] = inc_ops
 
         await self.mongodb.chat_sessions.update_one(
             {"sessionId": session_id},

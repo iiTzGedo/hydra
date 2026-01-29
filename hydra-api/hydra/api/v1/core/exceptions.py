@@ -428,6 +428,34 @@ class CommandNotCancellableError(HydraError):
         )
 
 
+class CommandAlreadyExecutingError(HydraError):
+    """Command is not in queued state."""
+
+    def __init__(self, command_id: str, status: str):
+        super().__init__(
+            "COMMAND_ALREADY_EXECUTING",
+            f"Command '{command_id}' is not in queued state (status: {status})",
+            status_code=422,
+            details={"commandId": command_id, "status": status},
+        )
+
+
+class CommandNodeMismatchError(HydraError):
+    """Command target node does not match."""
+
+    def __init__(self, command_id: str, expected_node: str, actual_node: str):
+        super().__init__(
+            "COMMAND_NODE_MISMATCH",
+            f"Command '{command_id}' is not for node '{actual_node}'",
+            status_code=403,
+            details={
+                "commandId": command_id,
+                "expectedNode": expected_node,
+                "actualNode": actual_node,
+            },
+        )
+
+
 class DocNotFoundError(NotFoundError):
     """Documentation not found."""
 
@@ -440,3 +468,87 @@ class HomeAssistantUnavailableError(ServiceUnavailableError):
 
     def __init__(self, message: str | None = None):
         super().__init__("HA", message or "Home Assistant is not reachable")
+
+
+class CacheUnavailableError(ServiceUnavailableError):
+    """Redis cache is unavailable."""
+
+    def __init__(self, message: str | None = None):
+        super().__init__("CACHE", message or "Cache service is temporarily unavailable")
+
+
+class DatabaseUnavailableError(ServiceUnavailableError):
+    """MongoDB database is unavailable."""
+
+    def __init__(self, message: str | None = None):
+        super().__init__("DATABASE", message or "Database is temporarily unavailable")
+
+
+class ObjectStorageUnavailableError(ServiceUnavailableError):
+    """S3/Garage object storage is unavailable."""
+
+    def __init__(self, message: str | None = None):
+        super().__init__("OBJECT_STORAGE", message or "Object storage is temporarily unavailable")
+
+
+class TokenExpiredError(AuthenticationError):
+    """JWT token has expired."""
+
+    def __init__(self, message: str = "Token has expired"):
+        super().__init__("AUTH_TOKEN_EXPIRED", message)
+
+
+class InvalidParameterError(ValidationError):
+    """Specific parameter has an invalid value."""
+
+    def __init__(self, parameter: str, value: Any, reason: str | None = None):
+        message = f"Invalid value for parameter '{parameter}'"
+        if reason:
+            message += f": {reason}"
+        super().__init__(
+            message,
+            details={"parameter": parameter, "value": str(value)},
+        )
+        self.code = "INVALID_PARAMETER"
+
+
+class MissingParameterError(ValidationError):
+    """Required parameter is missing."""
+
+    def __init__(self, parameter: str):
+        super().__init__(
+            f"Missing required parameter: {parameter}",
+            details={"parameter": parameter},
+        )
+        self.code = "MISSING_PARAMETER"
+
+
+class InvalidStateTransitionError(HydraError):
+    """State transition is not allowed."""
+
+    def __init__(self, resource_type: str, current_state: str, target_state: str):
+        super().__init__(
+            "INVALID_STATE_TRANSITION",
+            f"Cannot transition {resource_type} from '{current_state}' to '{target_state}'",
+            status_code=422,
+            details={
+                "resourceType": resource_type,
+                "currentState": current_state,
+                "targetState": target_state,
+            },
+        )
+
+
+class OperationNotAllowedError(HydraError):
+    """Operation is not allowed in current context."""
+
+    def __init__(self, operation: str, reason: str | None = None):
+        message = f"Operation '{operation}' is not allowed"
+        if reason:
+            message += f": {reason}"
+        super().__init__(
+            "OPERATION_NOT_ALLOWED",
+            message,
+            status_code=422,
+            details={"operation": operation},
+        )

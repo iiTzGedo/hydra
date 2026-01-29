@@ -120,3 +120,21 @@ export interface SendMessageResponse {
   message: MCPChatMessage;
   toolCalls?: MCPToolCall[];
 }
+
+// Model configuration for per-request overrides
+export interface ModelConfig {
+  maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+}
+
+// Session token usage info returned from message_complete
+export interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  contextWindow: number;
+}

@@ -9,15 +9,23 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
-import { STORAGE_KEYS } from '@/lib/constants';
+import { storage } from '@/lib/storage';
 
 // Enable debug logging for WebSocket connections
 const WS_DEBUG = import.meta.env.DEV;
+
+// Consolidated debug logging utility - replaces scattered if (WS_DEBUG) conditionals
+const wsDebug = {
+  log: WS_DEBUG ? (...args: unknown[]) => console.log('[WebSocket]', ...args) : () => {},
+  warn: WS_DEBUG ? (...args: unknown[]) => console.warn('[WebSocket]', ...args) : () => {},
+  error: WS_DEBUG ? (...args: unknown[]) => console.error('[WebSocket]', ...args) : () => {},
+};
 
 // WebSocket message types from backend
 const WSMessageType = {
   // Client -> Server
   CHAT_REQUEST: 'chat_request',
+  RETRY_MESSAGE: 'retry_message',  // Retry generating response for orphaned user message
   CANCEL: 'cancel',
   PING: 'ping',
 
@@ -43,9 +51,9 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/
  * Returns the new access token or null if refresh failed.
  */
 async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = localStorage.getItem(STORAGE_KEYS.refreshToken);
+  const refreshToken = storage.getRefreshToken();
   if (!refreshToken) {
-    if (WS_DEBUG) console.log('[WebSocket] No refresh token available');
+    wsDebug.log('No refresh token available');
     return null;
   }
 
@@ -59,24 +67,21 @@ async function refreshAccessToken(): Promise<string | null> {
     });
 
     if (!response.ok) {
-      if (WS_DEBUG) console.log('[WebSocket] Token refresh failed:', response.status);
+      wsDebug.log('Token refresh failed:', response.status);
       return null;
     }
 
     const data = await response.json();
     const { accessToken, refreshToken: newRefreshToken } = data;
 
-    // Update localStorage
-    localStorage.setItem(STORAGE_KEYS.accessToken, accessToken);
-    localStorage.setItem(STORAGE_KEYS.refreshToken, newRefreshToken);
-
-    // Update Zustand store
+    // Update storage and Zustand store
+    storage.setTokens(accessToken, newRefreshToken);
     useAuthStore.getState().setTokens(accessToken, newRefreshToken);
 
-    if (WS_DEBUG) console.log('[WebSocket] Token refreshed successfully');
+    wsDebug.log('Token refreshed successfully');
     return accessToken;
   } catch (error) {
-    if (WS_DEBUG) console.error('[WebSocket] Token refresh error:', error);
+    wsDebug.error('Token refresh error:', error);
     return null;
   }
 }
@@ -102,12 +107,31 @@ export interface ChatMessage {
 // Reasoning level type - matches chat-input.tsx
 export type ReasoningLevel = 'none' | 'low' | 'medium' | 'high';
 
+// Model configuration for per-request overrides
+export interface ModelConfig {
+  maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+}
+
+// Session token usage info returned from message_complete
+export interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  contextWindow: number;
+}
+
 interface UseMCPChatOptions {
   sessionId: string | null;
   providerId: string | null;
   reasoningLevel?: ReasoningLevel;
   webSearchEnabled?: boolean;
-  onMessage?: (message: ChatMessage) => void;
+  modelConfig?: ModelConfig;
+  onMessage?: (message: ChatMessage, usage?: SessionUsage) => void;
   onToolCallStart?: (toolCall: MCPToolCall) => void;
   onToolCallResult?: (toolCall: MCPToolCall) => void;
   onError?: (error: string) => void;
@@ -123,6 +147,7 @@ interface UseMCPChatReturn {
   hasPendingRefetch: boolean;
   clearPendingRefetch: () => void;
   sendMessage: (content: string) => void;
+  retryMessage: (messageId: string) => void;
   cancelStream: () => void;
   connect: () => void;
   disconnect: () => void;
@@ -134,6 +159,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     providerId,
     reasoningLevel = 'none',
     webSearchEnabled,
+    modelConfig,
     onMessage,
     onToolCallStart,
     onToolCallResult,
@@ -218,9 +244,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
       const basePath = url.pathname.replace(/\/$/, '');
       const wsUrl = `${wsProtocol}//${url.host}${basePath}/chat/ws?token=${token}`;
 
-      if (WS_DEBUG) {
-        console.log('[WebSocket] Constructed URL:', wsUrl.replace(/token=[^&]+/, 'token=***'));
-      }
+      wsDebug.log('Constructed URL:', wsUrl.replace(/token=[^&]+/, 'token=***'));
 
       return wsUrl;
     } catch {
@@ -228,9 +252,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/chat/ws?token=${token}`;
 
-      if (WS_DEBUG) {
-        console.warn('[WebSocket] URL parsing failed, using fallback:', wsUrl.replace(/token=[^&]+/, 'token=***'));
-      }
+      wsDebug.warn('URL parsing failed, using fallback:', wsUrl.replace(/token=[^&]+/, 'token=***'));
 
       return wsUrl;
     }
@@ -296,12 +318,22 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
           content: data.content as string || currentResponseRef.current,
           toolCalls: data.toolCalls as MCPToolCall[] || currentToolCallsRef.current,
         };
-        onMessageRef.current?.(message);
+
+        // Extract usage info from the message_complete event
+        const usageData = data.usage as SessionUsage | undefined;
+        const usage: SessionUsage | undefined = usageData ? {
+          inputTokens: usageData.inputTokens || 0,
+          outputTokens: usageData.outputTokens || 0,
+          totalTokens: usageData.totalTokens || 0,
+          contextWindow: usageData.contextWindow || 0,
+        } : undefined;
+
+        onMessageRef.current?.(message, usage);
 
         // If tab was in background, mark for refetch when user returns
         if (document.hidden) {
           pendingRefetchRef.current = true;
-          if (WS_DEBUG) console.log('[WebSocket] Message completed while tab in background, will refetch on return');
+          wsDebug.log('Message completed while tab in background, will refetch on return');
         }
 
         // Reset state for next message
@@ -327,27 +359,27 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
   const connect = useCallback(async () => {
     // Don't reconnect if already connected or connecting
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      if (WS_DEBUG) console.log('[WebSocket] Already connected');
+      wsDebug.log('Already connected');
       return;
     }
 
     if (wsRef.current?.readyState === WebSocket.CONNECTING) {
-      if (WS_DEBUG) console.log('[WebSocket] Connection in progress');
+      wsDebug.log('Connection in progress');
       return;
     }
 
     // Proactively refresh token before connecting to ensure it's not expired
-    if (WS_DEBUG) console.log('[WebSocket] Refreshing token before connection...');
+    wsDebug.log('Refreshing token before connection...');
     let tokenToUse = await refreshAccessToken();
 
     // If refresh failed, try using current token from store as fallback
     if (!tokenToUse) {
       tokenToUse = useAuthStore.getState().accessToken;
-      if (WS_DEBUG) console.log('[WebSocket] Using existing token from store');
+      wsDebug.log('Using existing token from store');
     }
 
     if (!tokenToUse) {
-      if (WS_DEBUG) console.warn('[WebSocket] No access token available');
+      wsDebug.warn('No access token available');
       onErrorRef.current?.('Not authenticated');
       return;
     }
@@ -355,18 +387,16 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     const wsUrl = getWsUrl(tokenToUse);
 
     try {
-      if (WS_DEBUG) {
-        console.log('[WebSocket] Attempting connection...', {
-          attempt: reconnectAttemptRef.current + 1,
-          maxAttempts: RECONNECT_MAX_ATTEMPTS,
-        });
-      }
+      wsDebug.log('Attempting connection...', {
+        attempt: reconnectAttemptRef.current + 1,
+        maxAttempts: RECONNECT_MAX_ATTEMPTS,
+      });
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        if (WS_DEBUG) console.log('[WebSocket] Connected successfully');
+        wsDebug.log('Connected successfully');
 
         // Reset reconnection counter on successful connection
         reconnectAttemptRef.current = 0;
@@ -383,13 +413,11 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
       };
 
       ws.onclose = (event) => {
-        if (WS_DEBUG) {
-          console.log('[WebSocket] Connection closed', {
-            code: event.code,
-            reason: event.reason,
-            wasClean: event.wasClean,
-          });
-        }
+        wsDebug.log('Connection closed', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+        });
 
         setIsConnected(false);
         setIsStreaming(false);
@@ -425,9 +453,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
           );
           reconnectAttemptRef.current++;
 
-          if (WS_DEBUG) {
-            console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current}/${RECONNECT_MAX_ATTEMPTS})`);
-          }
+          wsDebug.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current}/${RECONNECT_MAX_ATTEMPTS})`);
 
           reconnectTimeoutRef.current = window.setTimeout(() => {
             connect();
@@ -438,9 +464,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
       };
 
       ws.onerror = (event) => {
-        if (WS_DEBUG) {
-          console.error('[WebSocket] Connection error', event);
-        }
+        wsDebug.error('Connection error', event);
         // Don't call onError here - onclose will be called after onerror
         // and we handle the error there with proper context
       };
@@ -454,15 +478,13 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
         }
       };
     } catch (error) {
-      if (WS_DEBUG) {
-        console.error('[WebSocket] Failed to create WebSocket:', error);
-      }
+      wsDebug.error('Failed to create WebSocket:', error);
       onErrorRef.current?.(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
     }
   }, [getWsUrl, handleMessage]); // Minimal dependencies - callbacks accessed via refs
 
   const disconnect = useCallback(() => {
-    if (WS_DEBUG) console.log('[WebSocket] Disconnecting...');
+    wsDebug.log('Disconnecting...');
 
     // Clear reconnection timeout
     if (reconnectTimeoutRef.current) {
@@ -493,6 +515,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
   const providerIdRef = useRef(providerId);
   const reasoningLevelRef = useRef(reasoningLevel);
   const webSearchEnabledRef = useRef(webSearchEnabled);
+  const modelConfigRef = useRef(modelConfig);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -510,6 +533,10 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     webSearchEnabledRef.current = webSearchEnabled;
   }, [webSearchEnabled]);
 
+  useEffect(() => {
+    modelConfigRef.current = modelConfig;
+  }, [modelConfig]);
+
   const sendMessage = useCallback((content: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       onErrorRef.current?.('Not connected to chat server');
@@ -526,7 +553,8 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     setCurrentToolCalls([]);
     setIsStreaming(true);
 
-    // Send chat request with feature flags
+    // Send chat request with feature flags and model config
+    const config = modelConfigRef.current;
     wsRef.current.send(JSON.stringify({
       type: WSMessageType.CHAT_REQUEST,
       sessionId: sessionIdRef.current,
@@ -534,6 +562,62 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
       providerId: providerIdRef.current,
       reasoningLevel: reasoningLevelRef.current ?? 'none',
       webSearchEnabled: webSearchEnabledRef.current ?? false,
+      // Model config parameters (all optional)
+      modelConfig: config ? {
+        maxTokens: config.maxTokens,
+        temperature: config.temperature,
+        topP: config.topP,
+        topK: config.topK,
+        frequencyPenalty: config.frequencyPenalty,
+        presencePenalty: config.presencePenalty,
+      } : undefined,
+    }));
+  }, []); // No dependencies - uses refs for everything
+
+  /**
+   * Retry generating a response for an orphaned user message.
+   * This is used when a user message was saved but no assistant response was received.
+   * Unlike sendMessage, this does NOT create a new user message.
+   */
+  const retryMessage = useCallback((messageId: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      onErrorRef.current?.('Not connected to chat server');
+      return;
+    }
+
+    if (!sessionIdRef.current) {
+      onErrorRef.current?.('No session selected');
+      return;
+    }
+
+    if (!messageId) {
+      onErrorRef.current?.('Message ID is required for retry');
+      return;
+    }
+
+    // Reset streaming state
+    setCurrentResponse('');
+    setCurrentToolCalls([]);
+    setIsStreaming(true);
+
+    // Send retry request with feature flags and model config
+    const config = modelConfigRef.current;
+    wsRef.current.send(JSON.stringify({
+      type: WSMessageType.RETRY_MESSAGE,
+      sessionId: sessionIdRef.current,
+      messageId,
+      providerId: providerIdRef.current,
+      reasoningLevel: reasoningLevelRef.current ?? 'none',
+      webSearchEnabled: webSearchEnabledRef.current ?? false,
+      // Model config parameters (all optional)
+      modelConfig: config ? {
+        maxTokens: config.maxTokens,
+        temperature: config.temperature,
+        topP: config.topP,
+        topK: config.topK,
+        frequencyPenalty: config.frequencyPenalty,
+        presencePenalty: config.presencePenalty,
+      } : undefined,
     }));
   }, []); // No dependencies - uses refs for everything
 
@@ -556,7 +640,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && pendingRefetchRef.current) {
-        if (WS_DEBUG) console.log('[WebSocket] Tab visible again, pending refetch detected');
+        wsDebug.log('Tab visible again, pending refetch detected');
         setHasPendingRefetch(true);
         // Note: The actual refetch is handled by the chat page via the hasPendingRefetch flag
       }
@@ -581,6 +665,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
     hasPendingRefetch,
     clearPendingRefetch,
     sendMessage,
+    retryMessage,
     cancelStream,
     connect,
     disconnect,

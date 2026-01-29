@@ -63,6 +63,14 @@ class StorageUnavailableError(StorageError):
         super().__init__(message)
 
 
+class InvalidStorageSourceError(StorageError):
+    """Unknown storage source specified."""
+
+    def __init__(self, source: str | StorageSource):
+        self.source = source
+        super().__init__(f"Unknown storage source: {source}")
+
+
 class StorageNotConfiguredError(StorageError):
     """Storage service is not configured."""
 
@@ -583,7 +591,7 @@ class StorageService:
                 raise StorageNotConfiguredError(StorageSource.LOCAL)
             return self._local_bundle
         else:
-            raise ValueError(f"Unknown storage source: {source}")
+            raise InvalidStorageSourceError(source)
 
     def is_source_available(self, source: StorageSource) -> bool:
         """Check if a storage source is available."""

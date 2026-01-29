@@ -23,7 +23,7 @@ function AuthBootstrap() {
 
 function App() {
   return (
-    <ThemeProvider defaultTheme="system" storageKey="hydra-theme">
+    <ThemeProvider defaultTheme="system">
       <BrowserRouter>
         <AuthBootstrap />
         <AppRouter />

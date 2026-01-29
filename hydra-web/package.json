@@ -65,9 +65,13 @@
   },
   "devDependencies": {
     "@axe-core/puppeteer": "^4.9.1",
+    "@testing-library/jest-dom": "^6.1.0",
+    "@testing-library/react": "^14.1.0",
+    "@testing-library/user-event": "^14.5.0",
     "@types/node": "^20.11.5",
     "@types/react": "^18.2.47",
     "@types/react-dom": "^18.2.18",
+    "jsdom": "^23.0.0",
     "@typescript-eslint/eslint-plugin": "^6.18.0",
     "@typescript-eslint/parser": "^6.18.0",
     "@vitejs/plugin-react": "^4.2.1",

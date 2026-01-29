@@ -23,12 +23,16 @@ import {
   Wrench,
   Menu,
   X,
+  Settings,
+  Brain,
+  Gauge,
+  Thermometer,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/constants';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
-import { useMCPChat } from '@/hooks/use-mcp-chat';
+import { useMCPChat, type ModelConfig, type SessionUsage } from '@/hooks/use-mcp-chat';
 import {
   useChatProjects,
   useChatSessions,
@@ -65,6 +69,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
+import { Progress } from '@/components/ui/progress';
 import {
   Tooltip,
   TooltipContent,
@@ -86,6 +95,33 @@ import { NewProjectModal, MCPConfigModal, LLMConfigModal } from './modals';
 import { useNodes } from '@/api/nodes';
 import { useServices } from '@/api/services';
 import { useNetworks } from '@/api/networks';
+
+// Estimate context window based on model name patterns
+const getEstimatedContextWindow = (model: string | undefined): number => {
+  if (!model) return 128000; // Default fallback
+  const m = model.toLowerCase();
+
+  // Anthropic models
+  if (m.includes('claude-3') || m.includes('claude-4')) return 200000;
+  if (m.includes('claude-2')) return 100000;
+
+  // OpenAI models
+  if (m.includes('gpt-4o')) return 128000;
+  if (m.includes('gpt-4-turbo') || m.includes('gpt-4-1106')) return 128000;
+  if (m.includes('gpt-4-32k')) return 32768;
+  if (m.includes('gpt-4')) return 8192;
+  if (m.includes('gpt-3.5-turbo-16k')) return 16384;
+  if (m.includes('gpt-3.5')) return 4096;
+  if (m.includes('o1') || m.includes('o3')) return 128000;
+
+  // Ollama/Local models
+  if (m.includes('llama3') || m.includes('llama-3')) return 128000;
+  if (m.includes('llama2') || m.includes('llama-2')) return 4096;
+  if (m.includes('mistral')) return 32768;
+  if (m.includes('mixtral')) return 32768;
+
+  return 128000; // Default for unknown models
+};
 
 const suggestedPrompts = [
   { icon: Server, text: 'List all compute nodes', category: 'nodes' },
@@ -164,7 +200,7 @@ export default function ChatPage() {
   const activeServerIds = currentSession?.mcpServerIds || [];
 
   const [input, setInput] = useState('');
-  const [sidebarTab, setSidebarTab] = useState<'chats' | 'tools'>('chats');
+  const [sidebarTab, setSidebarTab] = useState<'chats' | 'tools' | 'configs'>('chats');
   const [expandedProjects, setExpandedProjects] = useState<string[]>([]);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showMCPConfigModal, setShowMCPConfigModal] = useState(false);
@@ -177,6 +213,10 @@ export default function ChatPage() {
   const [showAllTools, setShowAllTools] = useState(false);
   const [showAllPrompts, setShowAllPrompts] = useState(false);
 
+  // Model configuration state for per-request overrides
+  const [modelConfig, setModelConfig] = useState<ModelConfig>({});
+  const [sessionUsage, setSessionUsage] = useState<SessionUsage | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const infraContext = useInfrastructureContext();
 
@@ -188,7 +228,11 @@ export default function ChatPage() {
 
   // Stable callbacks for WebSocket hook - uses the actual message data
   const handleWSMessage = useCallback(
-    (message: { id: string; role: string; content: string; toolCalls?: unknown[] }) => {
+    (message: { id: string; role: string; content: string; toolCalls?: unknown[] }, usage?: SessionUsage) => {
+      // Update session usage if provided
+      if (usage) {
+        setSessionUsage(usage);
+      }
       // Clear streaming content since message is complete
       setStreamingContent('');
 
@@ -484,6 +528,7 @@ export default function ChatPage() {
     isStreaming,
     currentResponse,
     sendMessage: wsSendMessage,
+    retryMessage: wsRetryMessage,
     connect: wsConnect,
     disconnect: wsDisconnect,
   } = useMCPChat({
@@ -491,6 +536,7 @@ export default function ChatPage() {
     providerId: activeLLMProviderId,
     reasoningLevel,
     webSearchEnabled,
+    modelConfig,
     onMessage: handleWSMessage,
     onError: handleWSError,
   });
@@ -871,7 +917,7 @@ export default function ChatPage() {
 
   return (
     <TooltipProvider>
-      <div className="h-[calc(100vh-3.5rem)] flex gap-4 p-4 bg-background relative">
+      <div className="h-[calc(100vh-3.5rem)] flex items-stretch gap-4 p-4 bg-background relative">
         <Button
           variant="outline"
           size="icon"
@@ -893,30 +939,37 @@ export default function ChatPage() {
         <div
           className={cn(
             'flex flex-col bg-card border border-border rounded-lg overflow-hidden min-h-0',
-            'fixed inset-y-0 left-0 z-40 w-72 m-4 transition-transform duration-200 ease-in-out',
-            'md:static md:translate-x-0 md:shrink-0',
+            'fixed inset-y-0 left-0 z-40 w-96 m-4 transition-transform duration-200 ease-in-out',
+            'md:static md:translate-x-0 md:shrink-0 md:h-full md:m-0',
             mobileSidebarOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)]'
           )}
         >
           <Tabs
             value={sidebarTab}
-            onValueChange={(v) => setSidebarTab(v as 'chats' | 'tools')}
+            onValueChange={(v) => setSidebarTab(v as 'chats' | 'tools' | 'configs')}
             className="flex flex-col h-full min-h-0"
           >
             <TabsList className="w-full rounded-none border-b border-border bg-transparent h-auto p-0 shrink-0">
               <TabsTrigger
                 value="chats"
-                className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent py-3 text-muted-foreground data-[state=active]:text-foreground"
+                className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent py-3 text-muted-foreground data-[state=active]:text-foreground text-sm"
               >
-                <MessageSquare className="h-4 w-4 mr-2" />
+                <MessageSquare className="h-4 w-4 mr-1.5" />
                 Chats
               </TabsTrigger>
               <TabsTrigger
                 value="tools"
-                className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent py-3 text-muted-foreground data-[state=active]:text-foreground"
+                className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent py-3 text-muted-foreground data-[state=active]:text-foreground text-sm"
               >
-                <Wrench className="h-4 w-4 mr-2" />
+                <Wrench className="h-4 w-4 mr-1.5" />
                 Tools
+              </TabsTrigger>
+              <TabsTrigger
+                value="configs"
+                className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-violet-500 data-[state=active]:bg-transparent py-3 text-muted-foreground data-[state=active]:text-foreground text-sm"
+              >
+                <Settings className="h-4 w-4 mr-1.5" />
+                Config
               </TabsTrigger>
             </TabsList>
 
@@ -1037,7 +1090,7 @@ export default function ChatPage() {
               </ScrollArea>
             </TabsContent>
 
-            <TabsContent value="tools" className="flex-1 min-h-0 m-0 p-0 overflow-hidden flex flex-col">
+            <TabsContent value="tools" className="data-[state=inactive]:hidden flex-1 min-h-0 m-0 p-0 overflow-hidden flex flex-col">
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <div className="p-3 space-y-4">
                   {/* Dedicated Hydra MCP Section */}
@@ -1397,10 +1450,235 @@ export default function ChatPage() {
                 </div>
               </div>
             </TabsContent>
+
+            {/* Configs Tab - Model parameters, reasoning, web search */}
+            <TabsContent value="configs" className="data-[state=inactive]:hidden flex-1 min-h-0 m-0 p-0 overflow-hidden flex flex-col">
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <div className="p-3 space-y-4">
+                  {/* Model Configuration */}
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <Settings className="h-3.5 w-3.5 text-violet-500" />
+                      Model Configuration
+                    </h4>
+                    <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-4">
+                      {/* Max Tokens */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="maxTokens" className="text-[10px] text-muted-foreground">
+                            Max Output Tokens
+                          </Label>
+                          <span className="text-[10px] font-mono text-foreground">
+                            {modelConfig.maxTokens || 'Default'}
+                          </span>
+                        </div>
+                        <Input
+                          id="maxTokens"
+                          type="number"
+                          placeholder="Default (4096)"
+                          min={1}
+                          max={100000}
+                          value={modelConfig.maxTokens || ''}
+                          onChange={(e) => setModelConfig((prev) => ({
+                            ...prev,
+                            maxTokens: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                          }))}
+                          className="h-7 text-[11px] bg-background"
+                        />
+                      </div>
+
+                      {/* Temperature */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                            <Thermometer className="h-3 w-3" />
+                            Temperature
+                          </Label>
+                          <span className="text-[10px] font-mono text-foreground">
+                            {modelConfig.temperature?.toFixed(1) ?? 'Default'}
+                          </span>
+                        </div>
+                        <Slider
+                          value={modelConfig.temperature !== undefined ? [modelConfig.temperature] : [0.7]}
+                          min={0}
+                          max={2}
+                          step={0.1}
+                          onValueChange={(values) => setModelConfig((prev) => ({
+                            ...prev,
+                            temperature: values[0],
+                          }))}
+                          className="w-full"
+                        />
+                        <div className="flex justify-between text-[8px] text-muted-foreground">
+                          <span>Precise (0)</span>
+                          <span>Creative (2)</span>
+                        </div>
+                      </div>
+
+                      {/* Top P */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-[10px] text-muted-foreground">Top P</Label>
+                          <span className="text-[10px] font-mono text-foreground">
+                            {modelConfig.topP?.toFixed(2) ?? 'Default'}
+                          </span>
+                        </div>
+                        <Slider
+                          value={modelConfig.topP !== undefined ? [modelConfig.topP] : [1.0]}
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          onValueChange={(values) => setModelConfig((prev) => ({
+                            ...prev,
+                            topP: values[0],
+                          }))}
+                          className="w-full"
+                        />
+                      </div>
+
+                      {/* Reset Button */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full h-7 text-[10px] text-muted-foreground hover:text-foreground"
+                        onClick={() => setModelConfig({})}
+                      >
+                        Reset to Defaults
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Reasoning & Search */}
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <Brain className="h-3.5 w-3.5 text-amber-500" />
+                      Reasoning & Search
+                    </h4>
+                    <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-4">
+                      {/* Reasoning Level */}
+                      <div className="space-y-2">
+                        <Label className="text-[10px] text-muted-foreground">Reasoning Level</Label>
+                        <div className="grid grid-cols-4 gap-1">
+                          {[
+                            { value: 'none', label: 'Off' },
+                            { value: 'low', label: 'Low' },
+                            { value: 'medium', label: 'Med' },
+                            { value: 'high', label: 'High' },
+                          ].map((level) => (
+                            <button
+                              key={level.value}
+                              onClick={() => supportsReasoning && setReasoningLevel(level.value as ReasoningLevel)}
+                              disabled={!supportsReasoning || isStreaming}
+                              className={cn(
+                                'py-1.5 px-2 rounded text-[10px] transition-colors border',
+                                reasoningLevel === level.value
+                                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                                  : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
+                                (!supportsReasoning || isStreaming) && 'opacity-50 cursor-not-allowed'
+                              )}
+                            >
+                              {level.label}
+                            </button>
+                          ))}
+                        </div>
+                        {!supportsReasoning && (
+                          <p className="text-[9px] text-muted-foreground">
+                            Reasoning not available for this model
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Web Search */}
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                            <Globe className="h-3 w-3" />
+                            Web Search
+                          </Label>
+                          {!supportsWebSearch && (
+                            <p className="text-[9px] text-muted-foreground">
+                              Not available for this model
+                            </p>
+                          )}
+                        </div>
+                        <Switch
+                          checked={webSearchEnabled}
+                          onCheckedChange={setWebSearchEnabled}
+                          disabled={!supportsWebSearch || isStreaming}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom fixed section - Context details */}
+              <div className="border-t border-border p-3 space-y-3 shrink-0">
+                {/* Session Token Usage */}
+                <div>
+                  <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Gauge className="h-3 w-3 text-cyan-500" />
+                    Context
+                  </h4>
+                  {(() => {
+                    // Use WebSocket session usage if available (real-time), otherwise fall back to persisted sessionContext
+                    const inputTokens = sessionUsage?.inputTokens ?? sessionContext?.inputTokens ?? 0;
+                    const outputTokens = sessionUsage?.outputTokens ?? sessionContext?.outputTokens ?? 0;
+                    const contextWindow = sessionUsage?.contextWindow || getEstimatedContextWindow(activeLLMProvider?.model);
+                    const usagePercent = contextWindow > 0 ? (inputTokens / contextWindow) * 100 : 0;
+
+                    return (
+                      <div className="space-y-2">
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-muted-foreground">Tokens</span>
+                            <span className="text-foreground font-mono">
+                              {inputTokens.toLocaleString()} / {contextWindow.toLocaleString()}
+                            </span>
+                          </div>
+                          <Progress value={usagePercent} className="h-1.5" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-1">
+                          <div className="p-1.5 rounded bg-muted/60 text-center">
+                            <div className="text-xs font-bold text-foreground">{inputTokens.toLocaleString()}</div>
+                            <div className="text-[8px] text-muted-foreground">Input</div>
+                          </div>
+                          <div className="p-1.5 rounded bg-muted/60 text-center">
+                            <div className="text-xs font-bold text-foreground">{outputTokens.toLocaleString()}</div>
+                            <div className="text-[8px] text-muted-foreground">Output</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Active Model Info */}
+                <div className="flex items-center gap-2 p-2 rounded-md bg-violet-500/5 border border-violet-500/20">
+                  <Sparkles className="h-4 w-4 text-violet-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-foreground truncate">
+                      {activeLLMProvider?.name || 'No Model Selected'}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {activeLLMProvider?.model || 'Configure in settings'}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[10px] px-2 shrink-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowLLMConfigModal(true)}
+                  >
+                    Change
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
           </Tabs>
         </div>
 
-        <div className="flex-1 flex flex-col bg-card border border-border rounded-lg overflow-hidden min-w-0">
+        <div className="flex-1 h-full flex flex-col bg-card border border-border rounded-lg overflow-hidden min-w-0">
           <ChatHeader
             currentSession={currentSession}
             activeLLMProvider={activeLLMProvider}
@@ -1477,9 +1755,20 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <>
-                  {allMessages.map((message) => (
-                    <MessageBubble key={message.messageId} message={message} />
-                  ))}
+                  {allMessages.map((message, index) => {
+                    // Detect orphaned user messages: last message is from user with no assistant response
+                    const isLastMessage = index === allMessages.length - 1;
+                    const isOrphanedUserMessage = isLastMessage && message.role === 'user' && !isStreaming;
+
+                    return (
+                      <MessageBubble
+                        key={message.messageId}
+                        message={message}
+                        canResend={isOrphanedUserMessage}
+                        onResend={isOrphanedUserMessage && message.messageId ? () => wsRetryMessage(message.messageId!) : undefined}
+                      />
+                    );
+                  })}
                   {isStreaming && (
                     <div className="flex gap-3">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
@@ -1510,12 +1799,6 @@ export default function ChatPage() {
             onChange={setInput}
             onSend={() => handleSend()}
             isStreaming={isStreaming}
-            reasoningLevel={reasoningLevel}
-            webSearchEnabled={webSearchEnabled}
-            supportsReasoning={supportsReasoning}
-            supportsWebSearch={supportsWebSearch}
-            onReasoningLevelChange={setReasoningLevel}
-            onWebSearchToggle={setWebSearchEnabled}
           />
         </div>
 

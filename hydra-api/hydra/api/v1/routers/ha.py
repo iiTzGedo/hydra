@@ -1,5 +1,6 @@
 """Home Assistant integration endpoints."""
 
+from collections.abc import AsyncGenerator
 from typing import Annotated
 
 import structlog
@@ -26,9 +27,17 @@ router = APIRouter(prefix="/ha", tags=["Home Assistant"])
 logger = structlog.get_logger(__name__)
 
 
-def get_ha_service(mongodb: MongoDBDep) -> HomeAssistantService:
-    """Get Home Assistant service dependency."""
-    return HomeAssistantService(mongodb)
+async def get_ha_service(mongodb: MongoDBDep) -> AsyncGenerator[HomeAssistantService, None]:
+    """Get Home Assistant service dependency with proper cleanup.
+
+    Yields the service for use in the request, then ensures the HTTP client
+    is properly closed after the request completes.
+    """
+    service = HomeAssistantService(mongodb)
+    try:
+        yield service
+    finally:
+        await service.close()
 
 
 HAServiceDep = Annotated[HomeAssistantService, Depends(get_ha_service)]

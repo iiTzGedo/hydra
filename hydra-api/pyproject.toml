@@ -67,7 +67,7 @@ known-first-party = ["hydra"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-v --cov=hydra --cov-report=term-missing"
+addopts = "-v --cov=hydra --cov-report=term-missing --cov-fail-under=60"
 
 [tool.mypy]
 python_version = "3.11"

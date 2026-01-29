@@ -7,7 +7,12 @@ from typing import Any
 import structlog
 from pymongo import ASCENDING, DESCENDING
 
-from hydra.api.v1.core.exceptions import ConflictError, NotFoundError, ValidationError
+from hydra.api.v1.core.exceptions import (
+    ConflictError,
+    NodeNotFoundError,
+    NotFoundError,
+    ValidationError,
+)
 from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.networks import (
     CreateNetworkRequest,
@@ -161,18 +166,12 @@ class NetworksService:
         if request.parent_network_id:
             parent = await self.db.networks.find_one({"networkId": request.parent_network_id})
             if not parent:
-                raise ValidationError(
-                    f"Parent network '{request.parent_network_id}' not found",
-                    {"parentNetworkId": request.parent_network_id},
-                )
+                raise NetworkNotFoundError(request.parent_network_id)
 
         if request.router_node_id:
             router = await self.db.nodes.find_one({"nodeId": request.router_node_id})
             if not router:
-                raise ValidationError(
-                    f"Router node '{request.router_node_id}' not found",
-                    {"routerNodeId": request.router_node_id},
-                )
+                raise NodeNotFoundError(request.router_node_id)
 
         now = datetime.now(timezone.utc)
 
@@ -247,10 +246,7 @@ class NetworksService:
             if request.router_node_id:
                 router = await self.db.nodes.find_one({"nodeId": request.router_node_id})
                 if not router:
-                    raise ValidationError(
-                        f"Router node '{request.router_node_id}' not found",
-                        {"routerNodeId": request.router_node_id},
-                    )
+                    raise NodeNotFoundError(request.router_node_id)
             update_fields["routerNodeId"] = request.router_node_id or None
         if request.dhcp is not None:
             update_fields["dhcp"] = request.dhcp.model_dump(by_alias=True)

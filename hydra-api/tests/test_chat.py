@@ -216,6 +216,11 @@ async def test_send_chat_message(
     mock_sessions = MagicMock()
     mock_sessions.find_one = AsyncMock(return_value=sample_chat_session)
     mock_sessions.update_one = AsyncMock()
+    # Mock find_one_and_update for atomic message counter increment
+    mock_sessions.find_one_and_update = AsyncMock(return_value={
+        **sample_chat_session,
+        "sessionContext": {"messageCount": 2, "thread": []},
+    })
     mock_mongodb.chat_sessions = mock_sessions
 
     mock_messages = MagicMock()

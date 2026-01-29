@@ -17,6 +17,7 @@ dependencies = [
     "fastapi>=0.109.0",
     "starlette>=0.36.0",
     "anyio>=4.0.0",
+    "jsonschema>=4.20.0",
 ]
 
 [project.scripts]
@@ -58,3 +59,10 @@ addopts = "-v --cov=hydra_mcp --cov-report=term-missing"
 [tool.mypy]
 python_version = "3.11"
 strict = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+]

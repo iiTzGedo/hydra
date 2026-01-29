@@ -9,9 +9,10 @@ from pymongo import ReturnDocument
 
 from hydra.db.mongodb import MongoDB
 from hydra.api.v1.core.exceptions import (
+    CommandAlreadyExecutingError,
     CommandNotCancellableError,
+    CommandNodeMismatchError,
     CommandNotFoundError,
-    HydraError,
     NodeNotFoundError,
 )
 from hydra.api.v1.models.commands import (
@@ -252,11 +253,7 @@ class CommandsService:
         command = await self.get_command(command_id)
 
         if command["status"] != CommandStatus.QUEUED.value:
-            raise HydraError(
-                "COMMAND_ALREADY_EXECUTING",
-                f"Command '{command_id}' is not in queued state",
-                status_code=422,
-            )
+            raise CommandAlreadyExecutingError(command_id, command["status"])
 
         now = datetime.now(UTC)
 
@@ -299,10 +296,8 @@ class CommandsService:
         command = await self.get_command(command_id)
 
         if command["target"]["nodeId"] != node_id:
-            raise HydraError(
-                "COMMAND_NODE_MISMATCH",
-                f"Command '{command_id}' is not for node '{node_id}'",
-                status_code=403,
+            raise CommandNodeMismatchError(
+                command_id, command["target"]["nodeId"], node_id
             )
 
         now = datetime.now(UTC)

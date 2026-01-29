@@ -4,7 +4,6 @@ This module implements the Model Context Protocol server for Hydra,
 exposing infrastructure data through tools, resources, and prompts.
 """
 
-from datetime import datetime
 from typing import Any
 
 import structlog
@@ -24,14 +23,47 @@ from mcp.types import (
     ReadResourceResult,
     Resource,
     TextContent,
-    Tool,
 )
 
+from hydra_mcp.auth import AuthorizationError
 from hydra_mcp.client import HydraAPIError, HydraClient
 from hydra_mcp.config import get_settings
 from hydra_mcp.toon import TOONFormatter
+from hydra_mcp.tools import get_all_tools, execute_tool as registry_execute_tool, ToolValidationError
+
+# Import tool handlers to register them with the registry
+import hydra_mcp.tool_handlers  # noqa: F401
 
 logger = structlog.get_logger(__name__)
+
+
+def _safe_list(data: Any) -> list:
+    """Ensure data is a list, returning empty list if not.
+
+    This helper eliminates the repeated `isinstance(x, list) else []` pattern
+    used when handling API responses that may not always be lists.
+
+    Args:
+        data: The data to check, typically from an API response.
+
+    Returns:
+        The data if it's a list, otherwise an empty list.
+    """
+    return data if isinstance(data, list) else []
+
+
+def _format_list_response(key: str, data: Any) -> str:
+    """Format a list response with TOON, ensuring data is a list.
+
+    Args:
+        key: The key to use in the response dict (e.g., "nodes", "services").
+        data: The data to format, will be coerced to list if needed.
+
+    Returns:
+        TOON-formatted string.
+    """
+    return toon.format({key: _safe_list(data)})
+
 
 server = Server("hydra-mcp")
 settings = get_settings()
@@ -47,421 +79,20 @@ toon = TOONFormatter(
 async def list_tools() -> ListToolsResult:
     """List all available MCP tools for infrastructure management.
 
+    Tools are registered via the tool registry pattern in tool_handlers.py.
+
     Returns:
         ListToolsResult containing tool definitions with schemas.
     """
-    tools = [
-        Tool(
-            name="list_nodes",
-            description="List infrastructure nodes with optional filters",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "class": {
-                        "type": "string",
-                        "enum": ["compute", "networking", "iot"],
-                        "description": "Filter by node class",
-                    },
-                    "type": {
-                        "type": "string",
-                        "enum": ["physical", "logical"],
-                        "description": "Filter by node type",
-                    },
-                    "status": {
-                        "type": "string",
-                        "enum": ["active", "inactive", "archived"],
-                        "description": "Filter by status",
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Filter by tags (AND logic)",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "default": 50,
-                        "description": "Maximum results",
-                    },
-                },
-            },
-        ),
-        Tool(
-            name="get_node",
-            description="Get detailed information about a specific node",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "nodeId": {
-                        "type": "string",
-                        "description": "The node ID",
-                    },
-                    "includeChildren": {
-                        "type": "boolean",
-                        "default": True,
-                        "description": "Include child nodes",
-                    },
-                    "includeServices": {
-                        "type": "boolean",
-                        "default": True,
-                        "description": "Include services",
-                    },
-                },
-                "required": ["nodeId"],
-            },
-        ),
-        Tool(
-            name="get_node_profile",
-            description="Get the latest profile for a node with hardware, network, storage details",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "nodeId": {
-                        "type": "string",
-                        "description": "The node ID",
-                    },
-                    "sections": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Specific sections to include (hardware, network, storage, software, configs)",
-                    },
-                },
-                "required": ["nodeId"],
-            },
-        ),
-        Tool(
-            name="list_services",
-            description="List services across the infrastructure",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "nodeId": {
-                        "type": "string",
-                        "description": "Filter by node",
-                    },
-                    "runtime": {
-                        "type": "string",
-                        "enum": ["systemd", "docker", "podman", "kubernetes"],
-                        "description": "Filter by runtime",
-                    },
-                    "status": {
-                        "type": "string",
-                        "enum": ["running", "stopped", "failed"],
-                        "description": "Filter by status",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "default": 50,
-                    },
-                },
-            },
-        ),
-        Tool(
-            name="get_service",
-            description="Get detailed information about a specific service",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "serviceId": {
-                        "type": "string",
-                        "description": "The service ID (e.g., svc-nginx-a1b2)",
-                    },
-                },
-                "required": ["serviceId"],
-            },
-        ),
-        Tool(
-            name="list_groups",
-            description="List logical groups",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "types": {
-                        "type": "array",
-                        "items": {"type": "string", "enum": ["node", "service"]},
-                        "description": "Filter by group types",
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Filter by tags",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "default": 50,
-                    },
-                },
-            },
-        ),
-        Tool(
-            name="get_group",
-            description="Get group details with optional member resolution",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "groupId": {
-                        "type": "string",
-                        "description": "The group ID",
-                    },
-                    "resolveMembers": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": "Include resolved members",
-                    },
-                },
-                "required": ["groupId"],
-            },
-        ),
-        Tool(
-            name="list_networks",
-            description="List networks",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "type": {
-                        "type": "string",
-                        "enum": ["physical", "vlan", "overlay", "virtual"],
-                        "description": "Filter by network type",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "default": 50,
-                    },
-                },
-            },
-        ),
-        Tool(
-            name="get_network",
-            description="Get network details",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "networkId": {
-                        "type": "string",
-                        "description": "The network ID",
-                    },
-                    "includeNodes": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": "Include nodes in network",
-                    },
-                },
-                "required": ["networkId"],
-            },
-        ),
-        Tool(
-            name="get_topology",
-            description="Get the current infrastructure or network topology graph",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "mode": {
-                        "type": "string",
-                        "enum": ["network", "infrastructure"],
-                        "default": "network",
-                        "description": "Topology mode",
-                    },
-                    "scope": {
-                        "type": "object",
-                        "description": "Optional scope filter",
-                    },
-                },
-            },
-        ),
-        Tool(
-            name="search_infrastructure",
-            description="Search across nodes, services, and other entities",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search query",
-                    },
-                    "types": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Entity types to search",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "default": 20,
-                    },
-                },
-                "required": ["query"],
-            },
-        ),
-        Tool(
-            name="compare_profiles",
-            description="Compare two profiles to see what changed",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "nodeId": {
-                        "type": "string",
-                        "description": "The node ID",
-                    },
-                    "fromVersion": {
-                        "type": "string",
-                        "description": "From version (default: previous)",
-                    },
-                    "toVersion": {
-                        "type": "string",
-                        "description": "To version (default: latest)",
-                    },
-                },
-                "required": ["nodeId"],
-            },
-        ),
-        Tool(
-            name="get_capacity",
-            description="Get infrastructure capacity summary",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "groupBy": {
-                        "type": "string",
-                        "enum": ["node", "class", "location", "network", "group"],
-                        "description": "Group results by",
-                    },
-                    "includeLogical": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": "Include logical nodes (may double-count)",
-                    },
-                },
-            },
-        ),
-        Tool(
-            name="time_machine_node",
-            description="Get a node's state at a specific point in time",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "nodeId": {
-                        "type": "string",
-                        "description": "The node ID",
-                    },
-                    "timestamp": {
-                        "type": "string",
-                        "description": "ISO 8601 timestamp",
-                    },
-                },
-                "required": ["nodeId", "timestamp"],
-            },
-        ),
-        Tool(
-            name="time_machine_topology",
-            description="Get the topology at a specific point in time",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "mode": {
-                        "type": "string",
-                        "enum": ["network", "infrastructure"],
-                        "description": "Topology mode",
-                    },
-                    "timestamp": {
-                        "type": "string",
-                        "description": "ISO 8601 timestamp",
-                    },
-                },
-                "required": ["mode", "timestamp"],
-            },
-        ),
-        Tool(
-            name="query_infrastructure",
-            description="Execute a raw query against infrastructure data",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "collection": {
-                        "type": "string",
-                        "enum": ["nodes", "profiles", "services", "groups", "networks"],
-                        "description": "Collection to query",
-                    },
-                    "filter": {
-                        "type": "object",
-                        "description": "MongoDB-style filter",
-                    },
-                    "projection": {
-                        "type": "object",
-                        "description": "Fields to include/exclude",
-                    },
-                },
-                "required": ["collection"],
-            },
-        ),
-        Tool(
-            name="control_service",
-            description="Control a service (start, stop, restart)",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "serviceId": {
-                        "type": "string",
-                        "description": "The service ID",
-                    },
-                    "action": {
-                        "type": "string",
-                        "enum": ["start", "stop", "restart", "reload"],
-                        "description": "Action to perform",
-                    },
-                },
-                "required": ["serviceId", "action"],
-            },
-        ),
-        Tool(
-            name="control_device",
-            description="Control an IoT device via Home Assistant",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "entityId": {
-                        "type": "string",
-                        "description": "Home Assistant entity ID",
-                    },
-                    "service": {
-                        "type": "string",
-                        "description": "Service to call (e.g., turn_on, set_temperature)",
-                    },
-                    "parameters": {
-                        "type": "object",
-                        "description": "Service parameters",
-                    },
-                },
-                "required": ["entityId", "service"],
-            },
-        ),
-        Tool(
-            name="service_dependency_map",
-            description="Map dependencies between services and identify critical paths",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "serviceId": {
-                        "type": "string",
-                        "description": "Optional service ID to focus analysis on",
-                    },
-                    "depth": {
-                        "type": "integer",
-                        "default": 3,
-                        "description": "Dependency depth to explore (1-5)",
-                    },
-                    "includeNetworkAnalysis": {
-                        "type": "boolean",
-                        "default": True,
-                        "description": "Include network topology in dependency analysis",
-                    },
-                },
-            },
-        ),
-    ]
-    return ListToolsResult(tools=tools)
+    return ListToolsResult(tools=get_all_tools())
 
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
     """Execute a tool call and return TOON-formatted results.
+
+    Tool implementations are registered via the tool registry pattern
+    in tool_handlers.py.
 
     Args:
         name: The tool name to execute.
@@ -471,8 +102,24 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         CallToolResult with TOON-formatted content or error details.
     """
     try:
-        result = await _execute_tool(name, arguments)
+        result = await registry_execute_tool(name, arguments)
         return CallToolResult(content=[TextContent(type="text", text=result)])
+    except ToolValidationError as e:
+        logger.warning("tool_validation_failed", tool=name, errors=e.errors)
+        error_text = toon.format_error(
+            "VALIDATION_ERROR",
+            str(e),
+            {"tool": e.tool_name, "errors": e.errors},
+        )
+        return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
+    except AuthorizationError as e:
+        logger.warning("tool_authorization_denied", tool=name, permission=e.required_permission)
+        error_text = toon.format_error(
+            "AUTHORIZATION_DENIED",
+            e.message,
+            {"tool": e.tool, "requiredPermission": e.required_permission},
+        )
+        return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
     except HydraAPIError as e:
         error_text = toon.format_error(e.code, e.message, e.details)
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
@@ -480,319 +127,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         logger.exception("tool_execution_error", tool=name, error=str(e))
         error_text = toon.format_error("TOOL_ERROR", str(e))
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
-
-
-async def _execute_tool(name: str, args: dict[str, Any]) -> str:
-    if name == "list_nodes":
-        nodes, _ = await client.list_nodes(
-            node_class=args.get("class"),
-            node_type=args.get("type"),
-            status=args.get("status"),
-            tags=args.get("tags"),
-            limit=args.get("limit", 50),
-        )
-        return toon.format({"nodes": nodes if isinstance(nodes, list) else []})
-
-    elif name == "get_node":
-        node = await client.get_node(
-            args["nodeId"],
-            include_children=args.get("includeChildren", True),
-            include_services=args.get("includeServices", True),
-        )
-        return toon.format(node)
-
-    elif name == "get_node_profile":
-        profile = await client.get_node_profile(
-            args["nodeId"],
-            sections=args.get("sections"),
-        )
-        return toon.format(profile)
-
-    elif name == "list_services":
-        services, _ = await client.list_services(
-            node_id=args.get("nodeId"),
-            runtime=args.get("runtime"),
-            status=args.get("status"),
-            limit=args.get("limit", 50),
-        )
-        return toon.format({"services": services if isinstance(services, list) else []})
-
-    elif name == "get_service":
-        service = await client.get_service(args["serviceId"])
-        return toon.format(service)
-
-    elif name == "list_groups":
-        groups, _ = await client.list_groups(
-            types=args.get("types"),
-            tags=args.get("tags"),
-            limit=args.get("limit", 50),
-        )
-        return toon.format({"groups": groups if isinstance(groups, list) else []})
-
-    elif name == "get_group":
-        group = await client.get_group(
-            args["groupId"],
-            resolve_members=args.get("resolveMembers", False),
-        )
-        return toon.format(group)
-
-    elif name == "list_networks":
-        networks, _ = await client.list_networks(
-            network_type=args.get("type"),
-            limit=args.get("limit", 50),
-        )
-        return toon.format({"networks": networks if isinstance(networks, list) else []})
-
-    elif name == "get_network":
-        network = await client.get_network(
-            args["networkId"],
-            include_nodes=args.get("includeNodes", False),
-        )
-        return toon.format(network)
-
-    elif name == "get_topology":
-        topology = await client.get_topology(
-            mode=args.get("mode", "network"),
-            scope=args.get("scope"),
-        )
-        return toon.format(topology)
-
-    elif name == "search_infrastructure":
-        results = await client.search(
-            query=args["query"],
-            types=args.get("types"),
-            limit=args.get("limit", 20),
-        )
-        return toon.format({"results": results})
-
-    elif name == "compare_profiles":
-        diff = await client.compare_profiles(
-            args["nodeId"],
-            from_version=args.get("fromVersion"),
-            to_version=args.get("toVersion"),
-        )
-        return toon.format(diff)
-
-    elif name == "get_capacity":
-        capacity = await client.get_capacity(
-            group_by=args.get("groupBy"),
-            include_logical=args.get("includeLogical", False),
-        )
-        return toon.format(capacity)
-
-    elif name == "time_machine_node":
-        timestamp = datetime.fromisoformat(args["timestamp"].replace("Z", "+00:00"))
-        state = await client.get_node_at_time(args["nodeId"], timestamp)
-        return toon.format(state)
-
-    elif name == "time_machine_topology":
-        timestamp = datetime.fromisoformat(args["timestamp"].replace("Z", "+00:00"))
-        topology = await client.get_topology_at_time(args["mode"], timestamp)
-        return toon.format(topology)
-
-    elif name == "query_infrastructure":
-        result = await client.query(
-            collection=args["collection"],
-            filter_query=args.get("filter"),
-            projection=args.get("projection"),
-        )
-        return toon.format(result)
-
-    elif name == "control_service":
-        service = await client.get_service(args["serviceId"])
-        if not service:
-            raise ValueError(f"Service not found: {args['serviceId']}")
-
-        result = await client.control_service(
-            node_id=service.get("nodeId"),
-            service_id=args["serviceId"],
-            action=args["action"],
-        )
-        return toon.format(result)
-
-    elif name == "control_device":
-        result = await client.control_device(
-            entity_id=args["entityId"],
-            service=args["service"],
-            data=args.get("parameters"),
-        )
-        return toon.format(result)
-
-    elif name == "service_dependency_map":
-        service_id = args.get("serviceId")
-        depth = args.get("depth", 3)
-        include_network = args.get("includeNetworkAnalysis", True)
-
-        if service_id:
-            service = await client.get_service(service_id)
-            services = [service]
-        else:
-            services, _ = await client.list_services(limit=200)
-            if not isinstance(services, list):
-                services = []
-
-        dependency_map = {
-            "services": [],
-            "dependencies": [],
-            "analysis": {
-                "totalServices": len(services),
-                "criticalServices": [],
-                "isolatedServices": [],
-                "singlePointsOfFailure": [],
-                "communicationPatterns": [],
-            },
-        }
-
-        service_deps = {}
-        service_dependents = {}
-
-        for svc in services:
-            svc_id = svc.get("serviceId", "")
-            svc_name = svc.get("name", "")
-            node_id = svc.get("nodeId", "")
-            runtime = svc.get("runtime", "")
-            status = svc.get("status", "")
-
-            service_info = {
-                "serviceId": svc_id,
-                "name": svc_name,
-                "nodeId": node_id,
-                "runtime": runtime,
-                "status": status,
-                "dependencies": [],
-                "dependents": [],
-            }
-
-            metadata = svc.get("metadata", {})
-
-            if runtime in ["docker", "podman"]:
-                env_vars = metadata.get("environment", {})
-                networks = metadata.get("networks", [])
-                links = metadata.get("links", [])
-
-                for key, value in env_vars.items() if isinstance(env_vars, dict) else []:
-                    if isinstance(value, str):
-                        if "_HOST" in key or "_URL" in key or "_ENDPOINT" in key:
-                            service_info["dependencies"].append({
-                                "type": "environment",
-                                "target": value,
-                                "reference": key,
-                            })
-
-                if networks:
-                    service_info["networks"] = networks
-
-                if links:
-                    service_info["dependencies"].extend([
-                        {"type": "link", "target": link} for link in links
-                    ])
-
-            elif runtime == "kubernetes":
-                containers = metadata.get("containers", [])
-                for container in containers if isinstance(containers, list) else []:
-                    env = container.get("env", [])
-                    for env_var in env if isinstance(env, list) else []:
-                        name = env_var.get("name", "")
-                        value = env_var.get("value", "")
-                        if "_SERVICE" in name or "_HOST" in name:
-                            service_info["dependencies"].append({
-                                "type": "kubernetes_env",
-                                "target": value,
-                                "reference": name,
-                            })
-
-            elif runtime == "systemd":
-                config = metadata.get("config", {})
-                requires = config.get("Requires", [])
-                wants = config.get("Wants", [])
-                after = config.get("After", [])
-
-                if requires:
-                    service_info["dependencies"].extend([
-                        {"type": "systemd_requires", "target": req} for req in requires
-                    ])
-                if wants:
-                    service_info["dependencies"].extend([
-                        {"type": "systemd_wants", "target": want} for want in wants
-                    ])
-                if after:
-                    service_info["dependencies"].extend([
-                        {"type": "systemd_after", "target": dep} for dep in after
-                    ])
-
-            dependency_map["services"].append(service_info)
-            service_deps[svc_id] = service_info["dependencies"]
-            service_dependents[svc_id] = []
-
-        for svc_info in dependency_map["services"]:
-            svc_id = svc_info["serviceId"]
-            for dep in svc_info["dependencies"]:
-                target = dep.get("target", "")
-                for other_svc in dependency_map["services"]:
-                    other_id = other_svc["serviceId"]
-                    other_name = other_svc["name"]
-                    if other_id != svc_id and (target in other_id or target in other_name):
-                        dependency_map["dependencies"].append({
-                            "from": svc_id,
-                            "to": other_id,
-                            "type": dep.get("type", "unknown"),
-                        })
-                        if other_id not in service_dependents:
-                            service_dependents[other_id] = []
-                        service_dependents[other_id].append(svc_id)
-
-        for svc_info in dependency_map["services"]:
-            svc_id = svc_info["serviceId"]
-            num_deps = len(service_deps.get(svc_id, []))
-            num_dependents = len(service_dependents.get(svc_id, []))
-
-            if num_dependents >= 3:
-                dependency_map["analysis"]["criticalServices"].append({
-                    "serviceId": svc_id,
-                    "name": svc_info["name"],
-                    "dependents": num_dependents,
-                    "reason": "High number of dependent services",
-                })
-
-            if num_deps == 0 and num_dependents == 0:
-                dependency_map["analysis"]["isolatedServices"].append({
-                    "serviceId": svc_id,
-                    "name": svc_info["name"],
-                })
-
-            if num_dependents >= 2 and svc_info["status"] == "running":
-                dependency_map["analysis"]["singlePointsOfFailure"].append({
-                    "serviceId": svc_id,
-                    "name": svc_info["name"],
-                    "dependents": num_dependents,
-                    "impact": "High - failure would affect multiple services",
-                })
-
-        if include_network:
-            try:
-                topology = await client.get_topology(mode="network")
-                network_services = {}
-                for svc_info in dependency_map["services"]:
-                    svc_networks = svc_info.get("networks", [])
-                    for net in svc_networks:
-                        if net not in network_services:
-                            network_services[net] = []
-                        network_services[net].append(svc_info["serviceId"])
-
-                for net, svc_list in network_services.items():
-                    if len(svc_list) > 1:
-                        dependency_map["analysis"]["communicationPatterns"].append({
-                            "network": net,
-                            "services": svc_list,
-                            "pattern": "Shared network communication",
-                        })
-            except Exception as e:
-                logger.warning("network_analysis_failed", error=str(e))
-
-        return toon.format(dependency_map)
-
-    else:
-        raise ValueError(f"Unknown tool: {name}")
 
 
 @server.list_resources()
@@ -868,15 +202,15 @@ async def _read_resource(uri: str) -> str:
 
     elif uri == "infrastructure://nodes":
         nodes, _ = await client.list_nodes(limit=200)
-        return toon.format({"nodes": nodes if isinstance(nodes, list) else []})
+        return _format_list_response("nodes", nodes)
 
     elif uri == "infrastructure://services":
         services, _ = await client.list_services(limit=200)
-        return toon.format({"services": services if isinstance(services, list) else []})
+        return _format_list_response("services", services)
 
     elif uri == "infrastructure://networks":
         networks, _ = await client.list_networks(limit=50)
-        return toon.format({"networks": networks if isinstance(networks, list) else []})
+        return _format_list_response("networks", networks)
 
     elif uri == "infrastructure://topology/network":
         topology = await client.get_topology(mode="network")
@@ -1064,7 +398,7 @@ Please provide:
                         text=f"""Help diagnose the following network issue.
 
 Current Network Configuration:
-{toon.format({"networks": networks if isinstance(networks, list) else []})}
+{_format_list_response("networks", networks)}
 
 Network Topology Summary:
 {toon.format(topology)}
@@ -1096,10 +430,10 @@ Please provide:
                         text=f"""Perform an infrastructure audit with the following scope.
 
 Nodes:
-{toon.format({"nodes": nodes if isinstance(nodes, list) else []})}
+{_format_list_response("nodes", nodes)}
 
 Services:
-{toon.format({"services": services if isinstance(services, list) else []})}
+{_format_list_response("services", services)}
 
 Scope: {args.get('scope', 'all')}
 Focus: {args.get('focus', 'general')}
@@ -1128,7 +462,7 @@ Please analyze:
                         text=f"""Map the dependencies between services.
 
 Services:
-{toon.format({"services": services if isinstance(services, list) else []})}
+{_format_list_response("services", services)}
 
 Target Service: {args.get('service', 'All services')}
 Analysis Depth: {args.get('depth', 'Full')}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bot, User, Zap, Copy, Check } from 'lucide-react';
+import { Bot, User, Zap, Copy, Check, RotateCcw } from 'lucide-react';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import type { ChatMessageRole, ChatToolCall } from '@/api/chat';
 import { ToolCallDisplay } from './tool-call-display';
@@ -13,9 +13,13 @@ interface MessageBubbleProps {
     createdAt?: string;
     error?: boolean;
   };
+  /** Show resend button for orphaned user messages (no response received) */
+  canResend?: boolean;
+  /** Callback when resend is clicked */
+  onResend?: () => void;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, canResend, onResend }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === 'user';
 
@@ -74,6 +78,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               'rounded p-1 transition-colors',
               isUser ? 'hover:bg-blue-500/20' : 'hover:bg-muted'
             )}
+            title="Copy message"
           >
             {copied ? (
               <Check className={cn('h-3 w-3', isUser ? 'text-emerald-400' : 'text-emerald-500')} />
@@ -81,6 +86,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               <Copy className={cn('h-3 w-3', isUser ? 'text-muted-foreground' : 'text-muted-foreground')} />
             )}
           </button>
+          {isUser && canResend && onResend && (
+            <button
+              onClick={onResend}
+              className="rounded p-1 transition-colors hover:bg-blue-500/20"
+              title="Resend message"
+            >
+              <RotateCcw className="h-3 w-3 text-amber-400" />
+            </button>
+          )}
         </div>
       </div>
 

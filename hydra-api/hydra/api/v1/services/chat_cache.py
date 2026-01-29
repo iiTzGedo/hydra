@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from typing import Any
 
+import redis.exceptions
 import structlog
 
 from hydra.db.redis import RedisClient, get_redis
@@ -60,8 +61,14 @@ class ChatCacheService:
             value = json.dumps(messages, default=_json_serializer)
             await self._redis.cache_set(key, value, self.MESSAGES_TTL)
             logger.debug("messages_cached", session_id=session_id, count=len(messages))
+        except redis.exceptions.ConnectionError as e:
+            logger.warning("cache_messages_failed", session_id=session_id, error=str(e), error_type="redis_connection")
+        except redis.exceptions.TimeoutError as e:
+            logger.warning("cache_messages_failed", session_id=session_id, error=str(e), error_type="redis_timeout")
+        except json.JSONDecodeError as e:
+            logger.warning("cache_messages_failed", session_id=session_id, error=str(e), error_type="json_encode")
         except Exception as e:
-            logger.warning("cache_messages_failed", session_id=session_id, error=str(e))
+            logger.error("cache_messages_unexpected_error", session_id=session_id, error=str(e), error_type=type(e).__name__)
 
     async def get_cached_messages(self, session_id: str) -> list[dict[str, Any]] | None:
         """Get cached messages for a session.
@@ -83,8 +90,17 @@ class ChatCacheService:
                 return messages
             logger.debug("messages_cache_miss", session_id=session_id)
             return None
+        except redis.exceptions.ConnectionError as e:
+            logger.warning("cache_get_messages_failed", session_id=session_id, error=str(e), error_type="redis_connection")
+            return None
+        except redis.exceptions.TimeoutError as e:
+            logger.warning("cache_get_messages_failed", session_id=session_id, error=str(e), error_type="redis_timeout")
+            return None
+        except json.JSONDecodeError as e:
+            logger.warning("cache_get_messages_failed", session_id=session_id, error=str(e), error_type="json_decode")
+            return None
         except Exception as e:
-            logger.warning("cache_get_messages_failed", session_id=session_id, error=str(e))
+            logger.error("cache_get_messages_unexpected_error", session_id=session_id, error=str(e), error_type=type(e).__name__)
             return None
 
     async def append_message_to_cache(
@@ -102,10 +118,12 @@ class ChatCacheService:
                 existing.append(message)
                 await self.cache_session_messages(session_id, existing)
                 logger.debug("message_appended_to_cache", session_id=session_id)
+        except redis.exceptions.ConnectionError as e:
+            logger.warning("cache_append_message_failed", session_id=session_id, error=str(e), error_type="redis_connection")
+        except redis.exceptions.TimeoutError as e:
+            logger.warning("cache_append_message_failed", session_id=session_id, error=str(e), error_type="redis_timeout")
         except Exception as e:
-            logger.warning(
-                "cache_append_message_failed", session_id=session_id, error=str(e)
-            )
+            logger.error("cache_append_message_unexpected_error", session_id=session_id, error=str(e), error_type=type(e).__name__)
 
     async def invalidate_session_cache(self, session_id: str) -> None:
         """Invalidate all caches for a session.
@@ -119,10 +137,12 @@ class ChatCacheService:
             await self._redis.cache_delete(messages_key)
             await self._redis.cache_delete(context_key)
             logger.debug("session_cache_invalidated", session_id=session_id)
+        except redis.exceptions.ConnectionError as e:
+            logger.warning("cache_invalidate_failed", session_id=session_id, error=str(e), error_type="redis_connection")
+        except redis.exceptions.TimeoutError as e:
+            logger.warning("cache_invalidate_failed", session_id=session_id, error=str(e), error_type="redis_timeout")
         except Exception as e:
-            logger.warning(
-                "cache_invalidate_failed", session_id=session_id, error=str(e)
-            )
+            logger.error("cache_invalidate_unexpected_error", session_id=session_id, error=str(e), error_type=type(e).__name__)
 
     # =========================================================================
     # Session Context Cache
@@ -142,8 +162,14 @@ class ChatCacheService:
             value = json.dumps(context, default=_json_serializer)
             await self._redis.cache_set(key, value, self.CONTEXT_TTL)
             logger.debug("context_cached", session_id=session_id)
+        except redis.exceptions.ConnectionError as e:
+            logger.warning("cache_context_failed", session_id=session_id, error=str(e), error_type="redis_connection")
+        except redis.exceptions.TimeoutError as e:
+            logger.warning("cache_context_failed", session_id=session_id, error=str(e), error_type="redis_timeout")
+        except json.JSONDecodeError as e:
+            logger.warning("cache_context_failed", session_id=session_id, error=str(e), error_type="json_encode")
         except Exception as e:
-            logger.warning("cache_context_failed", session_id=session_id, error=str(e))
+            logger.error("cache_context_unexpected_error", session_id=session_id, error=str(e), error_type=type(e).__name__)
 
     async def get_cached_context(self, session_id: str) -> dict[str, Any] | None:
         """Get cached session context.
@@ -162,10 +188,17 @@ class ChatCacheService:
                 return json.loads(value)
             logger.debug("context_cache_miss", session_id=session_id)
             return None
+        except redis.exceptions.ConnectionError as e:
+            logger.warning("cache_get_context_failed", session_id=session_id, error=str(e), error_type="redis_connection")
+            return None
+        except redis.exceptions.TimeoutError as e:
+            logger.warning("cache_get_context_failed", session_id=session_id, error=str(e), error_type="redis_timeout")
+            return None
+        except json.JSONDecodeError as e:
+            logger.warning("cache_get_context_failed", session_id=session_id, error=str(e), error_type="json_decode")
+            return None
         except Exception as e:
-            logger.warning(
-                "cache_get_context_failed", session_id=session_id, error=str(e)
-            )
+            logger.error("cache_get_context_unexpected_error", session_id=session_id, error=str(e), error_type=type(e).__name__)
             return None
 
     # =========================================================================
@@ -188,10 +221,14 @@ class ChatCacheService:
             logger.debug(
                 "models_cached", provider_type=provider_type, count=len(models)
             )
+        except redis.exceptions.ConnectionError as e:
+            logger.warning("cache_models_failed", provider_type=provider_type, error=str(e), error_type="redis_connection")
+        except redis.exceptions.TimeoutError as e:
+            logger.warning("cache_models_failed", provider_type=provider_type, error=str(e), error_type="redis_timeout")
+        except json.JSONDecodeError as e:
+            logger.warning("cache_models_failed", provider_type=provider_type, error=str(e), error_type="json_encode")
         except Exception as e:
-            logger.warning(
-                "cache_models_failed", provider_type=provider_type, error=str(e)
-            )
+            logger.error("cache_models_unexpected_error", provider_type=provider_type, error=str(e), error_type=type(e).__name__)
 
     async def get_cached_models(self, provider_type: str) -> list[dict[str, Any]] | None:
         """Get cached models for a provider.
@@ -213,10 +250,17 @@ class ChatCacheService:
                 return models
             logger.debug("models_cache_miss", provider_type=provider_type)
             return None
+        except redis.exceptions.ConnectionError as e:
+            logger.warning("cache_get_models_failed", provider_type=provider_type, error=str(e), error_type="redis_connection")
+            return None
+        except redis.exceptions.TimeoutError as e:
+            logger.warning("cache_get_models_failed", provider_type=provider_type, error=str(e), error_type="redis_timeout")
+            return None
+        except json.JSONDecodeError as e:
+            logger.warning("cache_get_models_failed", provider_type=provider_type, error=str(e), error_type="json_decode")
+            return None
         except Exception as e:
-            logger.warning(
-                "cache_get_models_failed", provider_type=provider_type, error=str(e)
-            )
+            logger.error("cache_get_models_unexpected_error", provider_type=provider_type, error=str(e), error_type=type(e).__name__)
             return None
 
     async def invalidate_models_cache(self, provider_type: str) -> None:
@@ -229,7 +273,9 @@ class ChatCacheService:
             key = f"{self.MODELS_PREFIX}{provider_type}"
             await self._redis.cache_delete(key)
             logger.debug("models_cache_invalidated", provider_type=provider_type)
+        except redis.exceptions.ConnectionError as e:
+            logger.warning("cache_invalidate_models_failed", provider_type=provider_type, error=str(e), error_type="redis_connection")
+        except redis.exceptions.TimeoutError as e:
+            logger.warning("cache_invalidate_models_failed", provider_type=provider_type, error=str(e), error_type="redis_timeout")
         except Exception as e:
-            logger.warning(
-                "cache_invalidate_models_failed", provider_type=provider_type, error=str(e)
-            )
+            logger.error("cache_invalidate_models_unexpected_error", provider_type=provider_type, error=str(e), error_type=type(e).__name__)

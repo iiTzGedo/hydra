@@ -10,6 +10,7 @@ import {
   BellOff,
   Clock,
   Server,
+  Construction,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,20 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
-// Mock alerts data - in production this would come from API
+/**
+ * PREVIEW FEATURE: Alert notifications system
+ *
+ * This page displays sample/mock data to demonstrate the planned alerts UI.
+ * Real alert generation requires backend integration with:
+ * - Profile analysis (CPU, memory, disk thresholds)
+ * - Service health monitoring
+ * - Node connectivity tracking
+ * - Custom alert rules engine
+ *
+ * The alerts API endpoints and backend logic are not yet implemented.
+ */
+
+// Mock alerts data - demonstrates planned UI, not connected to real backend
 const alerts = [
   {
     id: 'alert-1',
@@ -128,6 +142,20 @@ export default function AlertsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Preview Feature Banner */}
+      <Card className="border-warning/50 bg-warning/5">
+        <CardContent className="p-4 flex items-center gap-3">
+          <Construction className="h-5 w-5 text-warning shrink-0" />
+          <div className="flex-1">
+            <p className="font-medium text-foreground">Preview Feature</p>
+            <p className="text-sm text-muted-foreground">
+              This page shows sample data to demonstrate the planned alerts system.
+              Real-time alerting will be available in a future release.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Notifications</h2>
@@ -138,6 +166,8 @@ export default function AlertsPage() {
         <div className="flex gap-2">
           <Button
             variant="outline"
+            disabled
+            title="Preview feature - not functional"
           >
             <BellOff className="mr-2 h-4 w-4" />
             Acknowledge All
@@ -271,6 +301,8 @@ export default function AlertsPage() {
                           <Button
                             size="sm"
                             variant="outline"
+                            disabled
+                            title="Preview feature - not functional"
                           >
                             <Bell className="h-3 w-3 mr-1" />
                             Acknowledge

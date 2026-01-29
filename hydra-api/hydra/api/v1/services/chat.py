@@ -61,18 +61,28 @@ class ChatService:
         Returns:
             Dict with 'projects' list and 'total' count.
         """
-        cursor = (
-            self.db.chat_projects.find({"ownerId": user_id})
-            .sort("updatedAt", -1)
-            .skip(offset)
-            .limit(limit)
-        )
+        # Use aggregation pipeline to avoid N+1 queries for session counts
+        pipeline = [
+            {"$match": {"ownerId": user_id}},
+            {"$sort": {"updatedAt": -1}},
+            {"$skip": offset},
+            {"$limit": limit},
+            # Join with chat_sessions to get count in one query
+            {
+                "$lookup": {
+                    "from": "chat_sessions",
+                    "localField": "projectId",
+                    "foreignField": "projectId",
+                    "as": "sessions",
+                }
+            },
+            {"$addFields": {"sessionCount": {"$size": "$sessions"}}},
+            {"$project": {"sessions": 0}},  # Remove the sessions array
+        ]
 
         projects = []
-        async for doc in cursor:
-            session_count = await self.db.chat_sessions.count_documents({
-                "projectId": doc["projectId"]
-            })
+        async for doc in self.db.chat_projects.aggregate(pipeline):
+            session_count = doc.get("sessionCount", 0)
             projects.append(self._project_doc_to_response(doc, session_count))
 
         total = await self.db.chat_projects.count_documents({"ownerId": user_id})
@@ -215,10 +225,17 @@ class ChatService:
             raise ChatProjectNotFoundError(project_id)
 
         if cascade:
-            sessions = self.db.chat_sessions.find({"projectId": project_id})
-            async for session in sessions:
+            # Batch delete: Get all session IDs first, then delete messages in one query
+            session_ids = []
+            async for session in self.db.chat_sessions.find(
+                {"projectId": project_id}, {"sessionId": 1}
+            ):
+                session_ids.append(session["sessionId"])
+
+            if session_ids:
+                # Delete all messages for all sessions in one query
                 await self.db.chat_messages.delete_many({
-                    "sessionId": session["sessionId"]
+                    "sessionId": {"$in": session_ids}
                 })
             await self.db.chat_sessions.delete_many({"projectId": project_id})
 
@@ -253,25 +270,35 @@ class ChatService:
         Returns:
             Dict with 'sessions' list and 'total' count.
         """
-        query = {"ownerId": user_id}
+        match_query: dict = {"ownerId": user_id}
         if project_id:
-            query["projectId"] = project_id
+            match_query["projectId"] = project_id
 
-        cursor = (
-            self.db.chat_sessions.find(query)
-            .sort("lastMessageAt", -1)
-            .skip(offset)
-            .limit(limit)
-        )
+        # Use aggregation pipeline to avoid N+1 queries for message counts
+        pipeline = [
+            {"$match": match_query},
+            {"$sort": {"lastMessageAt": -1}},
+            {"$skip": offset},
+            {"$limit": limit},
+            # Join with chat_messages to get count in one query
+            {
+                "$lookup": {
+                    "from": "chat_messages",
+                    "localField": "sessionId",
+                    "foreignField": "sessionId",
+                    "as": "messages",
+                }
+            },
+            {"$addFields": {"messageCount": {"$size": "$messages"}}},
+            {"$project": {"messages": 0}},  # Remove the messages array
+        ]
 
         sessions = []
-        async for doc in cursor:
-            message_count = await self.db.chat_messages.count_documents({
-                "sessionId": doc["sessionId"]
-            })
+        async for doc in self.db.chat_sessions.aggregate(pipeline):
+            message_count = doc.get("messageCount", 0)
             sessions.append(self._session_doc_to_response(doc, message_count))
 
-        total = await self.db.chat_sessions.count_documents(query)
+        total = await self.db.chat_sessions.count_documents(match_query)
 
         return {"sessions": sessions, "total": total}
 

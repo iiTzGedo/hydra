@@ -137,10 +137,7 @@ class GroupsService:
         for parent_id in request.parent_group_ids:
             parent = await self.db.groups.find_one({"groupId": parent_id})
             if not parent:
-                raise ValidationError(
-                    f"Parent group '{parent_id}' not found",
-                    {"parentGroupId": parent_id},
-                )
+                raise GroupNotFoundError(parent_id)
 
         now = datetime.now(timezone.utc)
 
@@ -200,10 +197,7 @@ class GroupsService:
                     raise ValidationError("Group cannot be its own parent")
                 parent = await self.db.groups.find_one({"groupId": parent_id})
                 if not parent:
-                    raise ValidationError(
-                        f"Parent group '{parent_id}' not found",
-                        {"parentGroupId": parent_id},
-                    )
+                    raise GroupNotFoundError(parent_id)
             update_fields["parentGroupIds"] = request.parent_group_ids
         if request.tags is not None:
             update_fields["tags"] = request.tags

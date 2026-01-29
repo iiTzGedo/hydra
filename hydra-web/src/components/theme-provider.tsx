@@ -1,11 +1,11 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import { storage } from '@/lib/storage';
 
 type Theme = 'dark' | 'light' | 'system';
 
 interface ThemeProviderProps {
   children: React.ReactNode;
   defaultTheme?: Theme;
-  storageKey?: string;
 }
 
 interface ThemeProviderState {
@@ -25,11 +25,10 @@ const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 export function ThemeProvider({
   children,
   defaultTheme = 'system',
-  storageKey = 'hydra-theme',
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
+    () => storage.getTheme() || defaultTheme
   );
   const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>('light');
 
@@ -71,7 +70,7 @@ export function ThemeProvider({
     theme,
     resolvedTheme,
     setTheme: (newTheme: Theme) => {
-      localStorage.setItem(storageKey, newTheme);
+      storage.setTheme(newTheme);
       setTheme(newTheme);
     },
   };

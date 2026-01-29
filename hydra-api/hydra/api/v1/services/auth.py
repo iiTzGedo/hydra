@@ -35,7 +35,7 @@ from hydra.api.v1.models.auth import (
     can_create_token_for_role,
     get_role_level,
 )
-from hydra.api.v1.services.users import UsersService
+from hydra.api.v1.core.role_utils import get_active_temporary_roles
 
 logger = structlog.get_logger(__name__)
 
@@ -46,7 +46,6 @@ class AuthService:
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
         self.settings = get_settings()
-        self.users = UsersService(mongodb)
 
     @staticmethod
     def _to_utc(value: datetime | None) -> datetime | None:
@@ -108,7 +107,7 @@ class AuthService:
             {"$set": {"lastLogin": datetime.now(timezone.utc)}},
         )
 
-        temp_roles = self.users.get_active_temporary_roles(user.get("temporaryRoles", []))
+        temp_roles = get_active_temporary_roles(user.get("temporaryRoles", []))
 
         access_token, refresh_token = create_token_pair(
             subject=user["userId"],

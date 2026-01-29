@@ -283,17 +283,40 @@ class NodeService:
 
         total = await self.db.nodes.count_documents(query)
 
-        cursor = (
-            self.db.nodes.find(query)
-            .sort("lastProfileAt", DESCENDING)
-            .skip(offset)
-            .limit(limit)
-        )
+        # Use aggregation pipeline to avoid N+1 queries for profile stats
+        pipeline = [
+            {"$match": query},
+            {"$sort": {"lastProfileAt": DESCENDING}},
+            {"$skip": offset},
+            {"$limit": limit},
+            # Join with profiles to get count and latest version in one query
+            {
+                "$lookup": {
+                    "from": "profiles",
+                    "let": {"nodeId": "$nodeId"},
+                    "pipeline": [
+                        {"$match": {"$expr": {"$eq": ["$nodeId", "$$nodeId"]}}},
+                        {
+                            "$facet": {
+                                "count": [{"$count": "total"}],
+                                "latest": [
+                                    {"$sort": {"submittedAt": DESCENDING}},
+                                    {"$limit": 1},
+                                    {"$project": {"version": 1}},
+                                ],
+                            }
+                        },
+                    ],
+                    "as": "profileStats",
+                }
+            },
+            {"$unwind": {"path": "$profileStats", "preserveNullAndEmptyArrays": True}},
+        ]
 
         agents = []
         active_count = 0
 
-        async for node in cursor:
+        async for node in self.db.nodes.aggregate(pipeline):
             last_profile_at = node.get("lastProfileAt")
             is_healthy = last_profile_at and last_profile_at >= health_threshold
 
@@ -303,14 +326,13 @@ class NodeService:
             if is_healthy:
                 active_count += 1
 
-            profile_count = await self.db.profiles.count_documents({"nodeId": node["nodeId"]})
+            # Extract profile stats from aggregation result
+            profile_stats = node.get("profileStats", {})
+            count_result = profile_stats.get("count", [])
+            latest_result = profile_stats.get("latest", [])
 
-            latest_profile = await self.db.profiles.find_one(
-                {"nodeId": node["nodeId"]},
-                sort=[("submittedAt", DESCENDING)],
-                projection={"version": 1}
-            )
-            last_profile_version = latest_profile.get("version") if latest_profile else None
+            profile_count = count_result[0]["total"] if count_result else 0
+            last_profile_version = latest_result[0].get("version") if latest_result else None
 
             agents.append({
                 "nodeId": node["nodeId"],

@@ -24,6 +24,10 @@ from hydra.api.v1.core.exceptions import (
     UsernameExistsError,
     ValidationError,
 )
+from hydra.api.v1.core.role_utils import (
+    get_active_temporary_roles as _get_active_temp_roles,
+    to_utc,
+)
 from hydra.api.v1.core.security import hash_password, verify_password
 from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.auth import (
@@ -49,15 +53,15 @@ class UsersService:
 
     @staticmethod
     def _to_utc(value: datetime | None) -> datetime | None:
-        if value is None:
-            return None
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
+        """Convert datetime to UTC. Delegates to shared utility."""
+        return to_utc(value)
 
     def get_active_temporary_roles(self, temp_roles: list) -> list:
-        """Return active temporary roles for a user."""
-        return self._get_active_temporary_roles(temp_roles)
+        """Return active temporary roles for a user.
+
+        Delegates to shared utility function for consistency across services.
+        """
+        return _get_active_temp_roles(temp_roles)
 
     async def register_user(self, request: UserRegistrationRequest) -> dict:
         """Register a new user account.
@@ -512,7 +516,7 @@ class UsersService:
         )
 
         updated_user = await self.db.users.find_one({"userId": user_id})
-        active_temp_roles = self._get_active_temporary_roles(
+        active_temp_roles = self.get_active_temporary_roles(
             updated_user.get("temporaryRoles", [])
         )
 
@@ -573,22 +577,6 @@ class UsersService:
             "revoked_by": revoked_by,
             "revoked_at": now,
         }
-
-    def _get_active_temporary_roles(self, temp_roles: list) -> list:
-        """Filter temporary roles to only active (non-expired) ones."""
-        now = datetime.now(timezone.utc)
-        active = []
-        for tr in temp_roles:
-            expires_at = self._to_utc(tr.get("expiresAt"))
-            if expires_at and expires_at > now:
-                active.append({
-                    "role": tr["role"],
-                    "expires_at": expires_at,
-                    "granted_by": tr["grantedBy"],
-                    "granted_at": self._to_utc(tr.get("grantedAt")),
-                    "reason": tr.get("reason"),
-                })
-        return active
 
     def _get_role_permissions(self, role: str) -> list[str]:
         """Get permissions for a role."""
@@ -812,7 +800,7 @@ class UsersService:
             if not user:
                 raise UserNotFoundError(subject)
 
-            temp_roles = self._get_active_temporary_roles(user.get("temporaryRoles", []))
+            temp_roles = self.get_active_temporary_roles(user.get("temporaryRoles", []))
 
             all_permissions = self._get_role_permissions(user["role"])
             for tr in temp_roles:
@@ -1212,7 +1200,7 @@ class UsersService:
         if not user:
             raise UserNotFoundError(user_id)
 
-        temp_roles = self._get_active_temporary_roles(user.get("temporaryRoles", []))
+        temp_roles = self.get_active_temporary_roles(user.get("temporaryRoles", []))
 
         sub_accounts = []
         for sub in user.get("subAccounts", []):

@@ -16,12 +16,27 @@ logger = structlog.get_logger(__name__)
 
 
 class HomeAssistantService:
-    """Service for Home Assistant integration."""
+    """Service for Home Assistant integration.
+
+    This service manages HTTP connections to a Home Assistant instance.
+    It supports async context manager usage for automatic resource cleanup:
+
+        async with HomeAssistantService(mongodb) as ha:
+            status = await ha.get_status()
+    """
 
     def __init__(self, mongodb: MongoDB, settings: Settings | None = None):
         self.mongodb = mongodb
         self.settings = settings or get_settings()
         self._http_client: httpx.AsyncClient | None = None
+
+    async def __aenter__(self) -> "HomeAssistantService":
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit async context manager and clean up resources."""
+        await self.close()
 
     @property
     def enabled(self) -> bool:
@@ -137,6 +152,20 @@ class HomeAssistantService:
 
         states = await self._ha_request("GET", "/api/states")
 
+        # Batch fetch all HA-mapped nodes to avoid N+1 queries
+        ha_nodes_cursor = self.mongodb.nodes.find(
+            {"metadata.haEntityId": {"$exists": True}, "status": "active"},
+            {"nodeId": 1, "displayName": 1, "metadata.haEntityId": 1},
+        )
+        ha_node_map: dict[str, dict] = {}
+        async for node in ha_nodes_cursor:
+            entity_id = node.get("metadata", {}).get("haEntityId")
+            if entity_id:
+                ha_node_map[entity_id] = {
+                    "nodeId": node["nodeId"],
+                    "displayName": node["displayName"],
+                }
+
         devices = []
         for state in states:
             entity_id = state.get("entity_id", "")
@@ -149,12 +178,10 @@ class HomeAssistantService:
             if params.area and area != params.area:
                 continue
 
-            hydra_node = await self.mongodb.nodes.find_one({
-                "metadata.haEntityId": entity_id,
-                "status": "active",
-            })
-
+            # Look up mapping in memory instead of querying DB
+            hydra_node = ha_node_map.get(entity_id)
             has_mapping = hydra_node is not None
+
             if params.mapped is not None and params.mapped != has_mapping:
                 continue
 
@@ -169,10 +196,7 @@ class HomeAssistantService:
             }
 
             if hydra_node:
-                device["hydraNode"] = {
-                    "nodeId": hydra_node["nodeId"],
-                    "displayName": hydra_node["displayName"],
-                }
+                device["hydraNode"] = hydra_node
 
             devices.append(device)
 
@@ -185,7 +209,7 @@ class HomeAssistantService:
         """Trigger sync from Home Assistant.
 
         Fetches entities from HA and optionally creates/updates Hydra nodes
-        for each device.
+        for each device using bulk operations to avoid N+1 queries.
 
         Args:
             request: Sync configuration with domains filter and create_nodes flag.
@@ -207,52 +231,80 @@ class HomeAssistantService:
         created_nodes = 0
         updated_nodes = 0
 
-        for state in states:
-            entity_id = state.get("entity_id", "")
-            domain = entity_id.split(".")[0] if "." in entity_id else ""
+        if request.create_nodes:
+            # Filter states by domain
+            filtered_states = []
+            for state in states:
+                entity_id = state.get("entity_id", "")
+                domain = entity_id.split(".")[0] if "." in entity_id else ""
+                if request.domains and domain not in request.domains:
+                    continue
+                filtered_states.append((entity_id, domain, state))
 
-            if request.domains and domain not in request.domains:
-                continue
+            if filtered_states:
+                # Build node IDs to check which ones exist
+                node_ids = [
+                    f"ha-{domain}-{entity_id.replace('.', '-')}"
+                    for entity_id, domain, _ in filtered_states
+                ]
 
-            if request.create_nodes:
-                node_id = f"ha-{domain}-{entity_id.replace('.', '-')}"
-                friendly_name = state.get("attributes", {}).get("friendly_name", entity_id)
+                # Batch fetch existing nodes
+                existing_cursor = self.mongodb.nodes.find(
+                    {"nodeId": {"$in": node_ids}},
+                    {"nodeId": 1},
+                )
+                existing_node_ids = {doc["nodeId"] async for doc in existing_cursor}
 
-                existing = await self.mongodb.nodes.find_one({"nodeId": node_id})
-                if existing:
-                    await self.mongodb.nodes.update_one(
-                        {"nodeId": node_id},
-                        {
-                            "$set": {
+                # Build bulk operations
+                from pymongo import UpdateOne, InsertOne
+
+                operations = []
+                for entity_id, domain, state in filtered_states:
+                    node_id = f"ha-{domain}-{entity_id.replace('.', '-')}"
+                    friendly_name = state.get("attributes", {}).get("friendly_name", entity_id)
+
+                    if node_id in existing_node_ids:
+                        operations.append(
+                            UpdateOne(
+                                {"nodeId": node_id},
+                                {
+                                    "$set": {
+                                        "displayName": friendly_name,
+                                        "metadata.haEntityId": entity_id,
+                                        "metadata.haState": state.get("state"),
+                                        "metadata.haLastUpdated": state.get("last_updated"),
+                                        "updatedAt": now,
+                                    }
+                                },
+                            )
+                        )
+                        updated_nodes += 1
+                    else:
+                        operations.append(
+                            InsertOne({
+                                "nodeId": node_id,
+                                "class": "iot",
+                                "type": "logical",
+                                "kind": self._domain_to_kind(domain),
                                 "displayName": friendly_name,
-                                "metadata.haEntityId": entity_id,
-                                "metadata.haState": state.get("state"),
-                                "metadata.haLastUpdated": state.get("last_updated"),
+                                "description": f"Home Assistant {domain} device",
+                                "tags": ["ha-device", domain],
+                                "status": "active",
+                                "metadata": {
+                                    "haEntityId": entity_id,
+                                    "haState": state.get("state"),
+                                    "haDomain": domain,
+                                    "haLastUpdated": state.get("last_updated"),
+                                },
+                                "registeredAt": now,
                                 "updatedAt": now,
-                            }
-                        },
-                    )
-                    updated_nodes += 1
-                else:
-                    await self.mongodb.nodes.insert_one({
-                        "nodeId": node_id,
-                        "class": "iot",
-                        "type": "logical",
-                        "kind": self._domain_to_kind(domain),
-                        "displayName": friendly_name,
-                        "description": f"Home Assistant {domain} device",
-                        "tags": ["ha-device", domain],
-                        "status": "active",
-                        "metadata": {
-                            "haEntityId": entity_id,
-                            "haState": state.get("state"),
-                            "haDomain": domain,
-                            "haLastUpdated": state.get("last_updated"),
-                        },
-                        "registeredAt": now,
-                        "updatedAt": now,
-                    })
-                    created_nodes += 1
+                            })
+                        )
+                        created_nodes += 1
+
+                # Execute bulk operations
+                if operations:
+                    await self.mongodb.nodes.bulk_write(operations, ordered=False)
 
         await self.mongodb.db.ha_sync_meta.update_one(
             {"type": "last_sync"},

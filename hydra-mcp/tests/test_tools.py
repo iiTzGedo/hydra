@@ -1,0 +1,632 @@
+"""Tests for MCP tool execution."""
+
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+# Import from the new tool registry module
+from hydra_mcp.tools import (
+    execute_tool,
+    get_all_tools,
+    get_tool,
+    clear_registry,
+    validate_tool_args,
+    ToolValidationError,
+)
+from hydra_mcp.tool_handlers import _safe_list, _format_list_response
+
+# Import call_tool from server (it uses the registry internally)
+from hydra_mcp.server import call_tool
+
+
+class TestSafeList:
+    """Tests for _safe_list helper function."""
+
+    def test_list_returns_same_list(self):
+        """Test that a list input returns the same list."""
+        input_list = [1, 2, 3]
+        result = _safe_list(input_list)
+        assert result == input_list
+
+    def test_empty_list_returns_empty_list(self):
+        """Test that an empty list returns empty list."""
+        result = _safe_list([])
+        assert result == []
+
+    def test_none_returns_empty_list(self):
+        """Test that None returns empty list."""
+        result = _safe_list(None)
+        assert result == []
+
+    def test_dict_returns_empty_list(self):
+        """Test that a dict returns empty list."""
+        result = _safe_list({"key": "value"})
+        assert result == []
+
+    def test_string_returns_empty_list(self):
+        """Test that a string returns empty list."""
+        result = _safe_list("not a list")
+        assert result == []
+
+    def test_int_returns_empty_list(self):
+        """Test that an integer returns empty list."""
+        result = _safe_list(42)
+        assert result == []
+
+
+class TestFormatListResponse:
+    """Tests for _format_list_response helper function."""
+
+    def test_formats_list_data(self):
+        """Test formatting valid list data."""
+        data = [{"id": 1}, {"id": 2}]
+        result = _format_list_response("items", data)
+
+        # Should be a TOON formatted string
+        assert isinstance(result, str)
+        assert "items" in result or "[" in result  # TOON format
+
+    def test_handles_none_data(self):
+        """Test formatting None data returns empty list format."""
+        result = _format_list_response("items", None)
+
+        assert isinstance(result, str)
+
+    def test_handles_non_list_data(self):
+        """Test formatting non-list data."""
+        result = _format_list_response("items", {"not": "a list"})
+
+        assert isinstance(result, str)
+
+
+class TestValidateToolArgs:
+    """Tests for tool argument validation."""
+
+    def test_valid_args_pass_validation(self):
+        """Test that valid arguments pass validation without error."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "nodeId": {"type": "string"},
+                "limit": {"type": "integer"},
+            },
+            "required": ["nodeId"],
+        }
+        args = {"nodeId": "node-1", "limit": 10}
+
+        # Should not raise
+        validate_tool_args("test_tool", args, schema)
+
+    def test_missing_required_field_raises_error(self):
+        """Test that missing required field raises ToolValidationError."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "nodeId": {"type": "string"},
+            },
+            "required": ["nodeId"],
+        }
+        args = {}
+
+        with pytest.raises(ToolValidationError) as exc_info:
+            validate_tool_args("get_node", args, schema)
+
+        assert exc_info.value.tool_name == "get_node"
+        assert "nodeId" in str(exc_info.value) or "required" in str(exc_info.value).lower()
+
+    def test_wrong_type_raises_error(self):
+        """Test that wrong type raises ToolValidationError."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer"},
+            },
+        }
+        args = {"limit": "not-an-integer"}
+
+        with pytest.raises(ToolValidationError) as exc_info:
+            validate_tool_args("list_nodes", args, schema)
+
+        assert exc_info.value.tool_name == "list_nodes"
+        assert len(exc_info.value.errors) > 0
+
+    def test_invalid_enum_value_raises_error(self):
+        """Test that invalid enum value raises ToolValidationError."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "inactive", "archived"],
+                },
+            },
+        }
+        args = {"status": "invalid_status"}
+
+        with pytest.raises(ToolValidationError) as exc_info:
+            validate_tool_args("list_nodes", args, schema)
+
+        assert exc_info.value.tool_name == "list_nodes"
+
+    def test_invalid_array_items_raises_error(self):
+        """Test that invalid array items raise ToolValidationError."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+        }
+        args = {"tags": [1, 2, 3]}  # integers instead of strings
+
+        with pytest.raises(ToolValidationError) as exc_info:
+            validate_tool_args("list_nodes", args, schema)
+
+        assert exc_info.value.tool_name == "list_nodes"
+
+    def test_empty_args_with_no_required_passes(self):
+        """Test that empty args pass when no fields are required."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 50},
+            },
+        }
+        args = {}
+
+        # Should not raise
+        validate_tool_args("list_nodes", args, schema)
+
+    def test_additional_properties_allowed_by_default(self):
+        """Test that additional properties are allowed by default."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "nodeId": {"type": "string"},
+            },
+        }
+        args = {"nodeId": "node-1", "extraField": "ignored"}
+
+        # Should not raise - JSON Schema allows additional properties by default
+        validate_tool_args("test_tool", args, schema)
+
+    def test_validation_error_contains_errors_list(self):
+        """Test that ToolValidationError contains list of all errors."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "nodeId": {"type": "string"},
+                "limit": {"type": "integer"},
+            },
+            "required": ["nodeId"],
+        }
+        args = {"limit": "not-an-int"}  # Wrong type AND missing required
+
+        with pytest.raises(ToolValidationError) as exc_info:
+            validate_tool_args("get_node", args, schema)
+
+        # Should have errors listed
+        assert len(exc_info.value.errors) >= 1
+
+
+@pytest.mark.asyncio
+class TestToolValidationIntegration:
+    """Integration tests for tool validation in execute_tool."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Create a mock Hydra API client."""
+        with patch("hydra_mcp.tool_handlers.client") as mock:
+            yield mock
+
+    async def test_execute_tool_validates_before_calling_handler(self, mock_client):
+        """Test that execute_tool validates args before calling the handler."""
+        mock_client.get_node = AsyncMock(return_value={"nodeId": "test"})
+
+        # Missing required nodeId should raise before handler is called
+        with pytest.raises(ToolValidationError):
+            await execute_tool("get_node", {})
+
+        # Handler should not have been called
+        mock_client.get_node.assert_not_called()
+
+    async def test_execute_tool_passes_valid_args_to_handler(self, mock_client):
+        """Test that execute_tool passes valid args through to handler."""
+        mock_client.get_node = AsyncMock(return_value={"nodeId": "node-1"})
+
+        result = await execute_tool("get_node", {"nodeId": "node-1"})
+
+        assert isinstance(result, str)
+        mock_client.get_node.assert_called_once()
+
+    async def test_execute_tool_validates_enum_values(self, mock_client):
+        """Test that execute_tool validates enum values."""
+        # list_nodes has enum for class: compute, networking, iot
+        with pytest.raises(ToolValidationError):
+            await execute_tool("list_nodes", {"class": "invalid_class"})
+
+    async def test_execute_tool_validates_array_types(self, mock_client):
+        """Test that execute_tool validates array item types."""
+        # list_nodes has tags as array of strings
+        with pytest.raises(ToolValidationError):
+            await execute_tool("list_nodes", {"tags": [123, 456]})
+
+
+@pytest.mark.asyncio
+class TestExecuteTool:
+    """Tests for _execute_tool function."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Create a mock Hydra API client."""
+        with patch("hydra_mcp.tool_handlers.client") as mock:
+            yield mock
+
+    async def test_list_nodes_tool(self, mock_client):
+        """Test list_nodes tool execution."""
+        mock_client.list_nodes = AsyncMock(return_value=(
+            [{"nodeId": "node-1", "status": "active"}],
+            {"total": 1}
+        ))
+
+        result = await execute_tool("list_nodes", {"limit": 10})
+
+        assert isinstance(result, str)
+        mock_client.list_nodes.assert_called_once_with(
+            node_class=None,
+            node_type=None,
+            status=None,
+            tags=None,
+            limit=10,
+        )
+
+    async def test_list_nodes_with_filters(self, mock_client):
+        """Test list_nodes tool with filter arguments."""
+        mock_client.list_nodes = AsyncMock(return_value=([], {}))
+
+        await execute_tool("list_nodes", {
+            "class": "compute",
+            "type": "physical",
+            "status": "active",
+            "tags": ["production"],
+            "limit": 25,
+        })
+
+        mock_client.list_nodes.assert_called_once_with(
+            node_class="compute",
+            node_type="physical",
+            status="active",
+            tags=["production"],
+            limit=25,
+        )
+
+    async def test_get_node_tool(self, mock_client):
+        """Test get_node tool execution."""
+        mock_client.get_node = AsyncMock(return_value={
+            "nodeId": "test-node",
+            "status": "active",
+        })
+
+        result = await execute_tool("get_node", {"nodeId": "test-node"})
+
+        assert isinstance(result, str)
+        mock_client.get_node.assert_called_once_with(
+            "test-node",
+            include_children=True,
+            include_services=True,
+        )
+
+    async def test_get_node_without_includes(self, mock_client):
+        """Test get_node tool with include flags set to False."""
+        mock_client.get_node = AsyncMock(return_value={"nodeId": "test-node"})
+
+        await execute_tool("get_node", {
+            "nodeId": "test-node",
+            "includeChildren": False,
+            "includeServices": False,
+        })
+
+        mock_client.get_node.assert_called_once_with(
+            "test-node",
+            include_children=False,
+            include_services=False,
+        )
+
+    async def test_list_services_tool(self, mock_client):
+        """Test list_services tool execution."""
+        mock_client.list_services = AsyncMock(return_value=(
+            [{"serviceId": "svc-nginx-a1b2", "status": "running"}],
+            {"total": 1}
+        ))
+
+        result = await execute_tool("list_services", {
+            "nodeId": "node-1",
+            "runtime": "systemd",
+            "status": "running",
+        })
+
+        assert isinstance(result, str)
+        mock_client.list_services.assert_called_once_with(
+            node_id="node-1",
+            runtime="systemd",
+            status="running",
+            limit=50,
+        )
+
+    async def test_get_service_tool(self, mock_client):
+        """Test get_service tool execution."""
+        mock_client.get_service = AsyncMock(return_value={
+            "serviceId": "svc-nginx-a1b2",
+            "name": "nginx",
+        })
+
+        result = await execute_tool("get_service", {"serviceId": "svc-nginx-a1b2"})
+
+        assert isinstance(result, str)
+        mock_client.get_service.assert_called_once_with("svc-nginx-a1b2")
+
+    async def test_list_groups_tool(self, mock_client):
+        """Test list_groups tool execution."""
+        mock_client.list_groups = AsyncMock(return_value=(
+            [{"groupId": "grp-1", "name": "Production"}],
+            {"total": 1}
+        ))
+
+        result = await execute_tool("list_groups", {"types": ["node"]})
+
+        assert isinstance(result, str)
+        mock_client.list_groups.assert_called_once()
+
+    async def test_get_group_tool(self, mock_client):
+        """Test get_group tool execution."""
+        mock_client.get_group = AsyncMock(return_value={
+            "groupId": "grp-1",
+            "name": "Production",
+        })
+
+        result = await execute_tool("get_group", {
+            "groupId": "grp-1",
+            "resolveMembers": True,
+        })
+
+        assert isinstance(result, str)
+        mock_client.get_group.assert_called_once_with("grp-1", resolve_members=True)
+
+    async def test_list_networks_tool(self, mock_client):
+        """Test list_networks tool execution."""
+        mock_client.list_networks = AsyncMock(return_value=(
+            [{"networkId": "net-1", "cidr": "192.168.1.0/24"}],
+            {"total": 1}
+        ))
+
+        result = await execute_tool("list_networks", {"type": "physical"})
+
+        assert isinstance(result, str)
+        mock_client.list_networks.assert_called_once()
+
+    async def test_get_network_tool(self, mock_client):
+        """Test get_network tool execution."""
+        mock_client.get_network = AsyncMock(return_value={
+            "networkId": "net-1",
+            "cidr": "192.168.1.0/24",
+        })
+
+        result = await execute_tool("get_network", {
+            "networkId": "net-1",
+            "includeNodes": True,
+        })
+
+        assert isinstance(result, str)
+        mock_client.get_network.assert_called_once_with("net-1", include_nodes=True)
+
+    async def test_get_topology_tool(self, mock_client):
+        """Test get_topology tool execution."""
+        mock_client.get_topology = AsyncMock(return_value={
+            "mode": "network",
+            "nodes": [],
+            "edges": [],
+        })
+
+        result = await execute_tool("get_topology", {"mode": "infrastructure"})
+
+        assert isinstance(result, str)
+        mock_client.get_topology.assert_called_once_with(
+            mode="infrastructure",
+            scope=None,
+        )
+
+    async def test_search_infrastructure_tool(self, mock_client):
+        """Test search_infrastructure tool execution."""
+        mock_client.search = AsyncMock(return_value=[
+            {"type": "node", "id": "node-1", "score": 0.95}
+        ])
+
+        result = await execute_tool("search_infrastructure", {
+            "query": "nginx server",
+            "types": ["node", "service"],
+            "limit": 10,
+        })
+
+        assert isinstance(result, str)
+        mock_client.search.assert_called_once_with(
+            query="nginx server",
+            types=["node", "service"],
+            limit=10,
+        )
+
+    async def test_compare_profiles_tool(self, mock_client):
+        """Test compare_profiles tool execution."""
+        mock_client.compare_profiles = AsyncMock(return_value={
+            "fromVersion": "E0-0.0.0.1",
+            "toVersion": "E0-0.0.0.2",
+            "changes": [],
+        })
+
+        result = await execute_tool("compare_profiles", {
+            "nodeId": "node-1",
+            "fromVersion": "E0-0.0.0.1",
+            "toVersion": "E0-0.0.0.2",
+        })
+
+        assert isinstance(result, str)
+        mock_client.compare_profiles.assert_called_once()
+
+    async def test_get_capacity_tool(self, mock_client):
+        """Test get_capacity tool execution."""
+        mock_client.get_capacity = AsyncMock(return_value={
+            "totalNodes": 10,
+            "activeNodes": 8,
+        })
+
+        result = await execute_tool("get_capacity", {
+            "groupBy": "class",
+            "includeLogical": True,
+        })
+
+        assert isinstance(result, str)
+        mock_client.get_capacity.assert_called_once_with(
+            group_by="class",
+            include_logical=True,
+        )
+
+    async def test_time_machine_node_tool(self, mock_client):
+        """Test time_machine_node tool execution."""
+        mock_client.get_node_at_time = AsyncMock(return_value={
+            "nodeId": "node-1",
+            "timestamp": "2024-01-01T00:00:00Z",
+        })
+
+        result = await execute_tool("time_machine_node", {
+            "nodeId": "node-1",
+            "timestamp": "2024-01-01T00:00:00Z",
+        })
+
+        assert isinstance(result, str)
+        mock_client.get_node_at_time.assert_called_once()
+
+    async def test_time_machine_topology_tool(self, mock_client):
+        """Test time_machine_topology tool execution."""
+        mock_client.get_topology_at_time = AsyncMock(return_value={
+            "mode": "network",
+            "nodes": [],
+        })
+
+        result = await execute_tool("time_machine_topology", {
+            "mode": "network",
+            "timestamp": "2024-01-01T00:00:00Z",
+        })
+
+        assert isinstance(result, str)
+        mock_client.get_topology_at_time.assert_called_once()
+
+    async def test_control_service_tool(self, mock_client):
+        """Test control_service tool execution."""
+        mock_client.get_service = AsyncMock(return_value={
+            "serviceId": "svc-nginx-a1b2",
+            "nodeId": "node-1",
+        })
+        mock_client.control_service = AsyncMock(return_value={"status": "queued"})
+
+        result = await execute_tool("control_service", {
+            "serviceId": "svc-nginx-a1b2",
+            "action": "restart",
+        })
+
+        assert isinstance(result, str)
+        mock_client.control_service.assert_called_once_with(
+            node_id="node-1",
+            service_id="svc-nginx-a1b2",
+            action="restart",
+        )
+
+    async def test_control_service_not_found(self, mock_client):
+        """Test control_service tool with non-existent service."""
+        mock_client.get_service = AsyncMock(return_value=None)
+
+        with pytest.raises(ValueError, match="Service not found"):
+            await execute_tool("control_service", {
+                "serviceId": "svc-nonexistent",
+                "action": "restart",
+            })
+
+    async def test_control_device_tool(self, mock_client):
+        """Test control_device tool execution."""
+        mock_client.control_device = AsyncMock(return_value={"status": "ok"})
+
+        result = await execute_tool("control_device", {
+            "entityId": "light.living_room",
+            "service": "turn_on",
+            "parameters": {"brightness": 255},
+        })
+
+        assert isinstance(result, str)
+        mock_client.control_device.assert_called_once_with(
+            entity_id="light.living_room",
+            service="turn_on",
+            data={"brightness": 255},
+        )
+
+    async def test_unknown_tool_raises(self, mock_client):
+        """Test that unknown tool raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown tool"):
+            await execute_tool("nonexistent_tool", {})
+
+
+@pytest.mark.asyncio
+class TestCallTool:
+    """Tests for the call_tool MCP handler."""
+
+    @pytest.fixture
+    def mock_execute_tool(self):
+        """Mock execute_tool for testing call_tool wrapper."""
+        with patch("hydra_mcp.server.registry_execute_tool") as mock:
+            yield mock
+
+    async def test_successful_call_returns_text_content(self, mock_execute_tool):
+        """Test successful tool call returns TextContent."""
+        mock_execute_tool.return_value = "nodes: [node-1, node-2]"
+
+        result = await call_tool("list_nodes", {})
+
+        assert result.isError is None or result.isError is False
+        assert len(result.content) == 1
+        assert result.content[0].text == "nodes: [node-1, node-2]"
+
+    async def test_api_error_returns_error_result(self, mock_execute_tool):
+        """Test API error returns error result."""
+        from hydra_mcp.client import HydraAPIError
+        mock_execute_tool.side_effect = HydraAPIError(
+            code="NOT_FOUND",
+            message="Node not found",
+            details={"nodeId": "missing"}
+        )
+
+        result = await call_tool("get_node", {"nodeId": "missing"})
+
+        assert result.isError is True
+        assert "NOT_FOUND" in result.content[0].text or "not found" in result.content[0].text.lower()
+
+    async def test_generic_error_returns_error_result(self, mock_execute_tool):
+        """Test generic exception returns error result."""
+        mock_execute_tool.side_effect = Exception("Something went wrong")
+
+        result = await call_tool("list_nodes", {})
+
+        assert result.isError is True
+        assert "Something went wrong" in result.content[0].text
+
+    async def test_validation_error_returns_error_result(self, mock_execute_tool):
+        """Test validation error returns error result with details."""
+        mock_execute_tool.side_effect = ToolValidationError(
+            tool_name="get_node",
+            message="'nodeId' is a required property",
+            errors=["'nodeId' is a required property"],
+        )
+
+        result = await call_tool("get_node", {})
+
+        assert result.isError is True
+        assert "VALIDATION_ERROR" in result.content[0].text or "nodeId" in result.content[0].text

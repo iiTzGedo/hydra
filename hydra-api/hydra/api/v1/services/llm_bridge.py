@@ -69,7 +69,7 @@ class LLMBridge:
 
         Different OpenAI model families require different parameter names:
         - O-series reasoning models (o1, o3, o4): max_completion_tokens
-        - GPT-5 series: max_output_tokens
+        - GPT-5 series (5, 5.1, 5.2, etc.): max_output_tokens
         - Standard models (GPT-3.5, GPT-4, GPT-4.1, GPT-4o): max_tokens
 
         Args:
@@ -81,11 +81,13 @@ class LLMBridge:
         model_lower = model.lower()
 
         # O-series reasoning models require max_completion_tokens
+        # Covers: o1, o1-mini, o1-preview, o3, o3-mini, o4, o4-mini, etc.
         if any(model_lower.startswith(p) for p in ["o1", "o3", "o4"]):
             return "max_completion_tokens"
 
         # GPT-5 series uses max_output_tokens
-        if model_lower.startswith("gpt-5"):
+        # Covers: gpt-5, gpt-5-turbo, gpt-5.1, gpt-5.2, gpt-5.1-mini, etc.
+        if any(model_lower.startswith(p) for p in ["gpt-5", "gpt-5.1", "gpt-5.2"]):
             return "max_output_tokens"
 
         # Standard models (GPT-3.5, GPT-4, GPT-4.1, GPT-4o) use max_tokens
@@ -109,12 +111,27 @@ class LLMBridge:
         if any(x in model_lower for x in ["openai/o1", "openai/o3", "openai/o4"]):
             return "max_completion_tokens"
 
-        # OpenAI GPT-5 via OpenRouter
-        if "openai/gpt-5" in model_lower:
+        # OpenAI GPT-5 series via OpenRouter (5, 5.1, 5.2)
+        if any(x in model_lower for x in ["openai/gpt-5", "openai/gpt-5.1", "openai/gpt-5.2"]):
             return "max_output_tokens"
 
         # Most models (including Anthropic, Mistral, etc.) use max_tokens
         return "max_tokens"
+
+    def _is_o_series_model(self, model: str) -> bool:
+        """Check if model is an O-series reasoning model.
+
+        O-series models have restrictions: temperature must be 1.0,
+        no frequency_penalty, no presence_penalty, etc.
+
+        Args:
+            model: The model identifier.
+
+        Returns:
+            True if this is an O-series model.
+        """
+        model_lower = model.lower()
+        return any(model_lower.startswith(p) for p in ["o1", "o3", "o4"])
 
     def _ollama_model_supports_tools(self, model: str) -> bool:
         """Check if an Ollama model supports tool calling.
@@ -149,7 +166,12 @@ class LLMBridge:
         messages: list[dict],
         tools: list[dict] | None = None,
         system_prompt: str | None = None,
-        max_tokens: int = 4096,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
         reasoning_level: str = "none",
         web_search_enabled: bool = False,
     ) -> AsyncIterator[dict]:
@@ -163,7 +185,13 @@ class LLMBridge:
             messages: Conversation messages in the internal format.
             tools: Optional list of tools available for the model.
             system_prompt: Optional system prompt to prepend.
-            max_tokens: Maximum tokens in the response.
+            max_tokens: Maximum tokens in the response. Required for Anthropic,
+                optional for others. Defaults to 4096 if required and not provided.
+            temperature: Sampling temperature. Not supported by O-series models.
+            top_p: Nucleus sampling parameter.
+            top_k: Top-K sampling (Anthropic/Ollama only).
+            frequency_penalty: Reduce repetition (OpenAI only).
+            presence_penalty: Encourage new topics (OpenAI only).
             reasoning_level: Extended thinking level ('none', 'low', 'medium', 'high').
             web_search_enabled: Whether to enable web search (provider-dependent).
 
@@ -171,7 +199,7 @@ class LLMBridge:
             Normalized event dicts with one of:
             - {"type": "text_delta", "text": "..."} for content chunks
             - {"type": "tool_use", "id": "...", "name": "...", "input": {...}} for tool calls
-            - {"type": "done", "stop_reason": "..."} when complete
+            - {"type": "done", "stop_reason": "...", "usage": {...}} when complete
             - {"type": "error", "error": "..."} on failure
 
         Note:
@@ -189,24 +217,34 @@ class LLMBridge:
             )
         provider_type = provider_config["type"]
 
+        # Build model config dict for passing to provider methods
+        model_config = {
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "frequency_penalty": frequency_penalty,
+            "presence_penalty": presence_penalty,
+        }
+
         if provider_type == LLMProviderType.ANTHROPIC:
             async for event in self._stream_anthropic(
-                provider_config, messages, tools, system_prompt, max_tokens
+                provider_config, messages, tools, system_prompt, model_config
             ):
                 yield event
         elif provider_type == LLMProviderType.OPENAI:
             async for event in self._stream_openai(
-                provider_config, messages, tools, system_prompt, max_tokens
+                provider_config, messages, tools, system_prompt, model_config
             ):
                 yield event
         elif provider_type == LLMProviderType.OLLAMA:
             async for event in self._stream_ollama(
-                provider_config, messages, tools, system_prompt, max_tokens
+                provider_config, messages, tools, system_prompt, model_config
             ):
                 yield event
         elif provider_type == LLMProviderType.OPENROUTER:
             async for event in self._stream_openrouter(
-                provider_config, messages, tools, system_prompt, max_tokens
+                provider_config, messages, tools, system_prompt, model_config
             ):
                 yield event
         else:
@@ -218,9 +256,17 @@ class LLMBridge:
         messages: list[dict],
         tools: list[dict] | None,
         system_prompt: str | None,
-        max_tokens: int,
+        model_config: dict,
     ) -> AsyncIterator[dict]:
-        """Stream from Anthropic's Messages API."""
+        """Stream from Anthropic's Messages API.
+
+        Args:
+            config: Provider configuration with api_key, model, etc.
+            messages: Formatted messages for the API.
+            tools: Optional tool definitions.
+            system_prompt: Optional system prompt.
+            model_config: Model parameters (max_tokens, temperature, top_p, top_k).
+        """
         if not config.get("api_key"):
             yield {"type": "error", "error": "API key required for Anthropic"}
             return
@@ -232,6 +278,9 @@ class LLMBridge:
             "content-type": "application/json",
         }
 
+        # Anthropic REQUIRES max_tokens - use provided value or default to 4096
+        max_tokens = model_config.get("max_tokens") or 4096
+
         body: dict[str, Any] = {
             "model": config["model"],
             "messages": self._format_messages_anthropic(messages),
@@ -239,11 +288,27 @@ class LLMBridge:
             "stream": True,
         }
 
+        # Add optional parameters if provided
+        if model_config.get("temperature") is not None:
+            body["temperature"] = model_config["temperature"]
+        if model_config.get("top_p") is not None:
+            body["top_p"] = model_config["top_p"]
+        if model_config.get("top_k") is not None:
+            body["top_k"] = model_config["top_k"]
+
         if system_prompt:
             body["system"] = system_prompt
 
         if tools:
             body["tools"] = self._format_tools_anthropic(tools)
+
+        logger.debug(
+            "anthropic_request",
+            model=config["model"],
+            max_tokens=max_tokens,
+            has_temperature=model_config.get("temperature") is not None,
+            has_tools=bool(tools),
+        )
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             try:
@@ -323,9 +388,17 @@ class LLMBridge:
         messages: list[dict],
         tools: list[dict] | None,
         system_prompt: str | None,
-        max_tokens: int,
+        model_config: dict,
     ) -> AsyncIterator[dict]:
-        """Stream from OpenAI's Chat Completions API."""
+        """Stream from OpenAI's Chat Completions API.
+
+        Args:
+            config: Provider configuration with api_key, model, base_url.
+            messages: Formatted messages for the API.
+            tools: Optional tool definitions.
+            system_prompt: Optional system prompt.
+            model_config: Model parameters (max_tokens, temperature, top_p, etc.).
+        """
         if not config.get("api_key"):
             yield {"type": "error", "error": "API key required for OpenAI"}
             return
@@ -343,23 +416,47 @@ class LLMBridge:
             formatted_messages.append({"role": "system", "content": system_prompt})
         formatted_messages.extend(self._format_messages_openai(messages))
 
-        # Use the correct token parameter based on model family
-        token_param = self._get_openai_token_param(config["model"])
+        model = config["model"]
+        is_o_series = self._is_o_series_model(model)
+
         body: dict[str, Any] = {
-            "model": config["model"],
+            "model": model,
             "messages": formatted_messages,
-            token_param: max_tokens,
             "stream": True,
         }
+
+        # Add max_tokens with correct parameter name (only if provided)
+        max_tokens = model_config.get("max_tokens")
+        if max_tokens is not None:
+            token_param = self._get_openai_token_param(model)
+            body[token_param] = max_tokens
+
+        # Add temperature (not supported by O-series models)
+        if model_config.get("temperature") is not None and not is_o_series:
+            body["temperature"] = model_config["temperature"]
+
+        # Add top_p (not supported by O-series models)
+        if model_config.get("top_p") is not None and not is_o_series:
+            body["top_p"] = model_config["top_p"]
+
+        # Add frequency_penalty (not supported by O-series models)
+        if model_config.get("frequency_penalty") is not None and not is_o_series:
+            body["frequency_penalty"] = model_config["frequency_penalty"]
+
+        # Add presence_penalty (not supported by O-series models)
+        if model_config.get("presence_penalty") is not None and not is_o_series:
+            body["presence_penalty"] = model_config["presence_penalty"]
 
         if tools:
             body["tools"] = self._format_tools_openai(tools)
 
         logger.debug(
             "openai_request",
-            model=config["model"],
-            token_param=token_param,
-            max_tokens=max_tokens,
+            model=model,
+            is_o_series=is_o_series,
+            has_max_tokens=max_tokens is not None,
+            has_temperature=model_config.get("temperature") is not None,
+            has_tools=bool(tools),
         )
 
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -440,13 +537,20 @@ class LLMBridge:
         messages: list[dict],
         tools: list[dict] | None,
         system_prompt: str | None,
-        max_tokens: int,
+        model_config: dict,
     ) -> AsyncIterator[dict]:
         """Stream from Ollama's Chat API.
 
         Supports tool calling for compatible models (llama3.1+, mistral, qwen2+, etc.).
         Note that Ollama does not support streaming tool calls - they are returned
         in the final message when done=true.
+
+        Args:
+            config: Provider configuration with base_url, model.
+            messages: Formatted messages for the API.
+            tools: Optional tool definitions.
+            system_prompt: Optional system prompt.
+            model_config: Model parameters (max_tokens, temperature, top_p, top_k).
         """
         base_url = config.get("base_url")
         if not base_url:
@@ -460,14 +564,32 @@ class LLMBridge:
             formatted_messages.append({"role": "system", "content": system_prompt})
         formatted_messages.extend(self._format_messages_ollama(messages))
 
+        # Build options dict with provided parameters
+        options: dict[str, Any] = {}
+
+        # Ollama uses num_predict for max tokens
+        max_tokens = model_config.get("max_tokens")
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
+
+        if model_config.get("temperature") is not None:
+            options["temperature"] = model_config["temperature"]
+
+        if model_config.get("top_p") is not None:
+            options["top_p"] = model_config["top_p"]
+
+        if model_config.get("top_k") is not None:
+            options["top_k"] = model_config["top_k"]
+
         body: dict[str, Any] = {
             "model": config["model"],
             "messages": formatted_messages,
             "stream": True,
-            "options": {
-                "num_predict": max_tokens,
-            },
         }
+
+        # Only add options if we have any
+        if options:
+            body["options"] = options
 
         # Add tools if provided and model supports them
         if tools and self._ollama_model_supports_tools(config["model"]):
@@ -477,6 +599,13 @@ class LLMBridge:
                 model=config["model"],
                 tool_count=len(tools),
             )
+
+        logger.debug(
+            "ollama_request",
+            model=config["model"],
+            has_options=bool(options),
+            has_tools=bool(tools),
+        )
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             try:
@@ -528,12 +657,19 @@ class LLMBridge:
         messages: list[dict],
         tools: list[dict] | None,
         system_prompt: str | None,
-        max_tokens: int,
+        model_config: dict,
     ) -> AsyncIterator[dict]:
         """Stream from OpenRouter's Chat Completions API.
 
         OpenRouter provides access to multiple LLM providers through a unified API.
         It uses an OpenAI-compatible format for requests and responses.
+
+        Args:
+            config: Provider configuration with api_key, model.
+            messages: Formatted messages for the API.
+            tools: Optional tool definitions.
+            system_prompt: Optional system prompt.
+            model_config: Model parameters (max_tokens, temperature, top_p, etc.).
         """
         if not config.get("api_key"):
             yield {"type": "error", "error": "API key required for OpenRouter"}
@@ -554,23 +690,50 @@ class LLMBridge:
             formatted_messages.append({"role": "system", "content": system_prompt})
         formatted_messages.extend(self._format_messages_openai(messages))
 
-        # Use model-aware token parameter (for OpenAI models via OpenRouter)
-        token_param = self._get_openrouter_token_param(config["model"])
+        model = config["model"]
+        model_lower = model.lower()
+
+        # Detect if this is an O-series model via OpenRouter
+        is_o_series = any(x in model_lower for x in ["openai/o1", "openai/o3", "openai/o4"])
+
         body: dict[str, Any] = {
-            "model": config["model"],
+            "model": model,
             "messages": formatted_messages,
-            token_param: max_tokens,
             "stream": True,
         }
+
+        # Add max_tokens with correct parameter name (only if provided)
+        max_tokens = model_config.get("max_tokens")
+        if max_tokens is not None:
+            token_param = self._get_openrouter_token_param(model)
+            body[token_param] = max_tokens
+
+        # Add temperature (not supported by O-series models)
+        if model_config.get("temperature") is not None and not is_o_series:
+            body["temperature"] = model_config["temperature"]
+
+        # Add top_p (not supported by O-series models)
+        if model_config.get("top_p") is not None and not is_o_series:
+            body["top_p"] = model_config["top_p"]
+
+        # Add frequency_penalty (only for OpenAI models, not O-series)
+        if model_config.get("frequency_penalty") is not None and "openai/" in model_lower and not is_o_series:
+            body["frequency_penalty"] = model_config["frequency_penalty"]
+
+        # Add presence_penalty (only for OpenAI models, not O-series)
+        if model_config.get("presence_penalty") is not None and "openai/" in model_lower and not is_o_series:
+            body["presence_penalty"] = model_config["presence_penalty"]
 
         if tools:
             body["tools"] = self._format_tools_openai(tools)
 
         logger.debug(
             "openrouter_request",
-            model=config["model"],
-            token_param=token_param,
-            max_tokens=max_tokens,
+            model=model,
+            is_o_series=is_o_series,
+            has_max_tokens=max_tokens is not None,
+            has_temperature=model_config.get("temperature") is not None,
+            has_tools=bool(tools),
         )
 
         async with httpx.AsyncClient(timeout=120.0) as client:
