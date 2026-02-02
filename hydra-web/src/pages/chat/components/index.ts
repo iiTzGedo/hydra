@@ -7,3 +7,7 @@ export { ProjectFolder, UnorganizedDropTarget } from './project-folder';
 export type { ProjectFolderProps, UnorganizedDropTargetProps } from './project-folder';
 export { MessageBubble } from './message-bubble';
 export { ToolCallDisplay } from './tool-call-display';
+export { ChatSidebar } from './chat-sidebar';
+export type { ServerWithTools, ActiveTool, ActivePrompt, InfraContext, ChatSidebarProps } from './chat-sidebar';
+export { ChatSettingsPanel } from './chat-settings-panel';
+export { ChatMessageList } from './chat-message-list';

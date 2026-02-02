@@ -13,30 +13,13 @@ from typing import Any
 import structlog
 
 from hydra_mcp.tools import tool
-from hydra_mcp.client import HydraClient
-from hydra_mcp.config import get_settings
-from hydra_mcp.toon import TOONFormatter
+from hydra_mcp.shared import client, toon, safe_list, format_list_response
 
 logger = structlog.get_logger(__name__)
 
-# Initialize client and formatter
-settings = get_settings()
-client = HydraClient(settings)
-toon = TOONFormatter(
-    delimiter=settings.toon_delimiter,
-    indent=settings.toon_indent,
-    length_marker=settings.toon_length_marker,
-)
-
-
-def _safe_list(data: Any) -> list:
-    """Ensure data is a list, returning empty list if not."""
-    return data if isinstance(data, list) else []
-
-
-def _format_list_response(key: str, data: Any) -> str:
-    """Format a list response with TOON, ensuring data is a list."""
-    return toon.format({key: _safe_list(data)})
+# Aliases for backward compatibility within this module
+_safe_list = safe_list
+_format_list_response = format_list_response
 
 
 # =============================================================================

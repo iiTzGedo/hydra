@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatMessageResponse } from '@/api/chat';
+import type { ChatMessageResponse, SessionContext } from '@/api/chat';
 
 /**
  * Cache TTL values in milliseconds
@@ -17,18 +17,6 @@ const MAX_CACHED_MESSAGES = 100;
 interface CacheEntry<T> {
   data: T;
   timestamp: number;
-}
-
-interface SessionContext {
-  totalTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  estimatedCost: number;
-  toolCallsCount: number;
-  messageCount: number;
-  modelUsed: string | null;
-  providerType: string | null;
-  thread: string[];  // Ordered list of messageIds - source of truth
 }
 
 interface ChatCacheStore {

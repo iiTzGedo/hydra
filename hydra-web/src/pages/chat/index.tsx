@@ -1,35 +1,12 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { Link } from 'react-router-dom';
 import { useQueries } from '@tanstack/react-query';
-import { DndProvider } from 'react-dnd';
-import { HTML5Backend } from 'react-dnd-html5-backend';
 import {
-  MessageSquare,
-  Loader2,
-  Bot,
-  Sparkles,
-  Zap,
-  Server,
-  Plus,
   AlertCircle,
-  FolderOpen,
-  Store,
-  Globe,
-  Terminal,
-  Network,
-  AlertTriangle,
-  Boxes,
-  Wrench,
   Menu,
   X,
-  Settings,
-  Brain,
-  Gauge,
-  Thermometer,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ROUTES } from '@/lib/constants';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
 import { useMCPChat, type ModelConfig, type SessionUsage } from '@/hooks/use-mcp-chat';
@@ -66,69 +43,23 @@ import {
   type MCPPromptsResponse,
 } from '@/api/mcp';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
-import { Progress } from '@/components/ui/progress';
 import {
-  Tooltip,
-  TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
 
 import {
   ChatHeader,
   ChatInput,
-  MessageBubble,
-  ChatListItem,
-  ProjectFolder,
-  UnorganizedDropTarget,
+  ChatSidebar,
+  ChatSettingsPanel,
+  ChatMessageList,
 } from './components';
 import type { ReasoningLevel } from './components';
 import { NewProjectModal, MCPConfigModal, LLMConfigModal } from './modals';
 import { useNodes } from '@/api/nodes';
 import { useServices } from '@/api/services';
 import { useNetworks } from '@/api/networks';
-
-// Estimate context window based on model name patterns
-const getEstimatedContextWindow = (model: string | undefined): number => {
-  if (!model) return 128000; // Default fallback
-  const m = model.toLowerCase();
-
-  // Anthropic models
-  if (m.includes('claude-3') || m.includes('claude-4')) return 200000;
-  if (m.includes('claude-2')) return 100000;
-
-  // OpenAI models
-  if (m.includes('gpt-4o')) return 128000;
-  if (m.includes('gpt-4-turbo') || m.includes('gpt-4-1106')) return 128000;
-  if (m.includes('gpt-4-32k')) return 32768;
-  if (m.includes('gpt-4')) return 8192;
-  if (m.includes('gpt-3.5-turbo-16k')) return 16384;
-  if (m.includes('gpt-3.5')) return 4096;
-  if (m.includes('o1') || m.includes('o3')) return 128000;
-
-  // Ollama/Local models
-  if (m.includes('llama3') || m.includes('llama-3')) return 128000;
-  if (m.includes('llama2') || m.includes('llama-2')) return 4096;
-  if (m.includes('mistral')) return 32768;
-  if (m.includes('mixtral')) return 32768;
-
-  return 128000; // Default for unknown models
-};
-
-const suggestedPrompts = [
-  { icon: Server, text: 'List all compute nodes', category: 'nodes' },
-  { icon: Boxes, text: 'Show services with health issues', category: 'services' },
-  { icon: Network, text: 'What networks are configured?', category: 'networks' },
-  { icon: AlertTriangle, text: 'Show unacknowledged alerts', category: 'alerts' },
-];
 
 const useInfrastructureContext = () => {
   const { data: nodesData } = useNodes({ limit: 1 });
@@ -210,9 +141,6 @@ export default function ChatPage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [reasoningLevel, setReasoningLevel] = useState<ReasoningLevel>('none');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
-  const [showAllTools, setShowAllTools] = useState(false);
-  const [showAllPrompts, setShowAllPrompts] = useState(false);
-
   // Model configuration state for per-request overrides
   const [modelConfig, setModelConfig] = useState<ModelConfig>({});
   const [sessionUsage, setSessionUsage] = useState<SessionUsage | null>(null);
@@ -311,9 +239,6 @@ export default function ChatPage() {
     () => sessions.filter((session) => !session.projectId),
     [sessions]
   );
-
-  const getProjectSessions = (projectId: string) =>
-    sessions.filter((session) => session.projectId === projectId);
 
   // Hydra MCP status: check both session state and actual health
   const isHydraMcpInSession = activeServerIds.includes('hydra-mcp');
@@ -915,6 +840,24 @@ export default function ChatPage() {
     });
   };
 
+  const settingsPanel = (
+    <ChatSettingsPanel
+      modelConfig={modelConfig}
+      onModelConfigChange={setModelConfig}
+      reasoningLevel={reasoningLevel}
+      onReasoningLevelChange={setReasoningLevel}
+      webSearchEnabled={webSearchEnabled}
+      onWebSearchEnabledChange={setWebSearchEnabled}
+      supportsReasoning={supportsReasoning}
+      supportsWebSearch={supportsWebSearch}
+      isStreaming={isStreaming}
+      sessionUsage={sessionUsage}
+      sessionContext={sessionContext}
+      activeLLMProvider={activeLLMProvider ?? null}
+      onOpenLLMConfig={() => setShowLLMConfigModal(true)}
+    />
+  );
+
   return (
     <TooltipProvider>
       <div className="h-[calc(100vh-3.5rem)] flex items-stretch gap-4 p-4 bg-background relative">
@@ -936,747 +879,40 @@ export default function ChatPage() {
           />
         )}
 
-        <div
-          className={cn(
-            'flex flex-col bg-card border border-border rounded-lg overflow-hidden min-h-0',
-            'fixed inset-y-0 left-0 z-40 w-96 m-4 transition-transform duration-200 ease-in-out',
-            'md:static md:translate-x-0 md:shrink-0 md:h-full md:m-0',
-            mobileSidebarOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)]'
-          )}
-        >
-          <Tabs
-            value={sidebarTab}
-            onValueChange={(v) => setSidebarTab(v as 'chats' | 'tools' | 'configs')}
-            className="flex flex-col h-full min-h-0"
-          >
-            <TabsList className="w-full rounded-none border-b border-border bg-transparent h-auto p-0 shrink-0">
-              <TabsTrigger
-                value="chats"
-                className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent py-3 text-muted-foreground data-[state=active]:text-foreground text-sm"
-              >
-                <MessageSquare className="h-4 w-4 mr-1.5" />
-                Chats
-              </TabsTrigger>
-              <TabsTrigger
-                value="tools"
-                className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent py-3 text-muted-foreground data-[state=active]:text-foreground text-sm"
-              >
-                <Wrench className="h-4 w-4 mr-1.5" />
-                Tools
-              </TabsTrigger>
-              <TabsTrigger
-                value="configs"
-                className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-violet-500 data-[state=active]:bg-transparent py-3 text-muted-foreground data-[state=active]:text-foreground text-sm"
-              >
-                <Settings className="h-4 w-4 mr-1.5" />
-                Config
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="chats" className="data-[state=inactive]:hidden flex-1 m-0 overflow-hidden flex flex-col">
-              <div className="p-2 border-b border-border shrink-0 flex gap-2">
-                <Button
-                  onClick={() => handleNewChat()}
-                  variant="outline"
-                  className="flex-1 border-border text-foreground hover:bg-muted bg-transparent"
-                  size="sm"
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  New Chat
-                </Button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={() => setShowNewProjectModal(true)}
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      <FolderOpen className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="bg-popover text-popover-foreground border-border">
-                    New Project
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-
-              <ScrollArea className="flex-1">
-                <DndProvider backend={HTML5Backend}>
-                  <div className="p-2">
-                    {projects.length > 0 && (
-                      <div className="mb-3">
-                        <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
-                          Projects
-                        </h4>
-                        <div className="space-y-0.5">
-                          {projects.map((project) => {
-                            const projectSessions = getProjectSessions(project.projectId);
-                            return (
-                              <ProjectFolder
-                                key={project.projectId}
-                                project={project}
-                                sessionCount={projectSessions.length}
-                                isOpen={expandedProjects.includes(project.projectId)}
-                                onOpenChange={() => toggleProjectExpand(project.projectId)}
-                                onDrop={(sessionId) =>
-                                  handleMoveSessionToProject(sessionId, project.projectId)
-                                }
-                              >
-                                {projectSessions.map((session) => (
-                                  <ChatListItem
-                                    key={session.sessionId}
-                                    session={session}
-                                    isActive={currentSessionId === session.sessionId}
-                                    onSelect={() => handleSelectSession(session.sessionId)}
-                                    onRename={(newTitle) =>
-                                      handleRenameSession(session.sessionId, newTitle)
-                                    }
-                                    onMoveToProject={(projectId) =>
-                                      handleMoveSessionToProject(session.sessionId, projectId)
-                                    }
-                                    onDuplicate={() => handleDuplicateSession(session.sessionId)}
-                                    onExport={() => handleExportSession(session.sessionId)}
-                                    onDelete={() => handleDeleteSession(session.sessionId)}
-                                    projects={projects}
-                                  />
-                                ))}
-                                <button
-                                  onClick={() => handleNewChat(project.projectId)}
-                                  className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                                >
-                                  <Plus className="h-3 w-3" />
-                                  New Chat
-                                </button>
-                              </ProjectFolder>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    <UnorganizedDropTarget
-                      onDrop={(sessionId) => handleMoveSessionToProject(sessionId, null)}
-                    >
-                      <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
-                        Recent Chats
-                      </h4>
-                      <div className="space-y-0.5">
-                        {standaloneSessions.map((session) => (
-                          <ChatListItem
-                            key={session.sessionId}
-                            session={session}
-                            isActive={currentSessionId === session.sessionId}
-                            onSelect={() => handleSelectSession(session.sessionId)}
-                            onRename={(newTitle) =>
-                              handleRenameSession(session.sessionId, newTitle)
-                            }
-                            onMoveToProject={(projectId) =>
-                              handleMoveSessionToProject(session.sessionId, projectId)
-                            }
-                            onDuplicate={() => handleDuplicateSession(session.sessionId)}
-                            onExport={() => handleExportSession(session.sessionId)}
-                            onDelete={() => handleDeleteSession(session.sessionId)}
-                            projects={projects}
-                          />
-                        ))}
-                        {standaloneSessions.length === 0 && sessions.length === 0 && (
-                          <p className="text-[11px] text-muted-foreground/70 px-2 py-2">No chats yet</p>
-                        )}
-                      </div>
-                    </UnorganizedDropTarget>
-                  </div>
-                </DndProvider>
-              </ScrollArea>
-            </TabsContent>
-
-            <TabsContent value="tools" className="data-[state=inactive]:hidden flex-1 min-h-0 m-0 p-0 overflow-hidden flex flex-col">
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                <div className="p-3 space-y-4">
-                  {/* Dedicated Hydra MCP Section */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <Terminal className="h-3.5 w-3.5 text-violet-500" />
-                        Hydra MCP
-                        <Badge
-                          variant="secondary"
-                          className="text-[8px] px-1 h-3.5 bg-violet-500/20 text-violet-400 border-0"
-                        >
-                          Built-in
-                        </Badge>
-                      </h4>
-                    </div>
-                    <div
-                      className={cn(
-                        'rounded-lg p-3 transition-colors cursor-pointer border',
-                        isHydraMcpInSession && isHydraMcpHealthy
-                          ? 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10'
-                          : isHydraMcpInSession && !isHydraMcpHealthy
-                            ? 'bg-red-500/5 border-red-500/20 hover:bg-red-500/10'
-                            : 'bg-muted/30 border-border hover:bg-muted/60'
-                      )}
-                      onClick={() =>
-                        isHydraMcpInSession
-                          ? handleDisconnectServer('hydra-mcp')
-                          : handleConnectServer('hydra-mcp')
-                      }
-                    >
-                      <div className="flex items-start gap-3">
-                        <div
-                          className={cn(
-                            'h-10 w-10 rounded-md flex items-center justify-center shrink-0',
-                            isHydraMcpInSession && isHydraMcpHealthy
-                              ? 'bg-emerald-500/20'
-                              : isHydraMcpInSession && !isHydraMcpHealthy
-                                ? 'bg-red-500/20'
-                                : 'bg-muted'
-                          )}
-                        >
-                          <Terminal className="h-5 w-5 text-violet-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-foreground">
-                              {hydraMcpHealth?.serverName || 'Hydra MCP Server'}
-                            </span>
-                            <div
-                              className={cn(
-                                'h-2 w-2 rounded-full shrink-0',
-                                isHydraMcpHealthy
-                                  ? 'bg-emerald-500'
-                                  : isHydraMcpInSession
-                                    ? 'bg-red-500'
-                                    : 'bg-muted-foreground'
-                              )}
-                              title={
-                                isHydraMcpHealthy
-                                  ? 'healthy'
-                                  : isHydraMcpInSession
-                                    ? 'unhealthy'
-                                    : 'not connected'
-                              }
-                            />
-                          </div>
-                          <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
-                            {isHydraMcpHealthy
-                              ? 'Part of Hydra ecosystem — access infrastructure tools'
-                              : isHydraMcpInSession
-                                ? hydraMcpHealth?.message || 'Server unreachable'
-                                : 'Connect to access infrastructure tools'}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                            {isHydraMcpHealthy && (
-                              <>
-                                <Badge
-                                  variant="secondary"
-                                  className="text-[9px] px-1.5 h-4 bg-blue-500/20 text-blue-400 border-0"
-                                >
-                                  {hydraMcpHealth?.toolsCount || hydraMcpTools.length} tools
-                                </Badge>
-                                <Badge
-                                  variant="secondary"
-                                  className="text-[9px] px-1.5 h-4 bg-amber-500/20 text-amber-400 border-0"
-                                >
-                                  {hydraMcpHealth?.promptsCount || hydraMcpPrompts.length} prompts
-                                </Badge>
-                              </>
-                            )}
-                            <span className="text-[9px] text-muted-foreground/70">
-                              {isHydraMcpInSession ? 'Click to disconnect' : 'Click to connect'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* External MCP Servers Section */}
-                  {serversWithTools.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                          <Server className="h-3.5 w-3.5 text-cyan-500" />
-                          External MCP Servers
-                        </h4>
-                        <Link to={ROUTES.MCP_MARKETPLACE}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground"
-                          >
-                            <Store className="h-3 w-3 mr-1" />
-                            Add More
-                          </Button>
-                        </Link>
-                      </div>
-                      <div className="space-y-2">
-                        {serversWithTools.map((mcp) => {
-                          const statusColor = mcp.isActive
-                            ? 'bg-emerald-500'
-                            : mcp.status === 'unhealthy'
-                              ? 'bg-red-500'
-                              : 'bg-muted-foreground';
-
-                          return (
-                            <div
-                              key={mcp.serverId}
-                              className={cn(
-                                'rounded-lg p-3 transition-colors cursor-pointer border',
-                                mcp.isActive
-                                  ? 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10'
-                                  : 'bg-muted/30 border-border hover:bg-muted/60'
-                              )}
-                              onClick={() =>
-                                mcp.isActive
-                                  ? handleDisconnectServer(mcp.serverId)
-                                  : handleConnectServer(mcp.serverId)
-                              }
-                            >
-                              <div className="flex items-start gap-3">
-                                <div
-                                  className={cn(
-                                    'h-9 w-9 rounded-md flex items-center justify-center shrink-0',
-                                    mcp.isActive ? 'bg-emerald-500/20' : 'bg-muted'
-                                  )}
-                                >
-                                  <Globe className="h-4 w-4 text-cyan-400" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs font-medium text-foreground">
-                                      {mcp.name}
-                                    </span>
-                                    <div
-                                      className={cn('h-2 w-2 rounded-full shrink-0', statusColor)}
-                                      title={mcp.isActive ? 'active' : mcp.status}
-                                    />
-                                  </div>
-                                  <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
-                                    {mcp.description || mcp.category}
-                                  </p>
-                                  <div className="flex items-center gap-2 mt-1.5">
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-[9px] px-1.5 h-4 bg-muted/80 text-muted-foreground"
-                                    >
-                                      {mcp.tools.length} tools
-                                    </Badge>
-                                    <span className="text-[9px] text-muted-foreground/70">
-                                      {mcp.isActive ? 'Click to disconnect' : 'Click to connect'}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {serversWithTools.length === 0 && (
-                    <div className="flex items-center justify-center py-2">
-                      <Link to={ROUTES.MCP_MARKETPLACE}>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-[10px] text-muted-foreground hover:text-foreground"
-                        >
-                          <Store className="h-3 w-3 mr-1" />
-                          Browse MCP Marketplace
-                        </Button>
-                      </Link>
-                    </div>
-                  )}
-
-                  {/* Dynamic Available Tools Section */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                      <Wrench className="h-3.5 w-3.5 text-blue-500" />
-                      Available Tools
-                      <Badge variant="secondary" className="text-[9px] px-1.5 h-4 bg-muted text-muted-foreground ml-1">
-                        {activeTools.length}
-                      </Badge>
-                    </h4>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {(showAllTools ? activeTools : activeTools.slice(0, 12)).map((tool, idx) => (
-                        <Tooltip key={`${tool.serverId}-${tool.name}-${idx}`}>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => handleSend(`Use the ${tool.name} tool`)}
-                              className="px-2 py-1.5 rounded bg-blue-500/10 border border-blue-500/20 text-[10px] font-mono text-blue-400 truncate hover:bg-blue-500/20 transition-colors text-left"
-                            >
-                              {tool.name}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="bg-popover text-popover-foreground border-border">
-                            <p className="text-xs">
-                              {tool.serverName}
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      ))}
-                    </div>
-                    {activeTools.length > 12 && (
-                      <button
-                        onClick={() => setShowAllTools(!showAllTools)}
-                        className="w-full text-[10px] text-muted-foreground hover:text-foreground py-1 hover:bg-muted/50 rounded transition-colors"
-                      >
-                        {showAllTools ? 'Show less' : `+${activeTools.length - 12} more tools`}
-                      </button>
-                    )}
-                    {activeTools.length === 0 && (
-                      <p className="text-[11px] text-muted-foreground/70 text-center py-2">
-                        Connect an MCP service to see available tools
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Dynamic Available Prompts Section */}
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                      <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                      Available Prompts
-                      <Badge variant="secondary" className="text-[9px] px-1.5 h-4 bg-muted text-muted-foreground ml-1">
-                        {activePrompts.length}
-                      </Badge>
-                    </h4>
-                    <div className="space-y-1.5">
-                      {activePrompts.length > 0 ? (
-                        (showAllPrompts ? activePrompts : activePrompts.slice(0, 6)).map((prompt, idx) => (
-                          <button
-                            key={`${prompt.serverId}-${prompt.name}-${idx}`}
-                            onClick={() => handleSend(`Run the ${prompt.name} prompt`)}
-                            className="w-full text-left px-2.5 py-2 rounded bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-400 hover:bg-amber-500/15 transition-colors"
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="font-mono">{prompt.name}</span>
-                              <span className="text-[8px] text-muted-foreground">{prompt.serverName}</span>
-                            </div>
-                            {prompt.description && (
-                              <p className="text-[9px] text-muted-foreground mt-0.5 line-clamp-2">
-                                {prompt.description}
-                              </p>
-                            )}
-                          </button>
-                        ))
-                      ) : (
-                        <p className="text-[11px] text-muted-foreground/70 text-center py-2">
-                          Connect an MCP service to see available prompts
-                        </p>
-                      )}
-                      {activePrompts.length > 6 && (
-                        <button
-                          onClick={() => setShowAllPrompts(!showAllPrompts)}
-                          className="w-full text-[10px] text-muted-foreground hover:text-foreground py-1 hover:bg-muted/50 rounded transition-colors"
-                        >
-                          {showAllPrompts ? 'Show less' : `+${activePrompts.length - 6} more prompts`}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t border-border p-3 space-y-3 shrink-0">
-                <div className="space-y-2">
-                  <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                    <Zap className="h-3 w-3 text-cyan-500" />
-                    Quick Actions
-                  </h4>
-                  <div className="grid grid-cols-2 gap-1">
-                    {[
-                      { icon: Server, text: 'List nodes' },
-                      { icon: Boxes, text: 'Unhealthy services' },
-                      { icon: Network, text: 'Show networks' },
-                      { icon: AlertTriangle, text: 'Active alerts' },
-                      { icon: Globe, text: 'Topology overview' },
-                      { icon: Terminal, text: 'Recent changes' },
-                    ].map((prompt, i) => (
-                      <button
-                        key={i}
-                        onClick={() => handleSend(prompt.text)}
-                        className="flex items-center gap-1.5 px-2 py-1.5 rounded text-[10px] text-muted-foreground hover:bg-cyan-500/10 hover:text-cyan-400 transition-colors text-left border border-border hover:border-cyan-500/30"
-                      >
-                        <prompt.icon className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{prompt.text}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                    Context
-                  </h4>
-                  <div className="grid grid-cols-4 gap-1">
-                    <div className="p-1.5 rounded bg-muted/60 text-center">
-                      <div className="text-sm font-bold text-foreground">{infraContext.nodes}</div>
-                      <div className="text-[9px] text-muted-foreground">Nodes</div>
-                    </div>
-                    <div className="p-1.5 rounded bg-muted/60 text-center">
-                      <div className="text-sm font-bold text-foreground">{infraContext.services}</div>
-                      <div className="text-[9px] text-muted-foreground">Svcs</div>
-                    </div>
-                    <div className="p-1.5 rounded bg-muted/60 text-center">
-                      <div className="text-sm font-bold text-foreground">{infraContext.networks}</div>
-                      <div className="text-[9px] text-muted-foreground">Nets</div>
-                    </div>
-                    <div className="p-1.5 rounded bg-muted/60 text-center">
-                      <div className="text-sm font-bold text-foreground">{infraContext.alerts}</div>
-                      <div className="text-[9px] text-muted-foreground">Alerts</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 p-2 rounded-md bg-blue-500/5 border border-blue-500/20">
-                  <Sparkles className="h-4 w-4 text-blue-500 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-foreground truncate">
-                      {activeLLMProvider?.name || 'No LLM Selected'}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground">
-                      {activeLLMProvider?.type || 'Configure in settings'}
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-[10px] px-2 shrink-0 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowLLMConfigModal(true)}
-                  >
-                    Switch
-                  </Button>
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Configs Tab - Model parameters, reasoning, web search */}
-            <TabsContent value="configs" className="data-[state=inactive]:hidden flex-1 min-h-0 m-0 p-0 overflow-hidden flex flex-col">
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                <div className="p-3 space-y-4">
-                  {/* Model Configuration */}
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                      <Settings className="h-3.5 w-3.5 text-violet-500" />
-                      Model Configuration
-                    </h4>
-                    <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-4">
-                      {/* Max Tokens */}
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="maxTokens" className="text-[10px] text-muted-foreground">
-                            Max Output Tokens
-                          </Label>
-                          <span className="text-[10px] font-mono text-foreground">
-                            {modelConfig.maxTokens || 'Default'}
-                          </span>
-                        </div>
-                        <Input
-                          id="maxTokens"
-                          type="number"
-                          placeholder="Default (4096)"
-                          min={1}
-                          max={100000}
-                          value={modelConfig.maxTokens || ''}
-                          onChange={(e) => setModelConfig((prev) => ({
-                            ...prev,
-                            maxTokens: e.target.value ? parseInt(e.target.value, 10) : undefined,
-                          }))}
-                          className="h-7 text-[11px] bg-background"
-                        />
-                      </div>
-
-                      {/* Temperature */}
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                            <Thermometer className="h-3 w-3" />
-                            Temperature
-                          </Label>
-                          <span className="text-[10px] font-mono text-foreground">
-                            {modelConfig.temperature?.toFixed(1) ?? 'Default'}
-                          </span>
-                        </div>
-                        <Slider
-                          value={modelConfig.temperature !== undefined ? [modelConfig.temperature] : [0.7]}
-                          min={0}
-                          max={2}
-                          step={0.1}
-                          onValueChange={(values) => setModelConfig((prev) => ({
-                            ...prev,
-                            temperature: values[0],
-                          }))}
-                          className="w-full"
-                        />
-                        <div className="flex justify-between text-[8px] text-muted-foreground">
-                          <span>Precise (0)</span>
-                          <span>Creative (2)</span>
-                        </div>
-                      </div>
-
-                      {/* Top P */}
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-[10px] text-muted-foreground">Top P</Label>
-                          <span className="text-[10px] font-mono text-foreground">
-                            {modelConfig.topP?.toFixed(2) ?? 'Default'}
-                          </span>
-                        </div>
-                        <Slider
-                          value={modelConfig.topP !== undefined ? [modelConfig.topP] : [1.0]}
-                          min={0}
-                          max={1}
-                          step={0.05}
-                          onValueChange={(values) => setModelConfig((prev) => ({
-                            ...prev,
-                            topP: values[0],
-                          }))}
-                          className="w-full"
-                        />
-                      </div>
-
-                      {/* Reset Button */}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full h-7 text-[10px] text-muted-foreground hover:text-foreground"
-                        onClick={() => setModelConfig({})}
-                      >
-                        Reset to Defaults
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Reasoning & Search */}
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                      <Brain className="h-3.5 w-3.5 text-amber-500" />
-                      Reasoning & Search
-                    </h4>
-                    <div className="rounded-lg p-3 bg-muted/30 border border-border space-y-4">
-                      {/* Reasoning Level */}
-                      <div className="space-y-2">
-                        <Label className="text-[10px] text-muted-foreground">Reasoning Level</Label>
-                        <div className="grid grid-cols-4 gap-1">
-                          {[
-                            { value: 'none', label: 'Off' },
-                            { value: 'low', label: 'Low' },
-                            { value: 'medium', label: 'Med' },
-                            { value: 'high', label: 'High' },
-                          ].map((level) => (
-                            <button
-                              key={level.value}
-                              onClick={() => supportsReasoning && setReasoningLevel(level.value as ReasoningLevel)}
-                              disabled={!supportsReasoning || isStreaming}
-                              className={cn(
-                                'py-1.5 px-2 rounded text-[10px] transition-colors border',
-                                reasoningLevel === level.value
-                                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
-                                  : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground',
-                                (!supportsReasoning || isStreaming) && 'opacity-50 cursor-not-allowed'
-                              )}
-                            >
-                              {level.label}
-                            </button>
-                          ))}
-                        </div>
-                        {!supportsReasoning && (
-                          <p className="text-[9px] text-muted-foreground">
-                            Reasoning not available for this model
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Web Search */}
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                            <Globe className="h-3 w-3" />
-                            Web Search
-                          </Label>
-                          {!supportsWebSearch && (
-                            <p className="text-[9px] text-muted-foreground">
-                              Not available for this model
-                            </p>
-                          )}
-                        </div>
-                        <Switch
-                          checked={webSearchEnabled}
-                          onCheckedChange={setWebSearchEnabled}
-                          disabled={!supportsWebSearch || isStreaming}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Bottom fixed section - Context details */}
-              <div className="border-t border-border p-3 space-y-3 shrink-0">
-                {/* Session Token Usage */}
-                <div>
-                  <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Gauge className="h-3 w-3 text-cyan-500" />
-                    Context
-                  </h4>
-                  {(() => {
-                    // Use WebSocket session usage if available (real-time), otherwise fall back to persisted sessionContext
-                    const inputTokens = sessionUsage?.inputTokens ?? sessionContext?.inputTokens ?? 0;
-                    const outputTokens = sessionUsage?.outputTokens ?? sessionContext?.outputTokens ?? 0;
-                    const contextWindow = sessionUsage?.contextWindow || getEstimatedContextWindow(activeLLMProvider?.model);
-                    const usagePercent = contextWindow > 0 ? (inputTokens / contextWindow) * 100 : 0;
-
-                    return (
-                      <div className="space-y-2">
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[10px]">
-                            <span className="text-muted-foreground">Tokens</span>
-                            <span className="text-foreground font-mono">
-                              {inputTokens.toLocaleString()} / {contextWindow.toLocaleString()}
-                            </span>
-                          </div>
-                          <Progress value={usagePercent} className="h-1.5" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-1">
-                          <div className="p-1.5 rounded bg-muted/60 text-center">
-                            <div className="text-xs font-bold text-foreground">{inputTokens.toLocaleString()}</div>
-                            <div className="text-[8px] text-muted-foreground">Input</div>
-                          </div>
-                          <div className="p-1.5 rounded bg-muted/60 text-center">
-                            <div className="text-xs font-bold text-foreground">{outputTokens.toLocaleString()}</div>
-                            <div className="text-[8px] text-muted-foreground">Output</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Active Model Info */}
-                <div className="flex items-center gap-2 p-2 rounded-md bg-violet-500/5 border border-violet-500/20">
-                  <Sparkles className="h-4 w-4 text-violet-500 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-foreground truncate">
-                      {activeLLMProvider?.name || 'No Model Selected'}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground">
-                      {activeLLMProvider?.model || 'Configure in settings'}
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-[10px] px-2 shrink-0 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowLLMConfigModal(true)}
-                  >
-                    Change
-                  </Button>
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </div>
+        <ChatSidebar
+          sidebarTab={sidebarTab}
+          onSidebarTabChange={(tab) => setSidebarTab(tab)}
+          mobileSidebarOpen={mobileSidebarOpen}
+          projects={projects}
+          standaloneSessions={standaloneSessions}
+          sessions={sessions}
+          currentSessionId={currentSessionId}
+          expandedProjects={expandedProjects}
+          onToggleProjectExpand={toggleProjectExpand}
+          onSelectSession={handleSelectSession}
+          onNewChat={handleNewChat}
+          onNewProject={() => setShowNewProjectModal(true)}
+          onRenameSession={handleRenameSession}
+          onMoveSessionToProject={handleMoveSessionToProject}
+          onDuplicateSession={handleDuplicateSession}
+          onExportSession={handleExportSession}
+          onDeleteSession={handleDeleteSession}
+          isHydraMcpInSession={isHydraMcpInSession}
+          isHydraMcpHealthy={isHydraMcpHealthy}
+          hydraMcpHealth={hydraMcpHealth}
+          hydraMcpTools={hydraMcpTools}
+          hydraMcpPrompts={hydraMcpPrompts}
+          serversWithTools={serversWithTools}
+          activeTools={activeTools}
+          activePrompts={activePrompts}
+          onConnectServer={handleConnectServer}
+          onDisconnectServer={handleDisconnectServer}
+          onSend={handleSend}
+          infraContext={infraContext}
+          activeLLMProvider={activeLLMProvider}
+          onOpenLLMConfig={() => setShowLLMConfigModal(true)}
+          configTabContent={settingsPanel}
+        />
 
         <div className="flex-1 h-full flex flex-col bg-card border border-border rounded-lg overflow-hidden min-w-0">
           <ChatHeader
@@ -1716,83 +952,14 @@ export default function ChatPage() {
             </div>
           ) : null}
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="p-4 space-y-4 max-w-4xl mx-auto">
-              {allMessages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center py-12">
-                  <div className="rounded-full bg-blue-600/10 p-4">
-                    <Bot className="h-8 w-8 text-blue-500" />
-                  </div>
-                  <h2 className="mt-4 text-xl font-semibold text-foreground">
-                    How can I help you today?
-                  </h2>
-                  <p className="mt-2 text-muted-foreground max-w-md">
-                    Ask me about your infrastructure. I can help you find nodes, services, analyze
-                    topology, and answer questions about your setup.
-                  </p>
-
-                  <div className="mt-8 max-w-2xl">
-                    <div className="flex items-center gap-2 mb-3 justify-center">
-                      <Sparkles className="h-4 w-4 text-amber-500" />
-                      <span className="text-xs text-muted-foreground">Suggested prompts</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2 justify-center">
-                      {suggestedPrompts.map((prompt, index) => (
-                        <Button
-                          key={index}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleSend(prompt.text)}
-                          className="h-auto py-1.5 text-xs border-border text-foreground hover:bg-muted bg-transparent"
-                          disabled={isStreaming}
-                        >
-                          <prompt.icon className="h-3 w-3 mr-2" />
-                          {prompt.text}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {allMessages.map((message, index) => {
-                    // Detect orphaned user messages: last message is from user with no assistant response
-                    const isLastMessage = index === allMessages.length - 1;
-                    const isOrphanedUserMessage = isLastMessage && message.role === 'user' && !isStreaming;
-
-                    return (
-                      <MessageBubble
-                        key={message.messageId}
-                        message={message}
-                        canResend={isOrphanedUserMessage}
-                        onResend={isOrphanedUserMessage && message.messageId ? () => wsRetryMessage(message.messageId!) : undefined}
-                      />
-                    );
-                  })}
-                  {isStreaming && (
-                    <div className="flex gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
-                        <Bot className="h-4 w-4 text-muted-foreground animate-pulse" />
-                      </div>
-                      <div className="flex-1 max-w-[80%]">
-                        <div className="rounded-lg p-4 bg-muted">
-                          {streamingContent ? (
-                            <p className="text-sm text-foreground whitespace-pre-wrap">{streamingContent}</p>
-                          ) : (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              <span>Thinking...</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
+          <ChatMessageList
+            messages={allMessages}
+            isStreaming={isStreaming}
+            streamingContent={streamingContent}
+            onSend={handleSend}
+            onRetryMessage={wsRetryMessage}
+            messagesEndRef={messagesEndRef}
+          />
 
           <ChatInput
             value={input}

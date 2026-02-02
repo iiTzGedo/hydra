@@ -14,19 +14,14 @@ import {
   Edit,
   Trash2,
   MoreHorizontal,
-  AlertTriangle,
   X,
   Loader2,
-  LayoutGrid,
-  LayoutList,
-  SlidersHorizontal,
-  Columns3,
 } from 'lucide-react';
 import { useNetworks, useCreateNetwork } from '@/api/networks';
 import { NetworkSummary, NetworkType, CreateNetworkRequest } from '@/types/network';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
-import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
+import { staggerItemVariants } from '@/lib/animations';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,7 +29,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Pagination } from '@/components/ui/pagination';
 import {
   Select,
   SelectContent,
@@ -60,21 +54,25 @@ import {
 } from '@/components/ui/dialog';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { EntityListPage, type StatCard, type ColumnConfig, type TableDensity } from '@/components/common/entity-list-page';
+import { type ViewMode } from '@/components/common/view-mode-toggle';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type NetworkColumnKey = 'network' | 'type' | 'cidr' | 'gateway' | 'nodes' | 'actions';
+type NetworkListItem = NetworkSummary & { id: string };
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const TYPE_CONFIG: Record<NetworkType, {
   icon: typeof Network;
@@ -131,9 +129,7 @@ interface FilterState {
   type: NetworkType | 'all';
 }
 
-type TableDensity = 'comfortable' | 'compact';
-type ViewMode = 'table' | 'grid';
-type NetworkColumnKey = 'network' | 'type' | 'cidr' | 'gateway' | 'nodes' | 'actions';
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function NetworksPage() {
   useDocumentTitle('Network Explorer');
@@ -178,7 +174,6 @@ export default function NetworksPage() {
 
   const totalPages = data ? Math.ceil(data.total / limit) : 0;
   const hasActiveFilters = filters.type !== 'all';
-  const visibleColumnCount = Object.values(visibleColumns).filter(Boolean).length;
 
   const clearFilters = () => {
     setFilters({ search: '', type: 'all' });
@@ -186,286 +181,140 @@ export default function NetworksPage() {
   };
 
   return (
-    <TooltipProvider>
-      <div className="p-6 space-y-6">
-                <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Networks</h1>
-            <p className="text-muted-foreground">
-              View and manage your network segments
-            </p>
-          </div>
+    <div className="p-6">
+      <EntityListPage<NetworkListItem>
+        title="Networks"
+        subtitle="View and manage your network segments"
+        headerAction={
           <Button onClick={() => setShowCreateModal(true)}>
             <Plus className="h-4 w-4 mr-2" />
             Add Network
           </Button>
-        </div>
-
-                <motion.div
-          variants={staggerContainerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
-        >
-          <motion.div variants={staggerItemVariants}>
-            <Card className="border-l-4 border-l-network">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Physical</p>
-                    {isLoading ? (
-                      <Skeleton className="h-8 w-12 mt-1" />
-                    ) : (
-                      <p className="text-2xl font-bold text-network">{stats.physical}</p>
-                    )}
-                  </div>
-                  <div className="rounded-full bg-network/10 p-3">
-                    <Server className="h-5 w-5 text-network" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div variants={staggerItemVariants}>
-            <Card className="border-l-4 border-l-compute">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Virtual</p>
-                    {isLoading ? (
-                      <Skeleton className="h-8 w-12 mt-1" />
-                    ) : (
-                      <p className="text-2xl font-bold text-compute">{stats.virtual}</p>
-                    )}
-                  </div>
-                  <div className="rounded-full bg-compute/10 p-3">
-                    <Globe className="h-5 w-5 text-compute" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div variants={staggerItemVariants}>
-            <Card className="border-l-4 border-l-warning">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">VLAN/VXLAN</p>
-                    {isLoading ? (
-                      <Skeleton className="h-8 w-12 mt-1" />
-                    ) : (
-                      <p className="text-2xl font-bold text-warning">{stats.vlan}</p>
-                    )}
-                  </div>
-                  <div className="rounded-full bg-warning/10 p-3">
-                    <GitBranch className="h-5 w-5 text-warning" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div variants={staggerItemVariants}>
-            <Card className="border-l-4 border-l-primary">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total</p>
-                    {isLoading ? (
-                      <Skeleton className="h-8 w-12 mt-1" />
-                    ) : (
-                      <p className="text-2xl font-bold">{stats.total}</p>
-                    )}
-                  </div>
-                  <div className="rounded-full bg-primary/10 p-3">
-                    <Network className="h-5 w-5 text-primary" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </motion.div>
-
-                <Card>
-          <CardContent className="p-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                            <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search networks by name or CIDR..."
-                  value={filters.search}
-                  onChange={(e) => {
-                    setFilters(f => ({ ...f, search: e.target.value }));
-                    setPage(0);
-                  }}
-                  className="pl-9"
-                />
-              </div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                <Select
-                  value={filters.type}
-                  onValueChange={(value) => {
-                    setFilters(f => ({ ...f, type: value as NetworkType | 'all' }));
-                    setPage(0);
-                  }}
-                >
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="physical">Physical</SelectItem>
-                    <SelectItem value="virtual">Virtual</SelectItem>
-                    <SelectItem value="vlan">VLAN</SelectItem>
-                    <SelectItem value="vxlan">VXLAN</SelectItem>
-                    <SelectItem value="overlay">Overlay</SelectItem>
-                    <SelectItem value="bridge">Bridge</SelectItem>
-                    <SelectItem value="tunnel">Tunnel</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {hasActiveFilters && (
-                  <Button variant="ghost" size="sm" onClick={clearFilters}>
-                    <X className="h-4 w-4 mr-1" />
-                    Clear
-                  </Button>
-                )}
-
-                                <div className="flex items-center border rounded-md">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={viewMode === 'table' ? 'secondary' : 'ghost'}
-                        size="sm"
-                        className="rounded-r-none border-0"
-                        onClick={() => setViewMode('table')}
-                      >
-                        <LayoutList className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Table View</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
-                        size="sm"
-                        className="rounded-l-none border-l"
-                        onClick={() => setViewMode('grid')}
-                      >
-                        <LayoutGrid className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Grid View</TooltipContent>
-                  </Tooltip>
-                </div>
-
-                {viewMode === 'table' && (
-                  <>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" title="Table Density">
-                          <SlidersHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Table Density</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuRadioGroup
-                          value={tableDensity}
-                          onValueChange={(value) => setTableDensity(value as TableDensity)}
-                        >
-                          <DropdownMenuRadioItem value="comfortable">Comfortable</DropdownMenuRadioItem>
-                          <DropdownMenuRadioItem value="compact">Compact</DropdownMenuRadioItem>
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" title="Column Visibility">
-                          <Columns3 className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Column Visibility</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.network}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, network: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.network}
-                        >
-                          Network
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.type}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, type: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.type}
-                        >
-                          Type
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.cidr}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, cidr: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.cidr}
-                        >
-                          CIDR
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.gateway}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, gateway: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.gateway}
-                        >
-                          Gateway
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.nodes}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, nodes: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.nodes}
-                        >
-                          Nodes
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.actions}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, actions: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.actions}
-                        >
-                          Actions
-                        </DropdownMenuCheckboxItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </>
-                )}
-              </div>
+        }
+        stats={[
+          { label: 'Physical', value: stats.physical, icon: Server, color: 'network' },
+          { label: 'Virtual', value: stats.virtual, icon: Globe, color: 'compute' },
+          { label: 'VLAN/VXLAN', value: stats.vlan, icon: GitBranch, color: 'warning' },
+          { label: 'Total', value: stats.total, icon: Network, color: 'primary' },
+        ]}
+        items={data?.items ?? []}
+        isLoading={isLoading}
+        error={error}
+        filterBar={
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search networks by name or CIDR..."
+                value={filters.search}
+                onChange={(e) => {
+                  setFilters(f => ({ ...f, search: e.target.value }));
+                  setPage(0);
+                }}
+                className="pl-9"
+              />
             </div>
-          </CardContent>
-        </Card>
-
-                {error && (
-          <Card className="border-destructive">
-            <CardContent className="p-8 text-center">
-              <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
-              <h3 className="mt-4 text-lg font-semibold">Failed to load networks</h3>
-              <p className="mt-2 text-sm text-muted-foreground">Please try again later</p>
-            </CardContent>
-          </Card>
+            <Select
+              value={filters.type}
+              onValueChange={(value) => {
+                setFilters(f => ({ ...f, type: value as NetworkType | 'all' }));
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="physical">Physical</SelectItem>
+                <SelectItem value="virtual">Virtual</SelectItem>
+                <SelectItem value="vlan">VLAN</SelectItem>
+                <SelectItem value="vxlan">VXLAN</SelectItem>
+                <SelectItem value="overlay">Overlay</SelectItem>
+                <SelectItem value="bridge">Bridge</SelectItem>
+                <SelectItem value="tunnel">Tunnel</SelectItem>
+              </SelectContent>
+            </Select>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            )}
+          </div>
+        }
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        tableDensity={tableDensity}
+        onTableDensityChange={setTableDensity}
+        columns={[
+          { key: 'network', label: 'Network' },
+          { key: 'type', label: 'Type' },
+          { key: 'cidr', label: 'CIDR' },
+          { key: 'gateway', label: 'Gateway' },
+          { key: 'nodes', label: 'Nodes' },
+          { key: 'actions', label: 'Actions' },
+        ]}
+        visibleColumns={visibleColumns}
+        onVisibleColumnsChange={(cols) => setVisibleColumns(cols as Record<NetworkColumnKey, boolean>)}
+        pagination={{
+          page,
+          totalPages,
+          onPageChange: setPage,
+        }}
+        emptyIcon={Network}
+        emptyTitle="No networks found"
+        emptyDescription={
+          hasActiveFilters || filters.search
+            ? 'Try adjusting your filters'
+            : 'Networks will appear here once discovered or created'
+        }
+        emptyActions={
+          <>
+            {(hasActiveFilters || filters.search) && (
+              <Button variant="outline" onClick={clearFilters}>
+                Clear Filters
+              </Button>
+            )}
+            <Button onClick={() => setShowCreateModal(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Network
+            </Button>
+          </>
+        }
+        renderGridCard={(network) => (
+          <NetworkGridCard key={network.id} network={network} />
         )}
-
-                {isLoading && !error && (
+        renderTableHeader={(visCols) => (
+          <tr className="border-b">
+            {visCols.network && (
+              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground w-[250px]">Network</th>
+            )}
+            {visCols.type && (
+              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Type</th>
+            )}
+            {visCols.cidr && (
+              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">CIDR</th>
+            )}
+            {visCols.gateway && (
+              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Gateway</th>
+            )}
+            {visCols.nodes && (
+              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Nodes</th>
+            )}
+            {visCols.actions && (
+              <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground w-[50px]"></th>
+            )}
+          </tr>
+        )}
+        renderTableRow={(network, visCols) => (
+          <NetworkRow
+            key={network.id}
+            network={network}
+            visibleColumns={visCols as Record<NetworkColumnKey, boolean>}
+          />
+        )}
+        renderLoadingSkeleton={() => (
           <Card>
             <Table className={cn(tableDensity === 'compact' && 'table-compact')}>
               <TableHeader>
@@ -525,211 +374,110 @@ export default function NetworksPage() {
             </Table>
           </Card>
         )}
-
-                {!isLoading && !error && !data?.items?.length && (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <Network className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No networks found</h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {hasActiveFilters || filters.search
-                  ? 'Try adjusting your filters'
-                  : 'Networks will appear here once discovered or created'}
-              </p>
-              <div className="flex justify-center gap-2 mt-4">
-                {(hasActiveFilters || filters.search) && (
-                  <Button variant="outline" onClick={clearFilters}>
-                    Clear Filters
-                  </Button>
-                )}
-                <Button onClick={() => setShowCreateModal(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Network
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-                {!isLoading && !error && data?.items && data.items.length > 0 && (
-          <motion.div
-            variants={staggerContainerVariants}
-            initial="hidden"
-            animate="visible"
-          >
-            {viewMode === 'table' ? (
-              <Card>
-                <div className="flex items-center justify-between p-4 border-b">
-                  <span className="text-sm text-muted-foreground">
-                    Showing {data.items.length} of {data.total} networks
-                  </span>
-                </div>
-                <Table className={cn(tableDensity === 'compact' && 'table-compact')}>
-                  <TableHeader>
-                    <TableRow>
-                      {visibleColumns.network && (
-                        <TableHead className="w-[250px] text-muted-foreground">Network</TableHead>
-                      )}
-                      {visibleColumns.type && (
-                        <TableHead className="text-muted-foreground">Type</TableHead>
-                      )}
-                      {visibleColumns.cidr && (
-                        <TableHead className="text-muted-foreground">CIDR</TableHead>
-                      )}
-                      {visibleColumns.gateway && (
-                        <TableHead className="text-muted-foreground">Gateway</TableHead>
-                      )}
-                      {visibleColumns.nodes && (
-                        <TableHead className="text-muted-foreground">Nodes</TableHead>
-                      )}
-                      {visibleColumns.actions && (
-                        <TableHead className="w-[50px] text-muted-foreground"></TableHead>
-                      )}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.items.map((network) => (
-                      <NetworkRow key={network.id} network={network} visibleColumns={visibleColumns} />
-                    ))}
-                  </TableBody>
-                </Table>
-
-                                <Pagination
-                  page={page}
-                  totalPages={totalPages}
-                  onPageChange={setPage}
-                />
-              </Card>
-            ) : (
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm text-muted-foreground">
-                    Showing {data.items.length} of {data.total} networks
-                  </span>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {data.items.map((network) => (
-                    <NetworkGridCard key={network.id} network={network} />
-                  ))}
-                </div>
-                <Pagination
-                  page={page}
-                  totalPages={totalPages}
-                  onPageChange={setPage}
-                  showBorder={false}
-                  className="mt-6"
-                />
-              </div>
-            )}
-          </motion.div>
-        )}
-
-                <CreateNetworkModal
-          open={showCreateModal}
-          onOpenChange={setShowCreateModal}
-        />
-      </div>
-    </TooltipProvider>
+        gridClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+      />
+      <CreateNetworkModal open={showCreateModal} onOpenChange={setShowCreateModal} />
+    </div>
   );
 }
 
-type NetworkListItem = NetworkSummary & { id: string };
+// ─── Grid Card ────────────────────────────────────────────────────────────────
 
 function NetworkGridCard({ network }: { network: NetworkListItem }) {
   const typeConfig = TYPE_CONFIG[network.type] || TYPE_CONFIG.physical;
   const TypeIcon = typeConfig.icon;
 
   return (
-    <motion.div variants={staggerItemVariants}>
-      <Card className="group hover:border-primary/50 transition-all">
-        <CardContent className="p-4">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <div className={cn('rounded-lg p-2', typeConfig.bgColor)}>
-                <TypeIcon className={cn('h-5 w-5', typeConfig.color)} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <Link
-                  to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}`}
-                  className="font-medium hover:text-primary transition-colors block truncate"
-                >
-                  {network.name}
-                </Link>
-                <Badge
-                  variant="secondary"
-                  className={cn('mt-1', typeConfig.bgColor, typeConfig.color)}
-                >
-                  {typeConfig.label}
-                </Badge>
-              </div>
+    <Card className="group hover:border-primary/50 transition-all">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className={cn('rounded-lg p-2', typeConfig.bgColor)}>
+              <TypeIcon className={cn('h-5 w-5', typeConfig.color)} />
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}`}>
-                    <Eye className="h-4 w-4 mr-2" />
-                    View Details
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}?edit=1`}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit Network
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild className="text-destructive">
-                  <Link to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}?delete=1`}>
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="min-w-0 flex-1">
+              <Link
+                to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}`}
+                className="font-medium hover:text-primary transition-colors block truncate"
+              >
+                {network.name}
+              </Link>
+              <Badge
+                variant="secondary"
+                className={cn('mt-1', typeConfig.bgColor, typeConfig.color)}
+              >
+                {typeConfig.label}
+              </Badge>
+            </div>
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}`}>
+                  <Eye className="h-4 w-4 mr-2" />
+                  View Details
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}?edit=1`}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Network
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild className="text-destructive">
+                <Link to={`${ROUTES.NETWORKS}/${encodeURIComponent(network.networkId)}?delete=1`}>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
-          <div className="space-y-2 text-sm">
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">ID</span>
+            <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">
+              {network.networkId}
+            </code>
+          </div>
+          {network.cidr && (
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">ID</span>
+              <span className="text-muted-foreground">CIDR</span>
               <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">
-                {network.networkId}
+                {network.cidr}
               </code>
             </div>
-            {network.cidr && (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">CIDR</span>
-                <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">
-                  {network.cidr}
-                </code>
-              </div>
-            )}
-            {network.gatewayV4 && (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Gateway</span>
-                <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">
-                  {network.gatewayV4}
-                </code>
-              </div>
-            )}
-            <div className="flex items-center justify-between pt-2 border-t">
-              <span className="text-muted-foreground">Nodes</span>
-              <Badge variant="secondary">{network.nodeCount}</Badge>
+          )}
+          {network.gatewayV4 && (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Gateway</span>
+              <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">
+                {network.gatewayV4}
+              </code>
             </div>
+          )}
+          <div className="flex items-center justify-between pt-2 border-t">
+            <span className="text-muted-foreground">Nodes</span>
+            <Badge variant="secondary">{network.nodeCount}</Badge>
           </div>
-        </CardContent>
-      </Card>
-    </motion.div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
+
+// ─── Table Row ────────────────────────────────────────────────────────────────
 
 function NetworkRow({
   network,
@@ -746,7 +494,7 @@ function NetworkRow({
       variants={staggerItemVariants}
       className="group hover:bg-muted/50 transition-colors"
     >
-            {visibleColumns.network && (
+      {visibleColumns.network && (
         <TableCell>
           <div className="flex items-center gap-3">
             <div className={cn('rounded-lg p-2', typeConfig.bgColor)}>
@@ -767,7 +515,7 @@ function NetworkRow({
         </TableCell>
       )}
 
-            {visibleColumns.type && (
+      {visibleColumns.type && (
         <TableCell>
           <Badge
             variant="secondary"
@@ -778,31 +526,31 @@ function NetworkRow({
         </TableCell>
       )}
 
-            {visibleColumns.cidr && (
+      {visibleColumns.cidr && (
         <TableCell>
           {network.cidr ? (
             <code className="text-sm bg-muted px-2 py-1 rounded font-mono">
               {network.cidr}
             </code>
           ) : (
-            <span className="text-muted-foreground text-sm">—</span>
+            <span className="text-muted-foreground text-sm">--</span>
           )}
         </TableCell>
       )}
 
-            {visibleColumns.gateway && (
+      {visibleColumns.gateway && (
         <TableCell>
           {network.gatewayV4 ? (
             <code className="text-sm bg-muted px-2 py-1 rounded font-mono">
               {network.gatewayV4}
             </code>
           ) : (
-            <span className="text-muted-foreground text-sm">—</span>
+            <span className="text-muted-foreground text-sm">--</span>
           )}
         </TableCell>
       )}
 
-            {visibleColumns.nodes && (
+      {visibleColumns.nodes && (
         <TableCell>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -817,7 +565,7 @@ function NetworkRow({
         </TableCell>
       )}
 
-            {visibleColumns.actions && (
+      {visibleColumns.actions && (
         <TableCell>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -856,6 +604,8 @@ function NetworkRow({
     </motion.tr>
   );
 }
+
+// ─── Create Network Modal ─────────────────────────────────────────────────────
 
 function CreateNetworkModal({
   open,
@@ -968,7 +718,7 @@ function CreateNetworkModal({
         )}
 
         <div className="grid gap-4">
-                    <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="networkId">
                 Network ID <span className="text-destructive">*</span>
@@ -993,7 +743,7 @@ function CreateNetworkModal({
             </div>
           </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="type">Type</Label>
               <Select
@@ -1029,7 +779,7 @@ function CreateNetworkModal({
             </div>
           </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="cidr">CIDR (IPv4)</Label>
               <Input
@@ -1050,7 +800,7 @@ function CreateNetworkModal({
             </div>
           </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="gatewayV4">Gateway (IPv4)</Label>
               <Input
@@ -1071,7 +821,7 @@ function CreateNetworkModal({
             </div>
           </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="parentNetworkId">Parent Network ID</Label>
               <Input
@@ -1092,7 +842,7 @@ function CreateNetworkModal({
             </div>
           </div>
 
-                    <div className="space-y-2">
+          <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
             <Textarea
               id="description"
@@ -1103,7 +853,7 @@ function CreateNetworkModal({
             />
           </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="dnsServers">DNS Servers</Label>
               <Input
@@ -1137,7 +887,7 @@ function CreateNetworkModal({
             />
           </div>
 
-                    <div className="space-y-2">
+          <div className="space-y-2">
             <Label htmlFor="tags">Tags</Label>
             <Input
               id="tags"

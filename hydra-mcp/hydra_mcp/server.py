@@ -26,9 +26,8 @@ from mcp.types import (
 )
 
 from hydra_mcp.auth import AuthorizationError
-from hydra_mcp.client import HydraAPIError, HydraClient
-from hydra_mcp.config import get_settings
-from hydra_mcp.toon import TOONFormatter
+from hydra_mcp.client import HydraAPIError
+from hydra_mcp.shared import settings, client, toon, safe_list, format_list_response
 from hydra_mcp.tools import get_all_tools, execute_tool as registry_execute_tool, ToolValidationError
 
 # Import tool handlers to register them with the registry
@@ -36,43 +35,11 @@ import hydra_mcp.tool_handlers  # noqa: F401
 
 logger = structlog.get_logger(__name__)
 
-
-def _safe_list(data: Any) -> list:
-    """Ensure data is a list, returning empty list if not.
-
-    This helper eliminates the repeated `isinstance(x, list) else []` pattern
-    used when handling API responses that may not always be lists.
-
-    Args:
-        data: The data to check, typically from an API response.
-
-    Returns:
-        The data if it's a list, otherwise an empty list.
-    """
-    return data if isinstance(data, list) else []
-
-
-def _format_list_response(key: str, data: Any) -> str:
-    """Format a list response with TOON, ensuring data is a list.
-
-    Args:
-        key: The key to use in the response dict (e.g., "nodes", "services").
-        data: The data to format, will be coerced to list if needed.
-
-    Returns:
-        TOON-formatted string.
-    """
-    return toon.format({key: _safe_list(data)})
-
+# Aliases for backward compatibility within this module
+_safe_list = safe_list
+_format_list_response = format_list_response
 
 server = Server("hydra-mcp")
-settings = get_settings()
-client = HydraClient(settings)
-toon = TOONFormatter(
-    delimiter=settings.toon_delimiter,
-    indent=settings.toon_indent,
-    length_marker=settings.toon_length_marker,
-)
 
 
 @server.list_tools()

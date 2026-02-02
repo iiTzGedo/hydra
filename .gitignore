@@ -81,6 +81,7 @@ credentials.json
 #misc
 .claude/
 CLAUDE.md
+Debt.md
 Issues.md
 Plan.md
 prototypes/
@@ -91,3 +92,4 @@ reviews/
 agent/
 testing/
 accessibility/
+completed/

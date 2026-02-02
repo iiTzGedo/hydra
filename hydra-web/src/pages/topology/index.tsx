@@ -303,17 +303,10 @@ export default function TopologyPage() {
                 {modeOptions.map((option) => {
                   const Icon = option.icon;
                   return (
-                    <Tooltip key={option.value}>
-                      <TooltipTrigger asChild>
-                        <TabsTrigger value={option.value} className="gap-1.5">
-                          <Icon className="h-4 w-4" />
-                          <span className="hidden sm:inline">{option.label}</span>
-                        </TabsTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{option.description}</p>
-                      </TooltipContent>
-                    </Tooltip>
+                    <TabsTrigger key={option.value} value={option.value} className="gap-1.5" title={option.description}>
+                      <Icon className="h-4 w-4" />
+                      <span className="hidden sm:inline">{option.label}</span>
+                    </TabsTrigger>
                   );
                 })}
               </TabsList>

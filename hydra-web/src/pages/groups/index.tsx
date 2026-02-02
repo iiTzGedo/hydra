@@ -13,21 +13,14 @@ import {
   Edit,
   Trash2,
   MoreHorizontal,
-  AlertTriangle,
   X,
   Loader2,
   CheckCircle2,
-  Tag,
-  LayoutGrid,
-  LayoutList,
-  SlidersHorizontal,
-  Columns3,
 } from 'lucide-react';
 import { useGroups, useCreateGroup } from '@/api/groups';
 import { GroupSummary, GroupEntityType, GroupSelectors, CreateGroupRequest } from '@/types/group';
 import { ROUTES } from '@/lib/constants';
-import { cn } from '@/lib/utils';
-import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
+import { staggerItemVariants } from '@/lib/animations';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,7 +28,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Pagination } from '@/components/ui/pagination';
 import {
   Select,
   SelectContent,
@@ -61,29 +53,33 @@ import {
 } from '@/components/ui/dialog';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { EntityListPage, type StatCard, type ColumnConfig, type TableDensity } from '@/components/common/entity-list-page';
+import type { ViewMode } from '@/components/common/view-mode-toggle';
 
 interface FilterState {
   search: string;
 }
 
-type TableDensity = 'comfortable' | 'compact';
-type ViewMode = 'table' | 'grid';
 type GroupColumnKey = 'group' | 'types' | 'nodes' | 'services' | 'tags' | 'actions';
+
+const GROUP_COLUMNS: ColumnConfig[] = [
+  { key: 'group', label: 'Group' },
+  { key: 'types', label: 'Types' },
+  { key: 'nodes', label: 'Nodes' },
+  { key: 'services', label: 'Services' },
+  { key: 'tags', label: 'Tags' },
+  { key: 'actions', label: 'Actions' },
+];
 
 export default function GroupsPage() {
   useDocumentTitle('Groups');
@@ -94,7 +90,7 @@ export default function GroupsPage() {
   const [page, setPage] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [tableDensity, setTableDensity] = useState<TableDensity>('comfortable');
-  const [visibleColumns, setVisibleColumns] = useState<Record<GroupColumnKey, boolean>>({
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
     group: true,
     types: true,
     nodes: true,
@@ -104,8 +100,6 @@ export default function GroupsPage() {
   });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const limit = 20;
-
-  const visibleColumnCount = Object.values(visibleColumns).filter(Boolean).length;
 
   const queryParams = useMemo(() => {
     const params: Record<string, unknown> = { limit, offset: page * limit };
@@ -131,270 +125,118 @@ export default function GroupsPage() {
 
   const totalPages = data ? Math.ceil(data.total / limit) : 0;
 
+  const statCards: StatCard[] = [
+    { label: 'Total Groups', value: stats.totalGroups, icon: FolderTree, color: 'primary' },
+    { label: 'Node Groups', value: stats.nodeGroups, icon: Server, color: 'compute' },
+    { label: 'Service Groups', value: stats.serviceGroups, icon: Boxes, color: 'network' },
+    { label: 'Total Members', value: stats.totalMembers, icon: Users, color: 'iot' },
+  ];
+
+  const hasActiveFilters = Boolean(filters.search);
+
   return (
-    <TooltipProvider>
-      <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Groups</h1>
-            <p className="text-muted-foreground">
-              Organize infrastructure with dynamic selectors
-            </p>
-          </div>
+    <div className="p-6">
+      <EntityListPage<GroupListItem>
+        title="Groups"
+        subtitle="Organize infrastructure with dynamic selectors"
+        headerAction={
           <Button onClick={() => setShowCreateModal(true)}>
             <Plus className="h-4 w-4 mr-2" />
             Create Group
           </Button>
-        </div>
-
-        <motion.div
-          variants={staggerContainerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
-        >
-          <motion.div variants={staggerItemVariants}>
-            <Card className="border-l-4 border-l-primary">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Groups</p>
-                    {isLoading ? (
-                      <Skeleton className="h-8 w-12 mt-1" />
-                    ) : (
-                      <p className="text-2xl font-bold">{stats.totalGroups}</p>
-                    )}
-                  </div>
-                  <div className="rounded-full bg-primary/10 p-3">
-                    <FolderTree className="h-5 w-5 text-primary" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div variants={staggerItemVariants}>
-            <Card className="border-l-4 border-l-compute">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Node Groups</p>
-                    {isLoading ? (
-                      <Skeleton className="h-8 w-12 mt-1" />
-                    ) : (
-                      <p className="text-2xl font-bold text-compute">{stats.nodeGroups}</p>
-                    )}
-                  </div>
-                  <div className="rounded-full bg-compute/10 p-3">
-                    <Server className="h-5 w-5 text-compute" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div variants={staggerItemVariants}>
-            <Card className="border-l-4 border-l-network">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Service Groups</p>
-                    {isLoading ? (
-                      <Skeleton className="h-8 w-12 mt-1" />
-                    ) : (
-                      <p className="text-2xl font-bold text-network">{stats.serviceGroups}</p>
-                    )}
-                  </div>
-                  <div className="rounded-full bg-network/10 p-3">
-                    <Boxes className="h-5 w-5 text-network" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div variants={staggerItemVariants}>
-            <Card className="border-l-4 border-l-iot">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Members</p>
-                    {isLoading ? (
-                      <Skeleton className="h-8 w-12 mt-1" />
-                    ) : (
-                      <p className="text-2xl font-bold text-iot">{stats.totalMembers}</p>
-                    )}
-                  </div>
-                  <div className="rounded-full bg-iot/10 p-3">
-                    <Users className="h-5 w-5 text-iot" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </motion.div>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search groups by name..."
-                  value={filters.search}
-                  onChange={(e) => {
-                    setFilters(f => ({ ...f, search: e.target.value }));
-                    setPage(0);
-                  }}
-                  className="pl-9"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                {filters.search && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setFilters({ search: '' })}
-                    className="text-muted-foreground"
-                  >
-                    <X className="h-4 w-4 mr-1" />
-                    Clear
-                  </Button>
-                )}
-
-                <div className="flex items-center border rounded-md">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={viewMode === 'table' ? 'secondary' : 'ghost'}
-                        size="sm"
-                        className="rounded-r-none border-0"
-                        onClick={() => setViewMode('table')}
-                      >
-                        <LayoutList className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Table View</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
-                        size="sm"
-                        className="rounded-l-none border-l"
-                        onClick={() => setViewMode('grid')}
-                      >
-                        <LayoutGrid className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Grid View</TooltipContent>
-                  </Tooltip>
-                </div>
-
-                {viewMode === 'table' && (
-                  <>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" title="Table Density">
-                          <SlidersHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Table Density</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuRadioGroup
-                          value={tableDensity}
-                          onValueChange={(value) => setTableDensity(value as TableDensity)}
-                        >
-                          <DropdownMenuRadioItem value="comfortable">Comfortable</DropdownMenuRadioItem>
-                          <DropdownMenuRadioItem value="compact">Compact</DropdownMenuRadioItem>
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" title="Column Visibility">
-                          <Columns3 className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Column Visibility</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.group}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, group: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.group}
-                        >
-                          Group
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.types}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, types: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.types}
-                        >
-                          Types
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.nodes}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, nodes: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.nodes}
-                        >
-                          Nodes
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.services}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, services: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.services}
-                        >
-                          Services
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.tags}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, tags: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.tags}
-                        >
-                          Tags
-                        </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={visibleColumns.actions}
-                          onCheckedChange={(checked) =>
-                            setVisibleColumns((prev) => ({ ...prev, actions: Boolean(checked) }))
-                          }
-                          disabled={visibleColumnCount === 1 && visibleColumns.actions}
-                        >
-                          Actions
-                        </DropdownMenuCheckboxItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </>
-                )}
-              </div>
+        }
+        stats={statCards}
+        items={(data?.items as GroupListItem[]) ?? []}
+        isLoading={isLoading}
+        error={error}
+        filterBar={
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search groups by name..."
+                value={filters.search}
+                onChange={(e) => {
+                  setFilters(f => ({ ...f, search: e.target.value }));
+                  setPage(0);
+                }}
+                className="pl-9"
+              />
             </div>
-          </CardContent>
-        </Card>
-
-        {error && (
-          <Card className="border-destructive">
-            <CardContent className="p-8 text-center">
-              <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
-              <h3 className="mt-4 text-lg font-semibold">Failed to load groups</h3>
-              <p className="mt-2 text-sm text-muted-foreground">Please try again later</p>
-            </CardContent>
-          </Card>
+            {filters.search && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setFilters({ search: '' })}
+                className="text-muted-foreground"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            )}
+          </div>
+        }
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        tableDensity={tableDensity}
+        onTableDensityChange={setTableDensity}
+        columns={GROUP_COLUMNS}
+        visibleColumns={visibleColumns}
+        onVisibleColumnsChange={setVisibleColumns}
+        pagination={{
+          page,
+          totalPages,
+          onPageChange: setPage,
+        }}
+        emptyIcon={FolderTree}
+        emptyTitle="No groups found"
+        emptyDescription={
+          hasActiveFilters
+            ? 'Try adjusting your search'
+            : 'Create your first group to organize infrastructure'
+        }
+        emptyActions={
+          <>
+            {hasActiveFilters && (
+              <Button variant="outline" onClick={() => setFilters({ search: '' })}>
+                Clear Search
+              </Button>
+            )}
+            <Button onClick={() => setShowCreateModal(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create Group
+            </Button>
+          </>
+        }
+        renderGridCard={(group) => (
+          <GroupGridCard group={group} />
         )}
-
-        {isLoading && !error && (
+        renderTableHeader={(cols) => (
+          <TableRow>
+            {cols.group && (
+              <TableHead className="w-[250px] text-muted-foreground">Group</TableHead>
+            )}
+            {cols.types && (
+              <TableHead className="text-muted-foreground">Types</TableHead>
+            )}
+            {cols.nodes && (
+              <TableHead className="text-muted-foreground">Nodes</TableHead>
+            )}
+            {cols.services && (
+              <TableHead className="text-muted-foreground">Services</TableHead>
+            )}
+            {cols.tags && (
+              <TableHead className="text-muted-foreground">Tags</TableHead>
+            )}
+            {cols.actions && (
+              <TableHead className="w-[50px] text-muted-foreground"></TableHead>
+            )}
+          </TableRow>
+        )}
+        renderTableRow={(group, cols) => (
+          <GroupRow key={group.id} group={group} visibleColumns={cols as Record<GroupColumnKey, boolean>} />
+        )}
+        renderLoadingSkeleton={() => (
           <Card>
             <Table>
               <TableHeader>
@@ -430,111 +272,14 @@ export default function GroupsPage() {
             </Table>
           </Card>
         )}
+        gridClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+      />
 
-        {!isLoading && !error && !data?.items?.length && (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <FolderTree className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No groups found</h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {filters.search
-                  ? 'Try adjusting your search'
-                  : 'Create your first group to organize infrastructure'}
-              </p>
-              <div className="flex justify-center gap-2 mt-4">
-                {filters.search && (
-                  <Button variant="outline" onClick={() => setFilters({ search: '' })}>
-                    Clear Search
-                  </Button>
-                )}
-                <Button onClick={() => setShowCreateModal(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Group
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {!isLoading && !error && data?.items && data.items.length > 0 && (
-          <motion.div
-            variants={staggerContainerVariants}
-            initial="hidden"
-            animate="visible"
-          >
-            {viewMode === 'table' ? (
-              <Card>
-                <div className="flex items-center justify-between p-4 border-b">
-                  <span className="text-sm text-muted-foreground">
-                    Showing {data.items.length} of {data.total} groups
-                  </span>
-                </div>
-                <Table className={cn(tableDensity === 'compact' && 'table-compact')}>
-                  <TableHeader>
-                    <TableRow>
-                      {visibleColumns.group && (
-                        <TableHead className="w-[250px] text-muted-foreground">Group</TableHead>
-                      )}
-                      {visibleColumns.types && (
-                        <TableHead className="text-muted-foreground">Types</TableHead>
-                      )}
-                      {visibleColumns.nodes && (
-                        <TableHead className="text-muted-foreground">Nodes</TableHead>
-                      )}
-                      {visibleColumns.services && (
-                        <TableHead className="text-muted-foreground">Services</TableHead>
-                      )}
-                      {visibleColumns.tags && (
-                        <TableHead className="text-muted-foreground">Tags</TableHead>
-                      )}
-                      {visibleColumns.actions && (
-                        <TableHead className="w-[50px] text-muted-foreground"></TableHead>
-                      )}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.items.map((group) => (
-                      <GroupRow key={group.id} group={group} visibleColumns={visibleColumns} />
-                    ))}
-                  </TableBody>
-                </Table>
-
-                <Pagination
-                  page={page}
-                  totalPages={totalPages}
-                  onPageChange={setPage}
-                />
-              </Card>
-            ) : (
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm text-muted-foreground">
-                    Showing {data.items.length} of {data.total} groups
-                  </span>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {data.items.map((group) => (
-                    <GroupGridCard key={group.id} group={group} />
-                  ))}
-                </div>
-                <Pagination
-                  page={page}
-                  totalPages={totalPages}
-                  onPageChange={setPage}
-                  showBorder={false}
-                  className="mt-6"
-                />
-              </div>
-            )}
-          </motion.div>
-        )}
-
-        <CreateGroupModal
-          open={showCreateModal}
-          onOpenChange={setShowCreateModal}
-        />
-      </div>
-    </TooltipProvider>
+      <CreateGroupModal
+        open={showCreateModal}
+        onOpenChange={setShowCreateModal}
+      />
+    </div>
   );
 }
 
@@ -542,109 +287,107 @@ type GroupListItem = GroupSummary & { id: string };
 
 function GroupGridCard({ group }: { group: GroupListItem }) {
   return (
-    <motion.div variants={staggerItemVariants}>
-      <Card className="group hover:border-primary/50 transition-all">
-        <CardContent className="p-4">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-primary/10 p-2">
-                <FolderTree className="h-5 w-5 text-primary" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <Link
-                  to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}`}
-                  className="font-medium hover:text-primary transition-colors block truncate"
-                >
-                  {group.name}
+    <Card className="group hover:border-primary/50 transition-all">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-primary/10 p-2">
+              <FolderTree className="h-5 w-5 text-primary" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <Link
+                to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}`}
+                className="font-medium hover:text-primary transition-colors block truncate"
+              >
+                {group.name}
+              </Link>
+              <span className="text-xs text-muted-foreground font-mono truncate block">
+                {group.groupId}
+              </span>
+            </div>
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}`}>
+                  <Eye className="h-4 w-4 mr-2" />
+                  View Members
                 </Link>
-                <span className="text-xs text-muted-foreground font-mono truncate block">
-                  {group.groupId}
-                </span>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}?edit=1`}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Group
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild className="text-destructive">
+                <Link to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}?delete=1`}>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <div className="flex gap-1 mb-3">
+          {group.types.includes('node') && (
+            <Badge variant="secondary" className="bg-compute/10 text-compute">
+              <Server className="h-3 w-3 mr-1" />
+              Node
+            </Badge>
+          )}
+          {group.types.includes('service') && (
+            <Badge variant="secondary" className="bg-network/10 text-network">
+              <Boxes className="h-3 w-3 mr-1" />
+              Service
+            </Badge>
+          )}
+        </div>
+
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Nodes</span>
+            <Badge variant="outline" className="font-mono">
+              {group.memberCount?.nodes || 0}
+            </Badge>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Services</span>
+            <Badge variant="outline" className="font-mono">
+              {group.memberCount?.services || 0}
+            </Badge>
+          </div>
+          {group.tags && group.tags.length > 0 && (
+            <div className="flex items-center justify-between pt-2 border-t">
+              <span className="text-muted-foreground">Tags</span>
+              <div className="flex items-center gap-1 flex-wrap justify-end">
+                {group.tags.slice(0, 2).map((tag, i) => (
+                  <Badge key={i} variant="secondary" className="text-xs">
+                    {tag}
+                  </Badge>
+                ))}
+                {group.tags.length > 2 && (
+                  <Badge variant="secondary" className="text-xs">
+                    +{group.tags.length - 2}
+                  </Badge>
+                )}
               </div>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}`}>
-                    <Eye className="h-4 w-4 mr-2" />
-                    View Members
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}?edit=1`}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit Group
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild className="text-destructive">
-                  <Link to={`${ROUTES.GROUPS}/${encodeURIComponent(group.groupId)}?delete=1`}>
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          <div className="flex gap-1 mb-3">
-            {group.types.includes('node') && (
-              <Badge variant="secondary" className="bg-compute/10 text-compute">
-                <Server className="h-3 w-3 mr-1" />
-                Node
-              </Badge>
-            )}
-            {group.types.includes('service') && (
-              <Badge variant="secondary" className="bg-network/10 text-network">
-                <Boxes className="h-3 w-3 mr-1" />
-                Service
-              </Badge>
-            )}
-          </div>
-
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Nodes</span>
-              <Badge variant="outline" className="font-mono">
-                {group.memberCount?.nodes || 0}
-              </Badge>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Services</span>
-              <Badge variant="outline" className="font-mono">
-                {group.memberCount?.services || 0}
-              </Badge>
-            </div>
-            {group.tags && group.tags.length > 0 && (
-              <div className="flex items-center justify-between pt-2 border-t">
-                <span className="text-muted-foreground">Tags</span>
-                <div className="flex items-center gap-1 flex-wrap justify-end">
-                  {group.tags.slice(0, 2).map((tag, i) => (
-                    <Badge key={i} variant="secondary" className="text-xs">
-                      {tag}
-                    </Badge>
-                  ))}
-                  {group.tags.length > 2 && (
-                    <Badge variant="secondary" className="text-xs">
-                      +{group.tags.length - 2}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </motion.div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

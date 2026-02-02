@@ -83,6 +83,12 @@ impl StorageCollector {
     /// Gathers block device details and mounted filesystem information
     /// using the sysinfo library and platform-specific commands.
     ///
+    /// The `node_kind` parameter controls how total capacity is calculated:
+    /// - For container-based nodes (`docker`, `kubernetes-pod`), all filesystems
+    ///   count toward capacity since overlay IS the node's storage.
+    /// - For all other nodes, virtual/overlay filesystems are excluded to avoid
+    ///   double-counting storage that references the same underlying block device.
+    ///
     /// # Returns
     ///
     /// A storage profile containing devices and filesystems.
@@ -90,7 +96,8 @@ impl StorageCollector {
     /// # Errors
     ///
     /// Returns an error if storage information cannot be retrieved.
-    pub fn collect() -> Result<StorageProfile> {
+    pub fn collect(node_kind: Option<&str>) -> Result<StorageProfile> {
+        let is_container_node = matches!(node_kind, Some("docker" | "kubernetes-pod"));
         let disks = Disks::new_with_refreshed_list();
 
         let mut block_devices = Vec::new();
@@ -129,15 +136,21 @@ impl StorageCollector {
             }
 
             filesystems.push(Filesystem {
-                mount_point,
+                mount_point: mount_point.clone(),
                 device: name,
-                fs_type,
+                fs_type: fs_type.clone(),
                 size_bytes: Some(total_space),
                 used_bytes: Some(used_space),
                 options: vec![],
             });
 
-            total_capacity += total_space;
+            // For container-based nodes (docker, k8s-pod), overlay IS the real
+            // storage—count everything. For all other nodes, exclude virtual/overlay
+            // filesystems that reference the same underlying block device to avoid
+            // double-counting.
+            if is_container_node || !Self::is_virtual_filesystem(&fs_type, &mount_point) {
+                total_capacity += total_space;
+            }
         }
 
         Ok(StorageProfile {
@@ -149,6 +162,17 @@ impl StorageCollector {
                 None
             },
         })
+    }
+
+    /// Returns true if the filesystem is virtual/overlay and should not count
+    /// toward total physical capacity. These filesystems typically reference
+    /// the same underlying block device and would cause double-counting.
+    fn is_virtual_filesystem(fs_type: &str, mount_point: &str) -> bool {
+        matches!(
+            fs_type,
+            "overlay" | "overlay2" | "tmpfs" | "devtmpfs" | "squashfs" | "fuse.snapfuse"
+        ) || mount_point.starts_with("/var/lib/docker/")
+            || mount_point.starts_with("/snap/")
     }
 
     #[cfg(target_os = "linux")]

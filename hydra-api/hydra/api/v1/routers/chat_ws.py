@@ -98,24 +98,25 @@ class ChatWebSocketHandler:
             logger.exception("websocket_error", user_id=self.user_id, error=str(e))
             await self._send_error(str(e))
 
-    async def _handle_chat_request(self, data: dict):
-        """Process a chat request with LLM completion and MCP tool support.
+    @staticmethod
+    def _parse_request_config(data: dict) -> tuple[dict, str, bool]:
+        """Parse model configuration and feature flags from a request.
+
+        Extracts model parameters, reasoning level (with legacy fallback),
+        and web search flag from the incoming WebSocket message data.
 
         Args:
-            data: Request data containing sessionId, content, providerId, modelConfig, and feature flags.
-        """
-        session_id = data.get("sessionId")
-        message_content = data.get("content", "")
-        provider_id = data.get("providerId")
+            data: Raw request data from WebSocket message.
 
+        Returns:
+            Tuple of (model_config dict, reasoning_level str, web_search_enabled bool).
+        """
         # Support both level-based (new) and boolean (legacy) reasoning config
         reasoning_level = data.get("reasoningLevel", "none")
-        # Legacy fallback: if reasoningEnabled is true, use 'medium' level
         if data.get("reasoningEnabled", False) and reasoning_level == "none":
             reasoning_level = "medium"
         web_search_enabled = data.get("webSearchEnabled", False)
 
-        # Parse model configuration from request (all optional)
         model_config_data = data.get("modelConfig", {})
         model_config = {
             "max_tokens": model_config_data.get("maxTokens"),
@@ -125,6 +126,110 @@ class ChatWebSocketHandler:
             "frequency_penalty": model_config_data.get("frequencyPenalty"),
             "presence_penalty": model_config_data.get("presencePenalty"),
         }
+
+        return model_config, reasoning_level, web_search_enabled
+
+    async def _prepare_and_stream(
+        self,
+        session_id: str,
+        session: dict,
+        provider_id: str | None,
+        model_config: dict,
+        reasoning_level: str,
+        web_search_enabled: bool,
+    ):
+        """Prepare provider, tools, conversation context and stream LLM response.
+
+        Shared logic between chat requests and retry requests. Handles provider
+        lookup, MCP tool gathering, conversation building with summarization,
+        and streaming the LLM response.
+
+        Args:
+            session_id: Chat session identifier.
+            session: Session document from the database.
+            provider_id: Optional provider ID override (from request).
+            model_config: Model parameters (max_tokens, temperature, etc.).
+            reasoning_level: Extended thinking level.
+            web_search_enabled: Whether to enable web search.
+        """
+        active_provider_id = provider_id or session.get("llm_provider_id")
+        if not active_provider_id:
+            await self._send_error("No LLM provider configured for session")
+            return
+
+        provider_config = await self.llm_bridge.get_config(
+            active_provider_id, self.user_id
+        )
+
+        mcp_server_ids = session.get("mcp_server_ids", [])
+        tools = []
+        if mcp_server_ids:
+            tools = await self.mcp_client.get_all_tools_for_session(
+                mcp_server_ids, self.user_id
+            )
+
+        system_prompt = self._build_system_prompt(tools)
+
+        # Get all messages (thread) for conversation building
+        history_result = await self.chat_service.list_messages(
+            session_id, self.user_id, limit=1000, order="asc"
+        )
+        thread = history_result.get("messages", [])
+
+        # Build conversation with sliding window and summarization
+        provider_type = str(provider_config.get("type", "")).lower()
+        model_name = provider_config.get("model", "")
+
+        conversation_builder = ConversationBuilder(
+            provider=provider_type,
+            model=model_name,
+            redis=get_redis(),
+            llm_bridge=self.llm_bridge,
+        )
+
+        conversation = await conversation_builder.build(
+            thread=thread,
+            system_prompt=system_prompt,
+            session_id=session_id,
+        )
+
+        # Format messages for the provider
+        formatted_messages = self._format_history(conversation.messages)
+
+        # Use system prompt with summary for Anthropic, otherwise add summary to messages
+        effective_system_prompt = system_prompt
+        if conversation.summary and provider_type == "anthropic":
+            effective_system_prompt = conversation.get_system_prompt_with_summary()
+        elif conversation.summary:
+            formatted_messages.insert(0, {
+                "role": "system",
+                "content": f"[Previous conversation summary]\n{conversation.summary}",
+            })
+
+        await self._stream_llm_response(
+            session_id=session_id,
+            provider_config=provider_config,
+            messages=formatted_messages,
+            tools=tools,
+            system_prompt=effective_system_prompt,
+            mcp_server_ids=mcp_server_ids,
+            model_config=model_config,
+            reasoning_level=reasoning_level,
+            web_search_enabled=web_search_enabled,
+            conversation_token_count=conversation.token_count,
+            context_window=conversation.context_window,
+        )
+
+    async def _handle_chat_request(self, data: dict):
+        """Process a chat request with LLM completion and MCP tool support.
+
+        Args:
+            data: Request data containing sessionId, content, providerId, modelConfig, and feature flags.
+        """
+        session_id = data.get("sessionId")
+        message_content = data.get("content", "")
+        provider_id = data.get("providerId")
+        model_config, reasoning_level, web_search_enabled = self._parse_request_config(data)
 
         if not session_id:
             await self._send_error("sessionId is required")
@@ -137,77 +242,16 @@ class ChatWebSocketHandler:
         try:
             session = await self.chat_service.get_session(session_id, self.user_id)
 
-            active_provider_id = provider_id or session.get("llm_provider_id")
-            if not active_provider_id:
-                await self._send_error("No LLM provider configured for session")
-                return
-
-            provider_config = await self.llm_bridge.get_config(
-                active_provider_id, self.user_id
-            )
-
-            mcp_server_ids = session.get("mcp_server_ids", [])
-            tools = []
-            if mcp_server_ids:
-                tools = await self.mcp_client.get_all_tools_for_session(
-                    mcp_server_ids, self.user_id
-                )
-
             # Save the user message first
             await self._save_message(session_id, "user", message_content)
 
-            # Build token-optimized conversation using ConversationBuilder
-            system_prompt = self._build_system_prompt(tools)
-
-            # Get all messages (thread) for conversation building
-            history_result = await self.chat_service.list_messages(
-                session_id, self.user_id, limit=1000, order="asc"  # Get all messages
-            )
-            thread = history_result.get("messages", [])
-
-            # Build conversation with sliding window and summarization
-            provider_type = str(provider_config.get("type", "")).lower()
-            model_name = provider_config.get("model", "")
-
-            conversation_builder = ConversationBuilder(
-                provider=provider_type,
-                model=model_name,
-                redis=get_redis(),
-                llm_bridge=self.llm_bridge,
-            )
-
-            conversation = await conversation_builder.build(
-                thread=thread,
-                system_prompt=system_prompt,
+            await self._prepare_and_stream(
                 session_id=session_id,
-            )
-
-            # Format messages for the provider
-            formatted_messages = self._format_history(conversation.messages)
-
-            # Use system prompt with summary for Anthropic, otherwise add summary to messages
-            effective_system_prompt = system_prompt
-            if conversation.summary and provider_type == "anthropic":
-                effective_system_prompt = conversation.get_system_prompt_with_summary()
-            elif conversation.summary:
-                # For other providers, prepend summary message
-                formatted_messages.insert(0, {
-                    "role": "system",
-                    "content": f"[Previous conversation summary]\n{conversation.summary}",
-                })
-
-            await self._stream_llm_response(
-                session_id=session_id,
-                provider_config=provider_config,
-                messages=formatted_messages,
-                tools=tools,
-                system_prompt=effective_system_prompt,
-                mcp_server_ids=mcp_server_ids,
+                session=session,
+                provider_id=provider_id,
                 model_config=model_config,
                 reasoning_level=reasoning_level,
                 web_search_enabled=web_search_enabled,
-                conversation_token_count=conversation.token_count,
-                context_window=conversation.context_window,
             )
 
         except ChatSessionNotFoundError:
@@ -233,23 +277,7 @@ class ChatWebSocketHandler:
         session_id = data.get("sessionId")
         message_id = data.get("messageId")
         provider_id = data.get("providerId")
-
-        # Support both level-based (new) and boolean (legacy) reasoning config
-        reasoning_level = data.get("reasoningLevel", "none")
-        if data.get("reasoningEnabled", False) and reasoning_level == "none":
-            reasoning_level = "medium"
-        web_search_enabled = data.get("webSearchEnabled", False)
-
-        # Parse model configuration from request (all optional)
-        model_config_data = data.get("modelConfig", {})
-        model_config = {
-            "max_tokens": model_config_data.get("maxTokens"),
-            "temperature": model_config_data.get("temperature"),
-            "top_p": model_config_data.get("topP"),
-            "top_k": model_config_data.get("topK"),
-            "frequency_penalty": model_config_data.get("frequencyPenalty"),
-            "presence_penalty": model_config_data.get("presencePenalty"),
-        }
+        model_config, reasoning_level, web_search_enabled = self._parse_request_config(data)
 
         if not session_id:
             await self._send_error("sessionId is required")
@@ -288,74 +316,13 @@ class ChatWebSocketHandler:
                 await self._send_error("Message already has a response - cannot retry")
                 return
 
-            active_provider_id = provider_id or session.get("llm_provider_id")
-            if not active_provider_id:
-                await self._send_error("No LLM provider configured for session")
-                return
-
-            provider_config = await self.llm_bridge.get_config(
-                active_provider_id, self.user_id
-            )
-
-            mcp_server_ids = session.get("mcp_server_ids", [])
-            tools = []
-            if mcp_server_ids:
-                tools = await self.mcp_client.get_all_tools_for_session(
-                    mcp_server_ids, self.user_id
-                )
-
-            # Build token-optimized conversation using ConversationBuilder
-            # NOTE: We do NOT save a new user message - it already exists
-            system_prompt = self._build_system_prompt(tools)
-
-            # Get all messages (thread) for conversation building
-            history_result = await self.chat_service.list_messages(
-                session_id, self.user_id, limit=1000, order="asc"
-            )
-            thread = history_result.get("messages", [])
-
-            # Build conversation with sliding window and summarization
-            provider_type = str(provider_config.get("type", "")).lower()
-            model_name = provider_config.get("model", "")
-
-            conversation_builder = ConversationBuilder(
-                provider=provider_type,
-                model=model_name,
-                redis=get_redis(),
-                llm_bridge=self.llm_bridge,
-            )
-
-            conversation = await conversation_builder.build(
-                thread=thread,
-                system_prompt=system_prompt,
+            await self._prepare_and_stream(
                 session_id=session_id,
-            )
-
-            # Format messages for the provider
-            formatted_messages = self._format_history(conversation.messages)
-
-            # Use system prompt with summary for Anthropic, otherwise add summary to messages
-            effective_system_prompt = system_prompt
-            if conversation.summary and provider_type == "anthropic":
-                effective_system_prompt = conversation.get_system_prompt_with_summary()
-            elif conversation.summary:
-                formatted_messages.insert(0, {
-                    "role": "system",
-                    "content": f"[Previous conversation summary]\n{conversation.summary}",
-                })
-
-            await self._stream_llm_response(
-                session_id=session_id,
-                provider_config=provider_config,
-                messages=formatted_messages,
-                tools=tools,
-                system_prompt=effective_system_prompt,
-                mcp_server_ids=mcp_server_ids,
+                session=session,
+                provider_id=provider_id,
                 model_config=model_config,
                 reasoning_level=reasoning_level,
                 web_search_enabled=web_search_enabled,
-                conversation_token_count=conversation.token_count,
-                context_window=conversation.context_window,
             )
 
         except ChatSessionNotFoundError:

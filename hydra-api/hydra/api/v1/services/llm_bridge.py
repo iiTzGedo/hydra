@@ -157,6 +157,123 @@ class LLMBridge:
         return any(tm in model_lower for tm in tool_capable_models)
 
     # =========================================================================
+    # Shared Streaming Helpers
+    # =========================================================================
+
+    async def _parse_openai_sse_stream(
+        self,
+        response: httpx.Response,
+        provider_label: str,
+    ) -> AsyncIterator[dict]:
+        """Parse an OpenAI-compatible SSE stream into normalized events.
+
+        Handles text deltas, tool call accumulation by index, and finish
+        reasons. Used by both OpenAI and OpenRouter streaming methods.
+
+        Args:
+            response: The httpx streaming response to parse.
+            provider_label: Label for logging (e.g., 'openai', 'openrouter').
+
+        Yields:
+            Normalized event dicts (text_delta, tool_use, done).
+        """
+        tool_calls: dict[int, dict] = {}
+
+        async for line in response.aiter_lines():
+            if not line or not line.startswith("data: "):
+                continue
+
+            data_str = line[6:]
+            if data_str == "[DONE]":
+                break
+
+            try:
+                data = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+
+            choices = data.get("choices", [])
+            if not choices:
+                continue
+
+            choice = choices[0]
+            delta = choice.get("delta", {})
+            finish_reason = choice.get("finish_reason")
+
+            if "content" in delta and delta["content"]:
+                yield {"type": "text_delta", "text": delta["content"]}
+
+            if "tool_calls" in delta:
+                for tc in delta["tool_calls"]:
+                    idx = tc.get("index", 0)
+                    if idx not in tool_calls:
+                        tool_calls[idx] = {
+                            "id": tc.get("id", ""),
+                            "name": tc.get("function", {}).get("name", ""),
+                            "arguments": "",
+                        }
+                    else:
+                        if tc.get("id"):
+                            tool_calls[idx]["id"] = tc["id"]
+                        if tc.get("function", {}).get("name"):
+                            tool_calls[idx]["name"] = tc["function"]["name"]
+
+                    if tc.get("function", {}).get("arguments"):
+                        tool_calls[idx]["arguments"] += tc["function"]["arguments"]
+
+            if finish_reason:
+                for tc in tool_calls.values():
+                    try:
+                        input_data = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except json.JSONDecodeError:
+                        input_data = {}
+                    yield {
+                        "type": "tool_use",
+                        "id": tc["id"],
+                        "name": tc["name"],
+                        "input": input_data,
+                    }
+                yield {"type": "done", "stop_reason": finish_reason}
+
+    async def _make_openai_streaming_request(
+        self,
+        url: str,
+        headers: dict,
+        body: dict,
+        provider_label: str,
+    ) -> AsyncIterator[dict]:
+        """Make an OpenAI-compatible streaming request with shared error handling.
+
+        Combines httpx client management, status checking, timeout handling,
+        and OpenAI SSE parsing into a single method for OpenAI and OpenRouter.
+
+        Args:
+            url: The API endpoint URL.
+            headers: Request headers.
+            body: Request body (will be sent as JSON).
+            provider_label: Label for error messages and logging.
+
+        Yields:
+            Normalized event dicts (text_delta, tool_use, done, error).
+        """
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            try:
+                async with client.stream("POST", url, headers=headers, json=body) as response:
+                    if response.status_code != 200:
+                        error_body = await response.aread()
+                        yield {"type": "error", "error": f"{provider_label} API error: {error_body.decode()}"}
+                        return
+
+                    async for event in self._parse_openai_sse_stream(response, provider_label):
+                        yield event
+
+            except httpx.TimeoutException:
+                yield {"type": "error", "error": "Request timed out"}
+            except Exception as e:
+                logger.exception(f"{provider_label.lower()}_stream_error", error=str(e))
+                yield {"type": "error", "error": str(e)}
+
+    # =========================================================================
     # Streaming Methods
     # =========================================================================
 
@@ -459,77 +576,8 @@ class LLMBridge:
             has_tools=bool(tools),
         )
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            try:
-                async with client.stream("POST", url, headers=headers, json=body) as response:
-                    if response.status_code != 200:
-                        error_body = await response.aread()
-                        yield {"type": "error", "error": f"OpenAI API error: {error_body.decode()}"}
-                        return
-
-                    tool_calls: dict[int, dict] = {}
-
-                    async for line in response.aiter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
-
-                        data_str = line[6:]
-                        if data_str == "[DONE]":
-                            break
-
-                        try:
-                            data = json.loads(data_str)
-                        except json.JSONDecodeError:
-                            continue
-
-                        choices = data.get("choices", [])
-                        if not choices:
-                            continue
-
-                        choice = choices[0]
-                        delta = choice.get("delta", {})
-                        finish_reason = choice.get("finish_reason")
-
-                        if "content" in delta and delta["content"]:
-                            yield {"type": "text_delta", "text": delta["content"]}
-
-                        if "tool_calls" in delta:
-                            for tc in delta["tool_calls"]:
-                                idx = tc.get("index", 0)
-                                if idx not in tool_calls:
-                                    tool_calls[idx] = {
-                                        "id": tc.get("id", ""),
-                                        "name": tc.get("function", {}).get("name", ""),
-                                        "arguments": "",
-                                    }
-                                else:
-                                    if tc.get("id"):
-                                        tool_calls[idx]["id"] = tc["id"]
-                                    if tc.get("function", {}).get("name"):
-                                        tool_calls[idx]["name"] = tc["function"]["name"]
-
-                                if tc.get("function", {}).get("arguments"):
-                                    tool_calls[idx]["arguments"] += tc["function"]["arguments"]
-
-                        if finish_reason:
-                            for tc in tool_calls.values():
-                                try:
-                                    input_data = json.loads(tc["arguments"]) if tc["arguments"] else {}
-                                except json.JSONDecodeError:
-                                    input_data = {}
-                                yield {
-                                    "type": "tool_use",
-                                    "id": tc["id"],
-                                    "name": tc["name"],
-                                    "input": input_data,
-                                }
-                            yield {"type": "done", "stop_reason": finish_reason}
-
-            except httpx.TimeoutException:
-                yield {"type": "error", "error": "Request timed out"}
-            except Exception as e:
-                logger.exception("openai_stream_error", error=str(e))
-                yield {"type": "error", "error": str(e)}
+        async for event in self._make_openai_streaming_request(url, headers, body, "OpenAI"):
+            yield event
 
     async def _stream_ollama(
         self,
@@ -736,77 +784,8 @@ class LLMBridge:
             has_tools=bool(tools),
         )
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            try:
-                async with client.stream("POST", url, headers=headers, json=body) as response:
-                    if response.status_code != 200:
-                        error_body = await response.aread()
-                        yield {"type": "error", "error": f"OpenRouter API error: {error_body.decode()}"}
-                        return
-
-                    tool_calls: dict[int, dict] = {}
-
-                    async for line in response.aiter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
-
-                        data_str = line[6:]
-                        if data_str == "[DONE]":
-                            break
-
-                        try:
-                            data = json.loads(data_str)
-                        except json.JSONDecodeError:
-                            continue
-
-                        choices = data.get("choices", [])
-                        if not choices:
-                            continue
-
-                        choice = choices[0]
-                        delta = choice.get("delta", {})
-                        finish_reason = choice.get("finish_reason")
-
-                        if "content" in delta and delta["content"]:
-                            yield {"type": "text_delta", "text": delta["content"]}
-
-                        if "tool_calls" in delta:
-                            for tc in delta["tool_calls"]:
-                                idx = tc.get("index", 0)
-                                if idx not in tool_calls:
-                                    tool_calls[idx] = {
-                                        "id": tc.get("id", ""),
-                                        "name": tc.get("function", {}).get("name", ""),
-                                        "arguments": "",
-                                    }
-                                else:
-                                    if tc.get("id"):
-                                        tool_calls[idx]["id"] = tc["id"]
-                                    if tc.get("function", {}).get("name"):
-                                        tool_calls[idx]["name"] = tc["function"]["name"]
-
-                                if tc.get("function", {}).get("arguments"):
-                                    tool_calls[idx]["arguments"] += tc["function"]["arguments"]
-
-                        if finish_reason:
-                            for tc in tool_calls.values():
-                                try:
-                                    input_data = json.loads(tc["arguments"]) if tc["arguments"] else {}
-                                except json.JSONDecodeError:
-                                    input_data = {}
-                                yield {
-                                    "type": "tool_use",
-                                    "id": tc["id"],
-                                    "name": tc["name"],
-                                    "input": input_data,
-                                }
-                            yield {"type": "done", "stop_reason": finish_reason}
-
-            except httpx.TimeoutException:
-                yield {"type": "error", "error": "Request timed out"}
-            except Exception as e:
-                logger.exception("openrouter_stream_error", error=str(e))
-                yield {"type": "error", "error": str(e)}
+        async for event in self._make_openai_streaming_request(url, headers, body, "OpenRouter"):
+            yield event
 
     def _format_messages_anthropic(self, messages: list[dict]) -> list[dict]:
         """Format messages for Anthropic API.

@@ -137,7 +137,7 @@ pub async fn collect_profile(config: &AgentConfig) -> Result<Profile> {
 
     if collectors.contains(&"storage".to_string()) {
         info!("Collecting storage information...");
-        profile.storage = Some(StorageCollector::collect()?);
+        profile.storage = Some(StorageCollector::collect(config.node.kind.as_deref())?);
     }
 
     if collectors.contains(&"software".to_string()) {

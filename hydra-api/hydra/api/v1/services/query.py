@@ -131,7 +131,7 @@ class QueryService:
                         "$sum": {"$ifNull": ["$latestProfile.hardware.memory.totalBytes", 0]}
                     },
                     "totalStorageBytes": {
-                        "$sum": {"$ifNull": ["$latestProfile.storage.totalBytes", 0]}
+                        "$sum": {"$ifNull": ["$latestProfile.storage.totalCapacityBytes", 0]}
                     },
                 }
             },
@@ -188,7 +188,7 @@ class QueryService:
                             "$sum": {"$ifNull": ["$latestProfile.hardware.memory.totalBytes", 0]}
                         },
                         "storageBytes": {
-                            "$sum": {"$ifNull": ["$latestProfile.storage.totalBytes", 0]}
+                            "$sum": {"$ifNull": ["$latestProfile.storage.totalCapacityBytes", 0]}
                         },
                     }
                 },

@@ -10,21 +10,17 @@ import {
   Loader2,
   Search,
   Filter,
-  LayoutGrid,
-  LayoutList,
-  SlidersHorizontal,
-  Columns3,
   RefreshCw,
   Server,
   Wifi,
   Cpu,
-  AlertTriangle,
   Eye,
   Edit,
   Archive,
   MoreHorizontal,
 } from 'lucide-react';
-import { EmptyState } from '@/components/common/empty-state';
+import { EntityListPage, type StatCard, type ColumnConfig, type TableDensity } from '@/components/common/entity-list-page';
+import { type ViewMode } from '@/components/common/view-mode-toggle';
 import { useNodes, useRegisterNode, useUpdateNode, useArchiveNode } from '@/api/nodes';
 import { ConfirmDialog } from '@/components/modals/confirm-dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
@@ -41,20 +37,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Table,
-  TableBody,
   TableCell,
   TableHead,
-  TableHeader,
   TableRow,
 } from '@/components/ui/table';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -68,15 +57,11 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { ROUTES } from '@/lib/constants';
 import type { NodeKind, NodeClass, NodeType, NodeStatus, NodeSummary, UpdateNodeRequest } from '@/types/node';
 
 type NodeSummaryWithId = NodeSummary & { id: string };
-type ViewMode = 'grid' | 'table';
-type TableDensity = 'comfortable' | 'compact';
-type NodeColumnKey = 'node' | 'class' | 'type' | 'status' | 'lastProfile';
 
 const nodeClassIcons: Record<string, React.ElementType> = {
   compute: Server,
@@ -90,6 +75,14 @@ const classColors: Record<string, string> = {
   iot: 'text-iot',
 };
 
+const NODE_COLUMNS: ColumnConfig[] = [
+  { key: 'node', label: 'Node' },
+  { key: 'class', label: 'Class' },
+  { key: 'type', label: 'Type' },
+  { key: 'status', label: 'Status' },
+  { key: 'lastProfile', label: 'Last Profile' },
+];
+
 export default function NodesPage() {
   useDocumentTitle('Node Explorer');
 
@@ -98,7 +91,7 @@ export default function NodesPage() {
   const [statusFilter, setStatusFilter] = useState<NodeStatus | 'all'>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [tableDensity, setTableDensity] = useState<TableDensity>('comfortable');
-  const [visibleColumns, setVisibleColumns] = useState<Record<NodeColumnKey, boolean>>({
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
     node: true,
     class: true,
     type: true,
@@ -144,7 +137,13 @@ export default function NodesPage() {
 
   const filteredNodes = nodesData?.items ?? [];
   const totalNodes = nodesData?.total ?? 0;
-  const visibleColumnCount = Object.values(visibleColumns).filter(Boolean).length;
+
+  const stats: StatCard[] = useMemo(() => [
+    { label: 'Online', value: statusCounts.active, icon: Server, color: 'success' },
+    { label: 'Warning', value: statusCounts.pending, icon: Server, color: 'warning' },
+    { label: 'Offline', value: statusCounts.inactive, icon: Server, color: 'destructive' },
+    { label: 'Archived', value: statusCounts.archived, icon: Server, color: 'muted-foreground' },
+  ], [statusCounts]);
 
   const resetForm = () => {
     setNodeId('');
@@ -219,501 +218,337 @@ export default function NodesPage() {
     }
   }, [editingNode, updateNodeMutation]);
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-foreground">Node Explorer</h2>
-          <p className="text-sm text-muted-foreground">
-            {filteredNodes.length} of {totalNodes} nodes
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => refetch()}
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-          <Button
-            onClick={() => {
-              resetForm();
-              setNewApiKey(null);
-              setRegisteredNodeId(null);
-              setShowRegisterForm(true);
-            }}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Node
-          </Button>
-        </div>
-      </div>
+  const hasActiveFilters = search || classFilter !== 'all' || statusFilter !== 'all';
 
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
-        <Card>
-          <CardContent className="flex items-center justify-between p-4">
-            <div>
-              <p className="text-xs text-muted-foreground">Online</p>
-              <p className="text-xl font-semibold text-success">{statusCounts.active}</p>
-            </div>
-            <div className="h-3 w-3 rounded-full bg-success" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center justify-between p-4">
-            <div>
-              <p className="text-xs text-muted-foreground">Warning</p>
-              <p className="text-xl font-semibold text-warning">{statusCounts.pending}</p>
-            </div>
-            <div className="h-3 w-3 rounded-full bg-warning" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center justify-between p-4">
-            <div>
-              <p className="text-xs text-muted-foreground">Offline</p>
-              <p className="text-xl font-semibold text-destructive">{statusCounts.inactive}</p>
-            </div>
-            <div className="h-3 w-3 rounded-full bg-destructive" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center justify-between p-4">
-            <div>
-              <p className="text-xs text-muted-foreground">Archived</p>
-              <p className="text-xl font-semibold text-muted-foreground">{statusCounts.archived}</p>
-            </div>
-            <div className="h-3 w-3 rounded-full bg-muted-foreground" />
-          </CardContent>
-        </Card>
-      </div>
+  const clearFilters = useCallback(() => {
+    setSearch('');
+    setClassFilter('all');
+    setStatusFilter('all');
+  }, []);
 
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search by hostname, IP, or tag..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 bg-background"
-              />
+  const renderFilterBar = () => (
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+      <div className="relative flex-1">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Search by hostname, IP, or tag..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9 bg-background"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Filter className="h-4 w-4 text-muted-foreground hidden sm:block" />
+        <Select
+          value={classFilter}
+          onValueChange={(v) => setClassFilter(v as NodeClass | 'all')}
+        >
+          <SelectTrigger className="w-[130px]">
+            <SelectValue placeholder="Class" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Classes</SelectItem>
+            <SelectItem value="compute">Compute</SelectItem>
+            <SelectItem value="networking">Networking</SelectItem>
+            <SelectItem value="iot">IoT</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => setStatusFilter(v as NodeStatus | 'all')}
+        >
+          <SelectTrigger className="w-[120px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="active">Online</SelectItem>
+            <SelectItem value="pending">Warning</SelectItem>
+            <SelectItem value="inactive">Offline</SelectItem>
+            <SelectItem value="archived">Archived</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+
+  const renderGridCard = (node: NodeSummary) => {
+    const NodeIcon = nodeClassIcons[node.class] || Server;
+    const statusColor =
+      node.status === 'active'
+        ? 'bg-success'
+        : node.status === 'inactive' || node.status === 'archived'
+          ? 'bg-destructive'
+          : node.status === 'pending'
+            ? 'bg-warning'
+            : 'bg-muted-foreground';
+
+    return (
+      <Card
+        className="group transition-all hover:border-foreground/20 hover:bg-muted/60 cursor-pointer h-full"
+        onClick={() => navigate(`${ROUTES.NODES}/${node.nodeId}`)}
+      >
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between">
+            <div className={cn('h-10 w-10 flex items-center justify-center rounded-lg bg-muted', classColors[node.class])}>
+              <NodeIcon className="h-5 w-5" />
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Filter className="h-4 w-4 text-muted-foreground hidden sm:block" />
-              <Select
-                value={classFilter}
-                onValueChange={(v) => setClassFilter(v as NodeClass | 'all')}
-              >
-                <SelectTrigger className="w-[130px]">
-                  <SelectValue placeholder="Class" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Classes</SelectItem>
-                  <SelectItem value="compute">Compute</SelectItem>
-                  <SelectItem value="networking">Networking</SelectItem>
-                  <SelectItem value="iot">IoT</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select
-                value={statusFilter}
-                onValueChange={(v) => setStatusFilter(v as NodeStatus | 'all')}
-              >
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="active">Online</SelectItem>
-                  <SelectItem value="pending">Warning</SelectItem>
-                  <SelectItem value="inactive">Offline</SelectItem>
-                  <SelectItem value="archived">Archived</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="flex rounded-md border border-border">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setViewMode('table')}
-                  className={cn(
-                    'rounded-none rounded-l-md',
-                    viewMode === 'table' ? 'bg-muted text-foreground' : 'text-muted-foreground'
-                  )}
-                >
-                  <LayoutList className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setViewMode('grid')}
-                  className={cn(
-                    'rounded-none rounded-r-md',
-                    viewMode === 'grid' ? 'bg-muted text-foreground' : 'text-muted-foreground'
-                  )}
-                >
-                  <LayoutGrid className="h-4 w-4" />
-                </Button>
-              </div>
+            <div className="flex items-center gap-2">
+              <div className={cn('h-2.5 w-2.5 rounded-full shrink-0', statusColor)} />
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" title="Table Density">
-                    <SlidersHorizontal className="h-4 w-4" />
+                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Table Density</DropdownMenuLabel>
+                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenuItem asChild>
+                    <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
+                      <Eye className="h-4 w-4 mr-2" />
+                      View Details
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setEditingNode(node as NodeSummaryWithId)}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuRadioGroup
-                    value={tableDensity}
-                    onValueChange={(value) => setTableDensity(value as TableDensity)}
+                  <DropdownMenuItem
+                    onClick={() => setArchivingNode(node as NodeSummaryWithId)}
+                    className="text-destructive"
                   >
-                    <DropdownMenuRadioItem value="comfortable">Comfortable</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="compact">Compact</DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
+                    <Archive className="h-4 w-4 mr-2" />
+                    Archive
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" title="Column Visibility">
-                    <Columns3 className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Column Visibility</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.node}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({ ...prev, node: Boolean(checked) }))
-                    }
-                    disabled={visibleColumnCount === 1 && visibleColumns.node}
-                  >
-                    Node
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.class}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({ ...prev, class: Boolean(checked) }))
-                    }
-                    disabled={visibleColumnCount === 1 && visibleColumns.class}
-                  >
-                    Class
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.type}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({ ...prev, type: Boolean(checked) }))
-                    }
-                    disabled={visibleColumnCount === 1 && visibleColumns.type}
-                  >
-                    Type
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.status}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({ ...prev, status: Boolean(checked) }))
-                    }
-                    disabled={visibleColumnCount === 1 && visibleColumns.status}
-                  >
-                    Status
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.lastProfile}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({ ...prev, lastProfile: Boolean(checked) }))
-                    }
-                    disabled={visibleColumnCount === 1 && visibleColumns.lastProfile}
-                  >
-                    Last Profile
-                  </DropdownMenuCheckboxItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+            </div>
+          </div>
+          <CardTitle className="text-base text-foreground mt-2 truncate">
+            {node.displayName}
+          </CardTitle>
+          <CardDescription className="text-muted-foreground font-mono text-xs truncate">
+            {node.nodeId}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Type</span>
+              <Badge
+                variant="secondary"
+                className={`text-[10px] ${classColors[node.class]} bg-transparent border border-current`}
+              >
+                {node.type} / {node.kind || 'unknown'}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap gap-1 pt-1">
+              {node.tags?.slice(0, 3).map((tag) => (
+                <Badge key={tag} variant="outline" className="text-[10px] border-border text-muted-foreground">
+                  {tag}
+                </Badge>
+              ))}
+              {(node.tags?.length ?? 0) > 3 && (
+                <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
+                  +{(node.tags?.length ?? 0) - 3}
+                </Badge>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
+    );
+  };
 
-      {error && !isLoading && (
-        <Card className="border-destructive">
-          <CardContent className="p-8 text-center">
-            <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
-            <h3 className="mt-4 text-lg font-semibold">Failed to load nodes</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              There was a problem fetching the node list. Please try again.
-            </p>
-            <Button variant="outline" className="mt-4" onClick={() => refetch()}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Retry
-            </Button>
+  const renderTableHeader = (cols: Record<string, boolean>) => (
+    <TableRow className="border-border hover:bg-transparent">
+      {cols.node && <TableHead className="text-muted-foreground">Node</TableHead>}
+      {cols.class && <TableHead className="text-muted-foreground">Class</TableHead>}
+      {cols.type && <TableHead className="text-muted-foreground">Type</TableHead>}
+      {cols.status && <TableHead className="text-muted-foreground">Status</TableHead>}
+      {cols.lastProfile && <TableHead className="text-muted-foreground">Last Profile</TableHead>}
+      <TableHead className="w-[50px]"></TableHead>
+    </TableRow>
+  );
+
+  const renderTableRow = (node: NodeSummary, cols: Record<string, boolean>) => {
+    const NodeIcon = nodeClassIcons[node.class] || Server;
+    const statusVariant =
+      node.status === 'active'
+        ? 'online'
+        : node.status === 'pending'
+          ? 'pending'
+          : node.status === 'inactive' || node.status === 'archived'
+            ? 'offline'
+            : 'unknown';
+
+    return (
+      <motion.tr
+        key={node.nodeId}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="group border-border hover:bg-muted/60 cursor-pointer border-b transition-colors"
+      >
+        {cols.node && (
+          <TableCell>
+            <Link
+              to={`${ROUTES.NODES}/${node.nodeId}`}
+              className="flex items-center gap-3"
+            >
+              <div className={cn('h-8 w-8 flex items-center justify-center rounded bg-muted', classColors[node.class])}>
+                <NodeIcon className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-foreground font-medium truncate max-w-[150px]">{node.displayName}</p>
+                <p className="text-xs text-muted-foreground font-mono">
+                  {node.nodeId}
+                </p>
+              </div>
+            </Link>
+          </TableCell>
+        )}
+        {cols.class && (
+          <TableCell>
+            <Badge variant="secondary" className={`${classColors[node.class]} bg-transparent`}>
+              {node.class}
+            </Badge>
+          </TableCell>
+        )}
+        {cols.type && (
+          <TableCell className="text-muted-foreground">
+            {node.type} / {node.kind || 'unknown'}
+          </TableCell>
+        )}
+        {cols.status && (
+          <TableCell>
+            <Badge variant={statusVariant}>
+              {node.status}
+            </Badge>
+          </TableCell>
+        )}
+        {cols.lastProfile && (
+          <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+            {node.lastProfileAt
+              ? formatRelativeTime(node.lastProfileAt)
+              : 'Never'}
+          </TableCell>
+        )}
+        <TableCell>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
+                  <Eye className="h-4 w-4 mr-2" />
+                  View Details
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setEditingNode(node as NodeSummaryWithId)}>
+                <Edit className="h-4 w-4 mr-2" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setArchivingNode(node as NodeSummaryWithId)}
+                className="text-destructive"
+              >
+                <Archive className="h-4 w-4 mr-2" />
+                Archive
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </TableCell>
+      </motion.tr>
+    );
+  };
+
+  const renderLoadingSkeleton = () => (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {[...Array(8)].map((_, i) => (
+        <Card key={i}>
+          <CardHeader className="pb-3">
+            <Skeleton className="h-8 w-8 rounded bg-muted" />
+            <Skeleton className="h-5 w-32 mt-2 bg-muted" />
+            <Skeleton className="h-4 w-24 bg-muted" />
+          </CardHeader>
+          <CardContent className="pt-0 space-y-3">
+            <Skeleton className="h-4 w-full bg-muted" />
+            <Skeleton className="h-4 w-3/4 bg-muted" />
           </CardContent>
         </Card>
-      )}
+      ))}
+    </div>
+  );
 
-      {!isLoading && !error && filteredNodes.length === 0 && (
-        <EmptyState
-          icon={Server}
-          title="No nodes found"
-          description={
-            search || classFilter !== 'all' || statusFilter !== 'all'
-              ? 'Try adjusting your filters'
-              : 'Nodes will appear here once agents report them'
-          }
-          action={
-            search || classFilter !== 'all' || statusFilter !== 'all'
-              ? {
-                  label: 'Clear Filters',
-                  onClick: () => {
-                    setSearch('');
-                    setClassFilter('all');
-                    setStatusFilter('all');
-                  },
-                }
-              : undefined
-          }
-        />
-      )}
-
-      {isLoading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {[...Array(8)].map((_, i) => (
-            <Card key={i}>
-              <CardHeader className="pb-3">
-                <Skeleton className="h-8 w-8 rounded bg-muted" />
-                <Skeleton className="h-5 w-32 mt-2 bg-muted" />
-                <Skeleton className="h-4 w-24 bg-muted" />
-              </CardHeader>
-              <CardContent className="pt-0 space-y-3">
-                <Skeleton className="h-4 w-full bg-muted" />
-                <Skeleton className="h-4 w-3/4 bg-muted" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : !error && filteredNodes.length > 0 && viewMode === 'grid' ? (
-        <motion.div
-          variants={staggerContainerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-        >
-          {filteredNodes.map((node) => {
-            const NodeIcon = nodeClassIcons[node.class] || Server;
-            const statusColor =
-              node.status === 'active'
-                ? 'bg-success'
-                : node.status === 'inactive' || node.status === 'archived'
-                  ? 'bg-destructive'
-                  : node.status === 'pending'
-                    ? 'bg-warning'
-                    : 'bg-muted-foreground';
-
-            return (
-              <motion.div key={node.nodeId} variants={staggerItemVariants}>
-                <Card
-                  className="group transition-all hover:border-foreground/20 hover:bg-muted/60 cursor-pointer h-full"
-                  onClick={() => navigate(`${ROUTES.NODES}/${node.nodeId}`)}
-                >
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className={cn('h-10 w-10 flex items-center justify-center rounded-lg bg-muted', classColors[node.class])}>
-                        <NodeIcon className="h-5 w-5" />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className={cn('h-2.5 w-2.5 rounded-full shrink-0', statusColor)} />
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                            <DropdownMenuItem asChild>
-                              <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
-                                <Eye className="h-4 w-4 mr-2" />
-                                View Details
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setEditingNode(node)}>
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => setArchivingNode(node)}
-                              className="text-destructive"
-                            >
-                              <Archive className="h-4 w-4 mr-2" />
-                              Archive
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-                    <CardTitle className="text-base text-foreground mt-2 truncate">
-                      {node.displayName}
-                    </CardTitle>
-                    <CardDescription className="text-muted-foreground font-mono text-xs truncate">
-                      {node.nodeId}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Type</span>
-                        <Badge
-                          variant="secondary"
-                          className={`text-[10px] ${classColors[node.class]} bg-transparent border border-current`}
-                        >
-                          {node.type} / {node.kind || 'unknown'}
-                        </Badge>
-                      </div>
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        {node.tags?.slice(0, 3).map((tag) => (
-                          <Badge key={tag} variant="outline" className="text-[10px] border-border text-muted-foreground">
-                            {tag}
-                          </Badge>
-                        ))}
-                        {(node.tags?.length ?? 0) > 3 && (
-                          <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
-                            +{(node.tags?.length ?? 0) - 3}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            );
-          })}
-        </motion.div>
-      ) : !isLoading && !error && filteredNodes.length > 0 ? (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <Table className={cn(tableDensity === 'compact' && 'table-compact')}>
-              <TableHeader>
-                <TableRow className="border-border hover:bg-transparent">
-                  {visibleColumns.node && (
-                    <TableHead className="text-muted-foreground">Node</TableHead>
-                  )}
-                  {visibleColumns.class && (
-                    <TableHead className="text-muted-foreground">Class</TableHead>
-                  )}
-                  {visibleColumns.type && (
-                    <TableHead className="text-muted-foreground">Type</TableHead>
-                  )}
-                  {visibleColumns.status && (
-                    <TableHead className="text-muted-foreground">Status</TableHead>
-                  )}
-                  {visibleColumns.lastProfile && (
-                    <TableHead className="text-muted-foreground">Last Profile</TableHead>
-                  )}
-                  <TableHead className="w-[50px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredNodes.map((node) => {
-                  const NodeIcon = nodeClassIcons[node.class] || Server;
-                  const statusVariant =
-                    node.status === 'active'
-                      ? 'online'
-                      : node.status === 'pending'
-                        ? 'pending'
-                        : node.status === 'inactive' || node.status === 'archived'
-                          ? 'offline'
-                          : 'unknown';
-                  return (
-                    <TableRow key={node.nodeId} className="group border-border hover:bg-muted/60 cursor-pointer">
-                      {visibleColumns.node && (
-                        <TableCell>
-                          <Link
-                            to={`${ROUTES.NODES}/${node.nodeId}`}
-                            className="flex items-center gap-3"
-                          >
-                            <div className={cn('h-8 w-8 flex items-center justify-center rounded bg-muted', classColors[node.class])}>
-                              <NodeIcon className="h-4 w-4" />
-                            </div>
-                            <div>
-                              <p className="text-foreground font-medium truncate max-w-[150px]">{node.displayName}</p>
-                              <p className="text-xs text-muted-foreground font-mono">
-                                {node.nodeId}
-                              </p>
-                            </div>
-                          </Link>
-                        </TableCell>
-                      )}
-                      {visibleColumns.class && (
-                        <TableCell>
-                          <Badge variant="secondary" className={`${classColors[node.class]} bg-transparent`}>
-                            {node.class}
-                          </Badge>
-                        </TableCell>
-                      )}
-                      {visibleColumns.type && (
-                        <TableCell className="text-muted-foreground">
-                          {node.type} / {node.kind || 'unknown'}
-                        </TableCell>
-                      )}
-                      {visibleColumns.status && (
-                        <TableCell>
-                          <Badge variant={statusVariant}>
-                            {node.status}
-                          </Badge>
-                        </TableCell>
-                      )}
-                      {visibleColumns.lastProfile && (
-                        <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                          {node.lastProfileAt
-                            ? formatRelativeTime(node.lastProfileAt)
-                            : 'Never'}
-                        </TableCell>
-                      )}
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem asChild>
-                              <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
-                                <Eye className="h-4 w-4 mr-2" />
-                                View Details
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setEditingNode(node)}>
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => setArchivingNode(node)}
-                              className="text-destructive"
-                            >
-                              <Archive className="h-4 w-4 mr-2" />
-                              Archive
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+  return (
+    <>
+      <EntityListPage<NodeSummary>
+        title="Node Explorer"
+        subtitle={`${filteredNodes.length} of ${totalNodes} nodes`}
+        headerAction={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+            <Button
+              onClick={() => {
+                resetForm();
+                setNewApiKey(null);
+                setRegisteredNodeId(null);
+                setShowRegisterForm(true);
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Node
+            </Button>
           </div>
-        </Card>
-      ) : null}
+        }
+        stats={stats}
+        items={filteredNodes}
+        isLoading={isLoading}
+        error={error}
+        onRetry={() => refetch()}
+        filterBar={renderFilterBar()}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        tableDensity={tableDensity}
+        onTableDensityChange={setTableDensity}
+        columns={NODE_COLUMNS}
+        visibleColumns={visibleColumns}
+        onVisibleColumnsChange={setVisibleColumns}
+        emptyIcon={Server}
+        emptyTitle="No nodes found"
+        emptyDescription={
+          hasActiveFilters
+            ? 'Try adjusting your filters'
+            : 'Nodes will appear here once agents report them'
+        }
+        emptyActions={
+          hasActiveFilters ? (
+            <Button variant="outline" onClick={clearFilters}>
+              Clear Filters
+            </Button>
+          ) : undefined
+        }
+        renderGridCard={renderGridCard}
+        renderTableHeader={renderTableHeader}
+        renderTableRow={renderTableRow}
+        renderLoadingSkeleton={renderLoadingSkeleton}
+        gridClassName="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+      />
 
       <Dialog open={showRegisterForm} onOpenChange={setShowRegisterForm}>
         <DialogContent className="sm:max-w-lg">
@@ -914,7 +749,7 @@ export default function NodesPage() {
         onSave={handleEditNode}
         isLoading={updateNodeMutation.isPending}
       />
-    </div>
+    </>
   );
 }
 
