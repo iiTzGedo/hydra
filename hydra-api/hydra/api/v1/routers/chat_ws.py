@@ -171,10 +171,9 @@ class ChatWebSocketHandler:
         system_prompt = self._build_system_prompt(tools)
 
         # Get all messages (thread) for conversation building
-        history_result = await self.chat_service.list_messages(
+        thread, _total = await self.chat_service.list_messages(
             session_id, self.user_id, limit=1000, order="asc"
         )
-        thread = history_result.get("messages", [])
 
         # Build conversation with sliding window and summarization
         provider_type = str(provider_config.get("type", "")).lower()

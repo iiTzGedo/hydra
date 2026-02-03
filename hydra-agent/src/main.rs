@@ -85,6 +85,10 @@ async fn main() -> Result<()> {
             no_start,
         }) => install_service(&install_dir, &config_dir, &log_dir, no_systemd, no_start),
         Some(Commands::Uninstall { purge }) => uninstall_service(purge),
+        Some(Commands::Upgrade(args)) => {
+            let config = load_config(&cli.config)?;
+            cli::upgrade::execute(args, &config, &vault).await
+        }
         None => {
             if is_dev_mode {
                 return dev_mode_run(&cli.config, true).await;

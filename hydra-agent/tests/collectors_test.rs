@@ -264,7 +264,7 @@ fn test_network_dns_config() {
 
 #[test]
 fn test_storage_collector() {
-    let result = StorageCollector::collect();
+    let result = StorageCollector::collect(None);
     assert!(result.is_ok(), "Storage collection should succeed");
 
     let profile = result.unwrap();
@@ -281,7 +281,7 @@ fn test_storage_collector() {
 
 #[test]
 fn test_storage_profile_serialization() {
-    let result = StorageCollector::collect();
+    let result = StorageCollector::collect(None);
     assert!(result.is_ok());
 
     let profile = result.unwrap();
@@ -306,7 +306,7 @@ fn test_storage_profile_serialization() {
 
 #[test]
 fn test_storage_block_device_fields() {
-    let result = StorageCollector::collect();
+    let result = StorageCollector::collect(None);
     assert!(result.is_ok());
 
     let profile = result.unwrap();
@@ -337,7 +337,7 @@ fn test_storage_block_device_fields() {
 
 #[test]
 fn test_storage_filesystem_fields() {
-    let result = StorageCollector::collect();
+    let result = StorageCollector::collect(None);
     assert!(result.is_ok());
 
     let profile = result.unwrap();
@@ -373,7 +373,7 @@ fn test_storage_filesystem_fields() {
 
 #[test]
 fn test_storage_extended_device_info() {
-    let result = StorageCollector::collect();
+    let result = StorageCollector::collect(None);
     assert!(result.is_ok());
 
     let profile = result.unwrap();
@@ -766,7 +766,7 @@ fn test_linux_specific_collection() {
     assert!(hw.cpu.architecture.is_some());
 
     // Storage should include block devices
-    let storage = StorageCollector::collect().unwrap();
+    let storage = StorageCollector::collect(None).unwrap();
     // Most Linux systems have at least one block device
     if !storage.block_devices.is_empty() {
         // Verify extended info collection attempted
@@ -863,7 +863,7 @@ fn test_api_data_contract_network() {
 
 #[test]
 fn test_api_data_contract_storage() {
-    let storage = StorageCollector::collect().unwrap();
+    let storage = StorageCollector::collect(None).unwrap();
     let json = serde_json::to_value(&storage).expect("Should serialize");
 
     // Required API fields

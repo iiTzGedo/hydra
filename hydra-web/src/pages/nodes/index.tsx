@@ -20,6 +20,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { EntityListPage, type StatCard, type ColumnConfig, type TableDensity } from '@/components/common/entity-list-page';
+import { FilterBar, type FilterConfig } from '@/components/common/filter-bar';
 import { type ViewMode } from '@/components/common/view-mode-toggle';
 import { useNodes, useRegisterNode, useUpdateNode, useArchiveNode } from '@/api/nodes';
 import { ConfirmDialog } from '@/components/modals/confirm-dialog';
@@ -58,6 +59,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { getErrorMessage } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import type { NodeKind, NodeClass, NodeType, NodeStatus, NodeSummary, UpdateNodeRequest } from '@/types/node';
 
@@ -75,6 +77,40 @@ const classColors: Record<string, string> = {
   iot: 'text-iot',
 };
 
+const NODE_FILTER_CONFIG: FilterConfig[] = [
+  {
+    type: 'search',
+    key: 'search',
+    placeholder: 'Search by hostname, IP, or tag...',
+    className: 'flex-1',
+  },
+  {
+    type: 'select',
+    key: 'class',
+    label: 'Class',
+    options: [
+      { value: 'compute', label: 'Compute' },
+      { value: 'networking', label: 'Networking' },
+      { value: 'iot', label: 'IoT' },
+    ],
+    allLabel: 'All Classes',
+    className: 'w-[130px]',
+  },
+  {
+    type: 'select',
+    key: 'status',
+    label: 'Status',
+    options: [
+      { value: 'active', label: 'Online' },
+      { value: 'pending', label: 'Warning' },
+      { value: 'inactive', label: 'Offline' },
+      { value: 'archived', label: 'Archived' },
+    ],
+    allLabel: 'All Status',
+    className: 'w-[120px]',
+  },
+];
+
 const NODE_COLUMNS: ColumnConfig[] = [
   { key: 'node', label: 'Node' },
   { key: 'class', label: 'Class' },
@@ -86,9 +122,7 @@ const NODE_COLUMNS: ColumnConfig[] = [
 export default function NodesPage() {
   useDocumentTitle('Node Explorer');
 
-  const [search, setSearch] = useState('');
-  const [classFilter, setClassFilter] = useState<NodeClass | 'all'>('all');
-  const [statusFilter, setStatusFilter] = useState<NodeStatus | 'all'>('all');
+  const [filters, setFilters] = useState({ search: '', class: 'all', status: 'all' });
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [tableDensity, setTableDensity] = useState<TableDensity>('comfortable');
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
@@ -104,9 +138,9 @@ export default function NodesPage() {
   const navigate = useNavigate();
 
   const { data: nodesData, isLoading, error, refetch } = useNodes({
-    search: search || undefined,
-    class: classFilter !== 'all' ? classFilter : undefined,
-    status: statusFilter !== 'all' ? statusFilter : undefined,
+    search: filters.search || undefined,
+    class: filters.class !== 'all' ? (filters.class as NodeClass) : undefined,
+    status: filters.status !== 'all' ? (filters.status as NodeStatus) : undefined,
   });
   const registerMutation = useRegisterNode();
   const updateNodeMutation = useUpdateNode();
@@ -189,8 +223,7 @@ export default function NodesPage() {
       setNewApiKey(result.apiKey);
       setRegisteredNodeId(result.nodeId);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setFormError(error.response?.data?.detail || 'Failed to register node');
+      setFormError(getErrorMessage(err, 'Failed to register node'));
     }
   };
 
@@ -201,8 +234,7 @@ export default function NodesPage() {
       toast.success(`Node "${archivingNode.displayName}" archived successfully`);
       setArchivingNode(null);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      toast.error(error.response?.data?.detail || 'Failed to archive node');
+      toast.error(getErrorMessage(err, 'Failed to archive node'));
     }
   }, [archivingNode, archiveNodeMutation]);
 
@@ -213,63 +245,23 @@ export default function NodesPage() {
       toast.success(`Node "${editingNode.displayName}" updated successfully`);
       setEditingNode(null);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      toast.error(error.response?.data?.detail || 'Failed to update node');
+      toast.error(getErrorMessage(err, 'Failed to update node'));
     }
   }, [editingNode, updateNodeMutation]);
 
-  const hasActiveFilters = search || classFilter !== 'all' || statusFilter !== 'all';
+  const hasActiveFilters = filters.search || filters.class !== 'all' || filters.status !== 'all';
 
   const clearFilters = useCallback(() => {
-    setSearch('');
-    setClassFilter('all');
-    setStatusFilter('all');
+    setFilters({ search: '', class: 'all', status: 'all' });
   }, []);
 
   const renderFilterBar = () => (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-      <div className="relative flex-1">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search by hostname, IP, or tag..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9 bg-background"
-        />
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Filter className="h-4 w-4 text-muted-foreground hidden sm:block" />
-        <Select
-          value={classFilter}
-          onValueChange={(v) => setClassFilter(v as NodeClass | 'all')}
-        >
-          <SelectTrigger className="w-[130px]">
-            <SelectValue placeholder="Class" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Classes</SelectItem>
-            <SelectItem value="compute">Compute</SelectItem>
-            <SelectItem value="networking">Networking</SelectItem>
-            <SelectItem value="iot">IoT</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={statusFilter}
-          onValueChange={(v) => setStatusFilter(v as NodeStatus | 'all')}
-        >
-          <SelectTrigger className="w-[120px]">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="active">Online</SelectItem>
-            <SelectItem value="pending">Warning</SelectItem>
-            <SelectItem value="inactive">Offline</SelectItem>
-            <SelectItem value="archived">Archived</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-    </div>
+    <FilterBar
+      filters={filters}
+      onFilterChange={(key, value) => setFilters(f => ({ ...f, [key]: value }))}
+      onClearAll={clearFilters}
+      config={NODE_FILTER_CONFIG}
+    />
   );
 
   const renderGridCard = (node: NodeSummary) => {

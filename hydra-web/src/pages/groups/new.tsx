@@ -6,6 +6,7 @@ import { useCreateGroup } from '@/api/groups';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { getErrorMessage } from '@/lib/api-client';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import type { GroupEntityType, GroupSelectors } from '@/types/group';
 
@@ -118,8 +119,7 @@ export default function NewGroupPage() {
 
       navigate(ROUTES.GROUPS);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || 'Failed to create group');
+      setError(getErrorMessage(err, 'Failed to create group'));
     }
   };
 

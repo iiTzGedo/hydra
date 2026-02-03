@@ -17,14 +17,14 @@ interface StatusItemProps {
 
 function StatusItem({ label, count, icon, color, bgColor }: StatusItemProps) {
   return (
-    <div className="flex items-center justify-between rounded-lg p-3 hover:bg-muted/60 transition-colors">
-      <div className="flex items-center gap-3">
-        <div className={cn('rounded-lg p-2', bgColor)}>
+    <div className="flex items-center justify-between rounded-lg px-2.5 py-1.5 hover:bg-muted/60 transition-colors">
+      <div className="flex items-center gap-2">
+        <div className={cn('rounded-md p-1.5', bgColor)}>
           {icon}
         </div>
-        <span className="font-medium text-foreground">{label}</span>
+        <span className="text-sm font-medium text-foreground">{label}</span>
       </div>
-      <span className={cn('text-2xl font-bold', color)}>{count}</span>
+      <span className={cn('text-lg font-bold', color)}>{count}</span>
     </div>
   );
 }
@@ -82,33 +82,33 @@ export function ServiceSummary() {
 
   return (
     <Card className="bg-card border-border">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-foreground">Service Status</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between pb-1 pt-4 px-4">
+        <CardTitle className="text-base text-foreground">Service Status</CardTitle>
         <Link to={ROUTES.SERVICES}>
-          <Button variant="outline" size="sm">
+          <Button variant="ghost" size="sm" className="text-muted-foreground h-7 px-2 text-xs">
             View all
-            <ArrowRight className="ml-2 h-4 w-4" />
+            <ArrowRight className="ml-1 h-3 w-3" />
           </Button>
         </Link>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 pb-4 pt-1">
         {isLoading ? (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
+              <div key={i} className="h-9 animate-pulse rounded-lg bg-muted" />
             ))}
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1">
             {statuses.map((status) => (
               <StatusItem key={status.label} {...status} />
             ))}
           </div>
         )}
 
-        <div className="mt-4 border-t border-border pt-4">
-          <h4 className="mb-3 text-sm font-medium text-muted-foreground">By Runtime</h4>
-          <div className="flex flex-wrap gap-2">
+        <div className="mt-3 border-t border-border pt-3">
+          <h4 className="mb-2 text-xs font-medium text-muted-foreground">By Runtime</h4>
+          <div className="flex flex-wrap gap-1.5">
             {['docker', 'systemd', 'kubernetes', 'podman'].map((runtime) => {
               const count = servicesData?.items?.filter((s) => s.runtime === runtime).length ?? 0;
               if (count === 0) return null;
@@ -116,7 +116,7 @@ export function ServiceSummary() {
                 <motion.div
                   key={runtime}
                   whileHover={{ scale: 1.05 }}
-                  className="rounded-full bg-muted px-3 py-1 text-sm"
+                  className="rounded-full bg-muted px-2.5 py-0.5 text-xs"
                 >
                   <span className="font-medium text-foreground">{runtime}</span>
                   <span className="ml-1 text-muted-foreground">({count})</span>

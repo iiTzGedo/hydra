@@ -55,12 +55,12 @@ async def list_users(
     if current_user.get("type") == "agent" or current_user.get("role") == Role.AGENT.value:
         raise AuthorizationError()
 
-    result = await users_service.list_users(limit=limit, offset=offset)
+    users, total = await users_service.list_users(limit=limit, offset=offset)
     return UserListResponse(
-        users=result["users"],
-        total=result["total"],
-        limit=result["limit"],
-        offset=result["offset"],
+        users=users,
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -90,9 +90,9 @@ async def list_my_sub_accounts(
         raise AuthorizationError()
 
     user_id = current_user.get("user_id")
-    result = await users_service.list_sub_accounts(user_id)
+    sub_accounts, total = await users_service.list_sub_accounts(user_id)
     return SubAccountListResponse(
-        parent_user_id=result["parent_user_id"],
+        parent_user_id=user_id,
         sub_accounts=[
             {
                 "user_id": sub["user_id"],
@@ -100,9 +100,9 @@ async def list_my_sub_accounts(
                 "role": Role(sub["role"]),
                 "created_at": sub["created_at"],
             }
-            for sub in result["sub_accounts"]
+            for sub in sub_accounts
         ],
-        total=result["total"],
+        total=total,
     )
 
 
@@ -136,9 +136,9 @@ async def list_sub_accounts(
     if current_user.get("user_id") != userId and current_user.get("role") != Role.ADMIN.value:
         raise AuthorizationError()
 
-    result = await users_service.list_sub_accounts(userId)
+    sub_accounts, total = await users_service.list_sub_accounts(userId)
     return SubAccountListResponse(
-        parent_user_id=result["parent_user_id"],
+        parent_user_id=userId,
         sub_accounts=[
             {
                 "user_id": sub["user_id"],
@@ -146,9 +146,9 @@ async def list_sub_accounts(
                 "role": Role(sub["role"]),
                 "created_at": sub["created_at"],
             }
-            for sub in result["sub_accounts"]
+            for sub in sub_accounts
         ],
-        total=result["total"],
+        total=total,
     )
 
 

@@ -3,6 +3,7 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, KeyRound, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useResetPassword } from '@/api/auth';
+import { getErrorMessage } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { fadeInVariants, scaleVariants } from '@/lib/animations';
@@ -44,8 +45,7 @@ export default function ResetPasswordPage() {
       await resetPasswordMutation.mutateAsync({ token, newPassword: password });
       setSuccess(true);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || 'Failed to reset password. The link may have expired.');
+      setError(getErrorMessage(err, 'Failed to reset password. The link may have expired.'));
     }
   };
 

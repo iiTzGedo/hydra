@@ -148,9 +148,7 @@ struct ApiErrorDetail {
 
 /// Execute the node command
 pub async fn execute(args: &NodeArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
-    // Handle --update / -u option (shorthand for update subcommand)
     if let Some(update_value) = &args.update {
-        // Parse KEY=VALUE format
         if let Some((key, value)) = update_value.split_once('=') {
             return update_node_field(config, vault, key.trim(), value.trim()).await;
         } else {
@@ -158,7 +156,6 @@ pub async fn execute(args: &NodeArgs, config: &AgentConfig, vault: &Vault) -> Re
         }
     }
 
-    // Handle subcommand
     match &args.command {
         Some(NodeCommand::Register {
             token,
@@ -191,7 +188,6 @@ pub async fn execute(args: &NodeArgs, config: &AgentConfig, vault: &Vault) -> Re
             update_node(config, vault, display_name.as_deref(), tags.as_deref()).await
         }
         None => {
-            // No subcommand - show node status by default
             show_status(vault)
         }
     }
@@ -232,7 +228,6 @@ async fn register_node(
 ) -> Result<()> {
     let actual_node_id = node_id.unwrap_or(&config.node.node_id);
 
-    // Check if already registered locally
     if vault.has_node_registration() && !force {
         let reg = vault.load_node_registration()?.unwrap();
 
@@ -271,7 +266,6 @@ async fn register_node(
         }
     }
 
-    // Build request from config and overrides
     let actual_class = class.unwrap_or(&config.node.class);
     let actual_node_type = node_type.unwrap_or(&config.node.node_type);
     let actual_kind = kind.map(String::from).or_else(|| config.node.kind.clone());
@@ -307,12 +301,10 @@ async fn register_node(
 
     debug!("Sending node registration request to {}", register_url);
 
-    // Get authentication header
     let auth = vault.get_auth_header()?;
 
     let mut req_builder = client.post(&register_url).json(&request);
 
-    // Add auth header if available, or use token
     if let Some(t) = token {
         req_builder = req_builder.header("X-Registration-Token", t);
     } else if let Some((header_name, header_value)) = auth {
@@ -373,7 +365,6 @@ async fn register_node(
         .await
         .context("Failed to parse registration response")?;
 
-    // Save registration to vault
     let registration = NodeRegistrationData {
         node_id: reg_response.node_id.clone(),
         registered_at: reg_response.registered_at.clone(),
@@ -504,7 +495,6 @@ async fn show_info(config: &AgentConfig, vault: &Vault) -> Result<()> {
 
     let info_url = format!("{}/nodes/{}", config.api.url, reg.node_id);
 
-    // Get authentication header
     let auth = vault
         .get_auth_header()?
         .ok_or_else(|| anyhow!("No authentication available. Run 'hydra-agent login' first."))?;
@@ -583,7 +573,6 @@ async fn update_node(
 
     let update_url = format!("{}/nodes/{}", config.api.url, reg.node_id);
 
-    // Get authentication header
     let auth = vault
         .get_auth_header()?
         .ok_or_else(|| anyhow!("No authentication available. Run 'hydra-agent login' first."))?;

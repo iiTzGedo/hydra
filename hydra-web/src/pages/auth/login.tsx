@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Eye, EyeOff, LogIn, Loader2 } from 'lucide-react';
 import { useLogin } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth-store';
+import { getErrorMessage } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { fadeInVariants, scaleVariants } from '@/lib/animations';
@@ -30,8 +31,7 @@ export default function LoginPage() {
       setAuth(response.user, response.accessToken, response.refreshToken);
       navigate(from, { replace: true });
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || 'Invalid username or password');
+      setError(getErrorMessage(err, 'Invalid username or password'));
     }
   };
 

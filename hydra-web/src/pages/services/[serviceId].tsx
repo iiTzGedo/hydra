@@ -17,6 +17,7 @@ import { useService } from '@/api/services';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, STATUS_COLORS, SERVICE_RUNTIME_LABELS } from '@/lib/constants';
 import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
+import { getErrorMessage } from '@/lib/api-client';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 
 export default function ServiceDetailPage() {
@@ -77,8 +78,8 @@ export default function ServiceDetailPage() {
         },
       });
       toast.success(`Command queued: ${action} ${service.displayName || service.name}`);
-    } catch (error) {
-      toast.error(`Failed to ${action} service`);
+    } catch (err) {
+      toast.error(getErrorMessage(err, `Failed to ${action} service`));
     }
   };
 

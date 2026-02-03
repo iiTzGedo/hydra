@@ -17,6 +17,7 @@ import { getSelectorEntries, getSelectorDisplayValue } from '@/types/group';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, NODE_CLASS_COLORS } from '@/lib/constants';
 import { cn, formatDate } from '@/lib/utils';
+import { getErrorMessage } from '@/lib/api-client';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -98,7 +99,7 @@ export default function GroupDetailPage() {
       setShowEditDialog(false);
       setSearchParam('edit');
     } catch (err) {
-      toast.error('Failed to update group');
+      toast.error(getErrorMessage(err, 'Failed to update group'));
     }
   };
 
@@ -111,7 +112,7 @@ export default function GroupDetailPage() {
       setSearchParam('delete');
       navigate(ROUTES.GROUPS);
     } catch (err) {
-      toast.error('Failed to delete group');
+      toast.error(getErrorMessage(err, 'Failed to delete group'));
     }
   };
 

@@ -1,6 +1,7 @@
 """Global search service."""
 
 import structlog
+from pymongo.errors import OperationFailure
 
 from hydra.api.v1.models.search import SearchEntityType
 from hydra.db.mongodb import MongoDB
@@ -111,8 +112,11 @@ class SearchService:
                     "tags": doc.get("tags", []),
                     "score": doc.get("score"),
                 })
+        except OperationFailure as e:
+            logger.warning("text_search_failed", collection="nodes", error=str(e), error_type="operation_failure")
+            items = await self._regex_search_nodes(query, tags, limit)
         except Exception as e:
-            logger.warning("text_search_failed", collection="nodes", error=str(e))
+            logger.error("text_search_unexpected_error", collection="nodes", error=str(e), error_type=type(e).__name__)
             items = await self._regex_search_nodes(query, tags, limit)
 
         total = await self.db.nodes.count_documents(search_query) if search_query else len(items)
@@ -202,8 +206,11 @@ class SearchService:
                     "tags": doc.get("tags", []),
                     "score": doc.get("score"),
                 })
+        except OperationFailure as e:
+            logger.warning("text_search_failed", collection="services", error=str(e), error_type="operation_failure")
+            items = await self._regex_search_services(query, tags, limit)
         except Exception as e:
-            logger.warning("text_search_failed", collection="services", error=str(e))
+            logger.error("text_search_unexpected_error", collection="services", error=str(e), error_type=type(e).__name__)
             items = await self._regex_search_services(query, tags, limit)
 
         total = await self.db.services.count_documents(search_query) if search_query else len(items)

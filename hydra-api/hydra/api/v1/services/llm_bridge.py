@@ -269,6 +269,9 @@ class LLMBridge:
 
             except httpx.TimeoutException:
                 yield {"type": "error", "error": "Request timed out"}
+            except httpx.ConnectError as e:
+                logger.warning(f"{provider_label.lower()}_connect_error", error=str(e))
+                yield {"type": "error", "error": f"Cannot connect to {provider_label} API"}
             except Exception as e:
                 logger.exception(f"{provider_label.lower()}_stream_error", error=str(e))
                 yield {"type": "error", "error": str(e)}
@@ -495,6 +498,9 @@ class LLMBridge:
 
             except httpx.TimeoutException:
                 yield {"type": "error", "error": "Request timed out"}
+            except httpx.ConnectError as e:
+                logger.warning("anthropic_connect_error", error=str(e))
+                yield {"type": "error", "error": "Cannot connect to Anthropic API"}
             except Exception as e:
                 logger.exception("anthropic_stream_error", error=str(e))
                 yield {"type": "error", "error": str(e)}
@@ -695,6 +701,9 @@ class LLMBridge:
 
             except httpx.TimeoutException:
                 yield {"type": "error", "error": "Request timed out"}
+            except httpx.ConnectError as e:
+                logger.warning("ollama_connect_error", error=str(e))
+                yield {"type": "error", "error": "Cannot connect to Ollama server"}
             except Exception as e:
                 logger.exception("ollama_stream_error", error=str(e))
                 yield {"type": "error", "error": str(e)}

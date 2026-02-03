@@ -20,6 +20,7 @@ import { ServiceSummary } from '@/types/service';
 import { ServiceFilterState } from './service-filters';
 import { ROUTES, STATUS_COLORS, SERVICE_RUNTIME_LABELS } from '@/lib/constants';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { getErrorMessage } from '@/lib/api-client';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 
 interface ServiceListProps {
@@ -160,8 +161,8 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
         },
       });
       toast.success(`Command queued: ${action} ${service.displayName || service.name}`);
-    } catch (error) {
-      toast.error(`Failed to ${action} service`);
+    } catch (err) {
+      toast.error(getErrorMessage(err, `Failed to ${action} service`));
     } finally {
       setMenuOpen(false);
     }

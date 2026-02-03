@@ -22,6 +22,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { getErrorMessage } from '@/lib/api-client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -153,7 +154,7 @@ export default function NodeDetailPage() {
       setShowEditDialog(false);
       setSearchParam('edit');
     } catch (err) {
-      toast.error('Failed to update node');
+      toast.error(getErrorMessage(err, 'Failed to update node'));
     }
   };
 
@@ -166,7 +167,7 @@ export default function NodeDetailPage() {
       setSearchParam('archive');
       navigate(ROUTES.NODES);
     } catch (err) {
-      toast.error('Failed to archive node');
+      toast.error(getErrorMessage(err, 'Failed to archive node'));
     }
   };
 

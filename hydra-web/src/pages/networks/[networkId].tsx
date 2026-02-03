@@ -15,6 +15,7 @@ import { useDeleteNetwork, useNetwork, useNetworkNodes, useUpdateNetwork } from 
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, NETWORK_TYPE_LABELS, NODE_CLASS_COLORS } from '@/lib/constants';
 import { cn, formatDate } from '@/lib/utils';
+import { getErrorMessage } from '@/lib/api-client';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -104,7 +105,7 @@ export default function NetworkDetailPage() {
       setShowEditDialog(false);
       setSearchParam('edit');
     } catch (err) {
-      toast.error('Failed to update network');
+      toast.error(getErrorMessage(err, 'Failed to update network'));
     }
   };
 
@@ -117,7 +118,7 @@ export default function NetworkDetailPage() {
       setSearchParam('delete');
       navigate(ROUTES.NETWORKS);
     } catch (err) {
-      toast.error('Failed to delete network');
+      toast.error(getErrorMessage(err, 'Failed to delete network'));
     }
   };
 

@@ -797,7 +797,7 @@ function ServiceItem({ service }: { service: ServiceSummary; nodeId: string }) {
 
   return (
     <Link
-      to={`${ROUTES.SERVICES}/${service.serviceId}`}
+      to={`${ROUTES.SERVICES}/${service.id || service.serviceId}`}
       className="flex items-center justify-between rounded-lg border p-2 hover:bg-muted/50 transition-colors"
     >
       <div className="flex items-center gap-2 min-w-0">

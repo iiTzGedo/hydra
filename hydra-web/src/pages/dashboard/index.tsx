@@ -61,19 +61,19 @@ export default function DashboardPage() {
           <div className="lg:col-span-2">
             <CapacityOverview />
           </div>
-          <Widget id="alerts">
-            <RecentActivity />
-          </Widget>
+          <div className="flex flex-col gap-6">
+            <Widget id="alerts">
+              <RecentActivity />
+            </Widget>
+            <Widget id="services">
+              <ServiceSummary />
+            </Widget>
+          </div>
         </Widget>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Widget id="services">
-            <ServiceSummary />
-          </Widget>
-          <Widget id="topology-mini">
-            <MiniTopology />
-          </Widget>
-        </div>
+        <Widget id="topology-mini">
+          <MiniTopology />
+        </Widget>
 
         <Widget id="activity">
           <NodeStatusGrid />

@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, UserPlus, Loader2, CheckCircle } from 'lucide-react';
 import { useRegister, useRegisterWithToken } from '@/api/auth';
+import { getErrorMessage } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { fadeInVariants, scaleVariants } from '@/lib/animations';
@@ -61,8 +62,7 @@ export default function RegisterPage() {
       }
       setSuccess(true);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || 'Registration failed. Please try again.');
+      setError(getErrorMessage(err, 'Registration failed. Please try again.'));
     }
   };
 

@@ -49,7 +49,7 @@ export function RecentActivity() {
             <p className="text-sm text-muted-foreground">No recent activity available</p>
           </div>
         ) : (
-          <ScrollArea className="h-[300px] pr-4">
+          <ScrollArea className="h-[220px] pr-4">
             <div className="space-y-4">
               {activity.map((item) => (
                 <div key={item.id} className="flex gap-3">

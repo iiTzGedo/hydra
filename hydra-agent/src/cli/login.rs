@@ -102,32 +102,26 @@ struct ApiErrorDetail {
 
 /// Execute the login command
 pub async fn execute(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
-    // Handle logout
     if args.logout {
         return logout(vault);
     }
 
-    // Handle status check
     if args.status {
         return show_status(vault);
     }
 
-    // Handle refresh
     if args.refresh {
         return refresh_session(config, vault).await;
     }
 
-    // Handle agent login (recovery mode)
     if args.agent {
         return login_with_agent_credentials(config, vault, args.force).await;
     }
 
-    // Check if agent has credentials and prompt user (if no username provided)
     if args.username.is_none() && vault.has_agent_credentials() {
         return prompt_login_choice(args, config, vault).await;
     }
 
-    // Perform normal user login
     login_user(args, config, vault).await
 }
 
@@ -154,7 +148,6 @@ async fn prompt_login_choice(args: &LoginArgs, config: &AgentConfig, vault: &Vau
             login_with_agent_credentials(config, vault, args.force).await
         }
         "u" | "user" | "" => {
-            // Default to user login
             login_user(args, config, vault).await
         }
         _ => {
@@ -168,7 +161,6 @@ async fn login_with_agent_credentials(config: &AgentConfig, vault: &Vault, force
     let creds = vault.load_agent_credentials()?
         .ok_or_else(|| anyhow!("No agent credentials found in vault. Register first with 'hydra-agent register'."))?;
 
-    // Check if we already have a valid (non-expired) API key
     let has_valid_api_key = vault.has_api_key() && !vault.is_api_key_expired()?;
 
     if has_valid_api_key && !force {
@@ -237,10 +229,8 @@ async fn login_with_agent_credentials(config: &AgentConfig, vault: &Vault, force
 
     info!("Agent logged in successfully, creating API key...");
 
-    // Create API key for the agent (only reached if API key is missing or expired)
     let api_key = create_agent_api_key(&client, config, &creds.username, &login_response.access_token).await?;
 
-    // Save API key to vault
     let api_key_data = ApiKeyData {
         api_key: api_key.key,
         api_key_id: api_key.key_id,
@@ -339,7 +329,6 @@ async fn create_agent_api_key(
 
 /// Perform user login with username/password
 async fn login_user(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
-    // Get username - prompt if not provided
     let username = match &args.username {
         Some(u) => u.clone(),
         None => {
@@ -355,7 +344,6 @@ async fn login_user(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Re
         return Err(anyhow!("Username is required"));
     }
 
-    // Get password - prompt securely if not provided
     let password = match &args.password {
         Some(p) => p.clone(),
         None => {
@@ -408,10 +396,8 @@ async fn login_user(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Re
     let login_response: LoginResponse = response.json().await
         .context("Failed to parse login response")?;
 
-    // Calculate expiration timestamp
     let expires_at = chrono::Utc::now().timestamp() + login_response.expires_in as i64;
 
-    // Save session to vault
     let session = SessionData {
         access_token: login_response.access_token,
         refresh_token: login_response.refresh_token,
@@ -463,7 +449,6 @@ async fn refresh_session(config: &AgentConfig, vault: &Vault) -> Result<()> {
         .context("Failed to send refresh request")?;
 
     if !response.status().is_success() {
-        // Session refresh failed - clear session and prompt for re-login
         vault.delete_session()?;
         return Err(anyhow!(
             "Session refresh failed. Session has been cleared. Please login again."
@@ -473,10 +458,8 @@ async fn refresh_session(config: &AgentConfig, vault: &Vault) -> Result<()> {
     let refresh_response: RefreshResponse = response.json().await
         .context("Failed to parse refresh response")?;
 
-    // Calculate new expiration timestamp
     let expires_at = chrono::Utc::now().timestamp() + refresh_response.expires_in as i64;
 
-    // Update session with new access token
     let updated_session = SessionData {
         access_token: refresh_response.access_token,
         refresh_token: session.refresh_token,

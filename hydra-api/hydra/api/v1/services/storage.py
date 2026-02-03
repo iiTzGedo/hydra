@@ -285,8 +285,11 @@ class S3StorageService(BaseStorageService):
             logger.info("s3_versions_found", target=target, version_count=len(versions))
             return versions[:15]  # Return max 15 versions
 
+        except self._s3_error as e:
+            logger.error("s3_list_versions_failed", target=target, prefix=prefix, error=str(e), error_type="s3_error")
+            raise StorageUnavailableError(f"Failed to list versions: {e}")
         except Exception as e:
-            logger.error("s3_list_versions_failed", target=target, prefix=prefix, error=str(e))
+            logger.error("s3_list_versions_unexpected_error", target=target, prefix=prefix, error=str(e), error_type=type(e).__name__)
             raise StorageUnavailableError(f"Failed to list versions: {e}")
 
     async def get_latest_version(self, target: str | None = None) -> str | None:
@@ -381,8 +384,11 @@ class S3BundleStorageService(S3StorageService):
             logger.info("s3_bundle_versions_found", version_count=len(versions))
             return versions[:15]
 
+        except self._s3_error as e:
+            logger.error("s3_list_bundle_versions_failed", prefix=prefix, error=str(e), error_type="s3_error")
+            raise StorageUnavailableError(f"Failed to list bundle versions: {e}")
         except Exception as e:
-            logger.error("s3_list_bundle_versions_failed", prefix=prefix, error=str(e))
+            logger.error("s3_list_bundle_versions_unexpected_error", prefix=prefix, error=str(e), error_type=type(e).__name__)
             raise StorageUnavailableError(f"Failed to list bundle versions: {e}")
 
     async def get_latest_version(self, target: str | None = None) -> str | None:
@@ -451,8 +457,14 @@ class LocalBundleStorageService(BaseStorageService):
 
         except FileNotFoundError:
             raise ObjectNotFoundError(key)
+        except PermissionError as e:
+            logger.error("local_get_object_permission_denied", key=key, error=str(e))
+            raise StorageUnavailableError(f"Permission denied reading file: {e}")
+        except OSError as e:
+            logger.error("local_get_object_failed", key=key, error=str(e), error_type="os_error")
+            raise StorageUnavailableError(f"Failed to read file: {e}")
         except Exception as e:
-            logger.error("local_get_object_failed", key=key, error=str(e))
+            logger.error("local_get_object_unexpected_error", key=key, error=str(e), error_type=type(e).__name__)
             raise StorageUnavailableError(f"Failed to read file: {e}")
 
     async def get_object_metadata(self, key: str) -> dict:
@@ -468,8 +480,14 @@ class LocalBundleStorageService(BaseStorageService):
                 "size": stat.st_size,
                 "last_modified": stat.st_mtime,
             }
+        except PermissionError as e:
+            logger.error("local_get_metadata_permission_denied", key=key, error=str(e))
+            raise StorageUnavailableError(f"Permission denied reading metadata: {e}")
+        except OSError as e:
+            logger.error("local_get_metadata_failed", key=key, error=str(e), error_type="os_error")
+            raise StorageUnavailableError(f"Failed to get metadata: {e}")
         except Exception as e:
-            logger.error("local_get_metadata_failed", key=key, error=str(e))
+            logger.error("local_get_metadata_unexpected_error", key=key, error=str(e), error_type=type(e).__name__)
             raise StorageUnavailableError(f"Failed to get metadata: {e}")
 
     async def list_versions(self, target: str | None = None) -> list[dict]:
@@ -511,8 +529,14 @@ class LocalBundleStorageService(BaseStorageService):
             logger.info("local_bundle_versions_found", version_count=len(versions))
             return versions[:15]
 
+        except PermissionError as e:
+            logger.error("local_list_versions_permission_denied", path=str(bundles_path), error=str(e))
+            raise StorageUnavailableError(f"Permission denied listing versions: {e}")
+        except OSError as e:
+            logger.error("local_list_versions_failed", path=str(bundles_path), error=str(e), error_type="os_error")
+            raise StorageUnavailableError(f"Failed to list local versions: {e}")
         except Exception as e:
-            logger.error("local_list_versions_failed", path=str(bundles_path), error=str(e))
+            logger.error("local_list_versions_unexpected_error", path=str(bundles_path), error=str(e), error_type=type(e).__name__)
             raise StorageUnavailableError(f"Failed to list local versions: {e}")
 
     async def get_latest_version(self, target: str | None = None) -> str | None:

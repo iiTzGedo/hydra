@@ -372,12 +372,14 @@ class MCPService:
                         tools = data
                     elif isinstance(data, dict) and "tools" in data:
                         tools = data["tools"]
+            except httpx.TimeoutException:
+                logger.warning("mcp_tools_fetch_failed", server_id=server_id, error="Connection timed out", error_type="timeout")
+            except httpx.ConnectError:
+                logger.warning("mcp_tools_fetch_failed", server_id=server_id, error="Cannot connect to server", error_type="connection")
+            except httpx.HTTPStatusError as e:
+                logger.warning("mcp_tools_fetch_failed", server_id=server_id, error=str(e), error_type="http_status")
             except Exception as e:
-                logger.warning(
-                    "mcp_tools_fetch_failed",
-                    server_id=server_id,
-                    error=str(e),
-                )
+                logger.error("mcp_tools_fetch_unexpected_error", server_id=server_id, error=str(e), error_type=type(e).__name__)
 
         return {
             "server_id": server_id,
@@ -432,12 +434,14 @@ class MCPService:
                         resources = data
                     elif isinstance(data, dict) and "resources" in data:
                         resources = data["resources"]
+            except httpx.TimeoutException:
+                logger.warning("mcp_resources_fetch_failed", server_id=server_id, error="Connection timed out", error_type="timeout")
+            except httpx.ConnectError:
+                logger.warning("mcp_resources_fetch_failed", server_id=server_id, error="Cannot connect to server", error_type="connection")
+            except httpx.HTTPStatusError as e:
+                logger.warning("mcp_resources_fetch_failed", server_id=server_id, error=str(e), error_type="http_status")
             except Exception as e:
-                logger.warning(
-                    "mcp_resources_fetch_failed",
-                    server_id=server_id,
-                    error=str(e),
-                )
+                logger.error("mcp_resources_fetch_unexpected_error", server_id=server_id, error=str(e), error_type=type(e).__name__)
 
         return {
             "server_id": server_id,
@@ -592,12 +596,14 @@ class MCPService:
                         prompts = data
                     elif isinstance(data, dict) and "prompts" in data:
                         prompts = data["prompts"]
+            except httpx.TimeoutException:
+                logger.warning("mcp_prompts_fetch_failed", server_id=server_id, error="Connection timed out", error_type="timeout")
+            except httpx.ConnectError:
+                logger.warning("mcp_prompts_fetch_failed", server_id=server_id, error="Cannot connect to server", error_type="connection")
+            except httpx.HTTPStatusError as e:
+                logger.warning("mcp_prompts_fetch_failed", server_id=server_id, error=str(e), error_type="http_status")
             except Exception as e:
-                logger.warning(
-                    "mcp_prompts_fetch_failed",
-                    server_id=server_id,
-                    error=str(e),
-                )
+                logger.error("mcp_prompts_fetch_unexpected_error", server_id=server_id, error=str(e), error_type=type(e).__name__)
 
         return {
             "server_id": server_id,
@@ -640,11 +646,14 @@ class MCPService:
                         prompts = data
                     elif isinstance(data, dict) and "prompts" in data:
                         prompts = data["prompts"]
+            except httpx.TimeoutException:
+                logger.warning("hydra_mcp_prompts_fetch_failed", error="Connection timed out", error_type="timeout")
+            except httpx.ConnectError:
+                logger.warning("hydra_mcp_prompts_fetch_failed", error="Cannot connect to Hydra MCP", error_type="connection")
+            except httpx.HTTPStatusError as e:
+                logger.warning("hydra_mcp_prompts_fetch_failed", error=str(e), error_type="http_status")
             except Exception as e:
-                logger.warning(
-                    "hydra_mcp_prompts_fetch_failed",
-                    error=str(e),
-                )
+                logger.error("hydra_mcp_prompts_fetch_unexpected_error", error=str(e), error_type=type(e).__name__)
 
         return {
             "server_id": "hydra-mcp",
@@ -687,11 +696,14 @@ class MCPService:
                         tools = data
                     elif isinstance(data, dict) and "tools" in data:
                         tools = data["tools"]
+            except httpx.TimeoutException:
+                logger.warning("hydra_mcp_tools_fetch_failed", error="Connection timed out", error_type="timeout")
+            except httpx.ConnectError:
+                logger.warning("hydra_mcp_tools_fetch_failed", error="Cannot connect to Hydra MCP", error_type="connection")
+            except httpx.HTTPStatusError as e:
+                logger.warning("hydra_mcp_tools_fetch_failed", error=str(e), error_type="http_status")
             except Exception as e:
-                logger.warning(
-                    "hydra_mcp_tools_fetch_failed",
-                    error=str(e),
-                )
+                logger.error("hydra_mcp_tools_fetch_unexpected_error", error=str(e), error_type=type(e).__name__)
 
         return {
             "server_id": "hydra-mcp",

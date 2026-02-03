@@ -83,15 +83,15 @@ async def list_configs(
     """
     _check_not_agent(current_user, "read")
 
-    result = await ai_service.list_configs(
+    configs, total = await ai_service.list_configs(
         user_id=current_user["user_id"],
         limit=limit,
         offset=offset,
     )
 
     return LLMConfigListResponse(
-        configs=[LLMConfigResponse(**c) for c in result["configs"]],
-        total=result["total"],
+        configs=[LLMConfigResponse(**c) for c in configs],
+        total=total,
     )
 
 

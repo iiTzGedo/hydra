@@ -1,6 +1,10 @@
 import { Link } from 'react-router-dom';
+import { useQueries } from '@tanstack/react-query';
 import { Network, Globe } from 'lucide-react';
-import { useNetworks } from '@/api/networks';
+import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-client';
+import type { ApiResponse } from '@/types/api';
+import type { Network as NetworkType } from '@/types/network';
 import type { Node } from '@/types/node';
 import { ROUTES, NETWORK_TYPE_LABELS } from '@/lib/constants';
 import { EmptyState } from '@/components/common/empty-state';
@@ -12,12 +16,29 @@ interface NetworksTabProps {
 }
 
 export function NetworksTab({ node }: NetworksTabProps) {
-  // Fetch networks that this node belongs to
-  const { data: networksData, isLoading } = useNetworks({
-    limit: 100, // Fetch enough to cover all node networks
+  const networkIds = node.networkIds ?? [];
+
+  // Fetch each network individually instead of fetching all and filtering
+  const networkQueries = useQueries({
+    queries: networkIds.map((networkId) => ({
+      queryKey: queryKeys.networks.detail(networkId),
+      queryFn: async () => {
+        const response = await apiClient.get<ApiResponse<NetworkType>>(
+          `/networks/${encodeURIComponent(networkId)}`
+        );
+        return response.data.data;
+      },
+      enabled: !!networkId,
+      staleTime: 5 * 60 * 1000,
+    })),
   });
 
-  if (!node.networkIds || node.networkIds.length === 0) {
+  const isLoading = networkQueries.some((q) => q.isLoading);
+  const networks = networkQueries
+    .map((q) => q.data)
+    .filter(Boolean) as NetworkType[];
+
+  if (networkIds.length === 0) {
     return (
       <EmptyState
         icon={Globe}
@@ -31,16 +52,11 @@ export function NetworksTab({ node }: NetworksTabProps) {
     );
   }
 
-  // Find network details for this node's networkIds
-  const nodeNetworks = networksData?.items?.filter(n =>
-    node.networkIds.includes(n.networkId)
-  ) ?? [];
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {node.networkIds.length} network{node.networkIds.length !== 1 ? 's' : ''}
+          {networkIds.length} network{networkIds.length !== 1 ? 's' : ''}
         </p>
         <Link
           to={ROUTES.NETWORKS}
@@ -52,7 +68,7 @@ export function NetworksTab({ node }: NetworksTabProps) {
 
       {isLoading ? (
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {node.networkIds.map((networkId) => (
+          {networkIds.map((networkId) => (
             <div key={networkId} className="rounded-lg border bg-card p-4">
               <div className="flex items-start gap-3">
                 <Skeleton className="h-9 w-9 rounded-lg" />
@@ -66,8 +82,8 @@ export function NetworksTab({ node }: NetworksTabProps) {
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {node.networkIds.map((networkId) => {
-            const network = nodeNetworks.find(n => n.networkId === networkId);
+          {networkIds.map((networkId) => {
+            const network = networks.find((n) => n.networkId === networkId);
             return (
               <Link
                 key={networkId}

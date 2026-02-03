@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Network,
-  Search,
   Plus,
   Server,
   Globe,
@@ -14,13 +13,13 @@ import {
   Edit,
   Trash2,
   MoreHorizontal,
-  X,
   Loader2,
 } from 'lucide-react';
 import { useNetworks, useCreateNetwork } from '@/api/networks';
 import { NetworkSummary, NetworkType, CreateNetworkRequest } from '@/types/network';
-import { ROUTES } from '@/lib/constants';
+import { ROUTES, NETWORK_TYPE_LABELS } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { getErrorMessage } from '@/lib/api-client';
 import { staggerItemVariants } from '@/lib/animations';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -65,6 +64,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { EntityListPage, type StatCard, type ColumnConfig, type TableDensity } from '@/components/common/entity-list-page';
+import { FilterBar, type FilterConfig } from '@/components/common/filter-bar';
 import { type ViewMode } from '@/components/common/view-mode-toggle';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -128,6 +128,21 @@ interface FilterState {
   search: string;
   type: NetworkType | 'all';
 }
+
+const NETWORK_FILTER_CONFIG: FilterConfig[] = [
+  {
+    type: 'search',
+    key: 'search',
+    placeholder: 'Search networks by name or CIDR...',
+    className: 'flex-1',
+  },
+  {
+    type: 'select',
+    key: 'type',
+    label: 'Types',
+    options: Object.entries(NETWORK_TYPE_LABELS).map(([value, label]) => ({ value, label })),
+  },
+];
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -201,47 +216,18 @@ export default function NetworksPage() {
         isLoading={isLoading}
         error={error}
         filterBar={
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search networks by name or CIDR..."
-                value={filters.search}
-                onChange={(e) => {
-                  setFilters(f => ({ ...f, search: e.target.value }));
-                  setPage(0);
-                }}
-                className="pl-9"
-              />
-            </div>
-            <Select
-              value={filters.type}
-              onValueChange={(value) => {
-                setFilters(f => ({ ...f, type: value as NetworkType | 'all' }));
-                setPage(0);
-              }}
-            >
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="physical">Physical</SelectItem>
-                <SelectItem value="virtual">Virtual</SelectItem>
-                <SelectItem value="vlan">VLAN</SelectItem>
-                <SelectItem value="vxlan">VXLAN</SelectItem>
-                <SelectItem value="overlay">Overlay</SelectItem>
-                <SelectItem value="bridge">Bridge</SelectItem>
-                <SelectItem value="tunnel">Tunnel</SelectItem>
-              </SelectContent>
-            </Select>
-            {hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
-                <X className="h-4 w-4 mr-1" />
-                Clear
-              </Button>
-            )}
-          </div>
+          <FilterBar
+            filters={filters}
+            onFilterChange={(key, value) => {
+              setFilters(f => ({ ...f, [key]: value }));
+              setPage(0);
+            }}
+            onClearAll={() => {
+              setFilters({ search: '', type: 'all' });
+              setPage(0);
+            }}
+            config={NETWORK_FILTER_CONFIG}
+          />
         }
         viewMode={viewMode}
         onViewModeChange={setViewMode}
@@ -696,8 +682,7 @@ function CreateNetworkModal({
       onOpenChange(false);
       resetForm();
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setFormError(error.response?.data?.detail || 'Failed to create network');
+      setFormError(getErrorMessage(err, 'Failed to create network'));
     }
   };
 

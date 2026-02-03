@@ -27,7 +27,9 @@ import { useTimeline, useTopologyStateAt } from '@/api/timemachine';
 import { EVENT_META } from '@/components/timemachine/event-stream';
 import { CalendarView } from '@/components/timemachine/calendar-view';
 import { HistoricalTopology } from '@/components/timemachine/historical-topology';
+import { useNavigate } from 'react-router-dom';
 import { cn, formatDate, formatDateTime } from '@/lib/utils';
+import { ROUTES } from '@/lib/constants';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import type { TimelineEvent, TimelineEventType } from '@/types/timemachine';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -429,8 +431,28 @@ function EventTimeline({
   );
 }
 
+function getEntityRoute(entityType: string, entityId: string): string | null {
+  switch (entityType) {
+    case 'node':
+      return `${ROUTES.NODES}/${encodeURIComponent(entityId)}`;
+    case 'service':
+      return `${ROUTES.SERVICES}/${encodeURIComponent(entityId)}`;
+    case 'network':
+      return `${ROUTES.NETWORKS}/${encodeURIComponent(entityId)}`;
+    case 'group':
+      return `${ROUTES.GROUPS}/${encodeURIComponent(entityId)}`;
+    case 'topology':
+      return ROUTES.TOPOLOGY;
+    case 'profile':
+      return null; // Profiles need nodeId context, not navigable directly
+    default:
+      return null;
+  }
+}
+
 export default function TimeMachinePage() {
   useDocumentTitle('Time Machine');
+  const navigate = useNavigate();
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [selectedTimestamp, setSelectedTimestamp] = useState<Date | null>(null);
@@ -852,16 +874,20 @@ export default function TimeMachinePage() {
                       </div>
                     )}
 
-                    {selectedEvent.entityId && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full mt-4 border-border text-foreground hover:bg-muted bg-transparent"
-                      >
-                        View {selectedEvent.entityType}
-                        <ChevronRight className="ml-2 h-4 w-4" />
-                      </Button>
-                    )}
+                    {selectedEvent.entityId && (() => {
+                      const route = getEntityRoute(selectedEvent.entityType, selectedEvent.entityId);
+                      return route ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full mt-4 border-border text-foreground hover:bg-muted bg-transparent"
+                          onClick={() => navigate(route)}
+                        >
+                          View {selectedEvent.entityType}
+                          <ChevronRight className="ml-2 h-4 w-4" />
+                        </Button>
+                      ) : null;
+                    })()}
                   </>
                 )}
               </CardContent>

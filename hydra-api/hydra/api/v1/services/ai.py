@@ -50,7 +50,7 @@ class AIService:
         user_id: str,
         limit: int = 50,
         offset: int = 0,
-    ) -> dict:
+    ) -> tuple[list[dict], int]:
         """List LLM configurations created by a user.
 
         Args:
@@ -59,7 +59,7 @@ class AIService:
             offset: Number of results to skip for pagination.
 
         Returns:
-            Dict containing 'configs' list and 'total' count.
+            Tuple of (configs list, total count).
         """
         cursor = (
             self.db.ai_models.find({"createdBy": user_id})
@@ -74,10 +74,7 @@ class AIService:
 
         total = await self.db.ai_models.count_documents({"createdBy": user_id})
 
-        return {
-            "configs": configs,
-            "total": total,
-        }
+        return configs, total
 
     async def get_config(self, config_id: str, user_id: str) -> dict:
         """Get a specific LLM configuration by ID.
@@ -323,8 +320,14 @@ class AIService:
                 is_valid, message, models = await self._validate_openrouter(api_key)
             else:
                 message = f"Unsupported provider type: {provider_type}"
+        except httpx.TimeoutException:
+            logger.warning("config_validation_timeout", config_id=config_id)
+            message = "Validation timed out"
+        except httpx.ConnectError as e:
+            logger.warning("config_validation_connection_error", config_id=config_id, error=str(e))
+            message = "Cannot connect to provider API"
         except Exception as e:
-            logger.error("config_validation_error", config_id=config_id, error=str(e))
+            logger.error("config_validation_unexpected_error", config_id=config_id, error=str(e), error_type=type(e).__name__)
             message = f"Validation failed: {str(e)}"
 
         await self.db.ai_models.update_one(
@@ -375,6 +378,8 @@ class AIService:
                     return False, f"API returned status {response.status_code}", None
             except httpx.TimeoutException:
                 return False, "Request timed out", None
+            except httpx.ConnectError:
+                return False, "Cannot connect to Anthropic API", None
             except Exception as e:
                 return False, f"Request failed: {str(e)}", None
 
@@ -404,6 +409,8 @@ class AIService:
                     return False, f"API returned status {response.status_code}", None
             except httpx.TimeoutException:
                 return False, "Request timed out", None
+            except httpx.ConnectError:
+                return False, "Cannot connect to OpenAI API", None
             except Exception as e:
                 return False, f"Request failed: {str(e)}", None
 
@@ -426,6 +433,8 @@ class AIService:
                     return False, f"Server returned status {response.status_code}", None
             except httpx.TimeoutException:
                 return False, "Request timed out", None
+            except httpx.ConnectError:
+                return False, f"Cannot connect to Ollama server at {base_url}", None
             except Exception as e:
                 return False, f"Cannot reach Ollama server: {str(e)}", None
 
@@ -457,6 +466,8 @@ class AIService:
                     return False, f"API returned status {response.status_code}", None
             except httpx.TimeoutException:
                 return False, "Request timed out", None
+            except httpx.ConnectError:
+                return False, "Cannot connect to OpenRouter API", None
             except Exception as e:
                 return False, f"Request failed: {str(e)}", None
 
@@ -542,12 +553,14 @@ class AIService:
                 raise ValidationError(f"Unsupported provider type: {provider_type}")
         except ValidationError:
             raise
+        except httpx.TimeoutException:
+            logger.warning("model_fetch_timeout", provider_type=provider_type.value)
+            raise ValidationError("Request timed out while fetching models")
+        except httpx.ConnectError as e:
+            logger.warning("model_fetch_connection_error", provider_type=provider_type.value, error=str(e))
+            raise ValidationError(f"Cannot connect to {provider_type.value} API")
         except Exception as e:
-            logger.error(
-                "model_fetch_error",
-                provider_type=provider_type.value,
-                error=str(e),
-            )
+            logger.error("model_fetch_unexpected_error", provider_type=provider_type.value, error=str(e), error_type=type(e).__name__)
             raise ValidationError(f"Failed to fetch models: {str(e)}")
 
         # Cache the results
@@ -1084,12 +1097,14 @@ class AIService:
                 message = "Ollama does not require API key validation"
             else:
                 message = f"Unsupported provider type: {provider_type}"
+        except httpx.TimeoutException:
+            logger.warning("global_key_validation_timeout", provider_type=provider_type.value)
+            message = "Validation timed out"
+        except httpx.ConnectError as e:
+            logger.warning("global_key_validation_connection_error", provider_type=provider_type.value, error=str(e))
+            message = "Cannot connect to provider API"
         except Exception as e:
-            logger.error(
-                "global_key_validation_error",
-                provider_type=provider_type.value,
-                error=str(e),
-            )
+            logger.error("global_key_validation_unexpected_error", provider_type=provider_type.value, error=str(e), error_type=type(e).__name__)
             message = f"Validation failed: {str(e)}"
 
         # Update validation status

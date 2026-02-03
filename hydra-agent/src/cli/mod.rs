@@ -14,6 +14,7 @@ pub mod node;
 pub mod register;
 pub mod service;
 pub mod unregister;
+pub mod upgrade;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
@@ -114,4 +115,7 @@ pub enum Commands {
         #[arg(long)]
         purge: bool,
     },
+
+    /// Upgrade the agent to a newer version
+    Upgrade(upgrade::UpgradeArgs),
 }

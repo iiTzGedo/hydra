@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Mail, Loader2, CheckCircle } from 'lucide-react';
 import { useRequestPasswordReset } from '@/api/auth';
+import { getErrorMessage } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { fadeInVariants, scaleVariants } from '@/lib/animations';
@@ -22,8 +23,7 @@ export default function ForgotPasswordPage() {
       await requestResetMutation.mutateAsync({ email });
       setSuccess(true);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setError(error.response?.data?.detail || 'Failed to send reset email. Please try again.');
+      setError(getErrorMessage(err, 'Failed to send reset email. Please try again.'));
     }
   };
 

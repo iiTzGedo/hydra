@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hydra.api.v1.core.validators import (
     NETWORK_ID_PATTERN,
@@ -67,6 +67,8 @@ class NodeStatus(str, Enum):
 class NodeResponse(BaseModel):
     """Full node response model."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     node_id: str = Field(alias="nodeId")
     node_class: NodeClass = Field(alias="class")
     node_type: NodeType = Field(alias="type")
@@ -85,6 +87,8 @@ class NodeResponse(BaseModel):
 
 class NodeSummary(BaseModel):
     """Abbreviated node response for lists."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     node_id: str = Field(alias="nodeId")
     node_class: NodeClass = Field(alias="class")

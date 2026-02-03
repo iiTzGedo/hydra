@@ -344,7 +344,7 @@ class AuthService:
         active_only: bool = True,
         limit: int = 50,
         offset: int = 0,
-    ) -> dict:
+    ) -> tuple[list[dict], int]:
         """List registration tokens created by a user.
 
         Args:
@@ -355,7 +355,7 @@ class AuthService:
             offset: Pagination offset.
 
         Returns:
-            Dict with 'tokens' list and pagination info.
+            Tuple of (tokens list, total count).
         """
         now = datetime.now(timezone.utc)
 
@@ -397,12 +397,7 @@ class AuthService:
                 "is_active": is_active,
             })
 
-        return {
-            "tokens": tokens,
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-        }
+        return tokens, total
 
     # ==================== Node Registration ====================
 
@@ -606,14 +601,14 @@ class AuthService:
             "created_at": now,
         }
 
-    async def list_api_keys(self, user_id: str) -> dict:
+    async def list_api_keys(self, user_id: str) -> tuple[list[dict], int]:
         """List active API keys for a user.
 
         Args:
             user_id: The user identifier.
 
         Returns:
-            Dict with 'api_keys' list and 'total' count.
+            Tuple of (api_keys list, total count).
         """
         cursor = self.db.api_keys.find({
             "ownerId": user_id,
@@ -632,10 +627,7 @@ class AuthService:
                 "created_at": doc["createdAt"],
             })
 
-        return {
-            "api_keys": api_keys,
-            "total": len(api_keys),
-        }
+        return api_keys, len(api_keys)
 
     async def revoke_api_key(self, key_id: str, user_id: str, user_role: str | None = None) -> dict:
         """Revoke an API key.

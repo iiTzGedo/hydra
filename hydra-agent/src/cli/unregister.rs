@@ -39,7 +39,6 @@ struct ApiErrorDetail {
 
 /// Execute the unregister command
 pub async fn execute(args: &UnregisterArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
-    // Check if agent is registered
     let creds = match vault.load_agent_credentials()? {
         Some(c) => c,
         None => {
@@ -56,7 +55,6 @@ pub async fn execute(args: &UnregisterArgs, config: &AgentConfig, vault: &Vault)
     println!("Agent ID: {}", creds.username);
     println!();
 
-    // Confirm unless --force
     if !args.force {
         println!("WARNING: This will:");
         println!("  - Delete the agent system account from Hydra");
@@ -78,7 +76,6 @@ pub async fn execute(args: &UnregisterArgs, config: &AgentConfig, vault: &Vault)
         println!();
     }
 
-    // Check for admin/operator session
     let session = vault.load_session()?;
     let access_token = match session {
         Some(s) => {
@@ -101,11 +98,9 @@ pub async fn execute(args: &UnregisterArgs, config: &AgentConfig, vault: &Vault)
         }
     };
 
-    // Call API to delete the agent user
     info!("Unregistering agent '{}' from Hydra...", creds.username);
     delete_agent_user(config, &creds.user_id, &access_token).await?;
 
-    // Clear local credentials unless --keep-local
     if !args.keep_local {
         vault.delete_agent_credentials()?;
         vault.delete_api_key()?;
@@ -208,7 +203,6 @@ async fn prompt_admin_login(config: &AgentConfig, vault: &Vault) -> Result<Strin
         .await
         .context("Failed to parse login response")?;
 
-    // Verify role
     if login_response.user.role != "admin" && login_response.user.role != "operator" {
         return Err(anyhow!(
             "Unregistration requires admin or operator role. Current: {}",
@@ -216,7 +210,6 @@ async fn prompt_admin_login(config: &AgentConfig, vault: &Vault) -> Result<Strin
         ));
     }
 
-    // Save session for future use
     let expires_at = chrono::Utc::now().timestamp() + login_response.expires_in as i64;
     let session = crate::vault::SessionData {
         access_token: login_response.access_token.clone(),

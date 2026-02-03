@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   FolderTree,
-  Search,
   Plus,
   Server,
   Boxes,
@@ -13,13 +12,13 @@ import {
   Edit,
   Trash2,
   MoreHorizontal,
-  X,
   Loader2,
   CheckCircle2,
 } from 'lucide-react';
 import { useGroups, useCreateGroup } from '@/api/groups';
 import { GroupSummary, GroupEntityType, GroupSelectors, CreateGroupRequest } from '@/types/group';
 import { ROUTES } from '@/lib/constants';
+import { getErrorMessage } from '@/lib/api-client';
 import { staggerItemVariants } from '@/lib/animations';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -64,7 +63,17 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { EntityListPage, type StatCard, type ColumnConfig, type TableDensity } from '@/components/common/entity-list-page';
+import { FilterBar, type FilterConfig } from '@/components/common/filter-bar';
 import type { ViewMode } from '@/components/common/view-mode-toggle';
+
+const GROUP_FILTER_CONFIG: FilterConfig[] = [
+  {
+    type: 'search',
+    key: 'search',
+    placeholder: 'Search groups by name...',
+    className: 'flex-1 max-w-md',
+  },
+];
 
 interface FilterState {
   search: string;
@@ -150,31 +159,18 @@ export default function GroupsPage() {
         isLoading={isLoading}
         error={error}
         filterBar={
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search groups by name..."
-                value={filters.search}
-                onChange={(e) => {
-                  setFilters(f => ({ ...f, search: e.target.value }));
-                  setPage(0);
-                }}
-                className="pl-9"
-              />
-            </div>
-            {filters.search && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setFilters({ search: '' })}
-                className="text-muted-foreground"
-              >
-                <X className="h-4 w-4 mr-1" />
-                Clear
-              </Button>
-            )}
-          </div>
+          <FilterBar
+            filters={filters}
+            onFilterChange={(key, value) => {
+              setFilters(f => ({ ...f, [key]: value }));
+              setPage(0);
+            }}
+            onClearAll={() => {
+              setFilters({ search: '' });
+              setPage(0);
+            }}
+            config={GROUP_FILTER_CONFIG}
+          />
         }
         viewMode={viewMode}
         onViewModeChange={setViewMode}
@@ -643,8 +639,7 @@ function CreateGroupModal({
       await createGroupMutation.mutateAsync(request);
       setCreatedGroupId(formData.groupId.trim());
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      setFormError(error.response?.data?.detail || 'Failed to create group');
+      setFormError(getErrorMessage(err, 'Failed to create group'));
     }
   };
 

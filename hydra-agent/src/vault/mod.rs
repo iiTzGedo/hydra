@@ -146,22 +146,18 @@ impl Vault {
             fs::create_dir_all(&self.base_path)
                 .with_context(|| format!("Failed to create vault directory: {}", self.base_path.display()))?;
 
-            // Set platform-specific secure permissions
             #[cfg(unix)]
             {
-                // Set directory permissions to 700 (owner only)
                 fs::set_permissions(&self.base_path, fs::Permissions::from_mode(0o700))?;
             }
 
             #[cfg(windows)]
             {
-                // Set ACL to allow only Administrators and SYSTEM
                 use crate::platform::windows::WindowsPermissions;
                 use crate::platform::FilePermissions;
                 let perms = WindowsPermissions;
                 if let Err(e) = perms.set_dir_owner_only(&self.base_path) {
                     warn!("Failed to set Windows ACL on vault directory: {}", e);
-                    // Continue anyway - directory was created
                 }
             }
 
@@ -191,22 +187,18 @@ impl Vault {
         fs::write(&path, &contents)
             .with_context(|| format!("Failed to write vault file: {}", path.display()))?;
 
-        // Set platform-specific secure permissions
         #[cfg(unix)]
         {
-            // Set file permissions to 600 (owner read/write only)
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
         }
 
         #[cfg(windows)]
         {
-            // Set ACL to allow only Administrators and SYSTEM
             use crate::platform::windows::WindowsPermissions;
             use crate::platform::FilePermissions;
             let perms = WindowsPermissions;
             if let Err(e) = perms.set_owner_only(&path) {
                 warn!("Failed to set Windows ACL on vault file: {}", e);
-                // Continue anyway - file was written
             }
         }
 
@@ -244,8 +236,6 @@ impl Vault {
         Ok(())
     }
 
-    // ==================== Agent Credentials ====================
-
     /// Save agent credentials
     pub fn save_agent_credentials(&self, creds: &AgentCredentials) -> Result<()> {
         self.write_file(".creds", creds)
@@ -265,8 +255,6 @@ impl Vault {
     pub fn delete_agent_credentials(&self) -> Result<()> {
         self.delete_file(".creds")
     }
-
-    // ==================== API Key ====================
 
     /// Save API key
     pub fn save_api_key(&self, api_key: &ApiKeyData) -> Result<()> {
@@ -300,7 +288,6 @@ impl Vault {
             // No expiry set means never expires
             return Ok(false);
         }
-        // No API key means "expired" in a sense
         Ok(true)
     }
 
@@ -317,8 +304,6 @@ impl Vault {
         }
         Ok(true)
     }
-
-    // ==================== Session ====================
 
     /// Save session data
     pub fn save_session(&self, session: &SessionData) -> Result<()> {
@@ -360,8 +345,6 @@ impl Vault {
         Ok(None)
     }
 
-    // ==================== Node Registration ====================
-
     /// Save node registration data
     pub fn save_node_registration(&self, data: &NodeRegistrationData) -> Result<()> {
         self.write_file(".node", data)
@@ -382,12 +365,9 @@ impl Vault {
         self.delete_file(".node")
     }
 
-    // ==================== Combined Operations ====================
-
     /// Get the current API key for requests.
     /// Checks environment variable first, then falls back to vault file.
     pub fn get_api_key(&self) -> Result<Option<String>> {
-        // Check environment variable first (fast path)
         if let Ok(api_key) = env::var(ENV_API_KEY) {
             if !api_key.is_empty() {
                 debug!("Using API key from environment variable");
@@ -395,7 +375,6 @@ impl Vault {
             }
         }
 
-        // Fall back to vault file
         if let Some(api_key) = self.load_api_key()? {
             if !self.is_api_key_expired()? {
                 return Ok(Some(api_key.api_key));
@@ -408,12 +387,10 @@ impl Vault {
     /// Get authentication header value (API key or Bearer token).
     /// Checks environment variables first for fast access in service contexts.
     pub fn get_auth_header(&self) -> Result<Option<(String, String)>> {
-        // Prefer API key over session token
         if let Some(api_key) = self.get_api_key()? {
             return Ok(Some(("X-API-Key".to_string(), api_key)));
         }
 
-        // Fall back to session token
         if let Some(token) = self.get_valid_access_token()? {
             return Ok(Some(("Authorization".to_string(), format!("Bearer {}", token))));
         }
@@ -423,7 +400,6 @@ impl Vault {
 
     /// Get agent username from environment or vault.
     pub fn get_agent_username(&self) -> Result<Option<String>> {
-        // Check environment variable first
         if let Ok(username) = env::var(ENV_AGENT_USER) {
             if !username.is_empty() {
                 debug!("Using agent username from environment variable");
@@ -431,7 +407,6 @@ impl Vault {
             }
         }
 
-        // Fall back to vault file
         if let Some(creds) = self.load_agent_credentials()? {
             return Ok(Some(creds.username));
         }
@@ -440,7 +415,6 @@ impl Vault {
 
     /// Get agent password from environment or vault.
     pub fn get_agent_password(&self) -> Result<Option<String>> {
-        // Check environment variable first
         if let Ok(password) = env::var(ENV_AGENT_PWD) {
             if !password.is_empty() {
                 debug!("Using agent password from environment variable");
@@ -448,7 +422,6 @@ impl Vault {
             }
         }
 
-        // Fall back to vault file
         if let Some(creds) = self.load_agent_credentials()? {
             return Ok(creds.password);
         }
@@ -460,7 +433,6 @@ impl Vault {
     pub fn export_to_env(&self) -> Result<Vec<(String, String)>> {
         let mut exported = Vec::new();
 
-        // Export API key
         if let Some(api_key_data) = self.load_api_key()? {
             if !self.is_api_key_expired()? {
                 env::set_var(ENV_API_KEY, &api_key_data.api_key);
@@ -469,7 +441,6 @@ impl Vault {
             }
         }
 
-        // Export agent credentials
         if let Some(creds) = self.load_agent_credentials()? {
             env::set_var(ENV_AGENT_USER, &creds.username);
             exported.push((ENV_AGENT_USER.to_string(), creds.username.clone()));

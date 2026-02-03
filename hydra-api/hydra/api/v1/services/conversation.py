@@ -16,6 +16,8 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import httpx
+import redis.exceptions
 import structlog
 
 if TYPE_CHECKING:
@@ -491,8 +493,12 @@ class ConversationBuilder:
                 if cached:
                     logger.debug("summary_cache_hit", cache_key=cache_key)
                     return cached
+            except redis.exceptions.ConnectionError as e:
+                logger.warning("summary_cache_get_error", error=str(e), error_type="redis_connection")
+            except redis.exceptions.TimeoutError as e:
+                logger.warning("summary_cache_get_error", error=str(e), error_type="redis_timeout")
             except Exception as e:
-                logger.warning("summary_cache_get_error", error=str(e))
+                logger.error("summary_cache_get_unexpected_error", error=str(e), error_type=type(e).__name__)
 
         # Generate new summary via LLM
         summary = await self._generate_summary(messages, token_budget)
@@ -506,8 +512,12 @@ class ConversationBuilder:
                     self.SUMMARY_CACHE_TTL,
                 )
                 logger.debug("summary_cached", cache_key=cache_key)
+            except redis.exceptions.ConnectionError as e:
+                logger.warning("summary_cache_set_error", error=str(e), error_type="redis_connection")
+            except redis.exceptions.TimeoutError as e:
+                logger.warning("summary_cache_set_error", error=str(e), error_type="redis_timeout")
             except Exception as e:
-                logger.warning("summary_cache_set_error", error=str(e))
+                logger.error("summary_cache_set_unexpected_error", error=str(e), error_type=type(e).__name__)
 
         return summary
 
@@ -589,8 +599,14 @@ SUMMARY:"""
 
             return summary.strip() if summary else self._create_simple_summary(messages, token_budget)
 
+        except httpx.TimeoutException:
+            logger.warning("summarization_timeout", error="LLM request timed out")
+            return self._create_simple_summary(messages, token_budget)
+        except httpx.ConnectError:
+            logger.warning("summarization_connection_failed", error="Cannot connect to LLM provider")
+            return self._create_simple_summary(messages, token_budget)
         except Exception as e:
-            logger.warning("summarization_error", error=str(e))
+            logger.error("summarization_unexpected_error", error=str(e), error_type=type(e).__name__)
             return self._create_simple_summary(messages, token_budget)
 
     def _get_summarization_config(self) -> dict:

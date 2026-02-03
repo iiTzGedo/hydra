@@ -4,7 +4,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Boxes,
-  Search,
   Play,
   Square,
   AlertTriangle,
@@ -13,8 +12,6 @@ import {
   RefreshCw,
   HelpCircle,
   Server,
-  Filter,
-  X,
   CheckCircle2,
   LayoutGrid,
   LayoutList,
@@ -25,11 +22,13 @@ import {
 } from 'lucide-react';
 import { useServices } from '@/api/services';
 import { useCreateCommand } from '@/api/commands';
+import { FilterBar, type FilterConfig } from '@/components/common/filter-bar';
 import { ConfirmDialog } from '@/components/modals/confirm-dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { ServiceRuntime, ServiceStatus } from '@/types/service';
 import { ROUTES, SERVICE_RUNTIME_LABELS, SERVICE_RUNTIME_COLORS } from '@/lib/constants';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { getErrorMessage } from '@/lib/api-client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -86,6 +85,41 @@ interface FilterState {
   nodeId: string;
 }
 
+const SERVICE_FILTER_CONFIG: FilterConfig[] = [
+  {
+    type: 'search',
+    key: 'search',
+    placeholder: 'Search by name or image...',
+    className: 'flex-1',
+  },
+  {
+    type: 'select',
+    key: 'runtime',
+    label: 'Runtimes',
+    options: [
+      { value: 'docker', label: 'Docker' },
+      { value: 'podman', label: 'Podman' },
+      { value: 'kubernetes', label: 'Kubernetes' },
+      { value: 'systemd', label: 'Systemd' },
+    ],
+    allLabel: 'All Runtimes',
+    className: 'w-[140px]',
+  },
+  {
+    type: 'select',
+    key: 'status',
+    label: 'Status',
+    options: [
+      { value: 'running', label: 'Running' },
+      { value: 'stopped', label: 'Stopped' },
+      { value: 'restarting', label: 'Restarting' },
+      { value: 'failed', label: 'Error' },
+    ],
+    allLabel: 'All Status',
+    className: 'w-[130px]',
+  },
+];
+
 type TableDensity = 'comfortable' | 'compact';
 type ViewMode = 'table' | 'grid';
 type ServiceColumnKey = 'service' | 'host' | 'runtime' | 'version' | 'status' | 'lastSeen';
@@ -134,8 +168,7 @@ export default function ServicesPage() {
       toast.success(`Command queued: ${actionService.action} ${actionService.name}`);
       setActionService(null);
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      toast.error(error.response?.data?.detail || `Failed to ${actionService.action} service`);
+      toast.error(getErrorMessage(err, `Failed to ${actionService.action} service`));
     }
   }, [actionService, createCommandMutation]);
 
@@ -230,72 +263,21 @@ export default function ServicesPage() {
                 <Card>
           <CardContent className="p-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                            <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name or image..."
-                  value={filters.search}
-                  onChange={(e) => {
-                    setFilters(f => ({ ...f, search: e.target.value }));
-                    setPage(0);
-                  }}
-                  className="pl-9 bg-background"
-                />
-              </div>
+              <FilterBar
+                filters={filters}
+                onFilterChange={(key, value) => {
+                  setFilters(f => ({ ...f, [key]: value }));
+                  setPage(0);
+                }}
+                onClearAll={() => {
+                  clearFilters();
+                }}
+                config={SERVICE_FILTER_CONFIG}
+                className="flex-1"
+              />
 
-                            <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <Select
-                  value={filters.runtime}
-                  onValueChange={(value) => {
-                    setFilters(f => ({ ...f, runtime: value as ServiceRuntime | 'all' }));
-                    setPage(0);
-                  }}
-                >
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Runtime" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Runtimes</SelectItem>
-                    <SelectItem value="docker">Docker</SelectItem>
-                    <SelectItem value="podman">Podman</SelectItem>
-                    <SelectItem value="kubernetes">Kubernetes</SelectItem>
-                    <SelectItem value="systemd">Systemd</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select
-                  value={filters.status}
-                  onValueChange={(value) => {
-                    setFilters(f => ({ ...f, status: value as ServiceStatus | 'all' }));
-                    setPage(0);
-                  }}
-                >
-                  <SelectTrigger className="w-[130px]">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="running">Running</SelectItem>
-                    <SelectItem value="stopped">Stopped</SelectItem>
-                    <SelectItem value="restarting">Restarting</SelectItem>
-                    <SelectItem value="failed">Error</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {hasActiveFilters && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={clearFilters}
-                    className="text-muted-foreground"
-                  >
-                    <X className="h-4 w-4 mr-1" />
-                    Clear
-                  </Button>
-                )}
-
-                                <div className="flex items-center border rounded-md">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center border rounded-md">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button

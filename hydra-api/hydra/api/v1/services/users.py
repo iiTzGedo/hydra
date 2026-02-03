@@ -708,8 +708,12 @@ class UsersService:
             "created_at": user["createdAt"],
         }
 
-    async def list_users(self, limit: int = 50, offset: int = 0) -> dict:
-        """List users."""
+    async def list_users(self, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
+        """List users.
+
+        Returns:
+            Tuple of (users list, total count).
+        """
         cursor = self.db.users.find({}).sort("createdAt", -1).skip(offset).limit(limit)
 
         users = []
@@ -726,12 +730,7 @@ class UsersService:
 
         total = await self.db.users.count_documents({})
 
-        return {
-            "users": users,
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-        }
+        return users, total
 
     async def is_parent_of(self, parent_user_id: str, child_user_id: str) -> bool:
         """Check if parent_user_id is the direct parent of child_user_id."""
@@ -867,11 +866,27 @@ class UsersService:
                 reset_token=reset_token,
                 expires_hours=settings.password_reset_token_expire_hours,
             )
+        except ConnectionRefusedError:
+            logger.error(
+                "password_reset_email_connection_refused",
+                user_id=user["userId"],
+                error="SMTP server refused connection",
+            )
+            email_sent = False
+        except OSError as e:
+            logger.error(
+                "password_reset_email_network_error",
+                user_id=user["userId"],
+                error=str(e),
+                error_type="os_error",
+            )
+            email_sent = False
         except Exception as e:
             logger.error(
                 "password_reset_email_failed",
                 user_id=user["userId"],
                 error=str(e),
+                error_type=type(e).__name__,
             )
             email_sent = False
 
@@ -1146,14 +1161,14 @@ class UsersService:
             "unlinked_at": now,
         }
 
-    async def list_sub_accounts(self, user_id: str) -> dict:
+    async def list_sub_accounts(self, user_id: str) -> tuple[list[dict], int]:
         """List sub-accounts of a user.
 
         Args:
             user_id: User ID to list sub-accounts for.
 
         Returns:
-            List of sub-accounts with current status and details.
+            Tuple of (sub-accounts list, total count).
 
         Raises:
             UserNotFoundError: If user not found.
@@ -1178,11 +1193,7 @@ class UsersService:
                     "last_login": sub_user.get("lastLogin"),
                 })
 
-        return {
-            "parent_user_id": user_id,
-            "sub_accounts": enriched_subs,
-            "total": len(enriched_subs),
-        }
+        return enriched_subs, len(enriched_subs)
 
     async def get_user_detail(self, user_id: str) -> dict:
         """Get detailed user information including sub-accounts.

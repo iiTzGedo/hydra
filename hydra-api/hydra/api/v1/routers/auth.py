@@ -543,7 +543,7 @@ async def list_registration_tokens(
     Returns:
         Paginated list of registration tokens with masked values.
     """
-    result = await auth_service.list_registration_tokens(
+    tokens, total = await auth_service.list_registration_tokens(
         user_id=current_user["user_id"],
         scope=scope.value if scope else None,
         active_only=active_only,
@@ -573,11 +573,11 @@ async def list_registration_tokens(
                 created_at=t["created_at"],
                 is_active=t["is_active"],
             )
-            for t in result["tokens"]
+            for t in tokens
         ],
-        total=result["total"],
-        limit=result["limit"],
-        offset=result["offset"],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -668,7 +668,7 @@ async def list_api_keys(
         else:
             raise AuthorizationError()
 
-    result = await auth_service.list_api_keys(owner_id)
+    api_keys, total = await auth_service.list_api_keys(owner_id)
     return ApiKeyListResponse(
         api_keys=[
             {
@@ -679,9 +679,9 @@ async def list_api_keys(
                 "last_used_at": k.get("last_used_at"),
                 "created_at": k["created_at"],
             }
-            for k in result["api_keys"]
+            for k in api_keys
         ],
-        total=result["total"],
+        total=total,
     )
 
 

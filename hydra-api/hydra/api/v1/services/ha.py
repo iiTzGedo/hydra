@@ -127,8 +127,17 @@ class HomeAssistantService:
             if sync_meta:
                 status["lastSync"] = sync_meta.get("timestamp")
 
+        except HomeAssistantUnavailableError as e:
+            logger.warning("ha_status_check_unavailable", error=str(e))
+            status["connected"] = False
+        except httpx.TimeoutException:
+            logger.warning("ha_status_check_timeout")
+            status["connected"] = False
+        except httpx.ConnectError as e:
+            logger.warning("ha_status_check_connection_error", error=str(e))
+            status["connected"] = False
         except Exception as e:
-            logger.warning("ha_status_check_failed", error=str(e))
+            logger.error("ha_status_check_unexpected_error", error=str(e), error_type=type(e).__name__)
             status["connected"] = False
 
         return status
@@ -374,8 +383,32 @@ class HomeAssistantService:
                     "attributes": new_state.get("attributes", {}),
                 },
             }
+        except HomeAssistantUnavailableError as e:
+            logger.warning("ha_control_unavailable", entity_id=entity_id, error=str(e))
+            return {
+                "entityId": entity_id,
+                "service": request.service,
+                "success": False,
+                "newState": None,
+            }
+        except httpx.TimeoutException:
+            logger.warning("ha_control_timeout", entity_id=entity_id)
+            return {
+                "entityId": entity_id,
+                "service": request.service,
+                "success": False,
+                "newState": None,
+            }
+        except httpx.ConnectError as e:
+            logger.warning("ha_control_connection_error", entity_id=entity_id, error=str(e))
+            return {
+                "entityId": entity_id,
+                "service": request.service,
+                "success": False,
+                "newState": None,
+            }
         except Exception as e:
-            logger.error("ha_control_failed", entity_id=entity_id, error=str(e))
+            logger.error("ha_control_unexpected_error", entity_id=entity_id, error=str(e), error_type=type(e).__name__)
             return {
                 "entityId": entity_id,
                 "service": request.service,
@@ -417,8 +450,17 @@ class HomeAssistantService:
             area_list = list(areas.values())
             return area_list, len(area_list)
 
+        except HomeAssistantUnavailableError as e:
+            logger.warning("ha_list_areas_unavailable", error=str(e))
+            return [], 0
+        except httpx.TimeoutException:
+            logger.warning("ha_list_areas_timeout")
+            return [], 0
+        except httpx.ConnectError as e:
+            logger.warning("ha_list_areas_connection_error", error=str(e))
+            return [], 0
         except Exception as e:
-            logger.error("ha_list_areas_failed", error=str(e))
+            logger.error("ha_list_areas_unexpected_error", error=str(e), error_type=type(e).__name__)
             return [], 0
 
     def _domain_to_kind(self, domain: str) -> str:

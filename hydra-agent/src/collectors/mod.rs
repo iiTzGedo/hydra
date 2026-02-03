@@ -99,12 +99,12 @@ impl Profile {
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```ignore
 /// use hydra_agent::config::AgentConfig;
 /// use hydra_agent::collectors::collect_profile;
 ///
 /// # async fn example() -> anyhow::Result<()> {
-/// let config = AgentConfig::default();
+/// let config = AgentConfig::load(std::path::Path::new("/etc/hydra/agent.toml"))?;
 /// let profile = collect_profile(&config).await?;
 /// println!("Collected sections: {:?}", profile.sections());
 /// # Ok(())

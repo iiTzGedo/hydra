@@ -67,15 +67,15 @@ async def list_projects(
     """
     _check_not_agent(current_user)
 
-    result = await chat_service.list_projects(
+    projects, total = await chat_service.list_projects(
         user_id=current_user["user_id"],
         limit=limit,
         offset=offset,
     )
 
     return ChatProjectListResponse(
-        projects=[ChatProjectResponse(**p) for p in result["projects"]],
-        total=result["total"],
+        projects=[ChatProjectResponse(**p) for p in projects],
+        total=total,
     )
 
 
@@ -254,7 +254,7 @@ async def list_sessions(
     """
     _check_not_agent(current_user)
 
-    result = await chat_service.list_sessions(
+    sessions, total = await chat_service.list_sessions(
         user_id=current_user["user_id"],
         project_id=projectId,
         limit=limit,
@@ -262,8 +262,8 @@ async def list_sessions(
     )
 
     return ChatSessionListResponse(
-        sessions=[ChatSessionResponse(**s) for s in result["sessions"]],
-        total=result["total"],
+        sessions=[ChatSessionResponse(**s) for s in sessions],
+        total=total,
     )
 
 
@@ -485,7 +485,7 @@ async def list_messages(
     """
     _check_not_agent(current_user)
 
-    result = await chat_service.list_messages(
+    messages, total = await chat_service.list_messages(
         session_id=sessionId,
         user_id=current_user["user_id"],
         limit=limit,
@@ -494,9 +494,9 @@ async def list_messages(
     )
 
     return ChatMessageListResponse(
-        messages=[ChatMessageResponse(**m) for m in result["messages"]],
-        total=result["total"],
-        has_more=result["has_more"],
+        messages=[ChatMessageResponse(**m) for m in messages],
+        total=total,
+        has_more=offset + len(messages) < total,
     )
 
 

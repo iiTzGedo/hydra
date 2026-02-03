@@ -50,7 +50,7 @@ class ChatService:
         user_id: str,
         limit: int = 50,
         offset: int = 0,
-    ) -> dict:
+    ) -> tuple[list[dict], int]:
         """List chat projects for a user.
 
         Args:
@@ -59,7 +59,7 @@ class ChatService:
             offset: Number of results to skip for pagination.
 
         Returns:
-            Dict with 'projects' list and 'total' count.
+            Tuple of (projects list, total count).
         """
         # Use aggregation pipeline to avoid N+1 queries for session counts
         pipeline = [
@@ -87,7 +87,7 @@ class ChatService:
 
         total = await self.db.chat_projects.count_documents({"ownerId": user_id})
 
-        return {"projects": projects, "total": total}
+        return projects, total
 
     async def get_project(self, project_id: str, user_id: str) -> dict:
         """Get a specific chat project by ID.
@@ -258,7 +258,7 @@ class ChatService:
         project_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> dict:
+    ) -> tuple[list[dict], int]:
         """List chat sessions for a user.
 
         Args:
@@ -268,7 +268,7 @@ class ChatService:
             offset: Number of results to skip for pagination.
 
         Returns:
-            Dict with 'sessions' list and 'total' count.
+            Tuple of (sessions list, total count).
         """
         match_query: dict = {"ownerId": user_id}
         if project_id:
@@ -300,7 +300,7 @@ class ChatService:
 
         total = await self.db.chat_sessions.count_documents(match_query)
 
-        return {"sessions": sessions, "total": total}
+        return sessions, total
 
     async def get_session(self, session_id: str, user_id: str) -> dict:
         """Get a specific chat session by ID.
@@ -547,7 +547,7 @@ class ChatService:
         offset: int = 0,
         order: str = "asc",
         use_cache: bool = True,
-    ) -> dict:
+    ) -> tuple[list[dict], int]:
         """List messages in a chat session.
 
         Args:
@@ -559,7 +559,7 @@ class ChatService:
             use_cache: Whether to use Redis cache (default True).
 
         Returns:
-            Dict with 'messages' list, 'total' count, and 'has_more' flag.
+            Tuple of (messages list, total count).
 
         Raises:
             ChatSessionNotFoundError: If session does not exist or is not owned by user.
@@ -579,8 +579,7 @@ class ChatService:
                 # Slice cached results to respect limit
                 messages = cached[:limit]
                 total = len(cached)
-                has_more = len(cached) > limit
-                return {"messages": messages, "total": total, "has_more": has_more}
+                return messages, total
 
         # Fetch from database
         sort_dir = 1 if order == "asc" else -1
@@ -613,7 +612,7 @@ class ChatService:
             else:
                 await self._cache.cache_session_messages(session_id, messages)
 
-        return {"messages": messages, "total": total, "has_more": has_more}
+        return messages, total
 
     async def create_message(
         self,
