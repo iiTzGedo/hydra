@@ -21,7 +21,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['elkjs'],
+    include: ['elkjs/lib/elk.bundled.js'],
   },
   server: {
     port: 5173,

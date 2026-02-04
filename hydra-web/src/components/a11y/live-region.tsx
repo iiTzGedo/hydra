@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 type LiveRegionPriority = 'polite' | 'assertive';

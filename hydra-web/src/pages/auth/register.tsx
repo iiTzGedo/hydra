@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, UserPlus, Loader2, CheckCircle } from 'lucide-react';
 import { useRegister, useRegisterWithToken } from '@/api/auth';
@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils';
 import { fadeInVariants, scaleVariants } from '@/lib/animations';
 
 export default function RegisterPage() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 

@@ -9,7 +9,6 @@ import {
   AlertTriangle,
   AlertCircle,
   RotateCcw,
-  RefreshCw,
   HelpCircle,
   Server,
   CheckCircle2,
@@ -25,23 +24,15 @@ import { useCreateCommand } from '@/api/commands';
 import { FilterBar, type FilterConfig } from '@/components/common/filter-bar';
 import { ConfirmDialog } from '@/components/modals/confirm-dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import { ServiceRuntime, ServiceStatus } from '@/types/service';
+import { ServiceStatus } from '@/types/service';
 import { ROUTES, SERVICE_RUNTIME_LABELS, SERVICE_RUNTIME_COLORS } from '@/lib/constants';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { getErrorMessage } from '@/lib/api-client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -220,7 +211,7 @@ export default function ServicesPage() {
     }
     
     if (Object.keys(updates).length > 0) {
-      setFilters((prev) => ({ ...prev, ...updates }));
+      setFilters((prev) => ({ ...prev, ...updates } as FilterState));
       setPage(0);
     }
   }, [nodeIdParam, runtimeParam, statusParam, filters.nodeId, filters.runtime, filters.status]);

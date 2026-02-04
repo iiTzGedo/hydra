@@ -205,6 +205,12 @@ class CommandsService:
         if not node:
             raise NodeNotFoundError(node_id)
 
+        # Update lastSeenAt on every agent poll
+        await self.nodes.update_one(
+            {"nodeId": node_id},
+            {"$set": {"lastSeenAt": datetime.now(UTC)}},
+        )
+
         commands: list[dict[str, Any]] = []
         for _ in range(10):
             command = await self.commands.find_one_and_update(
@@ -257,6 +263,15 @@ class CommandsService:
         """
         command = await self.get_command(command_id)
 
+        if command["status"] == CommandStatus.EXECUTING.value:
+            if not command.get("startedAt"):
+                now = datetime.now(UTC)
+                await self.commands.update_one(
+                    {"commandId": command_id},
+                    {"$set": {"startedAt": now}},
+                )
+                command["startedAt"] = now
+            return command
         if command["status"] != CommandStatus.QUEUED.value:
             raise CommandAlreadyExecutingError(command_id, command["status"])
 

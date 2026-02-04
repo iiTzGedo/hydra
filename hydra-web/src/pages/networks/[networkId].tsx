@@ -275,7 +275,7 @@ export default function NetworkDetailPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Created</span>
-                    <span className="text-sm">{formatDate(new Date(network.createdAt))}</span>
+                    <span className="text-sm">{network.createdAt ? formatDate(new Date(network.createdAt)) : '—'}</span>
                   </div>
                   {network.updatedAt && (
                     <div className="flex items-center justify-between">

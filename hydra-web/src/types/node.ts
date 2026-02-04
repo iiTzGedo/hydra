@@ -54,6 +54,7 @@ export interface NodeSummary {
   status: NodeStatus;
   tags: string[];
   lastProfileAt?: string;
+  lastSeenAt?: string;
   registeredBy?: string;
 }
 

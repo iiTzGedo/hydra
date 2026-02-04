@@ -1,15 +1,17 @@
 // User roles
 export type Role = 'admin' | 'operator' | 'viewer' | 'family' | 'agent';
 
-// User information
+// User information (matches API UserInfo from login response)
 export interface User {
   userId: string;
   username: string;
   email: string;
   role: Role;
   permissions: string[];
-  temporaryRoles?: TemporaryRole[];
-  createdAt: string;
+  temporaryRoles: TemporaryRole[];
+  // These fields are NOT in the login UserInfo response but may be
+  // populated from UserDetailResponse or hook transformations
+  createdAt?: string;
   lastLoginAt?: string;
 }
 
@@ -18,6 +20,7 @@ export interface TemporaryRole {
   expiresAt: string;
   grantedBy: string;
   grantedAt: string;
+  reason?: string;
 }
 
 // Login
@@ -46,12 +49,18 @@ export interface RegisterRequest {
 export interface RegisterResponse {
   userId: string;
   username: string;
-  email: string;
+  email?: string;
   role: Role;
-  status: 'active' | 'pending_approval';
-  message?: string;
+  status: 'active' | 'inactive' | 'archived' | 'pending_approval';
   isBootstrap?: boolean;
+  message?: string;
   createdAt: string;
+  isSystemAccount?: boolean;
+  parentUserId?: string;
+  apiKey?: string;
+  apiKeyId?: string;
+  apiKeyExpiresAt?: string;
+  password?: string;
 }
 
 // Password reset
@@ -87,7 +96,7 @@ export interface MeResponse {
   nodeId?: string;
   username?: string;
   email?: string;
-  role: Role;
+  role?: Role;
   permissions: string[];
 }
 
@@ -123,14 +132,23 @@ export interface CreateRegistrationTokenRequest {
 
 export interface RegistrationToken {
   token: string;
+  tokenId?: string;
   description?: string;
   expiresAt: string;
   maxUses?: number;
   usedCount: number;
+  usedBy?: RegistrationTokenUsage[];
   allowedRoles?: Role[];
   scope: 'user' | 'node';
   createdBy: string;
   createdAt?: string;
+  isActive?: boolean;
+}
+
+export interface RegistrationTokenUsage {
+  entityId: string;
+  entityType: string;
+  usedAt: string;
 }
 
 // API Keys
@@ -141,14 +159,19 @@ export interface CreateApiKeyRequest {
   expiresAt?: string;
 }
 
+// ApiKey covers both creation response and list item
 export interface ApiKey {
   keyId: string;
   key?: string; // Only returned once at creation
   name: string;
+  type?: string; // "user" | "node"
+  ownerId?: string;
+  nodeId?: string;
   roles?: Role[];
   permissions: string[];
   expiresAt?: string;
   lastUsedAt?: string;
+  usageCount?: number;
   createdBy?: string;
   createdAt: string;
 }
@@ -156,4 +179,10 @@ export interface ApiKey {
 export interface ApiKeyListResponse {
   apiKeys: ApiKey[];
   total: number;
+}
+
+export interface ApiKeyRevokeResponse {
+  keyId: string;
+  revoked: boolean;
+  revokedAt: string;
 }

@@ -130,6 +130,23 @@ class BaseStorageService(ABC):
         """Check storage connectivity."""
         pass
 
+    @staticmethod
+    def _sort_versions(versions: list[dict], limit: int = 15) -> list[dict]:
+        """Sort versions by semantic versioning (descending) and limit results."""
+        versions.sort(
+            key=lambda v: [
+                int(x) if x.isdigit() else 0
+                for x in v["version"].replace("-", ".").split(".")
+            ],
+            reverse=True,
+        )
+        return versions[:limit]
+
+    @staticmethod
+    def _is_valid_version(version: str) -> bool:
+        """Check if a version string is valid (not empty, not 'latest', starts with digit)."""
+        return bool(version) and version != "latest" and version[0].isdigit()
+
 
 # =============================================================================
 # S3 Storage Service (for binaries)
@@ -268,22 +285,13 @@ class S3StorageService(BaseStorageService):
                     parts = remainder.split("/")
                     if len(parts) >= 1:
                         version = parts[0]
-                        if version and version != "latest" and version[0].isdigit():
+                        if self._is_valid_version(version):
                             if version not in seen_versions:
                                 seen_versions.add(version)
                                 versions.append({"version": version})
 
-            # Sort by version (semantic versioning)
-            versions.sort(
-                key=lambda v: [
-                    int(x) if x.isdigit() else 0
-                    for x in v["version"].replace("-", ".").split(".")
-                ],
-                reverse=True,
-            )
-
             logger.info("s3_versions_found", target=target, version_count=len(versions))
-            return versions[:15]  # Return max 15 versions
+            return self._sort_versions(versions)
 
         except self._s3_error as e:
             logger.error("s3_list_versions_failed", target=target, prefix=prefix, error=str(e), error_type="s3_error")
@@ -373,16 +381,8 @@ class S3BundleStorageService(S3StorageService):
                                 "last_modified": obj.last_modified.isoformat() if obj.last_modified else None,
                             })
 
-            versions.sort(
-                key=lambda v: [
-                    int(x) if x.isdigit() else 0
-                    for x in v["version"].replace("-", ".").split(".")
-                ],
-                reverse=True,
-            )
-
             logger.info("s3_bundle_versions_found", version_count=len(versions))
-            return versions[:15]
+            return self._sort_versions(versions)
 
         except self._s3_error as e:
             logger.error("s3_list_bundle_versions_failed", prefix=prefix, error=str(e), error_type="s3_error")
@@ -517,17 +517,8 @@ class LocalBundleStorageService(BaseStorageService):
 
             versions = await asyncio.get_event_loop().run_in_executor(None, _list_versions)
 
-            # Sort by version (semantic versioning)
-            versions.sort(
-                key=lambda v: [
-                    int(x) if x.isdigit() else 0
-                    for x in v["version"].replace("-", ".").split(".")
-                ],
-                reverse=True,
-            )
-
             logger.info("local_bundle_versions_found", version_count=len(versions))
-            return versions[:15]
+            return self._sort_versions(versions)
 
         except PermissionError as e:
             logger.error("local_list_versions_permission_denied", path=str(bundles_path), error=str(e))

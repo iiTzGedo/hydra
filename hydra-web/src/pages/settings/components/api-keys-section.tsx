@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Fingerprint, Plus, Copy, Check, Loader2, Clock, Trash2 } from 'lucide-react';
+import { Fingerprint, Plus, Copy, Check, Loader2, Clock, Trash2, Server, BarChart3 } from 'lucide-react';
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '@/api/auth';
 import { formatDateTime, formatRelativeTime } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
@@ -70,7 +70,11 @@ export function ApiKeysSection() {
       <div className="flex justify-between items-center">
         <div>
           <h3 className="text-lg font-medium text-foreground">API Keys</h3>
-          <p className="text-sm text-muted-foreground">Manage API keys for programmatic access</p>
+          <p className="text-sm text-muted-foreground">
+            {apiKeys?.length
+              ? `${apiKeys.length} API key${apiKeys.length !== 1 ? 's' : ''}`
+              : 'Manage API keys for programmatic access'}
+          </p>
         </div>
         <Button
           onClick={() => setShowCreateForm(true)}
@@ -220,16 +224,47 @@ export function ApiKeysSection() {
                   variants={staggerItemVariants}
                   className="flex items-center gap-4 p-4 hover:bg-muted/60 transition-colors group"
                 >
-                  <div className="rounded-lg bg-green-500/20 p-2.5">
-                    <Fingerprint className="h-5 w-5 text-green-400" />
+                  <div className={`rounded-lg p-2.5 ${apiKey.type === 'node' ? 'bg-blue-500/20' : 'bg-green-500/20'}`}>
+                    {apiKey.type === 'node' ? (
+                      <Server className="h-5 w-5 text-blue-400" />
+                    ) : (
+                      <Fingerprint className="h-5 w-5 text-green-400" />
+                    )}
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-foreground">{apiKey.name}</div>
-                    <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
-                      <span className="font-mono">{apiKey.keyId.slice(0, 8)}...</span>
-                      <span>-</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-foreground">{apiKey.name}</span>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        apiKey.type === 'node'
+                          ? 'bg-blue-500/10 text-blue-400'
+                          : 'bg-green-500/10 text-green-400'
+                      }`}>
+                        {apiKey.type || 'user'}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+                      <span className="font-mono">{apiKey.keyId.slice(0, 12)}...</span>
+                      {apiKey.nodeId && (
+                        <>
+                          <span className="text-muted-foreground/50">·</span>
+                          <span>{apiKey.nodeId}</span>
+                        </>
+                      )}
+                      <span className="text-muted-foreground/50">·</span>
                       <span>Created {formatRelativeTime(new Date(apiKey.createdAt))}</span>
+                    </div>
+                  </div>
+
+                  <div className="hidden lg:flex items-center gap-3 text-sm text-muted-foreground">
+                    <BarChart3 className="h-4 w-4" />
+                    <div className="flex flex-col items-end">
+                      <span>{(apiKey.usageCount ?? 0).toLocaleString()} request{apiKey.usageCount !== 1 ? 's' : ''}</span>
+                      <span className="text-xs">
+                        {apiKey.lastUsedAt
+                          ? `Last used ${formatRelativeTime(new Date(apiKey.lastUsedAt))}`
+                          : 'Never used'}
+                      </span>
                     </div>
                   </div>
 

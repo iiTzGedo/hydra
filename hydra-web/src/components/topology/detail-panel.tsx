@@ -8,7 +8,6 @@ import {
   ExternalLink,
   Clock,
   Boxes,
-  Loader2,
 } from 'lucide-react';
 import { TopologyNode } from '@/types/topology';
 import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS, STATUS_COLORS } from '@/lib/constants';
@@ -96,7 +95,7 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
           </div>
         </div>
 
-        {node.data.lastProfileAt && (
+        {!!node.data.lastProfileAt && (
           <div className="flex items-center gap-2 text-sm">
             <Clock className="h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Last profiled:</span>

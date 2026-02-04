@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Clock,
@@ -19,6 +19,7 @@ import { motion } from 'framer-motion';
 import { formatRelativeTime } from '@/lib/utils';
 import { ROUTES } from '@/lib/constants';
 import { useAuditLog } from '@/api/query';
+import { useDashboardStore } from '@/stores/dashboard-store';
 import type { AuditEntry } from '@/types/query';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
@@ -170,7 +171,47 @@ function ActivityItem({ entry, index }: ActivityItemProps) {
  * - Loading and empty states
  */
 export function RecentActivity() {
-  const { data, isLoading, error } = useAuditLog({ limit: 10, offset: 0 });
+  const timeRange = useDashboardStore((s) => s.timeRange);
+  const customTimeRange = useDashboardStore((s) => s.customTimeRange);
+
+  const { since, until } = useMemo(() => {
+    const now = new Date();
+    let from: Date;
+    let to: Date = now;
+
+    switch (timeRange) {
+      case 'last1h':
+        from = new Date(now.getTime() - 60 * 60 * 1000);
+        break;
+      case 'last7d':
+        from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'last30d':
+        from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case 'custom':
+        if (customTimeRange) {
+          from = customTimeRange.from;
+          to = customTimeRange.to;
+        } else {
+          from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        }
+        break;
+      case 'last24h':
+      default:
+        from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        break;
+    }
+
+    return { since: from.toISOString(), until: to.toISOString() };
+  }, [timeRange, customTimeRange]);
+
+  const { data, isLoading, error } = useAuditLog({
+    limit: 10,
+    offset: 0,
+    since,
+    until,
+  });
   const activities = data?.items ?? [];
 
   // Loading state

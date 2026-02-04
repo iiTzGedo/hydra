@@ -63,7 +63,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { EntityListPage, type StatCard, type ColumnConfig, type TableDensity } from '@/components/common/entity-list-page';
+import { EntityListPage, type TableDensity } from '@/components/common/entity-list-page';
 import { FilterBar, type FilterConfig } from '@/components/common/filter-bar';
 import { type ViewMode } from '@/components/common/view-mode-toggle';
 

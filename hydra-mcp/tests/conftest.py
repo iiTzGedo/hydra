@@ -29,13 +29,13 @@ def mock_client():
     """Create mock Hydra API client."""
     client = AsyncMock()
 
-    # Mock list_nodes response
+    # Mock list_nodes response — return type is tuple[list[dict], int]
     client.list_nodes.return_value = (
         [
             {"nodeId": "node-1", "name": "Server 1", "class": "compute", "status": "active"},
             {"nodeId": "node-2", "name": "Server 2", "class": "compute", "status": "active"},
         ],
-        {"total": 2, "page": 1, "pageSize": 50},
+        2,
     )
 
     # Mock get_node response
@@ -49,29 +49,35 @@ def mock_client():
         "children": [],
     }
 
-    # Mock list_services response
+    # Mock list_services response — return type is tuple[list[dict], int]
     client.list_services.return_value = (
         [
             {"serviceId": "svc-nginx-a1b2", "name": "nginx", "status": "running"},
         ],
-        {"total": 1, "page": 1, "pageSize": 50},
+        1,
     )
 
-    # Mock list_networks response
+    # Mock list_networks response — return type is tuple[list[dict], int]
     client.list_networks.return_value = (
         [
             {"networkId": "net-1", "name": "Main Network", "cidr": "192.168.1.0/24"},
         ],
-        {"total": 1, "page": 1, "pageSize": 50},
+        1,
     )
 
-    # Mock list_groups response
+    # Mock list_groups response — return type is tuple[list[dict], int]
     client.list_groups.return_value = (
         [
             {"groupId": "grp-1", "name": "Production", "type": "node"},
         ],
-        {"total": 1, "page": 1, "pageSize": 50},
+        1,
     )
+
+    # Mock list_notifications response — return type is tuple[list[dict], int]
+    client.list_notifications.return_value = ([], 0)
+
+    # Mock list_audit_entries response — return type is list[dict]
+    client.list_audit_entries.return_value = []
 
     # Mock get_topology response
     client.get_topology.return_value = {

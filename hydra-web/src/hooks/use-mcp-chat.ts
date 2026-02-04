@@ -161,6 +161,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
 
       case WSMessageType.TOOL_CALL_RESULT: {
         const result = data.toolCall as { id: string; result: string; isError: boolean };
+        const existing = currentToolCallsRef.current.find((tc) => tc.id === result.id);
         setCurrentToolCalls(prev =>
           prev.map(tc =>
             tc.id === result.id
@@ -175,8 +176,8 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
         );
         const updatedToolCall: MCPToolCall = {
           id: result.id,
-          name: '',
-          arguments: {},
+          name: existing?.name ?? '',
+          arguments: existing?.arguments ?? {},
           result: result.result,
           status: result.isError ? 'error' : 'success',
           error: result.isError ? result.result : undefined,

@@ -5,7 +5,7 @@ type ShortcutHandler = (e: KeyboardEvent) => void;
 interface ShortcutConfig {
   key: string;
   handler: ShortcutHandler;
-  description: string;
+  description?: string;
   ctrl?: boolean;
   shift?: boolean;
   alt?: boolean;

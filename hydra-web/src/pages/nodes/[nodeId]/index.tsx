@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   Server,
-  Network,
-  Cpu,
   Edit,
   Archive,
   RefreshCw,
@@ -19,8 +17,7 @@ import { useArchiveNode, useNode, useUpdateNode } from '@/api/nodes';
 import type { NodeKind } from '@/types/node';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { PageHeaderLayout } from '@/components/layout/page-header-layout';
-import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS } from '@/lib/constants';
-import { cn } from '@/lib/utils';
+import { ROUTES, NODE_KIND_LABELS } from '@/lib/constants';
 import { getErrorMessage } from '@/lib/api-client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -51,12 +48,6 @@ import {
   NetworksTab,
   GroupsTab,
 } from './tabs';
-
-const classIcons = {
-  compute: Server,
-  networking: Network,
-  iot: Cpu,
-};
 
 const tabs = [
   { id: 'overview', label: 'Overview', icon: Info },
@@ -206,9 +197,6 @@ export default function NodeDetailPage() {
       </div>
     );
   }
-
-  const Icon = classIcons[node.class] || Server;
-  const colors = NODE_CLASS_COLORS[node.class];
 
   return (
     <div className="p-6">

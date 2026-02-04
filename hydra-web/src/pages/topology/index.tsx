@@ -2,14 +2,12 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import {
   ReactFlow,
-  ReactFlowProvider,
   Background,
   Controls,
   MiniMap,
   Panel,
   useNodesState,
   useEdgesState,
-  useReactFlow,
   Node,
   Edge,
   Position,
@@ -20,7 +18,6 @@ import {
 import '@xyflow/react/dist/style.css';
 import {
   RefreshCw,
-  Maximize,
   Eye,
   EyeOff,
   Loader2,
@@ -53,7 +50,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Tooltip,
   TooltipContent,
@@ -103,7 +99,7 @@ export default function TopologyPage() {
   const generateMutation = useGenerateTopology();
   const { prefetch: prefetchTopologyModes } = usePrefetchTopologyModes();
   const { data: groupsData } = useGroups({});
-  const { data: selectedGroup } = useGroup(selectedGroupId || '');
+  useGroup(selectedGroupId || '');
   const { data: selectedGroupMembers } = useGroupMembers(selectedGroupId || '', {
     entityType: 'node',
     limit: 1000,

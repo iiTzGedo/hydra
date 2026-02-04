@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -8,8 +8,6 @@ import {
   Copy,
   Check,
   Loader2,
-  Search,
-  Filter,
   RefreshCw,
   Server,
   Wifi,
@@ -26,11 +24,9 @@ import { type ViewMode } from '@/components/common/view-mode-toggle';
 import { useNodes, useRegisterNode, useUpdateNode, useArchiveNode } from '@/api/nodes';
 import { ConfirmDialog } from '@/components/modals/confirm-dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import { NodeCard, NodeCardGridSkeleton } from '@/components/nodes/node-card';
 import {
   Select,
@@ -137,8 +133,6 @@ export default function NodesPage() {
   const [showRegisterForm, setShowRegisterForm] = useState(false);
   const [editingNode, setEditingNode] = useState<NodeSummaryWithId | null>(null);
   const [archivingNode, setArchivingNode] = useState<NodeSummaryWithId | null>(null);
-  const navigate = useNavigate();
-
   const { data: nodesData, isLoading, error, refetch } = useNodes({
     search: filters.search || undefined,
     class: filters.class !== 'all' ? (filters.class as NodeClass) : undefined,

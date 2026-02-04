@@ -40,7 +40,7 @@ export interface Network extends NetworkSummary {
   gatewayV6?: string;
   vlanId?: number;
   parentNetworkId?: string;
-  subnetIds?: string[];
+  subnetIds: string[];
   dhcp?: DhcpConfig;
   dns?: DnsConfig;
   origin?: {
@@ -48,8 +48,8 @@ export interface Network extends NetworkSummary {
     sourceNodeId?: string;
     sourceProfileId?: string;
   };
-  createdAt?: string;
-  updatedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface NetworkNodeInfo {

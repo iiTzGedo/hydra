@@ -21,20 +21,8 @@ const TIME_RANGE_PRESETS: { value: TimeRangePreset; label: string }[] = [
 /**
  * TimeRangeSelector - Dashboard time range filter
  *
- * NOTE: This component currently provides UI-only functionality.
- * The selected time range is stored in the dashboard store, but
- * dashboard widgets do not yet filter data by time range.
- *
- * TODO: Implement time-based filtering:
- * - Update dashboard API hooks to accept time range params
- * - Add time filtering to backend endpoints
- * - Connect StatsCards, CapacityOverview, etc. to time range store
- *
- * @example
- * // Future usage with time filtering:
- * const { timeRange, getEffectiveTimeRange } = useDashboardStore();
- * const { from, to } = getEffectiveTimeRange();
- * const { data } = useNodes({ from: from.toISOString(), to: to.toISOString() });
+ * Filters the Recent Activity widget by the selected time range.
+ * The selected range is persisted in the dashboard store (localStorage).
  */
 export function TimeRangeSelector() {
   const { timeRange, setTimeRange, setCustomTimeRange, getTimeRangeLabel } = useDashboardStore();
@@ -63,11 +51,8 @@ export function TimeRangeSelector() {
         <Button
           variant="outline"
           size="sm"
-          className={cn(
-            "bg-card border-border text-foreground hover:bg-muted gap-2",
-            "text-muted-foreground" // Muted style to indicate preview/feature flag
-          )}
-          title="Time range filtering (preview - not yet fully implemented)"
+          className="bg-card border-border text-foreground hover:bg-muted gap-2"
+          title="Filter dashboard activity by time range"
         >
           <Clock className="h-4 w-4" />
           <span className="hidden sm:inline">{getTimeRangeLabel()}</span>
@@ -142,7 +127,7 @@ export function TimeRangeSelector() {
         {/* Info notice */}
         <div className="border-t border-border p-3 bg-muted/30">
           <p className="text-[10px] text-muted-foreground text-center">
-            Time filtering is coming soon
+            Filters recent activity by time range
           </p>
         </div>
       </PopoverContent>

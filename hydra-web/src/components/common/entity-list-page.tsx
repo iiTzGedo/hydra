@@ -286,7 +286,7 @@ export function EntityListPage<T>({
         </Card>
 
         {/* Error State */}
-        {error && !isLoading && (
+        {!!error && !isLoading && (
           <Card className="border-destructive">
             <CardContent className="p-8 text-center">
               <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />

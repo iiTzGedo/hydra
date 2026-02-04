@@ -674,23 +674,37 @@ async def list_api_keys(
         HTTPException 403: Cannot view keys for specified sub-account.
     """
     owner_id = current_user["user_id"]
+    include_sub_ids = None
+
     if sub_account_user_id:
+        # Explicit sub-account query
         if current_user.get("role") == Role.ADMIN.value:
             owner_id = sub_account_user_id
         elif await users_service.is_parent_of(current_user["user_id"], sub_account_user_id):
             owner_id = sub_account_user_id
         else:
             raise AuthorizationError()
+    else:
+        # Auto-include sub-account keys for parent users
+        user_doc = await users_service.db.users.find_one({"userId": owner_id})
+        if user_doc:
+            sub_accounts = user_doc.get("subAccounts", [])
+            if sub_accounts:
+                include_sub_ids = [sa["userId"] for sa in sub_accounts]
 
-    api_keys, total = await auth_service.list_api_keys(owner_id)
+    api_keys, total = await auth_service.list_api_keys(owner_id, include_sub_ids)
     return ApiKeyListResponse(
         api_keys=[
             {
                 "key_id": k["key_id"],
                 "name": k["name"],
+                "type": k["type"],
+                "owner_id": k["owner_id"],
+                "node_id": k.get("node_id"),
                 "permissions": k["permissions"],
                 "expires_at": k.get("expires_at"),
                 "last_used_at": k.get("last_used_at"),
+                "usage_count": k.get("usage_count", 0),
                 "created_at": k["created_at"],
             }
             for k in api_keys

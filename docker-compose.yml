@@ -44,7 +44,7 @@ services:
       - HYDRA_SMTP_PASSWORD=${HYDRA_SMTP_PASSWORD}
       - HYDRA_SMTP_FROM_ADDRESS=${HYDRA_SMTP_FROM_ADDRESS}
       - HYDRA_SMTP_FROM_NAME=${HYDRA_SMTP_FROM_NAME:-Hydra}
-      - HYDRA_CORS_ORIGINS=${HYDRA_CORS_ORIGINS:-*}
+      - HYDRA_CORS_ORIGINS=${HYDRA_CORS_ORIGINS:-["http://localhost:5173","http://localhost:3000"]}
     depends_on:
       mongodb:
         condition: service_healthy

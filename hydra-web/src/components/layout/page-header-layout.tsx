@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { PageBreadcrumbs, BreadcrumbsSkeleton } from './page-breadcrumbs';
+import { PageBreadcrumbs } from './page-breadcrumbs';
 import { SmartBackButton } from './smart-back-button';
 import { Skeleton } from '@/components/ui/skeleton';
 

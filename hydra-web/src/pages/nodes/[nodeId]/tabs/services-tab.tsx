@@ -2,7 +2,6 @@ import { Link } from 'react-router-dom';
 import { Boxes } from 'lucide-react';
 import { useNodeServices } from '@/api/services';
 import { ROUTES } from '@/lib/constants';
-import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/common/empty-state';
 import { StatusBadge } from '@/components/ui/status-badge';

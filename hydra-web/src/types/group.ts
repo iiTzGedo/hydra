@@ -41,9 +41,10 @@ export interface GroupSummary {
 
 export interface Group extends GroupSummary {
   selectors: GroupSelectors;
-  parentGroupIds?: string[];
-  createdAt?: string;
-  updatedAt?: string;
+  parentGroupIds: string[];
+  members?: GroupMembersResponse;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface GroupMemberNode {

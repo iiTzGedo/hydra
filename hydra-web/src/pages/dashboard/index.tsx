@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Plus, Network, MessageSquare, History, LayoutGrid, ArrowRight, Maximize2, Boxes } from 'lucide-react';
+import { Plus, Network, MessageSquare, History, LayoutGrid, ArrowRight, Maximize2, Boxes, Bell } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { StatsCards } from '@/components/dashboard/stats-cards';
 import { CapacityOverview } from '@/components/dashboard/capacity-overview';
@@ -98,6 +98,18 @@ export default function DashboardPage() {
           <Button variant="outline" size="sm" className="group">
             <MessageSquare className="mr-2 h-4 w-4 text-compute transition-transform group-hover:scale-110" />
             AI Chat
+          </Button>
+        </Link>
+        <Link to={ROUTES.SERVICES}>
+          <Button variant="outline" size="sm" className="group">
+            <Boxes className="mr-2 h-4 w-4 text-purple-500 transition-transform group-hover:scale-110" />
+            Services
+          </Button>
+        </Link>
+        <Link to={ROUTES.NOTIFICATIONS}>
+          <Button variant="outline" size="sm" className="group">
+            <Bell className="mr-2 h-4 w-4 text-amber-500 transition-transform group-hover:scale-110" />
+            Notifications
           </Button>
         </Link>
       </motion.div>

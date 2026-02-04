@@ -73,7 +73,7 @@ export function ChatListItem({
     type: DRAG_TYPE_CHAT_SESSION,
     item: {
       sessionId: session.sessionId,
-      projectId: session.projectId,
+      projectId: session.projectId ?? null,
       title: session.title || 'Untitled',
     },
     collect: (monitor) => ({

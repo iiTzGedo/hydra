@@ -55,6 +55,13 @@ class HealthScanner:
         self.notif = NotificationService(mongodb, redis)
         self._source = NotificationSource(component="hydra-api", service="health-scanner")
 
+    @staticmethod
+    def _coerce_utc(value: datetime) -> datetime:
+        """Ensure datetime is timezone-aware in UTC."""
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
     async def _get_schedule_intervals(self, node_ids: list[str]) -> dict[str, timedelta]:
         """Fetch schedule intervals from latest profiles for nodes."""
         if not node_ids:
@@ -158,18 +165,30 @@ class HealthScanner:
         schedule_intervals = await self._get_schedule_intervals(node_ids)
 
         # Phase 1 — run all individual checks in parallel
-        await asyncio.gather(
-            self._check_stale_nodes(node_warnings, active_nodes, schedule_intervals),
-            self._check_offline_nodes(node_warnings, active_nodes, schedule_intervals),
-            self._check_storage_thresholds(node_warnings, active_nodes),
-            self._check_memory_thresholds(node_warnings, active_nodes),
-            self._check_expiring_tokens(),
-            self._check_expiring_api_keys(),
-            self._check_service_instability(),
-            self._check_pending_users(),
-            self._check_agent_version_outdated(node_ids),
+        checks = [
+            ("stale_nodes", self._check_stale_nodes(node_warnings, active_nodes, schedule_intervals)),
+            ("offline_nodes", self._check_offline_nodes(node_warnings, active_nodes, schedule_intervals)),
+            ("storage_thresholds", self._check_storage_thresholds(node_warnings, active_nodes)),
+            ("memory_thresholds", self._check_memory_thresholds(node_warnings, active_nodes)),
+            ("expiring_tokens", self._check_expiring_tokens()),
+            ("expiring_api_keys", self._check_expiring_api_keys()),
+            ("service_instability", self._check_service_instability()),
+            ("pending_users", self._check_pending_users()),
+            ("agent_version_outdated", self._check_agent_version_outdated(node_ids)),
+        ]
+
+        results = await asyncio.gather(
+            *(coro for _, coro in checks),
             return_exceptions=True,
         )
+        for (name, _), result in zip(checks, results):
+            if isinstance(result, Exception):
+                logger.error(
+                    "health_scanner_check_failed",
+                    check=name,
+                    error=str(result),
+                    exc_info=result,
+                )
 
         # Phase 2 — evaluate health degradation from accumulated warnings
         await self._check_node_health_degraded(node_warnings)
@@ -195,8 +214,9 @@ class HealthScanner:
         for node in active_nodes:
             node_id = node["nodeId"]
             last_seen = node.get("lastProfileAt")
-            if not last_seen:
+            if not isinstance(last_seen, datetime):
                 continue
+            last_seen = self._coerce_utc(last_seen)
 
             expected = schedule_intervals.get(node_id, DEFAULT_SCHEDULE_INTERVAL)
             stale_cutoff = now - (expected * STALE_PROFILE_MULTIPLIER)
@@ -250,8 +270,9 @@ class HealthScanner:
         for node in active_nodes:
             node_id = node["nodeId"]
             last_seen = node.get("lastProfileAt")
-            if not last_seen:
+            if not isinstance(last_seen, datetime):
                 continue
+            last_seen = self._coerce_utc(last_seen)
 
             expected = schedule_intervals.get(node_id, DEFAULT_SCHEDULE_INTERVAL)
             offline_cutoff = now - (expected * OFFLINE_PROFILE_MULTIPLIER)
@@ -881,8 +902,9 @@ class HealthScanner:
                 continue
 
             last_seen = node.get("lastProfileAt")
-            if not last_seen:
+            if not isinstance(last_seen, datetime):
                 continue
+            last_seen = self._coerce_utc(last_seen)
 
             expected = schedule_intervals.get(node_id, DEFAULT_SCHEDULE_INTERVAL)
             stale_cutoff = now - (expected * STALE_PROFILE_MULTIPLIER)

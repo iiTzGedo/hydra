@@ -50,7 +50,7 @@ interface NotificationPanelProps {
 export function NotificationPanel({
   onClose,
   mobile = false,
-  triggerRef,
+  triggerRef: _triggerRef,
 }: NotificationPanelProps) {
   const { data, isLoading } = useNotifications({
     limit: mobile ? 20 : 10,

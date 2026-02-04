@@ -133,7 +133,7 @@ interface SmartBackButtonProps {
  */
 export function SmartBackButton({
   className,
-  fallbackLabel = 'Back',
+  fallbackLabel: _fallbackLabel = 'Back',
   forceContext,
 }: SmartBackButtonProps) {
   const navigate = useNavigate();

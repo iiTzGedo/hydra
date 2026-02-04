@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Server, Wifi, Cpu, HardDrive, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -6,7 +6,7 @@ import { useNodes } from '@/api/nodes';
 import { ROUTES } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { cn, formatRelativeTime } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import type { NodeSummary, NodeClass } from '@/types/node';
 
 const nodeClassIcons: Record<NodeClass, typeof Server> = {
@@ -137,17 +137,6 @@ export function NodeStatusGrid() {
   const nodes = data?.items ?? [];
   const total = data?.total ?? 0;
   const hasMore = total > limit;
-
-  // Calculate status summary
-  const statusSummary = useMemo(() => {
-    return nodes.reduce(
-      (acc, node) => {
-        acc[node.status] = (acc[node.status] || 0) + 1;
-        return acc;
-      },
-      {} as Record<string, number>
-    );
-  }, [nodes]);
 
   // Handle show more
   const handleShowMore = () => {

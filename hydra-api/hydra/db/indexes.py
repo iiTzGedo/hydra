@@ -14,6 +14,7 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("parentNodeId", ASCENDING)]),
         IndexModel([("networkIds", ASCENDING)]),
         IndexModel([("lastProfileAt", DESCENDING)]),
+        IndexModel([("lastSeenAt", DESCENDING)]),
         IndexModel(
             [("displayName", TEXT), ("description", TEXT)],
             default_language="english",

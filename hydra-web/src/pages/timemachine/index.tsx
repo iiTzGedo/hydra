@@ -17,7 +17,6 @@ import {
   GitBranch,
   FileText,
   Network,
-  AlertTriangle,
   FolderOpen,
   ChevronRight,
   Expand,
@@ -247,7 +246,6 @@ function EventAtlas({
           if (!categoryEvents || categoryEvents.length === 0) return null;
 
           const Icon = category.icon;
-          const rangeMs = range.end.getTime() - range.start.getTime();
 
           return (
             <div key={category.id} className="space-y-2">
@@ -273,7 +271,6 @@ function EventAtlas({
                       const meta = EVENT_META[event.eventType as TimelineEventType];
                       const EventIcon = meta?.icon || History;
                       const isSelected = event.eventId === selectedEventId;
-                      const eventTime = new Date(event.timestamp).getTime();
 
                       return (
                         <Tooltip key={event.eventId}>
@@ -622,20 +619,6 @@ export default function TimeMachinePage() {
   const metadataEntries = selectedEvent?.metadata
     ? Object.entries(selectedEvent.metadata)
     : [];
-
-  const eventStats = useMemo(() => {
-    if (!events.length) return { nodeEvents: 0, serviceEvents: 0, topologyEvents: 0, profiles: 0 };
-    return {
-      nodeEvents: events.filter((e) =>
-        ['node_registered', 'node_archived'].includes(e.eventType)
-      ).length,
-      serviceEvents: events.filter((e) =>
-        ['service_discovered', 'service_removed'].includes(e.eventType)
-      ).length,
-      topologyEvents: events.filter((e) => e.eventType === 'topology_generated').length,
-      profiles: events.filter((e) => e.eventType === 'profile_submitted').length,
-    };
-  }, [events]);
 
   const topologyData = useMemo(() => {
     if (!topologyState?.graph) return null;

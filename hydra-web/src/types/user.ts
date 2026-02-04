@@ -1,11 +1,11 @@
 import { ListParams } from './api';
-import { Role, TemporaryRole, User } from './auth';
+import { Role, TemporaryRole } from './auth';
 
 // Re-export for convenience
 export type { Role, User } from './auth';
 
 // User status
-export type UserStatus = 'active' | 'inactive' | 'archived';
+export type UserStatus = 'active' | 'inactive' | 'archived' | 'pending_approval';
 
 // User summary (for list views)
 export interface UserSummary {
@@ -16,14 +16,26 @@ export interface UserSummary {
   status: UserStatus;
   createdAt: string;
   lastLogin?: string;
-  lastLoginAt?: string;
 }
 
 // Full user details (renamed to avoid conflict with auth.ts User)
 export interface UserDetails extends UserSummary {
   permissions: string[];
   temporaryRoles: TemporaryRole[];
-  metadata?: Record<string, unknown>;
+  resourcePermissions: string[];
+  registeredNodes: string[];
+  preferences: Record<string, unknown>;
+  isSystemAccount: boolean;
+  parentUserId?: string;
+  subAccounts: SubAccountInfo[];
+  updatedAt: string;
+}
+
+export interface SubAccountInfo {
+  userId: string;
+  username: string;
+  role: Role;
+  createdAt: string;
 }
 
 // User list params

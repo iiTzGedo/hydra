@@ -6,7 +6,6 @@ import {
   Network,
   FolderTree,
   GitBranch,
-  Clock,
   MessageSquare,
   Settings,
   ChevronLeft,

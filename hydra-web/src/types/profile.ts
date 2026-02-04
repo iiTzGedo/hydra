@@ -14,6 +14,7 @@ export interface CpuInfo {
 
 export interface MemoryInfo {
   totalBytes?: number;
+  usedBytes?: number;
   type?: string;
   speedMhz?: number;
   slotsUsed?: number;

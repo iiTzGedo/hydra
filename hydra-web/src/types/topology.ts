@@ -16,9 +16,10 @@ export interface TopologyNode {
     runtime?: string;
     [key: string]: unknown;
   };
-  position?: {
+  position: {
     x: number;
     y: number;
+    layer?: number;
   };
 }
 
@@ -27,8 +28,8 @@ export interface TopologyEdge {
   source: string;
   target: string;
   type: string;
-  label?: string;
-  data?: {
+  label?: string; // May come from data dict or client-side transformation
+  data: {
     interface?: string;
     bandwidth?: number;
     [key: string]: unknown;
@@ -43,9 +44,9 @@ export interface TopologyGraph {
 export interface TopologyStats {
   nodeCount: number;
   edgeCount: number;
-  networkCount?: number;
-  serviceCount?: number;
-  computeTimeMs?: number;
+  networkCount: number;
+  serviceCount: number;
+  computeTimeMs: number;
 }
 
 export interface TopologyScope {

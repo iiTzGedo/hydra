@@ -12,7 +12,7 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children, roles, permissions }: ProtectedRouteProps) {
   const location = useLocation();
-  const { isAuthenticated, isLoading, user, hasPermission, hasAnyRole } = useAuthStore();
+  const { isAuthenticated, isLoading, hasPermission, hasAnyRole } = useAuthStore();
 
   if (isLoading) {
     return (

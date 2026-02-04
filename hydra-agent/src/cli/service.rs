@@ -1,7 +1,8 @@
 //! Service command for managing the agent as a system service.
 //!
 //! Provides commands to install, start, stop, and manage the hydra-agent
-//! as a systemd service (on Linux) or other service managers.
+//! as a systemd service (on Linux), Windows Service (on Windows), or
+//! other service managers (Docker, cron).
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Subcommand};
@@ -143,13 +144,21 @@ pub fn execute(args: &ServiceArgs, config_path: &PathBuf) -> Result<()> {
     }
 }
 
-/// Check if running as root (Unix only)
+/// Check if running with sufficient privileges (root on Unix, Administrator on Windows)
 fn check_root() -> Result<()> {
     #[cfg(unix)]
     {
         if !nix::unistd::Uid::effective().is_root() {
             return Err(anyhow!(
                 "This command requires root privileges. Use 'sudo hydra-agent service ...'"
+            ));
+        }
+    }
+    #[cfg(windows)]
+    {
+        if !crate::platform::windows::is_elevated() {
+            return Err(anyhow!(
+                "This command requires Administrator privileges. Run from an elevated command prompt."
             ));
         }
     }
@@ -225,9 +234,20 @@ fn activate_service(
                 }
             }
 
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "windows")]
             {
-                return Err(anyhow!("Systemd service installation is only supported on Linux"));
+                let binary_path = target_exe.to_string_lossy().to_string();
+                crate::platform::windows::service::install_service(&binary_path)
+                    .context("Failed to install Windows service")?;
+                info!("Windows service installed");
+                if !no_start {
+                    start_service()?;
+                }
+            }
+
+            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+            {
+                return Err(anyhow!("Service installation is only supported on Linux and Windows"));
             }
         }
         ServiceRuntime::Docker => {
@@ -531,40 +551,73 @@ fn deactivate_service(purge: bool) -> Result<()> {
             .status();
     }
 
-    // Remove binary
-    let binary_path = PathBuf::from("/usr/local/bin/hydra-agent");
-    if binary_path.exists() {
-        fs::remove_file(&binary_path)?;
-        info!("Removed {}", binary_path.display());
+    #[cfg(target_os = "windows")]
+    {
+        // Uninstall Windows service (stops it first internally)
+        let _ = crate::platform::windows::service::uninstall_service();
+        // Also remove any scheduled tasks
+        let _ = crate::platform::windows::scheduler::delete_task();
+        info!("Windows service and scheduled tasks removed");
     }
 
-    // Remove alias if exists
-    let alias_path = PathBuf::from("/usr/local/bin/hydra");
-    if alias_path.exists() && alias_path.is_symlink() {
-        fs::remove_file(&alias_path)?;
-        info!("Removed alias: {}", alias_path.display());
+    // Remove binary (platform-specific paths)
+    #[cfg(unix)]
+    {
+        let binary_path = PathBuf::from("/usr/local/bin/hydra-agent");
+        if binary_path.exists() {
+            fs::remove_file(&binary_path)?;
+            info!("Removed {}", binary_path.display());
+        }
+
+        // Remove alias if exists
+        let alias_path = PathBuf::from("/usr/local/bin/hydra");
+        if alias_path.exists() && alias_path.is_symlink() {
+            fs::remove_file(&alias_path)?;
+            info!("Removed alias: {}", alias_path.display());
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let binary_path = PathBuf::from(r"C:\Program Files\Hydra Agent\hydra-agent.exe");
+        if binary_path.exists() {
+            fs::remove_file(&binary_path)?;
+            info!("Removed {}", binary_path.display());
+        }
     }
 
     if purge {
-        // Remove configuration
-        let config_dir = PathBuf::from("/etc/hydra");
-        if config_dir.exists() {
-            fs::remove_dir_all(&config_dir)?;
-            info!("Removed {}", config_dir.display());
+        #[cfg(unix)]
+        {
+            // Remove configuration
+            let config_dir = PathBuf::from("/etc/hydra");
+            if config_dir.exists() {
+                fs::remove_dir_all(&config_dir)?;
+                info!("Removed {}", config_dir.display());
+            }
+
+            // Remove logs
+            let log_dir = PathBuf::from("/var/log/hydra");
+            if log_dir.exists() {
+                fs::remove_dir_all(&log_dir)?;
+                info!("Removed {}", log_dir.display());
+            }
+
+            // Remove vault
+            let vault_dir = PathBuf::from("/var/cv/hydra");
+            if vault_dir.exists() {
+                fs::remove_dir_all(&vault_dir)?;
+                info!("Removed {}", vault_dir.display());
+            }
         }
 
-        // Remove logs
-        let log_dir = PathBuf::from("/var/log/hydra");
-        if log_dir.exists() {
-            fs::remove_dir_all(&log_dir)?;
-            info!("Removed {}", log_dir.display());
-        }
-
-        // Remove vault
-        let vault_dir = PathBuf::from("/var/cv/hydra");
-        if vault_dir.exists() {
-            fs::remove_dir_all(&vault_dir)?;
-            info!("Removed {}", vault_dir.display());
+        #[cfg(windows)]
+        {
+            let config_dir = PathBuf::from(r"C:\ProgramData\Hydra");
+            if config_dir.exists() {
+                fs::remove_dir_all(&config_dir)?;
+                info!("Removed {}", config_dir.display());
+            }
         }
     }
 
@@ -598,9 +651,16 @@ fn start_service() -> Result<()> {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
-        return Err(anyhow!("Service management is only supported on Linux"));
+        crate::platform::windows::service::start_service()
+            .context("Failed to start Windows service")?;
+        println!("✓ Service started");
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        return Err(anyhow!("Service management is only supported on Linux and Windows"));
     }
 
     Ok(())
@@ -626,9 +686,16 @@ fn stop_service() -> Result<()> {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
-        return Err(anyhow!("Service management is only supported on Linux"));
+        crate::platform::windows::service::stop_service()
+            .context("Failed to stop Windows service")?;
+        println!("✓ Service stopped");
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        return Err(anyhow!("Service management is only supported on Linux and Windows"));
     }
 
     Ok(())
@@ -654,9 +721,18 @@ fn restart_service() -> Result<()> {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
-        return Err(anyhow!("Service management is only supported on Linux"));
+        crate::platform::windows::service::stop_service()
+            .context("Failed to stop Windows service")?;
+        crate::platform::windows::service::start_service()
+            .context("Failed to start Windows service")?;
+        println!("✓ Service restarted");
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        return Err(anyhow!("Service management is only supported on Linux and Windows"));
     }
 
     Ok(())
@@ -734,9 +810,32 @@ fn show_status() -> Result<()> {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
-        println!("  Status: N/A (systemd not available)");
+        if crate::platform::windows::service::is_installed() {
+            println!("  Installed: Yes");
+            match crate::platform::windows::service::service_status() {
+                Ok(status) => {
+                    // Parse sc query output for state
+                    for line in status.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("STATE") {
+                            println!("  {}", trimmed);
+                        }
+                    }
+                }
+                Err(e) => println!("  Status: Error querying ({})", e),
+            }
+        } else {
+            println!("  Installed: No");
+            println!();
+            println!("Run 'hydra-agent service activate' to install the service.");
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        println!("  Status: N/A (no service manager available)");
     }
 
     println!();
@@ -763,9 +862,26 @@ fn enable_service() -> Result<()> {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
-        return Err(anyhow!("Service management is only supported on Linux"));
+        use std::process::Command;
+
+        // Set Windows service to auto-start
+        let status = Command::new("sc")
+            .args(["config", "HydraAgent", "start=auto"])
+            .status()
+            .context("Failed to configure service start type")?;
+
+        if status.success() {
+            println!("✓ Service enabled (will start on boot)");
+        } else {
+            return Err(anyhow!("Failed to enable service"));
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        return Err(anyhow!("Service management is only supported on Linux and Windows"));
     }
 
     Ok(())
@@ -791,9 +907,26 @@ fn disable_service() -> Result<()> {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
-        return Err(anyhow!("Service management is only supported on Linux"));
+        use std::process::Command;
+
+        // Set Windows service to demand-start (manual)
+        let status = Command::new("sc")
+            .args(["config", "HydraAgent", "start=demand"])
+            .status()
+            .context("Failed to configure service start type")?;
+
+        if status.success() {
+            println!("✓ Service disabled (will not start on boot)");
+        } else {
+            return Err(anyhow!("Failed to disable service"));
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        return Err(anyhow!("Service management is only supported on Linux and Windows"));
     }
 
     Ok(())
@@ -822,9 +955,43 @@ fn show_logs(lines: u32, follow: bool) -> Result<()> {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
-        return Err(anyhow!("Log viewing is only supported on Linux (journalctl)"));
+        use std::process::Command;
+
+        // Use PowerShell to query Windows Event Log for Hydra Agent events
+        let lines_str = lines.to_string();
+        let ps_cmd = format!(
+            "Get-EventLog -LogName Application -Source 'HydraAgent' -Newest {} | Format-List",
+            lines_str
+        );
+
+        let status = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &ps_cmd])
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {}
+            _ => {
+                // Fallback: check for log files in ProgramData
+                let log_dir = PathBuf::from(r"C:\ProgramData\Hydra\logs");
+                if log_dir.exists() {
+                    println!("Event log not available. Check log files in: {}", log_dir.display());
+                } else {
+                    println!("No logs available. Service may not have generated any log entries yet.");
+                }
+            }
+        }
+
+        if follow {
+            println!();
+            println!("Note: Log following (-f) is not supported on Windows. Use Event Viewer for real-time monitoring.");
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        return Err(anyhow!("Log viewing is only supported on Linux and Windows"));
     }
 
     Ok(())

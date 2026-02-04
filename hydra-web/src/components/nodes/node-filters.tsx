@@ -1,4 +1,4 @@
-import { Search, X, Filter } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NODE_KIND_LABELS } from '@/lib/constants';
 import { NodeClass, NodeType } from '@/types/node';

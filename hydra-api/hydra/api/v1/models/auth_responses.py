@@ -180,9 +180,13 @@ class ApiKeyListItem(BaseModel):
 
     key_id: str = Field(alias="keyId")
     name: str
+    type: str = "user"
+    owner_id: str = Field(alias="ownerId")
+    node_id: str | None = Field(default=None, alias="nodeId")
     permissions: list[str]
     expires_at: datetime | None = Field(alias="expiresAt")
     last_used_at: datetime | None = Field(alias="lastUsedAt")
+    usage_count: int = Field(default=0, alias="usageCount")
     created_at: datetime = Field(alias="createdAt")
 
     model_config = {"populate_by_name": True}

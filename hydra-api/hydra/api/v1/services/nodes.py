@@ -7,6 +7,7 @@ import structlog
 from pymongo import ASCENDING, DESCENDING
 
 from hydra.api.v1.core.exceptions import NodeNotFoundError, ValidationError
+from hydra.core.config import get_settings
 from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.nodes import NodeListParams, NodeStatus, UpdateNodeRequest
 from hydra.api.v1.models.query import AuditAction
@@ -298,7 +299,8 @@ class NodeService:
         from datetime import timedelta
 
         now = datetime.now(timezone.utc)
-        health_threshold = now - timedelta(hours=24)
+        settings = get_settings()
+        health_threshold = now - timedelta(hours=settings.health_cutoff_hours)
 
         query: dict = {"lastProfileAt": {"$ne": None}}
 
@@ -342,7 +344,10 @@ class NodeService:
 
         async for node in self.db.nodes.aggregate(pipeline):
             last_profile_at = node.get("lastProfileAt")
-            is_healthy = last_profile_at and last_profile_at >= health_threshold
+            last_seen_at = node.get("lastSeenAt")
+            # Use lastSeenAt if available (includes profile + command poll), fall back to lastProfileAt
+            effective_seen = last_seen_at or last_profile_at
+            is_healthy = effective_seen is not None and effective_seen >= health_threshold
 
             if healthy_only and not is_healthy:
                 continue

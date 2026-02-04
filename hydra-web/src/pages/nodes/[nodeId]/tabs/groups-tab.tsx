@@ -12,7 +12,7 @@ interface GroupsTabProps {
 }
 
 export function GroupsTab({ node }: GroupsTabProps) {
-  const { data: nodeGroups, isLoading, error, isFetching } = useNodeGroups(node.id);
+  const { data: nodeGroups, isLoading, error, isFetching } = useNodeGroups(node.id || node.nodeId);
 
   if (isLoading) {
     return (

@@ -140,7 +140,7 @@ interface PageBreadcrumbsProps {
  * // On /nodes/proxmox-01/profiles/abc123
  * // Shows: Home > Nodes > proxmox-01 > Profiles > abc1...c123
  */
-export function PageBreadcrumbs({ className, maxItems = 4 }: PageBreadcrumbsProps) {
+export function PageBreadcrumbs({ className, maxItems: _maxItems = 4 }: PageBreadcrumbsProps) {
   const location = useLocation();
   const items = buildBreadcrumbItems(location.pathname);
 
@@ -192,7 +192,7 @@ export function PageBreadcrumbs({ className, maxItems = 4 }: PageBreadcrumbsProp
           </Link>
         </motion.li>
 
-        {items.map((item, index) => {
+        {items.map((item, _index) => {
           const isLast = item.isCurrent;
           
           return (

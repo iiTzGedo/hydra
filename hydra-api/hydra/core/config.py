@@ -88,6 +88,21 @@ class Settings(BaseSettings):
         description="URL for the built-in Hydra MCP server (HTTP transport)",
     )
 
+    # Centralized defaults
+    pagination_default_limit: int = 50
+    pagination_max_limit: int = 200
+    health_cutoff_hours: int = 24
+    profile_section_weights: dict[str, float] = Field(
+        default={
+            "hardware": 0.30,
+            "configs": 0.25,
+            "software": 0.20,
+            "storage": 0.15,
+            "network": 0.10,
+        },
+        description="Section weights for profile diff scoring",
+    )
+
     @property
     def is_development(self) -> bool:
         """Check if running in development mode."""

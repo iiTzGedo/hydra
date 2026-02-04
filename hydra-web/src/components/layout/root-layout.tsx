@@ -1,10 +1,10 @@
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { ToastContainer, subscribeToToasts, removeToast, type Toast } from '@/components/ui/toast-container';
 import { KeyboardShortcutsModal } from '@/components/modals/keyboard-shortcuts-modal';
-import { useKeyboardShortcuts, GLOBAL_SHORTCUTS } from '@/hooks/use-keyboard-shortcuts';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { SkipLinks } from '@/components/a11y/skip-link';
 import { ROUTES } from '@/lib/constants';
 import { useQueryClient } from '@tanstack/react-query';
@@ -25,7 +25,6 @@ interface RootLayoutProps {
  */
 export function RootLayout({ children }: RootLayoutProps) {
   const navigate = useNavigate();
-  const location = useLocation();
   const queryClient = useQueryClient();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);

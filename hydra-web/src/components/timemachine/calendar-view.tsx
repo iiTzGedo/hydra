@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, CalendarDays, List } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import type { TimelineEvent, TimelineEventType } from '@/types/timemachine';
 import { cn } from '@/lib/utils';
 import { EVENT_META } from './event-stream';
@@ -89,7 +89,7 @@ export function CalendarView({
   events,
   selectedDate,
   onSelectDate,
-  range,
+  range: _range,
   onRangeChange,
 }: CalendarViewProps) {
   const today = useMemo(() => new Date(), []);

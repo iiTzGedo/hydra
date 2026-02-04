@@ -10,7 +10,6 @@ import {
 import { useServices } from '@/api/services';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
-import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 
 interface StatusItemProps {
@@ -127,8 +126,6 @@ export function ServiceSummary() {
     runtime,
     count: services.filter((s) => s.runtime === runtime).length,
   })).filter(r => r.count > 0);
-
-  const hasIssues = statusCounts.error > 0 || statusCounts.unknown > 0;
 
   if (isLoading) {
     return (

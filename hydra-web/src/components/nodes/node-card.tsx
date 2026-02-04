@@ -8,7 +8,6 @@ import {
   Eye,
   Edit,
   Archive,
-  Activity,
   Clock,
   Tag,
 } from 'lucide-react';

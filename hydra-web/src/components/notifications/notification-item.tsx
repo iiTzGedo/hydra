@@ -2,7 +2,6 @@ import { forwardRef, useCallback } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import {
   AlertTriangle,
-  Bell,
   Check,
   CheckCircle,
   ChevronRight,

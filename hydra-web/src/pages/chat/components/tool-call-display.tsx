@@ -33,7 +33,7 @@ export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
         <div className="mt-2 p-3 rounded bg-card text-xs font-mono overflow-auto max-h-48">
           <p className="text-muted-foreground mb-1">Arguments:</p>
           <pre className="text-foreground">{JSON.stringify(toolCall.arguments, null, 2)}</pre>
-          {toolCall.result && (
+          {!!toolCall.result && (
             <>
               <p className="text-muted-foreground mt-2 mb-1">Result:</p>
               <pre className="text-emerald-400">
@@ -41,7 +41,7 @@ export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
               </pre>
             </>
           )}
-          {toolCall.error && <p className="mt-1 text-red-400">{toolCall.error}</p>}
+          {toolCall.error && <p className="mt-1 text-red-400">{String(toolCall.error)}</p>}
         </div>
       </CollapsibleContent>
     </Collapsible>

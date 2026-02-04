@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, MoreVertical, Archive, UserCog, Shield } from 'lucide-react';
+import { Search, MoreVertical, Archive, UserCog } from 'lucide-react';
 import { useUsers, useArchiveUser, useElevateRole } from '@/api/users';
 import type { UserSummary, Role } from '@/types/user';
 import { ROLE_LABELS } from '@/lib/constants';
@@ -123,7 +123,6 @@ function UserRow({ user }: { user: UserSummary }) {
   const archiveMutation = useArchiveUser();
   const elevateMutation = useElevateRole();
 
-  const RoleIcon = roleIcons[user.role] || Shield;
   const roleLabel = ROLE_LABELS[user.role] || user.role;
 
   const handleArchive = async () => {

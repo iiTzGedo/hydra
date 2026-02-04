@@ -57,7 +57,7 @@ const classIcons = {
 
 export function HistoricalTopology({
   timestamp,
-  compareTimestamp,
+  compareTimestamp: _compareTimestamp,
   topologyState,
   isLoading,
 }: HistoricalTopologyProps) {

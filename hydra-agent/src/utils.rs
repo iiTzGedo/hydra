@@ -11,10 +11,10 @@ pub const API_KEY_RENEWAL_THRESHOLD_DAYS: i64 = 7;
 /// Generate a random agent username (pattern: agent-XXXXXXXX where X is [0-9A-Z]).
 pub fn generate_agent_username() -> String {
     const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let suffix: String = (0..8)
         .map(|_| {
-            let idx = rng.gen_range(0..CHARS.len());
+            let idx = rng.random_range(0..CHARS.len());
             CHARS[idx] as char
         })
         .collect();
@@ -24,7 +24,7 @@ pub fn generate_agent_username() -> String {
 /// Generate a secure random password (32 characters, URL-safe base64).
 pub fn generate_agent_password() -> String {
     use rand::RngCore;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut bytes = [0u8; 24];
     rng.fill_bytes(&mut bytes);
     base64_encode_urlsafe(&bytes)

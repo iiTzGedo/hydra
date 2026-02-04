@@ -88,9 +88,9 @@ export function useMe() {
         userId: query.data.userId!,
         username: query.data.username!,
         email: query.data.email!,
-        role: query.data.role,
+        role: query.data.role!,
         permissions: query.data.permissions,
-        createdAt: '',
+        temporaryRoles: [],
       });
     }
   }, [isAuthenticated, query.data, setLoading, setUser]);

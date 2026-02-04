@@ -132,6 +132,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
   const pingIntervalRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
+  const authFailedRef = useRef(false);
 
   // Callback refs to avoid stale closures
   const onMessageRef = useRef(onMessage);
@@ -145,8 +146,25 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
   useEffect(() => { onDisconnectedRef.current = onDisconnected; }, [onDisconnected]);
 
   const [isConnected, setIsConnected] = useState(false);
+  const accessToken = useAuthStore((state) => state.accessToken);
+
+  useEffect(() => {
+    if (accessToken) {
+      authFailedRef.current = false;
+    }
+  }, [accessToken]);
 
   const connect = useCallback(async () => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    if (authFailedRef.current) {
+      wsDebug.warn('Auth failure latched, skipping reconnect');
+      return;
+    }
+
     // Don't reconnect if already connected or connecting
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsDebug.log('Already connected');
@@ -215,10 +233,13 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
 
         // Handle specific close codes
         if (event.code === 4001) {
+          authFailedRef.current = true;
+          useAuthStore.getState().logout();
           onErrorRef.current?.('Authentication failed - please log in again');
           return;
         }
         if (event.code === 4003) {
+          authFailedRef.current = true;
           onErrorRef.current?.('Access denied - agents cannot use chat');
           return;
         }

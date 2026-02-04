@@ -83,9 +83,10 @@ export function OverviewTab({ node }: OverviewTabProps) {
   const statusColors = STATUS_COLORS[node.status] || STATUS_COLORS.inactive;
   const kindLabel = NODE_KIND_LABELS[node.kind as keyof typeof NODE_KIND_LABELS] || node.kind;
 
-  const { data: latestProfile, isLoading: latestLoading } = useLatestProfile(node.id);
-  const { data: profileHistory, isLoading: historyLoading } = useNodeProfiles(node.id, { limit: 30 });
-  const { data: servicesData, isLoading: servicesLoading } = useNodeServices(node.id);
+  const nodeIdStr = node.id || node.nodeId;
+  const { data: latestProfile, isLoading: latestLoading } = useLatestProfile(nodeIdStr);
+  const { data: profileHistory, isLoading: historyLoading } = useNodeProfiles(nodeIdStr, { limit: 30 });
+  const { data: servicesData, isLoading: servicesLoading } = useNodeServices(nodeIdStr);
 
   const snapshotProfiles = profileHistory?.items?.slice(0, SNAPSHOT_LIMIT) ?? [];
 
@@ -195,6 +196,14 @@ export function OverviewTab({ node }: OverviewTabProps) {
                     <span className="text-sm">
                       {node.lastProfileAt
                         ? formatRelativeTime(new Date(node.lastProfileAt))
+                        : 'Never'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Last Seen</span>
+                    <span className="text-sm">
+                      {node.lastSeenAt
+                        ? formatRelativeTime(new Date(node.lastSeenAt))
                         : 'Never'}
                     </span>
                   </div>
@@ -621,7 +630,7 @@ export function OverviewTab({ node }: OverviewTabProps) {
                 <CardContent>
                   <div className="space-y-2">
                     {services.slice(0, 8).map((service) => (
-                      <ServiceItem key={service.serviceId} service={service} nodeId={node.id} />
+                      <ServiceItem key={service.serviceId} service={service} nodeId={nodeIdStr} />
                     ))}
                     {services.length > 8 && (
                       <Link
@@ -982,8 +991,8 @@ function NodeDashboardCharts({
                     }
                     return '';
                   }}
-                  formatter={(value: number | null) =>
-                    value === null ? ['No data', 'Value'] : [`${value}${config.unit}`, config.label]
+                  formatter={(value: string | number | (string | number)[]) =>
+                    value == null ? ['No data', 'Value'] : [`${value}${config.unit}`, config.label]
                   }
                 />
                 <Area

@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Command, CornerDownLeft, ArrowUp, ArrowDown } from 'lucide-react';
 import { formatShortcut, GLOBAL_SHORTCUTS, type ShortcutDisplayConfig } from '@/hooks/use-keyboard-shortcuts';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 
 interface ShortcutGroup {
   title: string;

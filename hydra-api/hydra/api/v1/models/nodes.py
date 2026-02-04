@@ -82,6 +82,7 @@ class NodeResponse(BaseModel):
     registered_at: datetime = Field(alias="registeredAt")
     last_updated: datetime = Field(alias="lastUpdated")
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
+    last_seen_at: datetime | None = Field(default=None, alias="lastSeenAt")
     status: NodeStatus
 
 
@@ -99,6 +100,7 @@ class NodeSummary(BaseModel):
     registered_by: str | None = Field(default=None, alias="registeredBy")
     status: NodeStatus
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
+    last_seen_at: datetime | None = Field(default=None, alias="lastSeenAt")
 
 
 class AgentInfo(BaseModel):
@@ -114,9 +116,10 @@ class AgentInfo(BaseModel):
     registered_at: datetime = Field(alias="registeredAt")
     status: NodeStatus
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
+    last_seen_at: datetime | None = Field(default=None, alias="lastSeenAt")
     profile_count: int = Field(default=0, alias="profileCount")
     last_profile_version: str | None = Field(default=None, alias="lastProfileVersion")
-    is_healthy: bool = Field(alias="isHealthy", description="True if profiled within last 24 hours")
+    is_healthy: bool = Field(alias="isHealthy", description="True if seen within last 24 hours")
 
     model_config = {"populate_by_name": True}
 

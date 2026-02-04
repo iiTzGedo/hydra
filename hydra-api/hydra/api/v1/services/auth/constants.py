@@ -1,0 +1,5 @@
+"""Shared constants for the auth service module."""
+
+BRUTE_FORCE_WINDOW_SECONDS = 10 * 60
+BRUTE_FORCE_THRESHOLD = 5
+BRUTE_FORCE_NOTIFY_COOLDOWN_SECONDS = 10 * 60

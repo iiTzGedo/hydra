@@ -58,7 +58,7 @@ export function Breadcrumbs({
   const breadcrumbs: BreadcrumbSegment[] = [];
   let currentPath = '';
 
-  segments.forEach((segment, index) => {
+  segments.forEach((segment, _index) => {
     currentPath += `/${segment}`;
     
     // Determine if this is likely an ID (long alphanumeric string)
