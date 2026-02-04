@@ -1,5 +1,6 @@
 """Hydra API - Main application entry point."""
 
+import asyncio
 import uuid
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from hydra.api.v1 import __version__
 from hydra.core.config import get_settings
 from hydra.api.v1.core.exceptions import HydraError
-from hydra.api.v1.routers import ai, auth, chat, commands, docs, groups, ha, health, install, mcp, networks, nodes, profiles, query, search, services, settings as settings_router, timemachine, topologies, users
+from hydra.api.v1.routers import ai, auth, chat, commands, docs, groups, ha, health, install, mcp, networks, nodes, notifications, profiles, query, search, services, settings as settings_router, timemachine, topologies, users
 
 # Static files directory (shared with root app)
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
@@ -117,6 +118,30 @@ def create_app() -> FastAPI:
     async def general_error_handler(request: Request, exc: Exception) -> JSONResponse:
         request_id = request.headers.get("X-Request-ID", "unknown")
         logger.exception("unhandled_error", error=str(exc))
+
+        # Fire-and-forget notification for unhandled errors (rate-limited via group_key)
+        try:
+            from hydra.api.v1.models.notifications import (
+                NotificationSource,
+                NotificationType,
+                SourceComponent,
+            )
+            from hydra.api.v1.services.notifications import emit_notification
+
+            asyncio.create_task(
+                emit_notification(
+                    notification_type=NotificationType.API_INTERNAL_ERROR,
+                    source=NotificationSource(
+                        component=SourceComponent.HYDRA_API, service="api"
+                    ),
+                    title="Internal API error",
+                    message=f"Unhandled error on {request.method} {request.url.path}: {type(exc).__name__}",
+                    group_key="api_internal_error",
+                )
+            )
+        except Exception:
+            pass  # Never let notification emission interfere with error response
+
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -167,6 +192,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     # Note: chat_ws.router is included at root app level for WebSocket compatibility
     app.include_router(mcp.router)
+    app.include_router(notifications.router)
     app.include_router(search.router)
     app.include_router(settings_router.router)
 

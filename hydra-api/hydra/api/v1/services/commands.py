@@ -7,7 +7,12 @@ from uuid import uuid4
 import structlog
 from pymongo import ReturnDocument
 
+from hydra.api.v1.core.tasks import safe_create_task
 from hydra.db.mongodb import MongoDB
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.models.notifications import NotificationType, NotificationSource
+from hydra.api.v1.services.query import log_audit
+from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.core.exceptions import (
     CommandAlreadyExecutingError,
     CommandNotCancellableError,
@@ -328,6 +333,44 @@ class CommandsService:
             status=final_status.value,
         )
 
+        if result.success:
+            audit_id = await log_audit(
+                action=AuditAction.EXECUTE,
+                resource_type="command",
+                resource_id=command_id,
+                actor_type="node",
+                actor_id=node_id,
+                success=True,
+                details={"commandId": command_id, "nodeId": node_id, "exitCode": result.exit_code},
+            )
+            safe_create_task(emit_notification(
+                notification_type=NotificationType.COMMAND_EXECUTION_SUCCEEDED,
+                source=NotificationSource(component="hydra-api", service="commands", node_id=node_id),
+                title="Command completed",
+                message=f"Command {command_id} completed successfully on {node_id}",
+                details={"commandId": command_id, "nodeId": node_id, "exitCode": result.exit_code},
+                audit_entry_id=audit_id,
+            ))
+        else:
+            audit_id = await log_audit(
+                action=AuditAction.EXECUTE,
+                resource_type="command",
+                resource_id=command_id,
+                actor_type="node",
+                actor_id=node_id,
+                success=False,
+                details={"commandId": command_id, "nodeId": node_id, "exitCode": result.exit_code, "error": result.error},
+                error=result.error,
+            )
+            safe_create_task(emit_notification(
+                notification_type=NotificationType.COMMAND_EXECUTION_FAILED,
+                source=NotificationSource(component="hydra-api", service="commands", node_id=node_id),
+                title="Command failed",
+                message=f"Command {command_id} failed on {node_id}: {result.error or 'unknown error'}",
+                details={"commandId": command_id, "nodeId": node_id, "exitCode": result.exit_code, "error": result.error},
+                audit_entry_id=audit_id,
+            ))
+
         return {
             "commandId": command_id,
             "status": final_status.value,
@@ -370,5 +413,23 @@ class CommandsService:
 
         if result.modified_count > 0:
             logger.info("commands_timed_out", count=result.modified_count)
+            audit_id = await log_audit(
+                action=AuditAction.EXECUTE,
+                resource_type="command",
+                resource_id="bulk-timeout",
+                actor_type="system",
+                actor_id="hydra-api",
+                success=False,
+                details={"count": result.modified_count, "timeoutMinutes": timeout_minutes},
+                error="timeout",
+            )
+            safe_create_task(emit_notification(
+                notification_type=NotificationType.COMMAND_EXECUTION_TIMEOUT,
+                source=NotificationSource(component="hydra-api", service="commands"),
+                title="Commands timed out",
+                message=f"{result.modified_count} command(s) timed out after {timeout_minutes} minutes",
+                details={"count": result.modified_count, "timeoutMinutes": timeout_minutes},
+                audit_entry_id=audit_id,
+            ))
 
         return result.modified_count

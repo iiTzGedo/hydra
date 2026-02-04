@@ -194,3 +194,37 @@ class ServiceListParams(BaseModel):
             if not validate_tag(tag):
                 raise ValueError(f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}")
         return v
+
+
+class KnownServiceCreateRequest(BaseModel):
+    """Create a known service entry (allow-list for discovery)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    runtime: ServiceRuntime
+    name: str = Field(max_length=128)
+    description: str | None = Field(default=None, max_length=512)
+    tags: list[str] = Field(default_factory=list)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str]) -> list[str]:
+        for tag in v:
+            if not validate_tag(tag):
+                raise ValueError(f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}")
+        return v
+
+
+class KnownServiceResponse(BaseModel):
+    """Known service response model."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    known_service_id: str = Field(alias="knownServiceId")
+    runtime: str
+    name: str
+    description: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    created_by: str | None = Field(default=None, alias="createdBy")

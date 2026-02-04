@@ -36,11 +36,21 @@ from hydra.api.v1.models.auth import (
     ElevateRoleRequest,
     GrantTemporaryRoleRequest,
     Role,
+    ROLE_LEVELS,
     ROLE_LIMITS,
     UserRegistrationRequest,
     can_have_sub_accounts,
     is_valid_sub_account_role,
 )
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.query import log_audit
+from hydra.api.v1.models.notifications import (
+    NotificationSource,
+    NotificationType,
+    SourceComponent,
+    NotificationActor,
+)
+from hydra.api.v1.services.notifications import emit_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -463,6 +473,28 @@ class UsersService:
             elevated_by=elevated_by,
         )
 
+        current_level = ROLE_LEVELS.get(current_role, 0)
+        new_level = ROLE_LEVELS.get(new_role, 0)
+        is_elevation = new_level > current_level
+        notification_type = (
+            NotificationType.ROLE_ELEVATION_GRANTED if is_elevation
+            else NotificationType.ROLE_ELEVATION_REVOKED
+        )
+
+        audit_id = await log_audit(
+            AuditAction.UPDATE, "user", user_id, "user", elevated_by, True,
+            details={"previous_role": current_role, "new_role": new_role, "userId": user_id},
+        )
+        await emit_notification(
+            notification_type,
+            NotificationSource(component=SourceComponent.HYDRA_API, service="users"),
+            "Role changed" if is_elevation else "Role downgraded",
+            f"User role changed from {current_role} to {new_role}",
+            target_user_id=user_id,
+            details={"userId": user_id, "previousRole": current_role, "newRole": new_role},
+            audit_entry_id=audit_id,
+        )
+
         return {
             "user_id": user_id,
             "previous_role": current_role,
@@ -528,6 +560,20 @@ class UsersService:
             granted_by=granted_by,
         )
 
+        audit_id = await log_audit(
+            AuditAction.UPDATE, "user", user_id, "user", granted_by, True,
+            details={"action": "grant_temporary_role", "role": request.role.value, "userId": user_id},
+        )
+        await emit_notification(
+            NotificationType.ROLE_ELEVATION_GRANTED,
+            NotificationSource(component=SourceComponent.HYDRA_API, service="users"),
+            "Temporary role granted",
+            f"Temporary role '{request.role.value}' granted until {request.expires_at.isoformat()}",
+            target_user_id=user_id,
+            details={"userId": user_id, "role": request.role.value, "expiresAt": request.expires_at.isoformat()},
+            audit_entry_id=audit_id,
+        )
+
         return {
             "user_id": user_id,
             "base_role": user["role"],
@@ -571,6 +617,20 @@ class UsersService:
             revoked_by=revoked_by,
         )
 
+        audit_id = await log_audit(
+            AuditAction.UPDATE, "user", user_id, "user", revoked_by, True,
+            details={"action": "revoke_temporary_role", "role": role, "userId": user_id},
+        )
+        await emit_notification(
+            NotificationType.ROLE_ELEVATION_REVOKED,
+            NotificationSource(component=SourceComponent.HYDRA_API, service="users"),
+            "Temporary role revoked",
+            f"Temporary role '{role}' has been revoked",
+            target_user_id=user_id,
+            details={"userId": user_id, "role": role},
+            audit_entry_id=audit_id,
+        )
+
         return {
             "user_id": user_id,
             "revoked_role": role,
@@ -595,6 +655,9 @@ class UsersService:
                 "tokens:create",
                 "tokens:create:user",
                 "tokens:create:node",
+                "notifications:read",
+                "notifications:write",
+                "audit:read",
             ],
             Role.VIEWER.value: [
                 "nodes:read",
@@ -605,6 +668,8 @@ class UsersService:
                 "topologies:read",
                 "docs:read",
                 "ha:read",
+                "notifications:read",
+                "audit:read",
             ],
             Role.FAMILY.value: [
                 "iot:read",
@@ -612,6 +677,7 @@ class UsersService:
                 "ha:read",
                 "ha:control",
                 "tokens:create:user",
+                "notifications:read",
             ],
             Role.AGENT.value: [
                 "profiles:write",
@@ -656,6 +722,11 @@ class UsersService:
         await self.db.users.insert_one(user_doc)
         logger.info("user_created", user_id=user_id, username=request.username)
 
+        await log_audit(
+            AuditAction.CREATE, "user", user_id, "user", "admin",
+            True, details={"username": request.username, "role": request.role.value},
+        )
+
         return {
             "user_id": user_id,
             "username": request.username,
@@ -695,6 +766,10 @@ class UsersService:
             )
 
         logger.info("user_archived", user_id=user_id)
+
+        await log_audit(
+            AuditAction.DELETE, "user", user_id, "user", user_id, True,
+        )
 
         user["status"] = "archived"
         user["updatedAt"] = now
@@ -896,6 +971,20 @@ class UsersService:
             email_sent=email_sent,
         )
 
+        audit_id = await log_audit(
+            AuditAction.CREATE, "password_reset", email, "user", user["userId"], True,
+            details={"userId": user["userId"], "email": email},
+        )
+        await emit_notification(
+            NotificationType.PASSWORD_RESET_REQUESTED,
+            NotificationSource(component=SourceComponent.HYDRA_API, service="users"),
+            "Password reset requested",
+            "A password reset was requested",
+            target_user_id=user["userId"],
+            details={"userId": user["userId"], "email": email},
+            audit_entry_id=audit_id,
+        )
+
         return {"email_sent": email_sent}
 
     async def reset_password(self, token: str, new_password: str) -> dict:
@@ -999,6 +1088,20 @@ class UsersService:
 
         logger.info("password_changed", user_id=user_id)
 
+        audit_id = await log_audit(
+            AuditAction.UPDATE, "user", user_id, "user", user_id, True,
+            details={"action": "password_change", "userId": user_id},
+        )
+        await emit_notification(
+            NotificationType.PASSWORD_CHANGED,
+            NotificationSource(component=SourceComponent.HYDRA_API, service="users"),
+            "Password changed",
+            "Your password was changed successfully",
+            target_user_id=user_id,
+            details={"userId": user_id},
+            audit_entry_id=audit_id,
+        )
+
         return {"changed_at": now}
 
     # ==================== Sub-Account Management ====================
@@ -1091,6 +1194,38 @@ class UsersService:
             parent_user_id=parent_user_id,
             sub_account_user_id=target_user_id,
             password_reset=password_reset,
+        )
+
+        audit_id = await log_audit(
+            AuditAction.UPDATE,
+            "user",
+            parent_user_id,
+            "user",
+            parent_user_id,
+            True,
+            details={
+                "action": "sub_account_linked",
+                "userId": parent_user_id,
+                "subAccountUserId": target_user_id,
+                "subAccountUsername": target["username"],
+                "subAccountRole": target["role"],
+                "passwordReset": password_reset,
+            },
+        )
+        await emit_notification(
+            NotificationType.SUB_ACCOUNT_LINKED,
+            NotificationSource(component=SourceComponent.HYDRA_API, service="users"),
+            "Sub-account linked",
+            f"Sub-account {target['username']} linked to your account",
+            target_user_id=parent_user_id,
+            details={
+                "userId": parent_user_id,
+                "subAccountUserId": target_user_id,
+                "subAccountUsername": target["username"],
+                "subAccountRole": target["role"],
+                "passwordReset": password_reset,
+            },
+            audit_entry_id=audit_id,
         )
 
         return {

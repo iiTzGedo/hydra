@@ -21,10 +21,10 @@ interface CacheEntry<T> {
 
 interface ChatCacheStore {
   // Message cache: sessionId -> cached messages
-  messageCache: Map<string, CacheEntry<ChatMessageResponse[]>>;
+  messageCache: Record<string, CacheEntry<ChatMessageResponse[]>>;
 
   // Context cache: sessionId -> session context
-  contextCache: Map<string, CacheEntry<SessionContext>>;
+  contextCache: Record<string, CacheEntry<SessionContext>>;
 
   // Message cache operations
   setCachedMessages: (sessionId: string, messages: ChatMessageResponse[]) => void;
@@ -48,8 +48,8 @@ interface ChatCacheStore {
 }
 
 export const useChatCacheStore = create<ChatCacheStore>()((set, get) => ({
-  messageCache: new Map(),
-  contextCache: new Map(),
+  messageCache: {},
+  contextCache: {},
 
   // Message cache operations
   setCachedMessages: (sessionId, messages) => {
@@ -57,15 +57,13 @@ export const useChatCacheStore = create<ChatCacheStore>()((set, get) => ({
       data: messages.slice(-MAX_CACHED_MESSAGES), // Keep only last N messages
       timestamp: Date.now(),
     };
-    set((state) => {
-      const newCache = new Map(state.messageCache);
-      newCache.set(sessionId, entry);
-      return { messageCache: newCache };
-    });
+    set((state) => ({
+      messageCache: { ...state.messageCache, [sessionId]: entry },
+    }));
   },
 
   getCachedMessages: (sessionId) => {
-    const entry = get().messageCache.get(sessionId);
+    const entry = get().messageCache[sessionId];
     if (!entry) return null;
 
     // Check if cache is stale
@@ -78,7 +76,7 @@ export const useChatCacheStore = create<ChatCacheStore>()((set, get) => ({
   },
 
   appendMessage: (sessionId, message) => {
-    const currentEntry = get().messageCache.get(sessionId);
+    const currentEntry = get().messageCache[sessionId];
     if (!currentEntry) {
       // No cache exists, create new with single message
       get().setCachedMessages(sessionId, [message]);
@@ -91,18 +89,15 @@ export const useChatCacheStore = create<ChatCacheStore>()((set, get) => ({
       timestamp: Date.now(), // Refresh timestamp on append
     };
 
-    set((state) => {
-      const newCache = new Map(state.messageCache);
-      newCache.set(sessionId, entry);
-      return { messageCache: newCache };
-    });
+    set((state) => ({
+      messageCache: { ...state.messageCache, [sessionId]: entry },
+    }));
   },
 
   invalidateMessages: (sessionId) => {
     set((state) => {
-      const newCache = new Map(state.messageCache);
-      newCache.delete(sessionId);
-      return { messageCache: newCache };
+      const { [sessionId]: _, ...rest } = state.messageCache;
+      return { messageCache: rest };
     });
   },
 
@@ -112,15 +107,13 @@ export const useChatCacheStore = create<ChatCacheStore>()((set, get) => ({
       data: context,
       timestamp: Date.now(),
     };
-    set((state) => {
-      const newCache = new Map(state.contextCache);
-      newCache.set(sessionId, entry);
-      return { contextCache: newCache };
-    });
+    set((state) => ({
+      contextCache: { ...state.contextCache, [sessionId]: entry },
+    }));
   },
 
   getCachedContext: (sessionId) => {
-    const entry = get().contextCache.get(sessionId);
+    const entry = get().contextCache[sessionId];
     if (!entry) return null;
 
     // Check if cache is stale
@@ -133,50 +126,47 @@ export const useChatCacheStore = create<ChatCacheStore>()((set, get) => ({
 
   invalidateContext: (sessionId) => {
     set((state) => {
-      const newCache = new Map(state.contextCache);
-      newCache.delete(sessionId);
-      return { contextCache: newCache };
+      const { [sessionId]: _, ...rest } = state.contextCache;
+      return { contextCache: rest };
     });
   },
 
   // Utility operations
   isMessagesCacheStale: (sessionId) => {
-    const entry = get().messageCache.get(sessionId);
+    const entry = get().messageCache[sessionId];
     if (!entry) return true;
     return Date.now() - entry.timestamp > CACHE_TTL.MESSAGES;
   },
 
   isContextCacheStale: (sessionId) => {
-    const entry = get().contextCache.get(sessionId);
+    const entry = get().contextCache[sessionId];
     if (!entry) return true;
     return Date.now() - entry.timestamp > CACHE_TTL.CONTEXT;
   },
 
   clearSessionCache: (sessionId) => {
     set((state) => {
-      const newMessageCache = new Map(state.messageCache);
-      const newContextCache = new Map(state.contextCache);
-      newMessageCache.delete(sessionId);
-      newContextCache.delete(sessionId);
+      const { [sessionId]: _msg, ...restMessages } = state.messageCache;
+      const { [sessionId]: _ctx, ...restContext } = state.contextCache;
       return {
-        messageCache: newMessageCache,
-        contextCache: newContextCache,
+        messageCache: restMessages,
+        contextCache: restContext,
       };
     });
   },
 
   clearAllCache: () => {
     set({
-      messageCache: new Map(),
-      contextCache: new Map(),
+      messageCache: {},
+      contextCache: {},
     });
   },
 
   getCacheStats: () => {
     const state = get();
     return {
-      messageCacheSize: state.messageCache.size,
-      contextCacheSize: state.contextCache.size,
+      messageCacheSize: Object.keys(state.messageCache).length,
+      contextCacheSize: Object.keys(state.contextCache).length,
     };
   },
 }));

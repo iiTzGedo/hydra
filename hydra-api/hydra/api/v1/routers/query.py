@@ -4,9 +4,9 @@ from datetime import datetime
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from hydra.api.v1.core.deps import MongoDBDep, require_permission
+from hydra.api.v1.core.deps import MongoDBDep, get_current_user, require_permission
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.query import (
     AuditAction,
@@ -20,7 +20,7 @@ from hydra.api.v1.models.query import (
     QueryRequest,
     QueryResponse,
 )
-from hydra.api.v1.services.query import AuditService, QueryService
+from hydra.api.v1.services.query import AuditService, QueryService, log_audit
 
 router = APIRouter(tags=["Query & Analytics"])
 logger = structlog.get_logger(__name__)
@@ -216,4 +216,71 @@ async def get_audit_log(
             for e in entries
         ],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@router.delete(
+    "/audit",
+    response_model=SuccessResponse[dict],
+    summary="Delete Audit Entries",
+    description="Delete audit log entries within a time window. Admin only.",
+    dependencies=[Depends(require_permission("audit:delete"))],
+)
+async def delete_audit_entries(
+    audit_service: AuditServiceDep,
+    request: Request,
+    since: datetime = Query(..., description="Start of time window (inclusive)"),
+    until: datetime = Query(..., description="End of time window (inclusive)"),
+    current_user: dict = Depends(get_current_user),
+) -> SuccessResponse[dict]:
+    """Delete audit log entries within a specific time window.
+
+    Only admins with audit:delete permission can perform this operation.
+    The deletion itself is audited.
+
+    Args:
+        audit_service: Audit service instance.
+        request: FastAPI request for IP extraction.
+        since: Start of the deletion window.
+        until: End of the deletion window.
+        current_user: Authenticated user.
+
+    Returns:
+        Number of entries deleted.
+
+    Raises:
+        HTTPException 400: Invalid time window.
+        HTTPException 403: Insufficient permissions.
+    """
+    if since >= until:
+        raise HTTPException(
+            status_code=400,
+            detail="'since' must be before 'until'",
+        )
+
+    deleted_count = await audit_service.delete_entries_by_window(since, until)
+
+    # Self-audit the deletion
+    client_ip = request.client.host if request.client else None
+    await log_audit(
+        action=AuditAction.DELETE,
+        resource_type="audit_log",
+        resource_id=f"{since.isoformat()}/{until.isoformat()}",
+        actor_type="user",
+        actor_id=current_user.get("userId", current_user.get("username", "unknown")),
+        success=True,
+        details={
+            "since": since.isoformat(),
+            "until": until.isoformat(),
+            "deletedCount": deleted_count,
+        },
+        ip=client_ip,
+    )
+
+    return SuccessResponse(
+        data={
+            "deletedCount": deleted_count,
+            "since": since.isoformat(),
+            "until": until.isoformat(),
+        }
     )

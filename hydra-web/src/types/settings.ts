@@ -25,11 +25,24 @@ export interface ViewSettings {
 }
 
 export interface NotificationSettings {
+  // Delivery channels
   emailEnabled: boolean;
   browserEnabled: boolean;
-  nodeAlerts: boolean;
-  serviceAlerts: boolean;
-  profileUpdates: boolean;
+  // Per-channel minimum tier (1=all through 5=critical only)
+  browserMinTier: number;
+  emailMinTier: number;
+  // Category toggles
+  nodeNotifications: boolean;
+  serviceNotifications: boolean;
+  profileNotifications: boolean;
+  securityNotifications: boolean;
+  systemNotifications: boolean;
+  commandNotifications: boolean;
+  // Quiet hours
+  quietHoursEnabled: boolean;
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
+  quietHoursMinTier: number;
 }
 
 export interface UserSettingsResponse {

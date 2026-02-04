@@ -9,6 +9,8 @@ from pymongo import ASCENDING, DESCENDING
 from hydra.api.v1.core.exceptions import NodeNotFoundError, ValidationError
 from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.nodes import NodeListParams, NodeStatus, UpdateNodeRequest
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.query import log_audit
 
 logger = structlog.get_logger(__name__)
 
@@ -97,13 +99,14 @@ class NodeService:
 
         return nodes, total
 
-    async def update_node(self, node_id: str, request: UpdateNodeRequest) -> dict:
+    async def update_node(self, node_id: str, request: UpdateNodeRequest, user_id: str | None = None) -> dict:
         """Update node metadata.
 
         Args:
             node_id: The node identifier to update.
             request: Fields to update including display name, description,
                 kind, tags, parent node, and status.
+            user_id: Optional user ID of the actor performing the update.
 
         Returns:
             The updated node document.
@@ -148,13 +151,24 @@ class NodeService:
 
         logger.info("node_updated", node_id=node_id, fields=list(update_fields.keys()))
 
+        await log_audit(
+            AuditAction.UPDATE,
+            "node",
+            node_id,
+            "user",
+            user_id or "unknown",
+            True,
+            details={"fields": list(update_fields.keys())},
+        )
+
         return await self.get_node(node_id)
 
-    async def archive_node(self, node_id: str) -> dict:
+    async def archive_node(self, node_id: str, user_id: str | None = None) -> dict:
         """Archive a node (soft delete).
 
         Args:
             node_id: The node identifier to archive.
+            user_id: Optional user ID of the actor performing the archive.
 
         Returns:
             The archived node document.
@@ -181,6 +195,16 @@ class NodeService:
         )
 
         logger.info("node_archived", node_id=node_id)
+
+        await log_audit(
+            AuditAction.ARCHIVE,
+            "node",
+            node_id,
+            "user",
+            user_id or "unknown",
+            True,
+        )
+
         return await self.get_node(node_id)
 
     async def get_node_children(self, node_id: str) -> list[dict]:

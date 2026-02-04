@@ -1,20 +1,11 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import {
-  Menu,
-  Search,
-  Bell,
-  LogOut,
-  Settings,
-  Moon,
-  Sun,
-  Monitor,
-  User,
-} from 'lucide-react';
+import { Menu, Search, LogOut, Settings, Moon, Sun, User, Command } from 'lucide-react';
 import { ROUTES } from '@/lib/constants';
 import { useUiStore } from '@/stores/ui-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTheme } from '@/components/theme-provider';
 import { CommandPalette, useCommandPalette } from '@/components/search/command-palette';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -25,13 +16,13 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 
+/**
+ * Map of paths to page titles
+ * Used for displaying the current page title in the header
+ */
 const pathTitles: Record<string, string> = {
   '/': 'Dashboard',
   '/dashboard': 'Dashboard',
@@ -42,19 +33,28 @@ const pathTitles: Record<string, string> = {
   '/topology': 'Topology Viewer',
   '/time-machine': 'Time Machine',
   '/timemachine': 'Time Machine',
-  '/alerts': 'Notifications',
+  '/notifications': 'Notifications',
   '/chat': 'MCP Chat',
   '/mcp-marketplace': 'MCP Marketplace',
   '/profile': 'Profile',
   '/settings': 'Settings',
 };
 
+/**
+ * Get the page title based on current pathname
+ * Handles detail pages with dynamic IDs
+ */
 function getPageTitle(pathname: string): string {
+  // Check exact matches first
   if (pathTitles[pathname]) {
     return pathTitles[pathname];
   }
 
-  if (pathname.startsWith('/nodes/')) return 'Node Details';
+  // Handle detail pages
+  if (pathname.startsWith('/nodes/')) {
+    // Could extract node ID for display, but we'll let the page header show details
+    return 'Node Details';
+  }
   if (pathname.startsWith('/services/')) return 'Service Details';
   if (pathname.startsWith('/networks/')) return 'Network Details';
   if (pathname.startsWith('/groups/')) return 'Group Details';
@@ -62,6 +62,19 @@ function getPageTitle(pathname: string): string {
   return 'Hydra';
 }
 
+/**
+ * Header - Main application header
+ *
+ * Features:
+ * - Page title (simplified, breadcrumbs moved to page content)
+ * - Global search with keyboard shortcut
+ * - Theme toggle
+ * - Notification bell with popup panel
+ * - User menu
+ *
+ * Note: Breadcrumbs have been moved to PageHeaderLayout component
+ * for better visual hierarchy and navigation context
+ */
 export function Header() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -78,102 +91,123 @@ export function Header() {
   };
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4 sm:px-6 shrink-0">
-      <div className="flex items-center gap-4 min-w-0">
+    <header
+      className={cn(
+        'flex h-14 items-center justify-between',
+        'border-b border-border',
+        'bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60',
+        'px-4 sm:px-6',
+        'shrink-0 sticky top-0 z-30'
+      )}
+    >
+      {/* Left section - Mobile menu + Page title */}
+      <div className="flex items-center gap-4 min-w-0 flex-1">
+        {/* Mobile menu toggle */}
         <Button
           variant="ghost"
           size="icon"
-          className="md:hidden text-muted-foreground"
+          className="md:hidden text-muted-foreground hover:text-foreground -ml-2"
           onClick={() => setSidebarMobileOpen(true)}
+          aria-label="Open menu"
         >
           <Menu className="h-5 w-5" />
         </Button>
+
+        {/* Page title only (breadcrumbs moved to page content) */}
         <h1 className="text-lg font-semibold text-foreground truncate">{pageTitle}</h1>
       </div>
 
+      {/* Right section - Search, Theme, Notifications, User */}
       <div className="flex items-center gap-2 sm:gap-4">
+        {/* Search */}
         <div className="relative hidden sm:block">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search
+            className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
+            aria-hidden="true"
+          />
           <Input
-            placeholder="Global search..."
+            placeholder="Search..."
             onClick={commandPalette.open}
             readOnly
-            className="w-48 bg-muted/60 border-input pl-9 text-sm text-foreground placeholder:text-muted-foreground cursor-pointer lg:w-96"
+            className={cn(
+              'w-48 lg:w-64 bg-muted/50 border-input pl-9 pr-20 text-sm',
+              'text-foreground placeholder:text-muted-foreground',
+              'cursor-pointer hover:bg-muted transition-colors'
+            )}
+            aria-label="Search (Cmd+K)"
           />
-          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground hidden lg:inline">
-            ⌘K
-          </kbd>
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            <kbd className="hidden lg:inline-flex h-5 items-center justify-center rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+              <Command className="h-3 w-3 mr-0.5" />
+              K
+            </kbd>
+          </div>
         </div>
 
+        {/* Mobile search button */}
         <Button
           variant="ghost"
           size="icon"
-          className="sm:hidden text-muted-foreground"
+          className="sm:hidden text-muted-foreground hover:text-foreground"
           onClick={commandPalette.open}
+          aria-label="Search"
         >
           <Search className="h-5 w-5" />
         </Button>
 
         <CommandPalette isOpen={commandPalette.isOpen} onClose={commandPalette.close} />
 
+        {/* Theme toggle */}
         <Button
           variant="ghost"
           size="icon"
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          className="text-muted-foreground"
+          className="text-muted-foreground hover:text-foreground hidden sm:flex"
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
         >
-          {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          {theme === 'dark' ? (
+            <Sun className="h-5 w-5" aria-hidden="true" />
+          ) : (
+            <Moon className="h-5 w-5" aria-hidden="true" />
+          )}
         </Button>
 
+        {/* Notifications */}
+        <NotificationBell />
+
+        {/* User menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="relative text-muted-foreground"
+              className="flex items-center gap-2 px-2 hover:bg-muted transition-colors"
             >
-              <Bell className="h-5 w-5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
-            <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <Bell className="h-8 w-8 text-muted-foreground/50 mb-2" />
-              <p className="text-sm text-muted-foreground">No notifications</p>
-              <p className="text-xs text-muted-foreground/70 mt-1">
-                Alerts will appear here when configured
-              </p>
-            </div>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <a href="/alerts" className="text-center text-sm text-primary hover:text-primary/80 justify-center">
-                View alerts page
-              </a>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="flex items-center gap-2 px-2">
-              <Avatar className="h-8 w-8">
-                <AvatarFallback className="bg-primary text-primary-foreground text-sm">
+              <Avatar className="h-8 w-8 ring-2 ring-border">
+                <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
                   {user?.username?.charAt(0).toUpperCase() || 'A'}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-sm text-foreground hidden sm:inline">
-                {user?.username || 'Admin'}
-              </span>
+              <div className="hidden sm:flex flex-col items-start">
+                <span className="text-sm font-medium text-foreground leading-tight">
+                  {user?.username || 'Admin'}
+                </span>
+                <span className="text-[10px] text-muted-foreground capitalize">
+                  {user?.role || 'Administrator'}
+                </span>
+              </div>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="font-normal">
+              <div className="flex flex-col space-y-1">
+                <p className="text-sm font-medium">{user?.username || 'Admin'}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {user?.email || 'admin@hydra.local'}
+                </p>
+              </div>
+            </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => navigate('/profile')}
-              className="cursor-pointer"
-            >
+            <DropdownMenuItem onClick={() => navigate('/profile')} className="cursor-pointer">
               <User className="mr-2 h-4 w-4" />
               Profile
             </DropdownMenuItem>
@@ -183,6 +217,18 @@ export function Header() {
             >
               <Settings className="mr-2 h-4 w-4" />
               Settings
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="sm:hidden" />
+            <DropdownMenuItem
+              className="cursor-pointer sm:hidden"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            >
+              {theme === 'dark' ? (
+                <Sun className="mr-2 h-4 w-4" />
+              ) : (
+                <Moon className="mr-2 h-4 w-4" />
+              )}
+              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

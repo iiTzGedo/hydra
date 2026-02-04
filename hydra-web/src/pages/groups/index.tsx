@@ -77,6 +77,7 @@ const GROUP_FILTER_CONFIG: FilterConfig[] = [
 
 interface FilterState {
   search: string;
+  [key: string]: string;
 }
 
 type GroupColumnKey = 'group' | 'types' | 'nodes' | 'services' | 'tags' | 'actions';

@@ -21,9 +21,9 @@ def sample_user_settings():
         "notifications": {
             "emailEnabled": True,
             "browserEnabled": True,
-            "nodeAlerts": True,
-            "serviceAlerts": True,
-            "profileUpdates": False,
+            "nodeNotifications": True,
+            "serviceNotifications": True,
+            "profileNotifications": False,
         },
         "updatedAt": datetime.now(timezone.utc),
     }

@@ -229,7 +229,8 @@ async fn register_node(
     let actual_node_id = node_id.unwrap_or(&config.node.node_id);
 
     if vault.has_node_registration() && !force {
-        let reg = vault.load_node_registration()?.unwrap();
+        let reg = vault.load_node_registration()?
+            .ok_or_else(|| anyhow!("Node registration file exists but could not be loaded. Re-register with 'hydra-agent node register'."))?;
 
         // Reconcile: Check if API still has this node registered
         if let Some((header_name, header_value)) = vault.get_auth_header()? {

@@ -18,6 +18,7 @@ pub mod cli;
 pub mod collectors;
 pub mod config;
 pub mod platform;
+pub mod utils;
 pub mod vault;
 
 // Re-export commonly used types

@@ -153,17 +153,84 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
 
     let client = api::ApiClient::new(&config, vault)?;
 
+    // Collect profile, reporting failures to notification system
     info!("Collecting system profile...");
-    let profile = collectors::collect_profile(&config).await?;
-    info!(sections = ?profile.sections(), "Profile collected");
+    let profile = match collectors::collect_profile(&config).await {
+        Ok(p) => {
+            info!(sections = ?p.sections(), "Profile collected");
+            p
+        }
+        Err(e) => {
+            let err_msg = format!("Profile collection failed on {}: {}", config.node.node_id, e);
+            warn!("{}", err_msg);
 
+            // Report collection failure (best-effort)
+            let _ = client
+                .report_event(
+                    "agent_profile_failed",
+                    &format!("Profile collection failed: {}", config.node.node_id),
+                    &err_msg,
+                    Some(serde_json::json!({
+                        "nodeId": config.node.node_id,
+                        "error": e.to_string(),
+                    })),
+                )
+                .await;
+
+            return Err(e);
+        }
+    };
+
+    // Submit profile, reporting failures to notification system
     info!("Submitting profile to API...");
-    let result = client.submit_profile(&profile).await?;
-    info!(
-        profile_id = %result.profile_id,
-        version = %result.version,
-        "Profile submitted successfully"
-    );
+    match client.submit_profile(&profile).await {
+        Ok(result) => {
+            info!(
+                profile_id = %result.profile_id,
+                version = %result.version,
+                "Profile submitted successfully"
+            );
+
+            // Report successful submission (best-effort)
+            let _ = client
+                .report_event(
+                    "agent_profile_submitted",
+                    &format!("Profile submitted: {}", config.node.node_id),
+                    &format!(
+                        "Profile {} (v{}) submitted successfully for node {}",
+                        result.profile_id, result.version, config.node.node_id
+                    ),
+                    Some(serde_json::json!({
+                        "nodeId": config.node.node_id,
+                        "profileId": result.profile_id,
+                        "profileVersion": result.version,
+                    })),
+                )
+                .await;
+        }
+        Err(e) => {
+            let err_msg = format!(
+                "Profile submission failed for {}: {}",
+                config.node.node_id, e
+            );
+            warn!("{}", err_msg);
+
+            // Report submission failure (best-effort)
+            let _ = client
+                .report_event(
+                    "agent_profile_failed",
+                    &format!("Profile submission failed: {}", config.node.node_id),
+                    &err_msg,
+                    Some(serde_json::json!({
+                        "nodeId": config.node.node_id,
+                        "error": e.to_string(),
+                    })),
+                )
+                .await;
+
+            return Err(e);
+        }
+    }
 
     if !once {
         info!("Scheduling not yet implemented. Use --once for single collection.");

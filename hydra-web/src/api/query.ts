@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
 import type { ApiResponse, PaginatedResponse } from '@/types/api';
@@ -44,6 +44,22 @@ export function useAuditLog(params?: AuditLogParams) {
         limit: response.data.meta?.limit ?? params?.limit ?? 100,
         offset: response.data.meta?.offset ?? params?.offset ?? 0,
       };
+    },
+  });
+}
+
+export function useDeleteAuditEntries() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ since, until }: { since: string; until: string }) => {
+      const response = await apiClient.delete<ApiResponse<{ deleted: number }>>('/audit', {
+        params: { since, until },
+      });
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.query.audit() });
     },
   });
 }

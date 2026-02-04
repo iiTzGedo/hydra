@@ -12,6 +12,9 @@ export * from './form-field';
 // Typography
 export * from './typography';
 
+// Empty states and loading
+export * from './empty-state';
+
 // Core components
 export * from './action-menu';
 export * from './avatar';

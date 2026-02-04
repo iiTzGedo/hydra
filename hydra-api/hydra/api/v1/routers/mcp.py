@@ -3,8 +3,7 @@
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
 
-from hydra.api.v1.core.deps import CurrentUser
-from hydra.api.v1.core.exceptions import AuthorizationError
+from hydra.api.v1.core.deps import CurrentUser, check_not_agent
 from hydra.api.v1.models.mcp import (
     HydraMCPHealthResponse,
     MCPHealthResponse,
@@ -28,18 +27,6 @@ async def get_mcp_service(mongodb: MongoDB = Depends(get_mongodb)) -> MCPService
     """Get MCP service dependency."""
     return MCPService(mongodb)
 
-
-def _check_not_agent(current_user: dict) -> None:
-    """Verify user is not an agent.
-
-    Args:
-        current_user: Current authenticated user.
-
-    Raises:
-        AuthorizationError: If user is an agent.
-    """
-    if current_user.get("type") == "agent":
-        raise AuthorizationError("mcp:read")
 
 
 # ============================================================================
@@ -73,7 +60,7 @@ async def check_hydra_health(
     Raises:
         HTTPException 403: Agents cannot access MCP endpoints.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.check_hydra_health()
 
@@ -102,7 +89,7 @@ async def list_hydra_tools(
     Raises:
         HTTPException 403: Agents cannot access MCP endpoints.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.list_hydra_tools()
 
@@ -131,7 +118,7 @@ async def list_hydra_prompts(
     Raises:
         HTTPException 403: Agents cannot access MCP endpoints.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.list_hydra_prompts()
 
@@ -173,7 +160,7 @@ async def list_servers(
     Raises:
         HTTPException 403: Agents cannot manage MCP servers.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.list_servers(
         user_id=current_user["user_id"],
@@ -214,7 +201,7 @@ async def create_server(
     Raises:
         HTTPException 403: Agents cannot manage MCP servers.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.create_server(
         request=request,
@@ -249,7 +236,7 @@ async def get_server(
         HTTPException 403: Agents cannot manage MCP servers.
         HTTPException 404: Server not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.get_server(
         server_id=serverId,
@@ -286,7 +273,7 @@ async def update_server(
         HTTPException 403: Agents cannot manage MCP servers.
         HTTPException 404: Server not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.update_server(
         server_id=serverId,
@@ -321,7 +308,7 @@ async def delete_server(
         HTTPException 403: Agents cannot manage MCP servers.
         HTTPException 404: Server not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.delete_server(
         server_id=serverId,
@@ -358,7 +345,7 @@ async def check_health(
         HTTPException 403: Agents cannot manage MCP servers.
         HTTPException 404: Server not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.check_health(
         server_id=serverId,
@@ -395,7 +382,7 @@ async def list_tools(
         HTTPException 403: Agents cannot manage MCP servers.
         HTTPException 404: Server not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.list_tools(
         server_id=serverId,
@@ -432,7 +419,7 @@ async def list_resources(
         HTTPException 403: Agents cannot manage MCP servers.
         HTTPException 404: Server not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.list_resources(
         server_id=serverId,
@@ -469,7 +456,7 @@ async def list_prompts(
         HTTPException 403: Agents cannot manage MCP servers.
         HTTPException 404: Server not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.list_prompts(
         server_id=serverId,

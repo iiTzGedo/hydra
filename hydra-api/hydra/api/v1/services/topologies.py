@@ -8,6 +8,11 @@ import structlog
 from pymongo import DESCENDING
 
 from hydra.api.v1.core.exceptions import TopologyNotFoundError, ValidationError
+from hydra.api.v1.core.tasks import safe_create_task
+from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
 from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.topologies import (
     GenerateTopologyRequest,
@@ -121,29 +126,59 @@ class TopologiesService:
         """
         start_time = time.time()
 
-        previous_id = await self._close_previous_topology(request.mode)
+        try:
+            previous_id = await self._close_previous_topology(request.mode)
 
-        if request.mode == TopologyMode.NETWORK:
-            graph_nodes, graph_edges = await self._generate_network_topology(request.scope)
-        elif request.mode == TopologyMode.SERVICE:
-            graph_nodes, graph_edges = await self._generate_service_topology(request.scope)
-        else:
-            graph_nodes, graph_edges = await self._generate_infrastructure_topology(request.scope)
+            if request.mode == TopologyMode.NETWORK:
+                graph_nodes, graph_edges = await self._generate_network_topology(request.scope)
+            elif request.mode == TopologyMode.SERVICE:
+                graph_nodes, graph_edges = await self._generate_service_topology(request.scope)
+            else:
+                graph_nodes, graph_edges = await self._generate_infrastructure_topology(request.scope)
 
-        positions = self._compute_layout(graph_nodes, graph_edges, request.mode)
+            positions = self._compute_layout(graph_nodes, graph_edges, request.mode)
 
-        for node in graph_nodes:
-            if node.id in positions:
-                node.position = positions[node.id]
+            for node in graph_nodes:
+                if node.id in positions:
+                    node.position = positions[node.id]
 
-        diff = None
-        if previous_id:
-            previous = await self.db.topologies.find_one({"topologyId": previous_id})
-            if previous and previous.get("graph"):
-                diff = self._calculate_diff(
-                    TopologyGraph(**previous["graph"]),
-                    TopologyGraph(nodes=graph_nodes, edges=graph_edges),
-                )
+            diff = None
+            if previous_id:
+                previous = await self.db.topologies.find_one({"topologyId": previous_id})
+                if previous and previous.get("graph"):
+                    diff = self._calculate_diff(
+                        TopologyGraph(**previous["graph"]),
+                        TopologyGraph(nodes=graph_nodes, edges=graph_edges),
+                    )
+        except Exception as exc:
+            audit_id = await log_audit(
+                action=AuditAction.CREATE,
+                resource_type="topology",
+                resource_id=f"topo-{request.mode.value}",
+                actor_type="system",
+                actor_id="topology_generator",
+                success=False,
+                details={
+                    "mode": request.mode.value,
+                    "error": str(exc),
+                },
+                error=str(exc),
+            )
+            safe_create_task(emit_notification(
+                notification_type=NotificationType.TOPOLOGY_GENERATION_FAILED,
+                source=NotificationSource(
+                    component=SourceComponent.HYDRA_API,
+                    service="topologies",
+                ),
+                title="Topology generation failed",
+                message=f"Failed to generate {request.mode.value} topology: {exc}",
+                details={
+                    "mode": request.mode.value,
+                    "error": str(exc),
+                },
+                audit_entry_id=audit_id,
+            ))
+            raise
 
         compute_time = int((time.time() - start_time) * 1000)
         version = await self._get_next_version(request.mode)
@@ -188,6 +223,39 @@ class TopologiesService:
             edge_count=len(graph_edges),
             compute_time_ms=compute_time,
         )
+
+        audit_id = await log_audit(
+            action=AuditAction.CREATE,
+            resource_type="topology",
+            resource_id=topology_id,
+            actor_type="system",
+            actor_id="topology_generator",
+            details={
+                "mode": request.mode.value,
+                "version": version,
+                "nodeCount": len(graph_nodes),
+                "edgeCount": len(graph_edges),
+                "computeTimeMs": compute_time,
+            },
+        )
+        safe_create_task(emit_notification(
+            notification_type=NotificationType.TOPOLOGY_REGENERATED,
+            source=NotificationSource(
+                component=SourceComponent.HYDRA_API,
+                service="topologies",
+            ),
+            title="Topology generated",
+            message=f"Topology regenerated with {len(graph_nodes)} nodes",
+            details={
+                "topologyId": topology_id,
+                "mode": request.mode.value,
+                "version": version,
+                "nodeCount": len(graph_nodes),
+                "edgeCount": len(graph_edges),
+                "computeTimeMs": compute_time,
+            },
+            audit_entry_id=audit_id,
+        ))
 
         return self._format_topology(topology_doc)
 

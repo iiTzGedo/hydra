@@ -80,9 +80,10 @@ const statusIcons: Record<ServiceStatus, typeof Play> = {
 
 interface FilterState {
   search: string;
-  runtime: ServiceRuntime | 'all';
-  status: ServiceStatus | 'all';
+  runtime: string;
+  status: string;
   nodeId: string;
+  [key: string]: string;
 }
 
 const SERVICE_FILTER_CONFIG: FilterConfig[] = [
@@ -129,11 +130,13 @@ export default function ServicesPage() {
 
   const [searchParams] = useSearchParams();
   const nodeIdParam = searchParams.get('nodeId') || '';
+  const runtimeParam = searchParams.get('runtime') || '';
+  const statusParam = searchParams.get('status') || '';
 
   const [filters, setFilters] = useState<FilterState>({
     search: '',
-    runtime: 'all',
-    status: 'all',
+    runtime: runtimeParam || 'all',
+    status: statusParam || 'all',
     nodeId: nodeIdParam,
   });
   const [page, setPage] = useState(0);
@@ -202,12 +205,25 @@ export default function ServicesPage() {
     setPage(0);
   };
 
+  // Sync URL params with filter state
   useEffect(() => {
+    const updates: Partial<FilterState> = {};
+    
     if (nodeIdParam && nodeIdParam !== filters.nodeId) {
-      setFilters((prev) => ({ ...prev, nodeId: nodeIdParam }));
+      updates.nodeId = nodeIdParam;
+    }
+    if (runtimeParam && runtimeParam !== filters.runtime) {
+      updates.runtime = runtimeParam;
+    }
+    if (statusParam && statusParam !== filters.status) {
+      updates.status = statusParam;
+    }
+    
+    if (Object.keys(updates).length > 0) {
+      setFilters((prev) => ({ ...prev, ...updates }));
       setPage(0);
     }
-  }, [nodeIdParam, filters.nodeId]);
+  }, [nodeIdParam, runtimeParam, statusParam, filters.nodeId, filters.runtime, filters.status]);
 
   return (
     <TooltipProvider>

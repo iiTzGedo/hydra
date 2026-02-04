@@ -24,6 +24,8 @@ from hydra.api.v1.models.nodes import (
     NodeType,
     UpdateNodeRequest,
 )
+from hydra.api.v1.models.groups import GroupSummary
+from hydra.api.v1.services.groups import GroupsService
 from hydra.api.v1.services.nodes import NodeService
 
 router = APIRouter(prefix="/nodes", tags=["Nodes"])
@@ -36,6 +38,14 @@ def get_node_service(mongodb: MongoDBDep) -> NodeService:
 
 
 NodeServiceDep = Annotated[NodeService, Depends(get_node_service)]
+
+
+def get_groups_service(mongodb: MongoDBDep) -> GroupsService:
+    """Get groups service dependency."""
+    return GroupsService(mongodb)
+
+
+GroupsServiceDep = Annotated[GroupsService, Depends(get_groups_service)]
 
 
 @router.get(
@@ -274,6 +284,32 @@ async def get_node_children(
     """
     children = await node_service.get_node_children(node_id)
     return SuccessResponse(data=[NodeSummary(**child) for child in children])
+
+
+@router.get(
+    "/{node_id}/groups",
+    response_model=SuccessResponse[list[GroupSummary]],
+    summary="Get Node Groups",
+    description="Get all groups that a node belongs to based on selector matching.",
+    dependencies=[Depends(require_permission("nodes:read"))],
+)
+async def get_node_groups(
+    node_id: str,
+    groups_service: GroupsServiceDep,
+) -> SuccessResponse[list[GroupSummary]]:
+    """Retrieve all groups containing a specific node.
+
+    Evaluates group selectors server-side to avoid N+1 client queries.
+
+    Args:
+        node_id: Unique identifier of the node.
+        groups_service: Groups service instance.
+
+    Returns:
+        List of group summaries the node belongs to.
+    """
+    groups = await groups_service.get_node_groups(node_id)
+    return SuccessResponse(data=groups)
 
 
 node_router = APIRouter(prefix="/node", tags=["Node Registration"])

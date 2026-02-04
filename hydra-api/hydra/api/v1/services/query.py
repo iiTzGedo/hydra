@@ -326,6 +326,38 @@ class AuditService:
 
         return entry_id
 
+    async def delete_entries_by_window(
+        self,
+        since: datetime,
+        until: datetime,
+    ) -> int:
+        """Delete audit log entries within a time window.
+
+        Args:
+            since: Start of the time window (inclusive).
+            until: End of the time window (inclusive).
+
+        Returns:
+            Number of entries deleted.
+        """
+        query = {
+            "timestamp": {
+                "$gte": since,
+                "$lte": until,
+            }
+        }
+        result = await self.audit_log.delete_many(query)
+        deleted = result.deleted_count
+
+        logger.info(
+            "audit_entries_deleted",
+            since=since.isoformat(),
+            until=until.isoformat(),
+            deleted_count=deleted,
+        )
+
+        return deleted
+
     async def list_entries(
         self, params: AuditListParams
     ) -> tuple[list[dict[str, Any]], int]:
@@ -366,3 +398,55 @@ class AuditService:
         entries = await cursor.to_list(length=params.limit)
 
         return entries, total
+
+
+# ---------------------------------------------------------------------------
+# Module-level helper for audit logging from services
+# ---------------------------------------------------------------------------
+
+
+async def log_audit(
+    action: AuditAction,
+    resource_type: str,
+    resource_id: str,
+    actor_type: str,
+    actor_id: str,
+    success: bool = True,
+    *,
+    details: dict[str, Any] | None = None,
+    error: str | None = None,
+    ip: str | None = None,
+) -> str | None:
+    """Convenience function to log an audit entry from any service.
+
+    Obtains the MongoDB singleton, creates an AuditService,
+    and calls log_action(). Returns the entry_id for linking to notifications.
+    Unlike emit_notification, this is awaited inline (not fire-and-forget)
+    so callers can pass the entry_id to emit_notification().
+
+    Returns None on failure (never raises).
+    """
+    try:
+        from hydra.db.mongodb import get_mongodb
+
+        mongodb = get_mongodb()
+        service = AuditService(mongodb)
+        return await service.log_action(
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            success=success,
+            details=details,
+            error=error,
+            ip=ip,
+        )
+    except Exception:
+        logger.exception(
+            "log_audit_helper_failed",
+            action=action.value,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        return None

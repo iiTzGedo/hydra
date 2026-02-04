@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Calendar, ChevronDown } from 'lucide-react';
+import { Calendar, ChevronDown, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -9,6 +9,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useDashboardStore, type TimeRangePreset } from '@/stores/dashboard-store';
+import { cn } from '@/lib/utils';
 
 const TIME_RANGE_PRESETS: { value: TimeRangePreset; label: string }[] = [
   { value: 'last1h', label: 'Last Hour' },
@@ -17,6 +18,24 @@ const TIME_RANGE_PRESETS: { value: TimeRangePreset; label: string }[] = [
   { value: 'last30d', label: 'Last 30 Days' },
 ];
 
+/**
+ * TimeRangeSelector - Dashboard time range filter
+ *
+ * NOTE: This component currently provides UI-only functionality.
+ * The selected time range is stored in the dashboard store, but
+ * dashboard widgets do not yet filter data by time range.
+ *
+ * TODO: Implement time-based filtering:
+ * - Update dashboard API hooks to accept time range params
+ * - Add time filtering to backend endpoints
+ * - Connect StatsCards, CapacityOverview, etc. to time range store
+ *
+ * @example
+ * // Future usage with time filtering:
+ * const { timeRange, getEffectiveTimeRange } = useDashboardStore();
+ * const { from, to } = getEffectiveTimeRange();
+ * const { data } = useNodes({ from: from.toISOString(), to: to.toISOString() });
+ */
 export function TimeRangeSelector() {
   const { timeRange, setTimeRange, setCustomTimeRange, getTimeRangeLabel } = useDashboardStore();
   const [isOpen, setIsOpen] = useState(false);
@@ -43,40 +62,48 @@ export function TimeRangeSelector() {
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className="bg-card border-border text-foreground hover:bg-muted gap-2"
+          size="sm"
+          className={cn(
+            "bg-card border-border text-foreground hover:bg-muted gap-2",
+            "text-muted-foreground" // Muted style to indicate preview/feature flag
+          )}
+          title="Time range filtering (preview - not yet fully implemented)"
         >
-          <Calendar className="h-4 w-4" />
-          <span>{getTimeRangeLabel()}</span>
-          <ChevronDown className="h-4 w-4 opacity-50" />
+          <Clock className="h-4 w-4" />
+          <span className="hidden sm:inline">{getTimeRangeLabel()}</span>
+          <ChevronDown className="h-3 w-3 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-0 bg-card border-border" align="end">
-        <div className="p-2">
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-2 py-1">
+      <PopoverContent className="w-72 p-0 bg-card border-border" align="end">
+        <div className="p-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wide px-2 py-1.5 mb-1">
+            <Calendar className="h-3 w-3" />
             Quick Select
           </div>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {TIME_RANGE_PRESETS.map((preset) => (
               <button
                 key={preset.value}
                 onClick={() => handlePresetSelect(preset.value)}
-                className={`w-full text-left px-2 py-1.5 text-sm rounded-md transition-colors ${
+                className={cn(
+                  "w-full text-left px-3 py-2 text-sm rounded-md transition-colors",
                   timeRange === preset.value
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-muted'
-                }`}
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground hover:bg-muted"
+                )}
               >
                 {preset.label}
               </button>
             ))}
           </div>
         </div>
-        <div className="border-t border-border p-2">
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-2 py-1 mb-2">
+        
+        <div className="border-t border-border p-3">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-2 py-1.5 mb-2">
             Custom Range
           </div>
           <div className="space-y-3 px-2">
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <Label htmlFor="from-date" className="text-xs text-muted-foreground">
                 From
               </Label>
@@ -88,7 +115,7 @@ export function TimeRangeSelector() {
                 className="h-8 text-xs bg-background border-border"
               />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <Label htmlFor="to-date" className="text-xs text-muted-foreground">
                 To
               </Label>
@@ -105,10 +132,18 @@ export function TimeRangeSelector() {
               disabled={!customFrom || !customTo}
               size="sm"
               className="w-full"
+              variant="secondary"
             >
               Apply Custom Range
             </Button>
           </div>
+        </div>
+        
+        {/* Info notice */}
+        <div className="border-t border-border p-3 bg-muted/30">
+          <p className="text-[10px] text-muted-foreground text-center">
+            Time filtering is coming soon
+          </p>
         </div>
       </PopoverContent>
     </Popover>

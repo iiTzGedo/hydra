@@ -1,20 +1,25 @@
-"""Agent installation endpoints for curl-based deployments.
+"""Agent installation and reporting endpoints.
 
 Supports multiple distribution methods:
 - binary: Pre-compiled binaries from S3/Garage (default, fastest)
 - obs: Bundled source from S3/Garage (Object Storage)
 - local: Bundled source from local filesystem
+
+Also provides an event reporting endpoint for agents to emit
+notifications about failures and state changes.
 """
 
+import asyncio
 import re
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from hydra.api.v1 import __version__
-from hydra.api.v1.core.deps import StorageServiceDep
+from hydra.api.v1.core.deps import CurrentUser, MongoDBDep, RedisDep, StorageServiceDep
 from hydra.api.v1.services.install import get_install_service
 from hydra.api.v1.services.storage import StorageSource
 
@@ -571,3 +576,160 @@ async def list_versions(
     logger.info("versions_listed", source=source.value)
 
     return manifest
+
+
+# ---------------------------------------------------------------------------
+# Agent Event Reporting
+# ---------------------------------------------------------------------------
+
+# Allowed event types agents can report
+ALLOWED_AGENT_EVENT_TYPES = {
+    "agent_profile_failed",
+    "agent_registration_failed",
+    "agent_profile_submitted",
+    "agent_upgraded",
+}
+
+
+class AgentEventReport(BaseModel):
+    """Payload for agent event reports."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    event_type: str = Field(alias="eventType", description="Notification event type")
+    title: str = Field(max_length=120, description="Short event title")
+    message: str = Field(max_length=2000, description="Detailed event message")
+    details: dict | None = Field(default=None, description="Additional event details")
+    node_id: str | None = Field(
+        default=None,
+        alias="nodeId",
+        description="Node ID this event relates to (defaults to agent's node)",
+    )
+
+
+class AgentEventResponse(BaseModel):
+    """Response for agent event reports."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    notification_id: str | None = Field(alias="notificationId")
+    status: str
+
+
+@router.post(
+    "/report",
+    summary="Report Agent Event",
+    description="Agents report events (failures, state changes) which create notifications.",
+    response_model=AgentEventResponse,
+    responses={
+        200: {"description": "Event accepted and notification created"},
+        400: {"description": "Invalid event type"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Agent authentication required"},
+    },
+)
+async def report_agent_event(
+    report: AgentEventReport,
+    current_user: CurrentUser,
+    mongodb: MongoDBDep,
+    redis: RedisDep,
+) -> AgentEventResponse:
+    """Accept an event report from an agent and create a notification.
+
+    Only agents can call this endpoint. The event type must be one of the
+    allowed agent event types.
+
+    Args:
+        report: The agent event report payload.
+        current_user: The authenticated agent user.
+        mongodb: MongoDB dependency.
+        redis: Redis dependency.
+
+    Returns:
+        Response with the created notification ID.
+    """
+    # Require agent authentication
+    if current_user.get("type") != "agent":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": {
+                    "code": "AGENT_AUTH_REQUIRED",
+                    "message": "Only agents can report events via this endpoint",
+                }
+            },
+        )
+
+    # Validate event type
+    if report.event_type not in ALLOWED_AGENT_EVENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "INVALID_EVENT_TYPE",
+                    "message": f"Event type '{report.event_type}' is not allowed for agent reporting",
+                    "details": {"allowedTypes": sorted(ALLOWED_AGENT_EVENT_TYPES)},
+                }
+            },
+        )
+
+    # Determine node_id from report or agent context
+    node_id = report.node_id or current_user.get("node_id")
+
+    # Emit notification (fire-and-forget via service)
+    from hydra.api.v1.models.notifications import (
+        ActorType,
+        NotificationActor,
+        NotificationSource,
+        NotificationType,
+        SourceComponent,
+    )
+    from hydra.api.v1.services.notifications import NotificationService
+
+    notification_service = NotificationService(mongodb, redis)
+
+    try:
+        notification_type = NotificationType(report.event_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "INVALID_EVENT_TYPE",
+                    "message": f"Unknown notification type: {report.event_type}",
+                }
+            },
+        )
+
+    source = NotificationSource(
+        component=SourceComponent.HYDRA_AGENT,
+        service="hydra-agent",
+        nodeId=node_id,
+    )
+
+    actor = NotificationActor(
+        type=ActorType.AGENT,
+        id=current_user.get("user_id", "unknown"),
+    )
+
+    notification_id = await notification_service.emit(
+        notification_type=notification_type,
+        source=source,
+        title=report.title,
+        message=report.message,
+        details=report.details,
+        actor=actor,
+    )
+
+    logger.info(
+        "agent_event_reported",
+        event_type=report.event_type,
+        node_id=node_id,
+        notification_id=notification_id,
+        agent_user_id=current_user.get("user_id"),
+    )
+
+    return AgentEventResponse(
+        notificationId=notification_id,
+        status="accepted",
+    )

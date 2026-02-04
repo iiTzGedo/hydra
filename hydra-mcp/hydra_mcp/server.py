@@ -41,6 +41,42 @@ _format_list_response = format_list_response
 
 server = Server("hydra-mcp")
 
+# Write tools that should emit notifications on failure
+_WRITE_TOOLS = {"control_service", "control_device"}
+
+
+async def _emit_mcp_notification(
+    event_type: str,
+    title: str,
+    message: str,
+    details: dict | None = None,
+) -> None:
+    """Fire-and-forget notification emission from MCP context.
+
+    Attempts to use the Hydra API /agent/report endpoint. If the MCP
+    client doesn't have agent-level auth, this will silently fail
+    and log a warning instead.
+    """
+    try:
+        await client._request(
+            "POST",
+            "/agent/report",
+            json_data={
+                "eventType": event_type,
+                "title": title,
+                "message": message,
+                "details": details,
+            },
+        )
+    except Exception:
+        # MCP may not have agent auth — log instead
+        logger.warning(
+            "mcp_notification_emit_skipped",
+            event_type=event_type,
+            title=title,
+            reason="MCP client may not have agent auth for /agent/report",
+        )
+
 
 @server.list_tools()
 async def list_tools() -> ListToolsResult:
@@ -59,7 +95,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
     """Execute a tool call and return TOON-formatted results.
 
     Tool implementations are registered via the tool registry pattern
-    in tool_handlers.py.
+    in tool_handlers.py. Emits notifications on authorization denials
+    and write tool failures.
 
     Args:
         name: The tool name to execute.
@@ -70,6 +107,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
     """
     try:
         result = await registry_execute_tool(name, arguments)
+
+        # Emit GREEN-tier notification for successful write tool execution (best-effort)
+        if name in _WRITE_TOOLS:
+            try:
+                import asyncio
+                asyncio.create_task(_emit_mcp_notification(
+                    event_type="mcp_write_succeeded",
+                    title=f"MCP write tool succeeded: {name}",
+                    message=f"Tool '{name}' executed successfully",
+                    details={"tool": name, "arguments": arguments},
+                ))
+            except Exception:
+                pass
+
         return CallToolResult(content=[TextContent(type="text", text=result)])
     except ToolValidationError as e:
         logger.warning("tool_validation_failed", tool=name, errors=e.errors)
@@ -81,6 +132,19 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
     except AuthorizationError as e:
         logger.warning("tool_authorization_denied", tool=name, permission=e.required_permission)
+
+        # Emit ORANGE-tier notification for auth denial (best-effort)
+        try:
+            import asyncio
+            asyncio.create_task(_emit_mcp_notification(
+                event_type="mcp_auth_denied",
+                title=f"MCP authorization denied: {name}",
+                message=f"Tool '{name}' was denied due to missing permission '{e.required_permission}'",
+                details={"tool": name, "requiredPermission": e.required_permission},
+            ))
+        except Exception:
+            pass
+
         error_text = toon.format_error(
             "AUTHORIZATION_DENIED",
             e.message,
@@ -88,10 +152,37 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         )
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
     except HydraAPIError as e:
+        # Emit RED-tier notification for write tool failures (best-effort)
+        if name in _WRITE_TOOLS:
+            try:
+                import asyncio
+                asyncio.create_task(_emit_mcp_notification(
+                    event_type="mcp_tool_write_failed",
+                    title=f"MCP write tool failed: {name}",
+                    message=f"Tool '{name}' failed with error: {e.message}",
+                    details={"tool": name, "errorCode": e.code, "arguments": arguments},
+                ))
+            except Exception:
+                pass
+
         error_text = toon.format_error(e.code, e.message, e.details)
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
     except Exception as e:
         logger.exception("tool_execution_error", tool=name, error=str(e))
+
+        # Emit RED-tier notification for unexpected write tool errors (best-effort)
+        if name in _WRITE_TOOLS:
+            try:
+                import asyncio
+                asyncio.create_task(_emit_mcp_notification(
+                    event_type="mcp_tool_write_failed",
+                    title=f"MCP write tool error: {name}",
+                    message=f"Tool '{name}' encountered unexpected error: {str(e)[:500]}",
+                    details={"tool": name, "errorType": type(e).__name__},
+                ))
+            except Exception:
+                pass
+
         error_text = toon.format_error("TOOL_ERROR", str(e))
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
 

@@ -4,6 +4,11 @@ from datetime import datetime, timezone
 
 import structlog
 
+from hydra.api.v1.core.tasks import safe_create_task
+from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
 from hydra.api.v1.models.settings import (
     DefaultSettings,
     NotificationSettings,
@@ -96,6 +101,34 @@ class SettingsService:
         updated_doc = await self.db.user_settings.find_one({"userId": user_id})
 
         logger.info("user_settings_updated", user_id=user_id)
+
+        changed_sections = [
+            key for key in ("ui", "views", "notifications")
+            if key in update_fields
+        ]
+        audit_id = await log_audit(
+            action=AuditAction.UPDATE,
+            resource_type="settings",
+            resource_id=user_id,
+            actor_type="user",
+            actor_id=user_id,
+            details={
+                "sections": changed_sections,
+                "userId": user_id,
+            },
+        )
+        safe_create_task(emit_notification(
+            notification_type=NotificationType.USER_SETTINGS_UPDATED,
+            source=NotificationSource(
+                component=SourceComponent.HYDRA_API,
+                service="settings",
+            ),
+            title="Settings updated",
+            message="User settings updated",
+            target_user_id=user_id,
+            details={"sections": changed_sections, "userId": user_id},
+            audit_entry_id=audit_id,
+        ))
 
         return self._user_settings_doc_to_response(updated_doc)
 

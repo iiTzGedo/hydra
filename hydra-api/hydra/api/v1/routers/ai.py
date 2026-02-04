@@ -9,8 +9,7 @@ Terminology:
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
 
-from hydra.api.v1.core.deps import CurrentUser
-from hydra.api.v1.core.exceptions import AuthorizationError
+from hydra.api.v1.core.deps import CurrentUser, check_not_agent
 from hydra.api.v1.models.ai import (
     GlobalAPIKeyCreate,
     GlobalAPIKeyResponse,
@@ -35,19 +34,6 @@ async def get_ai_service(mongodb: MongoDB = Depends(get_mongodb)) -> AIService:
     """Get AI service dependency."""
     return AIService(mongodb)
 
-
-def _check_not_agent(current_user: dict, action: str) -> None:
-    """Verify user is not an agent.
-
-    Args:
-        current_user: Current authenticated user.
-        action: Permission action for error message.
-
-    Raises:
-        AuthorizationError: If user is an agent.
-    """
-    if current_user.get("type") == "agent":
-        raise AuthorizationError(f"ai:{action}")
 
 
 # =============================================================================
@@ -81,7 +67,7 @@ async def list_configs(
     Raises:
         HTTPException 403: Agents cannot manage LLM configurations.
     """
-    _check_not_agent(current_user, "read")
+    check_not_agent(current_user, "ai:read")
 
     configs, total = await ai_service.list_configs(
         user_id=current_user["user_id"],
@@ -120,7 +106,7 @@ async def create_config(
     Raises:
         HTTPException 403: Agents cannot manage LLM configurations.
     """
-    _check_not_agent(current_user, "create")
+    check_not_agent(current_user, "ai:create")
 
     result = await ai_service.create_config(
         request=request,
@@ -155,7 +141,7 @@ async def get_config(
         HTTPException 403: Agents cannot manage LLM configurations.
         HTTPException 404: Configuration not found.
     """
-    _check_not_agent(current_user, "read")
+    check_not_agent(current_user, "ai:read")
 
     result = await ai_service.get_config(
         config_id=configId,
@@ -192,7 +178,7 @@ async def update_config(
         HTTPException 403: Agents cannot manage LLM configurations.
         HTTPException 404: Configuration not found.
     """
-    _check_not_agent(current_user, "update")
+    check_not_agent(current_user, "ai:update")
 
     result = await ai_service.update_config(
         config_id=configId,
@@ -227,7 +213,7 @@ async def delete_config(
         HTTPException 403: Agents cannot manage LLM configurations.
         HTTPException 404: Configuration not found.
     """
-    _check_not_agent(current_user, "delete")
+    check_not_agent(current_user, "ai:delete")
 
     result = await ai_service.delete_config(
         config_id=configId,
@@ -265,7 +251,7 @@ async def validate_config(
         HTTPException 403: Agents cannot manage LLM configurations.
         HTTPException 404: Configuration not found.
     """
-    _check_not_agent(current_user, "read")
+    check_not_agent(current_user, "ai:read")
 
     result = await ai_service.validate_config(
         config_id=configId,
@@ -323,7 +309,7 @@ async def list_provider_models(
         HTTPException 404: Config not found (if configId specified).
         HTTPException 400: No API key available for provider.
     """
-    _check_not_agent(current_user, "read")
+    check_not_agent(current_user, "ai:read")
 
     result = await ai_service.fetch_provider_models(
         provider_type=providerType,
@@ -362,7 +348,7 @@ async def list_global_keys(
     Raises:
         HTTPException 403: Agents cannot manage global API keys.
     """
-    _check_not_agent(current_user, "read")
+    check_not_agent(current_user, "ai:read")
 
     result = await ai_service.list_global_keys(user_id=current_user["user_id"])
 
@@ -394,7 +380,7 @@ async def get_global_key(
         HTTPException 403: Agents cannot manage global API keys.
         HTTPException 404: No global key configured for this provider.
     """
-    _check_not_agent(current_user, "read")
+    check_not_agent(current_user, "ai:read")
 
     result = await ai_service.get_global_key(
         provider_type=providerType,
@@ -430,7 +416,7 @@ async def set_global_key(
     Raises:
         HTTPException 403: Agents cannot manage global API keys.
     """
-    _check_not_agent(current_user, "create")
+    check_not_agent(current_user, "ai:create")
 
     result = await ai_service.set_global_key(
         provider_type=providerType,
@@ -465,7 +451,7 @@ async def delete_global_key(
         HTTPException 403: Agents cannot manage global API keys.
         HTTPException 404: No global key configured for this provider.
     """
-    _check_not_agent(current_user, "delete")
+    check_not_agent(current_user, "ai:delete")
 
     result = await ai_service.delete_global_key(
         provider_type=providerType,
@@ -500,7 +486,7 @@ async def validate_global_key(
         HTTPException 403: Agents cannot manage global API keys.
         HTTPException 404: No global key configured for this provider.
     """
-    _check_not_agent(current_user, "read")
+    check_not_agent(current_user, "ai:read")
 
     result = await ai_service.validate_global_key(
         provider_type=providerType,

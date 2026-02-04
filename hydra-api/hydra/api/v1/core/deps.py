@@ -23,6 +23,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 async def get_auth_service(
     mongodb: MongoDB = Depends(get_mongodb),
+    redis: RedisClient = Depends(get_redis),
 ) -> AuthService:
     """Get authentication service instance.
 
@@ -32,7 +33,7 @@ async def get_auth_service(
     Returns:
         AuthService instance.
     """
-    return AuthService(mongodb)
+    return AuthService(mongodb, redis)
 
 
 async def get_users_service(
@@ -383,6 +384,20 @@ async def get_storage_service():
 
     settings = get_settings()
     return get_cached_storage_service(settings)
+
+
+def check_not_agent(current_user: dict, permission: str) -> None:
+    """Verify the current user is not an agent account.
+
+    Args:
+        current_user: Current authenticated user.
+        permission: Permission string for the error message.
+
+    Raises:
+        AuthorizationError: If user is an agent.
+    """
+    if current_user.get("type") == "agent":
+        raise AuthorizationError(permission)
 
 
 CurrentToken = Annotated[dict, Depends(get_current_token)]

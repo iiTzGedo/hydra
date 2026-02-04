@@ -1,5 +1,8 @@
 """WebSocket endpoint for real-time chat with LLM and MCP integration."""
 
+import asyncio
+import inspect
+import json
 import secrets
 from datetime import datetime, timezone
 
@@ -9,13 +12,17 @@ from pymongo import ReturnDocument
 
 from hydra.api.v1.core.security import decode_token
 from hydra.api.v1.models.chat import ToolCallStatus
+from hydra.api.v1.models.notifications import NOTIFICATION_CHANNEL, NotificationSource, NotificationType, SourceComponent
 from hydra.api.v1.services.chat import ChatService, ChatSessionNotFoundError
 from hydra.api.v1.services.chat_cache import ChatCacheService
 from hydra.api.v1.services.conversation import ConversationBuilder
 from hydra.api.v1.services.llm_bridge import LLMBridge, LLMConfigError
 from hydra.api.v1.services.mcp_client import MCPClient, MCPClientError
+from hydra.api.v1.services.notifications import emit_notification, should_deliver
+from hydra.api.v1.models.settings import NotificationSettings
+from hydra.api.v1.core.role_utils import get_active_temporary_roles
 from hydra.db.mongodb import MongoDB, get_mongodb
-from hydra.db.redis import get_redis
+from hydra.db.redis import RedisClient, get_redis
 
 router = APIRouter(tags=["Chat WebSocket"])
 logger = structlog.get_logger(__name__)
@@ -35,6 +42,7 @@ class WSMessageType:
     TOOL_CALL_START = "tool_call_start"
     TOOL_CALL_RESULT = "tool_call_result"
     MESSAGE_COMPLETE = "message_complete"
+    NOTIFICATION = "notification"
     ERROR = "error"
     PONG = "pong"
 
@@ -61,7 +69,7 @@ class ChatWebSocketHandler:
         self.chat_service = ChatService(mongodb)
         self.llm_bridge = LLMBridge(mongodb)
         self.mcp_client = MCPClient(mongodb)
-        self.cache_service = ChatCacheService()
+        self.cache_service = ChatCacheService(mongodb=mongodb)
         self._cancelled = False
 
     async def handle(self):
@@ -96,6 +104,15 @@ class ChatWebSocketHandler:
             logger.info("websocket_disconnected", user_id=self.user_id)
         except Exception as e:
             logger.exception("websocket_error", user_id=self.user_id, error=str(e))
+            try:
+                await emit_notification(
+                    NotificationType.WEBSOCKET_FAILURE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="chat_ws"),
+                    "WebSocket failure",
+                    f"WebSocket error: {str(e)}",
+                )
+            except Exception:
+                pass
             await self._send_error(str(e))
 
     @staticmethod
@@ -257,6 +274,15 @@ class ChatWebSocketHandler:
             await self._send_error(f"Session not found: {session_id}")
         except LLMConfigError as e:
             await self._send_error(f"LLM config error: {e.message}")
+            try:
+                await emit_notification(
+                    NotificationType.LLM_PROVIDER_FAILURE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="chat_ws"),
+                    "LLM provider failure",
+                    f"LLM provider error: {str(e)}",
+                )
+            except Exception:
+                pass
         except MCPClientError as e:
             await self._send_error(f"MCP error: {e.message}")
         except Exception as e:
@@ -328,6 +354,15 @@ class ChatWebSocketHandler:
             await self._send_error(f"Session not found: {session_id}")
         except LLMConfigError as e:
             await self._send_error(f"LLM config error: {e.message}")
+            try:
+                await emit_notification(
+                    NotificationType.LLM_PROVIDER_FAILURE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="chat_ws"),
+                    "LLM provider failure",
+                    f"LLM provider error: {str(e)}",
+                )
+            except Exception:
+                pass
         except MCPClientError as e:
             await self._send_error(f"MCP error: {e.message}")
         except Exception as e:
@@ -433,7 +468,17 @@ class ChatWebSocketHandler:
                     })
 
                 elif event_type == "error":
-                    await self._send_error(event.get("error", "Unknown error"))
+                    error_msg = event.get("error", "Unknown error")
+                    await self._send_error(error_msg)
+                    try:
+                        await emit_notification(
+                            NotificationType.LLM_PROVIDER_FAILURE,
+                            NotificationSource(component=SourceComponent.HYDRA_API, service="chat_ws"),
+                            "LLM provider failure",
+                            f"LLM provider error: {error_msg}",
+                        )
+                    except Exception:
+                        pass
                     return
 
                 elif event_type == "done":
@@ -827,6 +872,81 @@ Available tools are from connected MCP servers for infrastructure management."""
         )
 
 
+async def _notification_listener(
+    websocket: WebSocket,
+    redis_client: RedisClient,
+    mongodb: MongoDB,
+    user_id: str,
+    user_roles: list[str],
+) -> None:
+    """Subscribe to Redis notification channel and push matching notifications to the WebSocket.
+
+    Runs as a concurrent task alongside the chat message handler. Filters
+    notifications by the connected user's roles and targeted user ID.
+
+    Args:
+        websocket: The WebSocket connection to push notifications to.
+        redis_client: Redis client for pub/sub subscription.
+        user_id: Connected user's ID.
+        user_roles: Connected user's roles for filtering.
+    """
+    pubsub = None
+    settings_doc = await mongodb.user_settings.find_one(
+        {"userId": user_id},
+        {"notifications": 1, "_id": 0},
+    )
+    notif_settings = (
+        NotificationSettings.model_validate(settings_doc["notifications"])
+        if settings_doc and settings_doc.get("notifications") is not None
+        else NotificationSettings()
+    )
+    try:
+        pubsub = await redis_client.subscribe(NOTIFICATION_CHANNEL)
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+
+            try:
+                data = json.loads(message["data"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            # Filter: check if this notification targets the connected user
+            target_roles = data.get("targetRoles", [])
+            target_user_id = data.get("targetUserId")
+
+            # Match if: user is explicitly targeted, OR user has a matching role
+            user_targeted = target_user_id == user_id if target_user_id else False
+            role_match = bool(set(user_roles) & set(target_roles))
+
+            if not user_targeted and not role_match:
+                continue
+
+            if not should_deliver(notif_settings, data, "browser"):
+                continue
+
+            # Push to WebSocket
+            try:
+                await websocket.send_json({
+                    "type": WSMessageType.NOTIFICATION,
+                    "data": data,
+                })
+            except Exception:
+                # WebSocket likely closed; exit the listener
+                break
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        logger.debug("notification_listener_stopped", user_id=user_id, exc_info=True)
+    finally:
+        if pubsub:
+            try:
+                await pubsub.unsubscribe(NOTIFICATION_CHANNEL)
+                await pubsub.close()
+            except Exception:
+                pass
+
+
 async def get_user_from_token(websocket: WebSocket) -> dict | None:
     """Extract and verify user from WebSocket authentication.
 
@@ -911,4 +1031,32 @@ async def chat_websocket(
 
     logger.info("websocket_connected", user_id=user["sub"])
 
-    await handler.handle()
+    # Start concurrent notification listener for real-time push
+    redis_client = get_redis()
+    user_doc_result = mongodb.users.find_one(
+        {"userId": user["sub"]},
+        {"role": 1, "roles": 1, "temporaryRoles": 1},
+    )
+    user_doc = await user_doc_result if inspect.isawaitable(user_doc_result) else user_doc_result
+    if user_doc:
+        user_roles = [r for r in [user_doc.get("role")] if r]
+        user_roles.extend(user_doc.get("roles", []) or [])
+        temp_roles = get_active_temporary_roles(user_doc.get("temporaryRoles", []))
+        user_roles.extend([r.get("role") for r in temp_roles if r.get("role")])
+    else:
+        user_roles = user.get("roles", []) or []
+        role = user.get("role")
+        if role and role not in user_roles:
+            user_roles = [role] + user_roles
+    notification_task = asyncio.create_task(
+        _notification_listener(websocket, redis_client, mongodb, user["sub"], user_roles)
+    )
+
+    try:
+        await handler.handle()
+    finally:
+        notification_task.cancel()
+        try:
+            await notification_task
+        except asyncio.CancelledError:
+            pass

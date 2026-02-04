@@ -525,6 +525,134 @@ class HydraClient:
         """
         return await self._request("GET", "/ha/status")
 
+    # ------------------------------------------------------------------
+    # Notifications
+    # ------------------------------------------------------------------
+
+    async def list_notifications(
+        self,
+        tier: int | None = None,
+        tier_min: int | None = None,
+        status: str | None = None,
+        source: str | None = None,
+        node_id: str | None = None,
+        notification_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """List notifications visible to the current user.
+
+        Args:
+            tier: Filter by exact tier (1-5).
+            tier_min: Filter by minimum tier.
+            status: Filter by status (active, resolved, expired).
+            source: Filter by source component.
+            node_id: Filter by originating node.
+            notification_type: Filter by notification type.
+            limit: Maximum number of results.
+            offset: Number of results to skip.
+
+        Returns:
+            Tuple of (list of notification dictionaries, total count).
+        """
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if tier is not None:
+            params["tier"] = tier
+        if tier_min is not None:
+            params["tierMin"] = tier_min
+        if status:
+            params["status"] = status
+        if source:
+            params["source"] = source
+        if node_id:
+            params["nodeId"] = node_id
+        if notification_type:
+            params["type"] = notification_type
+        result = await self._request("GET", "/notifications", params=params)
+        return result if isinstance(result, list) else result, 0
+
+    async def get_notification_stats(self) -> dict:
+        """Get aggregated notification statistics.
+
+        Returns:
+            Stats with total, unread, byTier, byStatus, bySource.
+        """
+        return await self._request("GET", "/notifications/stats")
+
+    async def get_notification(self, notification_id: str) -> dict:
+        """Get a single notification by ID.
+
+        Args:
+            notification_id: The notification identifier.
+
+        Returns:
+            Notification details with read state.
+        """
+        return await self._request("GET", f"/notifications/{notification_id}")
+
+    # ------------------------------------------------------------------
+    # Audit Log
+    # ------------------------------------------------------------------
+
+    async def list_audit_entries(
+        self,
+        action: str | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        actor_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """List audit log entries with optional filtering.
+
+        Args:
+            action: Filter by action (e.g., create, update, delete).
+            resource_type: Filter by resource type (e.g., node, service).
+            resource_id: Filter by specific resource ID.
+            actor_id: Filter by actor (user) ID.
+            since: ISO timestamp for start of time range.
+            until: ISO timestamp for end of time range.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip for pagination.
+
+        Returns:
+            List of audit log entry dictionaries.
+        """
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if action:
+            params["action"] = action
+        if resource_type:
+            params["resourceType"] = resource_type
+        if resource_id:
+            params["resourceId"] = resource_id
+        if actor_id:
+            params["actorId"] = actor_id
+        if since:
+            params["since"] = since
+        if until:
+            params["until"] = until
+        result = await self._request("GET", "/audit", params=params)
+        return result if isinstance(result, list) else result
+
+    async def delete_audit_entries(
+        self,
+        since: str,
+        until: str,
+    ) -> dict:
+        """Delete audit log entries within a time range.
+
+        Args:
+            since: ISO timestamp for start of deletion range (required).
+            until: ISO timestamp for end of deletion range (required).
+
+        Returns:
+            Deletion result with count of removed entries.
+        """
+        params = {"since": since, "until": until}
+        return await self._request("DELETE", "/audit", params=params)
+
     async def health_check(self) -> dict:
         """Check API health status.
 

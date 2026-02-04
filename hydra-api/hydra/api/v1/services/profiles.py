@@ -10,6 +10,15 @@ import structlog
 from pymongo import DESCENDING
 
 from hydra.api.v1.core.exceptions import NodeNotFoundError, ProfileNotFoundError, ValidationError
+from hydra.api.v1.core.tasks import safe_create_task
+from hydra.api.v1.models.notifications import (
+    NotificationSource,
+    NotificationType,
+    SourceComponent,
+)
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
+from hydra.api.v1.models.query import AuditAction
 from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.profiles import ProfileSubmission
 
@@ -22,6 +31,8 @@ SECTION_WEIGHTS = {
     "storage": 0.15,
     "network": 0.10,
 }
+
+CRASH_STATUSES = {"failed", "error", "crashed", "dead"}
 
 
 def generate_service_id(node_id: str, runtime: str, name: str) -> str:
@@ -74,6 +85,11 @@ class ProfileService:
             raise NodeNotFoundError(submission.node_id)
 
         previous = await self._get_latest_profile_meta(submission.node_id)
+        previous_profile = None
+        if previous:
+            previous_profile = await self.db.profiles.find_one(
+                {"profileId": previous.get("profileId")}
+            )
 
         fingerprints = self._compute_section_fingerprints(submission)
         profile_hash = self._compute_profile_hash(fingerprints)
@@ -122,6 +138,7 @@ class ProfileService:
             "network": submission.network.model_dump(by_alias=True) if submission.network else None,
             "storage": submission.storage.model_dump(by_alias=True) if submission.storage else None,
             "software": submission.software.model_dump(by_alias=True) if submission.software else None,
+            "services": submission.services.model_dump(by_alias=True) if submission.services else None,
             "users": submission.users.model_dump(by_alias=True) if submission.users else None,
             "configs": submission.configs.model_dump(by_alias=True) if submission.configs else None,
             "metadata": submission.metadata,
@@ -167,6 +184,143 @@ class ProfileService:
             service_count=len(service_ids),
             network_count=len(network_ids),
         )
+
+        # --- Notifications ---
+        _src = NotificationSource(
+            component=SourceComponent.HYDRA_API,
+            service="profile-service",
+            node_id=submission.node_id,
+        )
+
+        # 1. Profile submitted (GREEN)
+        audit_id = await log_audit(
+            action=AuditAction.SUBMIT,
+            resource_type="profile",
+            resource_id=profile_id,
+            actor_type="agent",
+            actor_id=submission.node_id,
+            details={
+                "nodeId": submission.node_id,
+                "profileId": profile_id,
+                "version": version,
+                "serviceCount": len(service_ids),
+                "networkCount": len(network_ids),
+            },
+        )
+        safe_create_task(emit_notification(
+            notification_type=NotificationType.AGENT_PROFILE_SUBMITTED,
+            source=_src,
+            title="Profile submitted",
+            message=f"Node {submission.node_id} submitted profile {profile_id}",
+            details={
+                "nodeId": submission.node_id,
+                "profileId": profile_id,
+                "version": version,
+            },
+            audit_entry_id=audit_id,
+        ))
+
+        # 2. Major version change (ORANGE) — first two components (W or X) changed
+        if previous:
+            prev_version = previous.get("version", "E0-0.0.0.0")
+            prev_parts = prev_version.split("-")[1].split(".")[:2]
+            curr_parts = version.split("-")[1].split(".")[:2]
+            if prev_parts != curr_parts:
+                audit_id = await log_audit(
+                    action=AuditAction.UPDATE,
+                    resource_type="profile",
+                    resource_id=profile_id,
+                    actor_type="agent",
+                    actor_id=submission.node_id,
+                    details={
+                        "nodeId": submission.node_id,
+                        "profileId": profile_id,
+                        "previousVersion": prev_version,
+                        "newVersion": version,
+                        "changeType": "major",
+                    },
+                )
+                safe_create_task(emit_notification(
+                    notification_type=NotificationType.PROFILE_MAJOR_CHANGE,
+                    source=_src,
+                    title="Major profile change detected",
+                    message=(
+                        f"Node {submission.node_id} profile changed significantly: "
+                        f"{prev_version} -> {version}"
+                    ),
+                    details={
+                        "nodeId": submission.node_id,
+                        "profileId": profile_id,
+                        "previousVersion": prev_version,
+                        "newVersion": version,
+                    },
+                    audit_entry_id=audit_id,
+                ))
+
+        # 3. Config file changes (YELLOW)
+        config_changes = self._diff_config_files(previous_profile, submission)
+        if config_changes:
+            audit_id = await log_audit(
+                action=AuditAction.UPDATE,
+                resource_type="profile",
+                resource_id=profile_id,
+                actor_type="system",
+                actor_id="profile-service",
+                details={
+                    "nodeId": submission.node_id,
+                    "profileId": profile_id,
+                    "configChanges": config_changes,
+                },
+            )
+            safe_create_task(emit_notification(
+                notification_type=NotificationType.CONFIG_FILE_CHANGED,
+                source=_src,
+                title="Config files changed",
+                message=(
+                    f"Config files changed on node {submission.node_id}: "
+                    f"{config_changes['counts']['changed']} modified, "
+                    f"{config_changes['counts']['added']} added, "
+                    f"{config_changes['counts']['removed']} removed"
+                ),
+                details={
+                    "nodeId": submission.node_id,
+                    "profileId": profile_id,
+                    **config_changes,
+                },
+                audit_entry_id=audit_id,
+            ))
+
+        # 4. Network configuration changes (YELLOW)
+        network_changes = self._diff_network_config(previous_profile, submission)
+        if network_changes:
+            audit_id = await log_audit(
+                action=AuditAction.UPDATE,
+                resource_type="profile",
+                resource_id=profile_id,
+                actor_type="system",
+                actor_id="profile-service",
+                details={
+                    "nodeId": submission.node_id,
+                    "profileId": profile_id,
+                    "networkChanges": network_changes,
+                },
+            )
+            safe_create_task(emit_notification(
+                notification_type=NotificationType.NETWORK_CONFIG_CHANGED,
+                source=_src,
+                title="Network configuration changed",
+                message=(
+                    f"Network settings changed on node {submission.node_id}: "
+                    f"{network_changes['counts']['interfacesChanged']} interface changes, "
+                    f"{network_changes['counts']['routesChanged']} route changes"
+                ),
+                details={
+                    "nodeId": submission.node_id,
+                    "profileId": profile_id,
+                    **network_changes,
+                },
+                audit_entry_id=audit_id,
+            ))
 
         return self._format_profile(profile_doc)
 
@@ -370,7 +524,9 @@ class ProfileService:
             if hw.cpu:
                 hashes.append(self._hash_dict(hw.cpu.model_dump(by_alias=True)))
             if hw.memory:
-                hashes.append(self._hash_dict(hw.memory.model_dump(by_alias=True)))
+                mem_data = hw.memory.model_dump(by_alias=True)
+                mem_data.pop("usedBytes", None)
+                hashes.append(self._hash_dict(mem_data))
             for gpu in hw.gpus:
                 hashes.append(self._hash_dict(gpu.model_dump(by_alias=True)))
             if hashes:
@@ -507,6 +663,12 @@ class ProfileService:
             service_id = generate_service_id(node_id, svc.runtime, svc.name)
             service_ids.append(service_id)
 
+            # Check existing service for new-discovery / state-change detection
+            existing_svc = await self.db.services.find_one(
+                {"serviceId": service_id},
+                projection={"status": 1},
+            )
+
             service_doc = {
                 "serviceId": service_id,
                 "runtime": svc.runtime,
@@ -562,6 +724,149 @@ class ProfileService:
                 upsert=True,
             )
 
+            # 3. New service discovered (GREEN)
+            if existing_svc is None:
+                audit_id = await log_audit(
+                    action=AuditAction.CREATE,
+                    resource_type="service",
+                    resource_id=service_id,
+                    actor_type="system",
+                    actor_id="profile-service",
+                    details={
+                        "nodeId": node_id,
+                        "serviceId": service_id,
+                        "serviceName": svc.name,
+                        "runtime": svc.runtime,
+                        "status": svc.status,
+                        "profileId": profile_id,
+                    },
+                )
+                safe_create_task(emit_notification(
+                    notification_type=NotificationType.SERVICE_DISCOVERED,
+                    source=NotificationSource(
+                        component=SourceComponent.HYDRA_API,
+                        service="profile-service",
+                        node_id=node_id,
+                        service_id=service_id,
+                    ),
+                    title="New service discovered",
+                    message=f"Service {svc.name} ({svc.runtime}) discovered on node {node_id}",
+                    details={
+                        "nodeId": node_id,
+                        "serviceId": service_id,
+                        "serviceName": svc.name,
+                        "runtime": svc.runtime,
+                        "status": svc.status,
+                    },
+                    audit_entry_id=audit_id,
+                ))
+                if not await self._is_known_service(svc.runtime, svc.name):
+                    safe_create_task(emit_notification(
+                        notification_type=NotificationType.UNKNOWN_SERVICE_DISCOVERED,
+                        source=NotificationSource(
+                            component=SourceComponent.HYDRA_API,
+                            service="profile-service",
+                            node_id=node_id,
+                            service_id=service_id,
+                        ),
+                        title="Unknown service discovered",
+                        message=(
+                            f"Unknown service {svc.name} ({svc.runtime}) detected "
+                            f"on node {node_id}"
+                        ),
+                        details={
+                            "nodeId": node_id,
+                            "serviceId": service_id,
+                            "serviceName": svc.name,
+                            "runtime": svc.runtime,
+                            "status": svc.status,
+                            "entityId": service_id,
+                        },
+                        audit_entry_id=audit_id,
+                    ))
+            # 4. Service state changed (YELLOW)
+            elif existing_svc.get("status") != svc.status:
+                prev_status = existing_svc.get("status")
+                prev_norm = (prev_status or "").lower()
+                new_norm = (svc.status or "").lower()
+
+                if new_norm in CRASH_STATUSES and prev_norm not in CRASH_STATUSES:
+                    audit_id = await log_audit(
+                        action=AuditAction.UPDATE,
+                        resource_type="service",
+                        resource_id=service_id,
+                        actor_type="system",
+                        actor_id="profile-service",
+                        details={
+                            "nodeId": node_id,
+                            "serviceId": service_id,
+                            "serviceName": svc.name,
+                            "previousStatus": prev_status,
+                            "newStatus": svc.status,
+                            "profileId": profile_id,
+                        },
+                    )
+                    safe_create_task(emit_notification(
+                        notification_type=NotificationType.SERVICE_CRASHED,
+                        source=NotificationSource(
+                            component=SourceComponent.HYDRA_API,
+                            service="profile-service",
+                            node_id=node_id,
+                            service_id=service_id,
+                        ),
+                        title="Service crashed",
+                        message=(
+                            f"Service {svc.name} on node {node_id} crashed "
+                            f"(status: {svc.status})"
+                        ),
+                        details={
+                            "nodeId": node_id,
+                            "serviceId": service_id,
+                            "serviceName": svc.name,
+                            "previousStatus": prev_status,
+                            "newStatus": svc.status,
+                        },
+                        audit_entry_id=audit_id,
+                    ))
+                else:
+                    audit_id = await log_audit(
+                        action=AuditAction.UPDATE,
+                        resource_type="service",
+                        resource_id=service_id,
+                        actor_type="system",
+                        actor_id="profile-service",
+                        details={
+                            "nodeId": node_id,
+                            "serviceId": service_id,
+                            "serviceName": svc.name,
+                            "previousStatus": existing_svc.get("status"),
+                            "newStatus": svc.status,
+                            "profileId": profile_id,
+                        },
+                    )
+                    safe_create_task(emit_notification(
+                        notification_type=NotificationType.SERVICE_STATE_CHANGED,
+                        source=NotificationSource(
+                            component=SourceComponent.HYDRA_API,
+                            service="profile-service",
+                            node_id=node_id,
+                            service_id=service_id,
+                        ),
+                        title="Service state changed",
+                        message=(
+                            f"Service {svc.name} on node {node_id} changed from "
+                            f"{existing_svc.get('status')} to {svc.status}"
+                        ),
+                        details={
+                            "nodeId": node_id,
+                            "serviceId": service_id,
+                            "serviceName": svc.name,
+                            "previousStatus": existing_svc.get("status"),
+                            "newStatus": svc.status,
+                        },
+                        audit_entry_id=audit_id,
+                    ))
+
         logger.info(
             "services_extracted",
             node_id=node_id,
@@ -579,12 +884,244 @@ class ProfileService:
         """Extract networks from profile and auto-create/update."""
         from hydra.api.v1.services.networks import NetworksService
 
+        # Snapshot existing network IDs before processing for new-discovery detection
+        existing_network_ids: set[str] = set()
+        if network_profile and network_profile.interfaces:
+            cursor = self.db.networks.find({}, projection={"networkId": 1})
+            async for doc in cursor:
+                existing_network_ids.add(doc["networkId"])
+
         networks_service = NetworksService(self.db)
-        return await networks_service.process_profile_networks(
+        network_ids = await networks_service.process_profile_networks(
             node_id,
             profile_id,
             network_profile,
         )
+
+        # 5. New networks discovered (GREEN)
+        for nid in network_ids:
+            if nid not in existing_network_ids:
+                audit_id = await log_audit(
+                    action=AuditAction.CREATE,
+                    resource_type="network",
+                    resource_id=nid,
+                    actor_type="system",
+                    actor_id="profile-service",
+                    details={
+                        "nodeId": node_id,
+                        "networkId": nid,
+                        "profileId": profile_id,
+                        "discoveredVia": "profile-submission",
+                    },
+                )
+                safe_create_task(emit_notification(
+                    notification_type=NotificationType.NETWORK_DISCOVERED,
+                    source=NotificationSource(
+                        component=SourceComponent.HYDRA_API,
+                        service="profile-service",
+                        node_id=node_id,
+                    ),
+                    title="New network discovered",
+                    message=f"Network {nid} discovered via node {node_id}",
+                    details={
+                        "nodeId": node_id,
+                        "networkId": nid,
+                        "profileId": profile_id,
+                    },
+                    audit_entry_id=audit_id,
+                ))
+
+        return network_ids
+
+    @staticmethod
+    def _diff_config_files(previous_profile: dict | None, submission: ProfileSubmission) -> dict | None:
+        """Detect config file changes between previous profile and new submission."""
+        if not previous_profile:
+            return None
+        prev_section = previous_profile.get("configs")
+        if prev_section is None:
+            return None
+        prev_files = (prev_section.get("files") or []) if isinstance(prev_section, dict) else []
+        new_configs = submission.configs.files if submission.configs else []
+        if not new_configs:
+            return None
+
+        prev_map = {
+            f.get("path"): f
+            for f in prev_files
+            if isinstance(f, dict) and f.get("path")
+        }
+        new_map = {
+            f.path: f
+            for f in new_configs
+            if getattr(f, "path", None)
+        }
+
+        added = [path for path in new_map.keys() if path not in prev_map]
+        removed = [path for path in prev_map.keys() if path not in new_map]
+        changed = []
+        for path in new_map.keys():
+            if path in prev_map:
+                if new_map[path].hash != prev_map[path].get("hash"):
+                    changed.append(path)
+
+        if not (added or removed or changed):
+            return None
+
+        return {
+            "added": added,
+            "removed": removed,
+            "changed": changed,
+            "counts": {
+                "added": len(added),
+                "removed": len(removed),
+                "changed": len(changed),
+            },
+        }
+
+    @staticmethod
+    def _normalize_interface(interface: dict) -> dict:
+        return {
+            "name": interface.get("name"),
+            "macAddress": interface.get("macAddress"),
+            "ipv4Addresses": sorted(interface.get("ipv4Addresses") or []),
+            "ipv6Addresses": sorted(interface.get("ipv6Addresses") or []),
+            "netmask": interface.get("netmask"),
+            "gateway": interface.get("gateway"),
+            "mtu": interface.get("mtu"),
+            "state": interface.get("state"),
+            "type": interface.get("type"),
+            "speedMbps": interface.get("speedMbps"),
+        }
+
+    @staticmethod
+    def _normalize_service_name(name: str) -> str:
+        return name.strip().lower()
+
+    async def _is_known_service(self, runtime: str, name: str) -> bool:
+        normalized = self._normalize_service_name(name)
+        doc = await self.db.known_services.find_one(
+            {"runtime": runtime, "normalizedName": normalized}
+        )
+        return doc is not None
+
+    @staticmethod
+    def _route_key(route: dict) -> tuple:
+        return (
+            route.get("destination"),
+            route.get("gateway"),
+            route.get("interface"),
+            route.get("metric"),
+        )
+
+    def _diff_network_config(self, previous_profile: dict | None, submission: ProfileSubmission) -> dict | None:
+        """Detect network config changes between previous profile and new submission."""
+        if not previous_profile or not submission.network:
+            return None
+
+        prev_network = previous_profile.get("network")
+        if not prev_network:
+            return None
+
+        prev_interfaces = {
+            iface.get("name"): self._normalize_interface(iface)
+            for iface in (prev_network.get("interfaces") or [])
+            if isinstance(iface, dict) and iface.get("name")
+        }
+        new_interfaces = {
+            iface.name: self._normalize_interface(iface.model_dump(by_alias=True))
+            for iface in submission.network.interfaces
+            if iface.name
+        }
+
+        added_interfaces = [name for name in new_interfaces if name not in prev_interfaces]
+        removed_interfaces = [name for name in prev_interfaces if name not in new_interfaces]
+        changed_interfaces = [
+            name
+            for name in new_interfaces
+            if name in prev_interfaces and new_interfaces[name] != prev_interfaces[name]
+        ]
+
+        prev_dns = set(prev_network.get("dnsServers") or [])
+        new_dns = set(submission.network.dns_servers or [])
+        dns_added = sorted(list(new_dns - prev_dns))
+        dns_removed = sorted(list(prev_dns - new_dns))
+
+        prev_search = set(prev_network.get("dnsSearch") or [])
+        new_search = set(submission.network.dns_search or [])
+        search_added = sorted(list(new_search - prev_search))
+        search_removed = sorted(list(prev_search - new_search))
+
+        prev_hostname = prev_network.get("hostname")
+        new_hostname = submission.network.hostname
+        prev_domain = prev_network.get("domain")
+        new_domain = submission.network.domain
+        prev_fqdn = prev_network.get("fqdn")
+        new_fqdn = submission.network.fqdn
+
+        hostname_changed = prev_hostname != new_hostname
+        domain_changed = prev_domain != new_domain
+        fqdn_changed = prev_fqdn != new_fqdn
+
+        prev_gateway = prev_network.get("defaultGateway")
+        new_gateway = submission.network.default_gateway
+        gateway_changed = prev_gateway != new_gateway
+
+        prev_routes = {
+            self._route_key(route): route
+            for route in (prev_network.get("routes") or [])
+            if isinstance(route, dict)
+        }
+        new_routes = {
+            self._route_key(route.model_dump(by_alias=True)): route.model_dump(by_alias=True)
+            for route in submission.network.routes
+        }
+        added_routes = [new_routes[key] for key in new_routes.keys() if key not in prev_routes]
+        removed_routes = [prev_routes[key] for key in prev_routes.keys() if key not in new_routes]
+
+        if not (
+            added_interfaces
+            or removed_interfaces
+            or changed_interfaces
+            or dns_added
+            or dns_removed
+            or search_added
+            or search_removed
+            or hostname_changed
+            or domain_changed
+            or fqdn_changed
+            or gateway_changed
+            or added_routes
+            or removed_routes
+        ):
+            return None
+
+        return {
+            "interfacesAdded": added_interfaces,
+            "interfacesRemoved": removed_interfaces,
+            "interfacesChanged": changed_interfaces,
+            "dnsServersAdded": dns_added,
+            "dnsServersRemoved": dns_removed,
+            "dnsSearchAdded": search_added,
+            "dnsSearchRemoved": search_removed,
+            "hostname": {"from": prev_hostname, "to": new_hostname} if hostname_changed else None,
+            "domain": {"from": prev_domain, "to": new_domain} if domain_changed else None,
+            "fqdn": {"from": prev_fqdn, "to": new_fqdn} if fqdn_changed else None,
+            "defaultGateway": {
+                "from": prev_gateway,
+                "to": new_gateway,
+            }
+            if gateway_changed
+            else None,
+            "routesAdded": added_routes,
+            "routesRemoved": removed_routes,
+            "counts": {
+                "interfacesChanged": len(added_interfaces)
+                + len(removed_interfaces)
+                + len(changed_interfaces),
+                "routesChanged": len(added_routes) + len(removed_routes),
+            },
+        }
 
     def _format_profile(self, doc: dict) -> dict:
         """Format a profile document for API response."""

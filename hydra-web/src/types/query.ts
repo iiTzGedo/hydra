@@ -1,6 +1,6 @@
 import { ListParams } from './api';
 
-export type AuditAction = 'create' | 'update' | 'delete' | 'login' | 'logout' | 'register' | 'execute';
+export type AuditAction = 'create' | 'update' | 'delete' | 'login' | 'logout' | 'register' | 'execute' | 'acknowledge' | 'resolve' | 'archive' | 'submit' | 'revoke';
 
 export interface AuditResource {
   type: string;

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { EntityListPage, type StatCard, type ColumnConfig, type TableDensity } from '@/components/common/entity-list-page';
 import { FilterBar, type FilterConfig } from '@/components/common/filter-bar';
+import { PageBreadcrumbs } from '@/components/layout/page-breadcrumbs';
 import { type ViewMode } from '@/components/common/view-mode-toggle';
 import { useNodes, useRegisterNode, useUpdateNode, useArchiveNode } from '@/api/nodes';
 import { ConfirmDialog } from '@/components/modals/confirm-dialog';
@@ -30,6 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { NodeCard, NodeCardGridSkeleton } from '@/components/nodes/node-card';
 import {
   Select,
   SelectContent,
@@ -265,94 +267,12 @@ export default function NodesPage() {
   );
 
   const renderGridCard = (node: NodeSummary) => {
-    const NodeIcon = nodeClassIcons[node.class] || Server;
-    const statusColor =
-      node.status === 'active'
-        ? 'bg-success'
-        : node.status === 'inactive' || node.status === 'archived'
-          ? 'bg-destructive'
-          : node.status === 'pending'
-            ? 'bg-warning'
-            : 'bg-muted-foreground';
-
     return (
-      <Card
-        className="group transition-all hover:border-foreground/20 hover:bg-muted/60 cursor-pointer h-full"
-        onClick={() => navigate(`${ROUTES.NODES}/${node.nodeId}`)}
-      >
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between">
-            <div className={cn('h-10 w-10 flex items-center justify-center rounded-lg bg-muted', classColors[node.class])}>
-              <NodeIcon className="h-5 w-5" />
-            </div>
-            <div className="flex items-center gap-2">
-              <div className={cn('h-2.5 w-2.5 rounded-full shrink-0', statusColor)} />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenuItem asChild>
-                    <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
-                      <Eye className="h-4 w-4 mr-2" />
-                      View Details
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setEditingNode(node as NodeSummaryWithId)}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setArchivingNode(node as NodeSummaryWithId)}
-                    className="text-destructive"
-                  >
-                    <Archive className="h-4 w-4 mr-2" />
-                    Archive
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-          <CardTitle className="text-base text-foreground mt-2 truncate">
-            {node.displayName}
-          </CardTitle>
-          <CardDescription className="text-muted-foreground font-mono text-xs truncate">
-            {node.nodeId}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Type</span>
-              <Badge
-                variant="secondary"
-                className={`text-[10px] ${classColors[node.class]} bg-transparent border border-current`}
-              >
-                {node.type} / {node.kind || 'unknown'}
-              </Badge>
-            </div>
-            <div className="flex flex-wrap gap-1 pt-1">
-              {node.tags?.slice(0, 3).map((tag) => (
-                <Badge key={tag} variant="outline" className="text-[10px] border-border text-muted-foreground">
-                  {tag}
-                </Badge>
-              ))}
-              {(node.tags?.length ?? 0) > 3 && (
-                <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
-                  +{(node.tags?.length ?? 0) - 3}
-                </Badge>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <NodeCard
+        node={node}
+        onEdit={(n) => setEditingNode(n as NodeSummaryWithId)}
+        onArchive={(n) => setArchivingNode(n as NodeSummaryWithId)}
+      />
     );
   };
 
@@ -466,26 +386,14 @@ export default function NodesPage() {
     );
   };
 
-  const renderLoadingSkeleton = () => (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-      {[...Array(8)].map((_, i) => (
-        <Card key={i}>
-          <CardHeader className="pb-3">
-            <Skeleton className="h-8 w-8 rounded bg-muted" />
-            <Skeleton className="h-5 w-32 mt-2 bg-muted" />
-            <Skeleton className="h-4 w-24 bg-muted" />
-          </CardHeader>
-          <CardContent className="pt-0 space-y-3">
-            <Skeleton className="h-4 w-full bg-muted" />
-            <Skeleton className="h-4 w-3/4 bg-muted" />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
+  const renderLoadingSkeleton = () => <NodeCardGridSkeleton count={8} />;
 
   return (
     <>
+      {/* Breadcrumbs for list pages - shows Home > Nodes */}
+      <div className="mb-4">
+        <PageBreadcrumbs />
+      </div>
       <EntityListPage<NodeSummary>
         title="Node Explorer"
         subtitle={`${filteredNodes.length} of ${totalNodes} nodes`}

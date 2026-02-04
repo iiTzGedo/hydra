@@ -11,6 +11,8 @@ from hydra.core.config import Settings, get_settings
 from hydra.db.mongodb import MongoDB
 from hydra.api.v1.core.exceptions import HomeAssistantUnavailableError, HydraError
 from hydra.api.v1.models.ha import HAControlRequest, HADeviceListParams, HASyncRequest
+from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
+from hydra.api.v1.services.notifications import emit_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -87,6 +89,15 @@ class HomeAssistantService:
             return response.json()
         except httpx.ConnectError as e:
             logger.error("ha_connection_error", error=str(e))
+            try:
+                await emit_notification(
+                    NotificationType.IOT_DEVICE_UNREACHABLE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
+                    "IoT device unreachable",
+                    f"Failed to connect to device: {str(e)}",
+                )
+            except Exception:
+                pass
             raise HomeAssistantUnavailableError("Unable to connect to Home Assistant")
         except httpx.HTTPStatusError as e:
             logger.error("ha_http_error", status=e.response.status_code, error=str(e))
@@ -130,12 +141,39 @@ class HomeAssistantService:
         except HomeAssistantUnavailableError as e:
             logger.warning("ha_status_check_unavailable", error=str(e))
             status["connected"] = False
+            try:
+                await emit_notification(
+                    NotificationType.IOT_DEVICE_UNREACHABLE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
+                    "IoT device unreachable",
+                    f"Failed to connect to device: {str(e)}",
+                )
+            except Exception:
+                pass
         except httpx.TimeoutException:
             logger.warning("ha_status_check_timeout")
             status["connected"] = False
+            try:
+                await emit_notification(
+                    NotificationType.IOT_DEVICE_UNREACHABLE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
+                    "IoT device unreachable",
+                    "Failed to connect to device: connection timed out",
+                )
+            except Exception:
+                pass
         except httpx.ConnectError as e:
             logger.warning("ha_status_check_connection_error", error=str(e))
             status["connected"] = False
+            try:
+                await emit_notification(
+                    NotificationType.IOT_DEVICE_UNREACHABLE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
+                    "IoT device unreachable",
+                    f"Failed to connect to device: {str(e)}",
+                )
+            except Exception:
+                pass
         except Exception as e:
             logger.error("ha_status_check_unexpected_error", error=str(e), error_type=type(e).__name__)
             status["connected"] = False
@@ -385,6 +423,15 @@ class HomeAssistantService:
             }
         except HomeAssistantUnavailableError as e:
             logger.warning("ha_control_unavailable", entity_id=entity_id, error=str(e))
+            try:
+                await emit_notification(
+                    NotificationType.IOT_DEVICE_UNREACHABLE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
+                    "IoT device unreachable",
+                    f"Failed to connect to device: {str(e)}",
+                )
+            except Exception:
+                pass
             return {
                 "entityId": entity_id,
                 "service": request.service,
@@ -393,6 +440,15 @@ class HomeAssistantService:
             }
         except httpx.TimeoutException:
             logger.warning("ha_control_timeout", entity_id=entity_id)
+            try:
+                await emit_notification(
+                    NotificationType.IOT_DEVICE_UNREACHABLE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
+                    "IoT device unreachable",
+                    f"Failed to connect to device: connection timed out for {entity_id}",
+                )
+            except Exception:
+                pass
             return {
                 "entityId": entity_id,
                 "service": request.service,
@@ -401,6 +457,15 @@ class HomeAssistantService:
             }
         except httpx.ConnectError as e:
             logger.warning("ha_control_connection_error", entity_id=entity_id, error=str(e))
+            try:
+                await emit_notification(
+                    NotificationType.IOT_DEVICE_UNREACHABLE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
+                    "IoT device unreachable",
+                    f"Failed to connect to device: {str(e)}",
+                )
+            except Exception:
+                pass
             return {
                 "entityId": entity_id,
                 "service": request.service,
@@ -452,12 +517,39 @@ class HomeAssistantService:
 
         except HomeAssistantUnavailableError as e:
             logger.warning("ha_list_areas_unavailable", error=str(e))
+            try:
+                await emit_notification(
+                    NotificationType.IOT_DEVICE_UNREACHABLE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
+                    "IoT device unreachable",
+                    f"Failed to connect to device: {str(e)}",
+                )
+            except Exception:
+                pass
             return [], 0
         except httpx.TimeoutException:
             logger.warning("ha_list_areas_timeout")
+            try:
+                await emit_notification(
+                    NotificationType.IOT_DEVICE_UNREACHABLE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
+                    "IoT device unreachable",
+                    "Failed to connect to device: connection timed out",
+                )
+            except Exception:
+                pass
             return [], 0
         except httpx.ConnectError as e:
             logger.warning("ha_list_areas_connection_error", error=str(e))
+            try:
+                await emit_notification(
+                    NotificationType.IOT_DEVICE_UNREACHABLE,
+                    NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
+                    "IoT device unreachable",
+                    f"Failed to connect to device: {str(e)}",
+                )
+            except Exception:
+                pass
             return [], 0
         except Exception as e:
             logger.error("ha_list_areas_unexpected_error", error=str(e), error_type=type(e).__name__)

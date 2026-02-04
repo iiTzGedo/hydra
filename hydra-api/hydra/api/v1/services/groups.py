@@ -7,6 +7,11 @@ import structlog
 from pymongo import ASCENDING, DESCENDING
 
 from hydra.api.v1.core.exceptions import ConflictError, GroupNotFoundError, ValidationError
+from hydra.api.v1.core.tasks import safe_create_task
+from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
 from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.groups import (
     CreateGroupRequest,
@@ -319,6 +324,44 @@ class GroupsService:
             new_services=new_count.get("services", 0),
         )
 
+        total_members = new_count.get("nodes", 0) + new_count.get("services", 0)
+        group_name = updated_group.get("name", group_id)
+        audit_id = await log_audit(
+            action=AuditAction.UPDATE,
+            resource_type="group",
+            resource_id=group_id,
+            actor_type="system",
+            actor_id="group_resolver",
+            details={
+                "groupName": group_name,
+                "memberCount": {
+                    "nodes": new_count.get("nodes", 0),
+                    "services": new_count.get("services", 0),
+                    "total": total_members,
+                },
+                "changes": changes,
+            },
+        )
+        safe_create_task(emit_notification(
+            notification_type=NotificationType.GROUP_MEMBERSHIP_CHANGED,
+            source=NotificationSource(
+                component=SourceComponent.HYDRA_API,
+                service="groups",
+            ),
+            title="Group membership changed",
+            message=f"Group {group_name} membership updated ({total_members} members)",
+            details={
+                "groupId": group_id,
+                "memberCount": {
+                    "nodes": new_count.get("nodes", 0),
+                    "services": new_count.get("services", 0),
+                    "total": total_members,
+                },
+                "changes": changes,
+            },
+            audit_entry_id=audit_id,
+        ))
+
         return {
             "groupId": group_id,
             "memberCount": new_count,
@@ -533,6 +576,42 @@ class GroupsService:
                 }
             },
         )
+
+    async def get_node_groups(self, node_id: str) -> list[dict]:
+        """Get all groups that a specific node belongs to.
+
+        Fetches the node once and checks all group selectors in-memory,
+        avoiding N+1 queries.
+
+        Args:
+            node_id: The node ID to check membership for.
+
+        Returns:
+            List of group summaries the node belongs to.
+        """
+        node = await self.db.nodes.find_one({"nodeId": node_id})
+        if not node:
+            return []
+
+        # Fetch all groups that include node type
+        cursor = self.db.groups.find({
+            "$or": [
+                {"types": "node"},
+                {"types": {"$size": 0}},
+                {"types": {"$exists": False}},
+            ]
+        })
+
+        matching_groups = []
+        async for group in cursor:
+            selectors = GroupSelectors(**group.get("selectors", {}))
+            matched = self._get_matched_selectors(node, selectors, "node")
+            if matched:
+                summary = self._format_group_summary(group)
+                summary["matchedSelectors"] = matched
+                matching_groups.append(summary)
+
+        return matching_groups
 
     def _format_group(self, doc: dict) -> dict:
         """Format a group document for API response."""

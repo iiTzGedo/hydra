@@ -17,6 +17,7 @@ use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::config::AgentConfig;
+use crate::utils::API_KEY_DEFAULT_EXPIRY_DAYS;
 use crate::vault::{ApiKeyData, SessionData, Vault};
 
 /// Login command arguments
@@ -127,7 +128,8 @@ pub async fn execute(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> R
 
 /// Prompt user to choose between user login and agent login
 async fn prompt_login_choice(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
-    let creds = vault.load_agent_credentials()?.unwrap();
+    let creds = vault.load_agent_credentials()?
+        .ok_or_else(|| anyhow!("Agent credentials missing from vault. Re-register with 'hydra-agent register'."))?;
 
     println!();
     println!("Agent '{}' is registered with Hydra.", creds.username);
@@ -164,7 +166,8 @@ async fn login_with_agent_credentials(config: &AgentConfig, vault: &Vault, force
     let has_valid_api_key = vault.has_api_key() && !vault.is_api_key_expired()?;
 
     if has_valid_api_key && !force {
-        let api_key_data = vault.load_api_key()?.unwrap();
+        let api_key_data = vault.load_api_key()?
+            .ok_or_else(|| anyhow!("API key data missing from vault despite key check passing."))?;
         println!();
         println!("Agent '{}' already has a valid API key.", creds.username);
         println!("  API Key ID: {}", api_key_data.api_key_id);
@@ -273,8 +276,6 @@ struct CreateApiKeyResponse {
     expires_at: Option<String>,
 }
 
-const API_KEY_EXPIRY_DAYS: i64 = 90;
-
 /// Create API key for agent using its JWT
 async fn create_agent_api_key(
     client: &Client,
@@ -284,7 +285,7 @@ async fn create_agent_api_key(
 ) -> Result<CreateApiKeyResponse> {
     let api_key_url = format!("{}/auth/apikeys", config.api.url);
 
-    let expires_at = (chrono::Utc::now() + chrono::Duration::days(API_KEY_EXPIRY_DAYS))
+    let expires_at = (chrono::Utc::now() + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS))
         .to_rfc3339();
 
     let request = CreateApiKeyRequest {

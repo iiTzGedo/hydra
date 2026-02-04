@@ -153,41 +153,22 @@ export function useResolveGroup() {
   });
 }
 
-// Queries all groups and checks membership via selectors
+// Queries groups for a specific node via server-side selector evaluation
 export function useNodeGroups(nodeId: string) {
   return useQuery({
     queryKey: [...queryKeys.groups.list(), 'node', nodeId],
     queryFn: async () => {
-      const groupsResponse = await apiClient.get<ApiResponse<GroupSummary[]>>('/groups', {
-        params: { limit: 100 },
-      });
-      const allGroups = groupsResponse.data.data;
-
-      const groupsWithNode: GroupWithId[] = [];
-
-      for (const group of allGroups) {
-        if (group.types?.includes('node') || !group.types || group.types.length === 0) {
-          try {
-            const membersResponse = await apiClient.get<ApiResponse<GroupMembersResponse>>(
-              `/groups/${group.groupId}/members`,
-              { params: { entityType: 'node', limit: 200 } }
-            );
-            const nodeIds = membersResponse.data.data.nodes.map(n => n.nodeId);
-            if (nodeIds.includes(nodeId)) {
-              groupsWithNode.push({
-                ...group,
-                id: group.groupId,
-              });
-            }
-          } catch {
-            // Skip groups where we can't fetch members
-          }
-        }
-      }
-
+      const response = await apiClient.get<ApiResponse<GroupSummary[]>>(
+        `/nodes/${nodeId}/groups`
+      );
+      const groups = response.data.data;
+      const groupsWithId: GroupWithId[] = groups.map((g) => ({
+        ...g,
+        id: g.groupId,
+      }));
       return {
-        items: groupsWithNode,
-        total: groupsWithNode.length,
+        items: groupsWithId,
+        total: groupsWithId.length,
       };
     },
     enabled: !!nodeId,

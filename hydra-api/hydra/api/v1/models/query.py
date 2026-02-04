@@ -37,6 +37,11 @@ class AuditAction(str, Enum):
     LOGOUT = "logout"
     REGISTER = "register"
     EXECUTE = "execute"
+    ACKNOWLEDGE = "acknowledge"
+    RESOLVE = "resolve"
+    ARCHIVE = "archive"
+    SUBMIT = "submit"
+    REVOKE = "revoke"
 
 
 class QueryRequest(BaseModel):

@@ -9,6 +9,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWebSocket, wsDebug } from '@/hooks/use-websocket';
+import { useNotificationStore } from '@/stores/notification-store';
+import type { Notification } from '@/types/notification';
 
 // WebSocket message types from backend
 const WSMessageType = {
@@ -23,6 +25,7 @@ const WSMessageType = {
   TOOL_CALL_START: 'tool_call_start',
   TOOL_CALL_RESULT: 'tool_call_result',
   MESSAGE_COMPLETE: 'message_complete',
+  NOTIFICATION: 'notification',
   ERROR: 'error',
   PONG: 'pong',
 } as const;
@@ -215,6 +218,14 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
         setIsStreaming(false);
         // Access onError via the websocket's onError callback
         break;
+
+      case WSMessageType.NOTIFICATION: {
+        const notifData = data.data as Partial<Notification>;
+        if (notifData?.notificationId) {
+          useNotificationStore.getState().addNotification(notifData as Notification);
+        }
+        break;
+      }
 
       case WSMessageType.PONG:
         break;

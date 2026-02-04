@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Search, FileText, Settings } from 'lucide-react';
-import { useAuditLog } from '@/api/query';
+import { Search, FileText, Settings, Trash2, AlertTriangle } from 'lucide-react';
+import { useAuditLog, useDeleteAuditEntries } from '@/api/query';
+import { useAuthStore } from '@/stores/auth-store';
+import { useToast } from '@/components/ui/use-toast';
 import type { AuditEntry } from '@/types/query';
 import { formatDate, formatRelativeTime, cn } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
@@ -10,6 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/pagination';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -17,6 +21,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { resourceIcons, actionIcons, actionVariants } from '../constants';
 
 export function AuditLogSection() {
@@ -24,6 +37,16 @@ export function AuditLogSection() {
   const [filterAction, setFilterAction] = useState<string>('all');
   const [page, setPage] = useState(0);
   const limit = 10;
+
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteSince, setDeleteSince] = useState('');
+  const [deleteUntil, setDeleteUntil] = useState('');
+  const [confirmStep, setConfirmStep] = useState(false);
+
+  const { hasAnyRole } = useAuthStore();
+  const isAdmin = hasAnyRole(['admin']);
+  const { toast } = useToast();
+  const deleteAuditMutation = useDeleteAuditEntries();
 
   useEffect(() => {
     setPage(0);
@@ -51,11 +74,149 @@ export function AuditLogSection() {
 
   const totalPages = normalizedSearch ? 1 : Math.ceil((data?.total ?? 0) / limit);
 
+  function handleDeleteDialogOpen(open: boolean) {
+    setDeleteDialogOpen(open);
+    if (!open) {
+      setDeleteSince('');
+      setDeleteUntil('');
+      setConfirmStep(false);
+    }
+  }
+
+  function handleDeleteSubmit() {
+    if (!confirmStep) {
+      setConfirmStep(true);
+      return;
+    }
+
+    const sinceISO = new Date(deleteSince).toISOString();
+    const untilISO = new Date(deleteUntil).toISOString();
+
+    deleteAuditMutation.mutate(
+      { since: sinceISO, until: untilISO },
+      {
+        onSuccess: (result) => {
+          toast({
+            title: 'Audit entries deleted',
+            description: `Successfully deleted ${result?.deleted ?? 0} audit entries.`,
+          });
+          handleDeleteDialogOpen(false);
+        },
+        onError: (err) => {
+          toast({
+            title: 'Failed to delete audit entries',
+            description: err instanceof Error ? err.message : 'An unexpected error occurred.',
+            variant: 'destructive',
+          });
+          setConfirmStep(false);
+        },
+      }
+    );
+  }
+
+  const isDeleteFormValid = deleteSince && deleteUntil && new Date(deleteSince) < new Date(deleteUntil);
+
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-lg font-medium text-foreground">Audit Log</h3>
-        <p className="text-sm text-muted-foreground">View system activity and changes</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-medium text-foreground">Audit Log</h3>
+          <p className="text-sm text-muted-foreground">View system activity and changes</p>
+        </div>
+
+        {isAdmin && (
+          <Dialog open={deleteDialogOpen} onOpenChange={handleDeleteDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="destructive" size="sm">
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Entries
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="bg-background border-border">
+              <DialogHeader>
+                <DialogTitle className="text-foreground">
+                  {confirmStep ? 'Confirm Deletion' : 'Delete Audit Entries'}
+                </DialogTitle>
+                <DialogDescription>
+                  {confirmStep
+                    ? 'This action cannot be undone. Are you sure you want to delete the selected audit entries?'
+                    : 'Select a time window to delete audit entries. All entries within the specified range will be permanently removed.'}
+                </DialogDescription>
+              </DialogHeader>
+
+              {confirmStep ? (
+                <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                  <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-destructive">Permanent deletion</p>
+                    <p className="mt-1 text-muted-foreground">
+                      All audit entries from{' '}
+                      <span className="font-mono text-foreground">{new Date(deleteSince).toLocaleString()}</span>
+                      {' '}to{' '}
+                      <span className="font-mono text-foreground">{new Date(deleteUntil).toLocaleString()}</span>
+                      {' '}will be permanently deleted.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="delete-since" className="text-foreground">From</Label>
+                    <Input
+                      id="delete-since"
+                      type="datetime-local"
+                      value={deleteSince}
+                      onChange={(e) => setDeleteSince(e.target.value)}
+                      className="bg-muted border-border text-foreground"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="delete-until" className="text-foreground">To</Label>
+                    <Input
+                      id="delete-until"
+                      type="datetime-local"
+                      value={deleteUntil}
+                      onChange={(e) => setDeleteUntil(e.target.value)}
+                      className="bg-muted border-border text-foreground"
+                    />
+                  </div>
+                  {deleteSince && deleteUntil && new Date(deleteSince) >= new Date(deleteUntil) && (
+                    <p className="text-sm text-destructive">"From" date must be before "To" date.</p>
+                  )}
+                </div>
+              )}
+
+              <DialogFooter>
+                {confirmStep ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => setConfirmStep(false)}
+                      disabled={deleteAuditMutation.isPending}
+                    >
+                      Back
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={handleDeleteSubmit}
+                      disabled={deleteAuditMutation.isPending}
+                    >
+                      {deleteAuditMutation.isPending ? 'Deleting...' : 'Confirm Delete'}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    onClick={handleDeleteSubmit}
+                    disabled={!isDeleteFormValid}
+                  >
+                    Continue
+                  </Button>
+                )}
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <div className="flex flex-col gap-4 md:flex-row md:items-center">
@@ -82,6 +243,14 @@ export function AuditLogSection() {
             <SelectItem value="network">Network</SelectItem>
             <SelectItem value="group">Group</SelectItem>
             <SelectItem value="topology">Topology</SelectItem>
+            <SelectItem value="notification">Notification</SelectItem>
+            <SelectItem value="api_key">API Key</SelectItem>
+            <SelectItem value="profile">Profile</SelectItem>
+            <SelectItem value="command">Command</SelectItem>
+            <SelectItem value="chat_project">Chat Project</SelectItem>
+            <SelectItem value="chat_session">Chat Session</SelectItem>
+            <SelectItem value="audit_log">Audit Log</SelectItem>
+            <SelectItem value="password_reset">Password Reset</SelectItem>
           </SelectContent>
         </Select>
       </div>

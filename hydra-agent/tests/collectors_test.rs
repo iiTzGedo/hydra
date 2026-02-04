@@ -566,6 +566,7 @@ fn test_profile_sections() {
             },
             memory: hydra_agent::collectors::hardware::MemoryInfo {
                 total_bytes: 16000000000,
+                used_bytes: None,
                 memory_type: None,
                 speed_mhz: None,
                 slots_used: None,
@@ -619,6 +620,7 @@ fn test_full_profile_serialization() {
             },
             memory: hydra_agent::collectors::hardware::MemoryInfo {
                 total_bytes: 68719476736,
+                used_bytes: None,
                 memory_type: Some("DDR4".to_string()),
                 speed_mhz: Some(2666),
                 slots_used: Some(8),

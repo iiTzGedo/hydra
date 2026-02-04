@@ -1,7 +1,7 @@
 """Authentication endpoints."""
 
 import structlog
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Request
 
 from hydra.api.v1.core.deps import (
     AuthServiceDep,
@@ -66,6 +66,7 @@ By default, system accounts are blocked from web login.""",
 async def login(
     request: LoginRequest,
     auth_service: AuthServiceDep,
+    http_request: Request,
     source: str | None = Query(
         default=None,
         description="Login source. Use 'agent' to allow system account login from CLI.",
@@ -86,8 +87,21 @@ async def login(
         HTTPException 403: Account locked or pending approval.
     """
     allow_system_accounts = source == "agent"
+    ip = None
+    forwarded_for = http_request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        ip = forwarded_for.split(",")[0].strip()
+    elif http_request.client:
+        ip = http_request.client.host
+
+    user_agent = http_request.headers.get("user-agent")
+
     result = await auth_service.authenticate_user(
-        request.username, request.password, allow_system_accounts=allow_system_accounts
+        request.username,
+        request.password,
+        allow_system_accounts=allow_system_accounts,
+        ip=ip,
+        user_agent=user_agent,
     )
 
     temp_roles = [

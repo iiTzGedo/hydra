@@ -29,7 +29,7 @@ const TopologyPage = lazy(() => import('@/pages/topology'));
 const TimeMachinePage = lazy(() => import('@/pages/timemachine'));
 const ChatPage = lazy(() => import('@/pages/chat'));
 const MCPMarketplacePage = lazy(() => import('@/pages/mcp/marketplace'));
-const AlertsPage = lazy(() => import('@/pages/alerts'));
+const NotificationsPage = lazy(() => import('@/pages/notifications'));
 const ProfilePage = lazy(() => import('@/pages/profile'));
 
 const SettingsPage = lazy(() => import('@/pages/settings'));
@@ -212,10 +212,11 @@ export const appRoutes: RouteConfig[] = [
     navIcon: 'Store',
   },
   {
-    path: ROUTES.ALERTS,
-    element: AlertsPage,
-    title: 'Alerts',
+    path: ROUTES.NOTIFICATIONS,
+    element: NotificationsPage,
+    title: 'Notifications',
     requiresAuth: true,
+    permissions: ['notifications:read'],
     showInNav: true,
     navIcon: 'Bell',
   },

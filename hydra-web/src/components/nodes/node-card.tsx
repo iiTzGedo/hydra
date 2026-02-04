@@ -1,115 +1,329 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Server, Network, Cpu, Clock, Tag, Box } from 'lucide-react';
-import { NodeSummary } from '@/types/node';
-import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS, STATUS_COLORS } from '@/lib/constants';
+import {
+  Server,
+  Wifi,
+  Cpu,
+  MoreHorizontal,
+  Eye,
+  Edit,
+  Archive,
+  Activity,
+  Clock,
+  Tag,
+} from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { staggerItemVariants } from '@/lib/animations';
-
-type NodeListItem = NodeSummary & { id: string };
+import { ROUTES } from '@/lib/constants';
+import type { NodeSummary } from '@/types/node';
 
 interface NodeCardProps {
-  node: NodeListItem;
+  node: NodeSummary;
+  onEdit?: (node: NodeSummary) => void;
+  onArchive?: (node: NodeSummary) => void;
 }
 
-const classIcons = {
+const nodeClassIcons: Record<string, React.ElementType> = {
   compute: Server,
-  networking: Network,
+  networking: Wifi,
   iot: Cpu,
 };
 
-export function NodeCard({ node }: NodeCardProps) {
-  const [showAllTags, setShowAllTags] = useState(false);
-  const Icon = classIcons[node.class] || Server;
-  const colors = NODE_CLASS_COLORS[node.class];
-  const statusColors = STATUS_COLORS[node.status] || STATUS_COLORS.inactive;
-  const kindLabel = NODE_KIND_LABELS[node.kind as keyof typeof NODE_KIND_LABELS] || node.kind;
+const nodeClassConfig: Record<string, { color: string; bg: string; border: string; label: string }> = {
+  compute: {
+    color: 'text-purple-500',
+    bg: 'bg-purple-500/10',
+    border: 'border-purple-500/20',
+    label: 'Compute',
+  },
+  networking: {
+    color: 'text-cyan-500',
+    bg: 'bg-cyan-500/10',
+    border: 'border-cyan-500/20',
+    label: 'Networking',
+  },
+  iot: {
+    color: 'text-emerald-500',
+    bg: 'bg-emerald-500/10',
+    border: 'border-emerald-500/20',
+    label: 'IoT',
+  },
+};
+
+const statusConfig: Record<string, { color: string; bg: string; label: string; pulse?: boolean }> = {
+  active: {
+    color: 'text-success',
+    bg: 'bg-success',
+    label: 'Online',
+    pulse: true,
+  },
+  inactive: {
+    color: 'text-destructive',
+    bg: 'bg-destructive',
+    label: 'Offline',
+  },
+  pending: {
+    color: 'text-warning',
+    bg: 'bg-warning',
+    label: 'Warning',
+  },
+  archived: {
+    color: 'text-muted-foreground',
+    bg: 'bg-muted-foreground',
+    label: 'Archived',
+  },
+};
+
+/**
+ * NodeCard - Enhanced card component for displaying node information
+ * 
+ * Features:
+ * - Hover lift animation
+ * - Status pulse indicator for active nodes
+ * - Quick action dropdown
+ * - Visual class-based styling
+ * - Tag overflow handling
+ */
+export function NodeCard({ node, onEdit, onArchive }: NodeCardProps) {
+  const NodeIcon = nodeClassIcons[node.class] || Server;
+  const classConfig = nodeClassConfig[node.class] || nodeClassConfig.compute;
+  const status = statusConfig[node.status] || statusConfig.inactive;
 
   return (
-    <motion.div variants={staggerItemVariants} layout>
-      <Link
-        to={ROUTES.NODES + '/' + node.id}
-        className={cn(
-          'block rounded-xl border bg-card p-4 shadow-sm',
-          'hover:shadow-md hover:border-primary/50 transition-all'
-        )}
-      >
-        <div className="flex items-start gap-3">
-          <div className={cn('rounded-lg p-2.5 shrink-0', colors?.bg || 'bg-muted')}>
-            <Icon className="h-5 w-5 text-white" />
-          </div>
+    <motion.div
+      whileHover={{ y: -4, transition: { duration: 0.2 } }}
+      whileTap={{ scale: 0.98 }}
+      className="h-full"
+    >
+      <Card className="group h-full border-border bg-card overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-foreground/10">
+        <Link to={`${ROUTES.NODES}/${node.nodeId}`} className="block h-full">
+          <CardContent className="p-5 h-full flex flex-col">
+            {/* Header */}
+            <div className="flex items-start justify-between mb-4">
+              <div className={cn(
+                'h-12 w-12 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-110',
+                classConfig.bg,
+                classConfig.border,
+                'border'
+              )}>
+                <NodeIcon className={cn('h-6 w-6', classConfig.color)} />
+              </div>
+              
+              <div className="flex items-center gap-2">
+                {/* Status indicator */}
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-muted">
+                  <span className={cn(
+                    'relative flex h-2 w-2',
+                    status.pulse && 'status-pulse'
+                  )}>
+                    <span className={cn(
+                      'relative inline-flex rounded-full h-2 w-2',
+                      status.bg
+                    )} />
+                    {status.pulse && (
+                      <span className={cn(
+                        'animate-ping absolute inline-flex h-full w-full rounded-full opacity-75',
+                        status.bg
+                      )} />
+                    )}
+                  </span>
+                  <span className={cn('text-xs font-medium', status.color)}>
+                    {status.label}
+                  </span>
+                </div>
 
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="font-medium truncate">{node.displayName || node.id}</h3>
-              <span
-                className={cn(
-                  'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium shrink-0',
-                  statusColors.bg + '/10',
-                  statusColors.text
+                {/* Actions dropdown */}
+                {(onEdit || onArchive) && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild onClick={(e) => e.preventDefault()}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenuItem asChild>
+                        <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
+                          <Eye className="h-4 w-4 mr-2" />
+                          View Details
+                        </Link>
+                      </DropdownMenuItem>
+                      {onEdit && (
+                        <DropdownMenuItem onClick={() => onEdit(node)}>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuSeparator />
+                      {onArchive && (
+                        <DropdownMenuItem
+                          onClick={() => onArchive(node)}
+                          className="text-destructive"
+                        >
+                          <Archive className="h-4 w-4 mr-2" />
+                          Archive
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
-              >
-                <span className={cn('h-1.5 w-1.5 rounded-full', statusColors.dot)} />
-                {node.status}
-              </span>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground truncate mt-0.5 font-mono">
-              {node.id}
-            </p>
-          </div>
-        </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <Box className="h-3.5 w-3.5" />
-            <span className="capitalize">{node.class}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <Server className="h-3.5 w-3.5" />
-            <span>{kindLabel}</span>
-          </div>
-        </div>
+            {/* Content */}
+            <div className="flex-1">
+              <h3 className="font-semibold text-foreground text-base mb-1 truncate group-hover:text-primary transition-colors">
+                {node.displayName}
+              </h3>
+              <p className="text-xs text-muted-foreground font-mono truncate mb-4">
+                {node.nodeId}
+              </p>
 
-        {node.tags && node.tags.length > 0 && (
-          <div className="mt-3 flex items-center gap-1.5">
-            <Tag className="h-3 w-3 text-muted-foreground shrink-0" />
-            <div className="flex flex-wrap gap-1">
-              {(showAllTags ? node.tags : node.tags.slice(0, 3)).map((tag) => (
-                <span
-                  key={tag}
-                  className="px-1.5 py-0.5 bg-muted rounded text-xs text-muted-foreground"
-                >
-                  {tag}
-                </span>
-              ))}
-              {node.tags.length > 3 && (
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setShowAllTags(!showAllTags);
-                  }}
-                  className="px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                >
-                  {showAllTags ? 'less' : `+${node.tags.length - 3}`}
-                </button>
-              )}
+              {/* Meta info */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="secondary"
+                    className={cn(
+                      'text-[10px] uppercase tracking-wider font-medium',
+                      classConfig.bg,
+                      classConfig.color,
+                      'border-0'
+                    )}
+                  >
+                    {node.type}
+                  </Badge>
+                  <span className="text-muted-foreground">/</span>
+                  <span className="text-xs text-muted-foreground capitalize">
+                    {node.kind || 'unknown'}
+                  </span>
+                </div>
+
+                {/* Last profile */}
+                {node.lastProfileAt && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    <span>Profiled {formatRelativeTime(node.lastProfileAt)}</span>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
 
-        <div className="mt-4 pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
-          {node.lastProfileAt ? (
-            <div className="flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              <span>{formatRelativeTime(new Date(node.lastProfileAt))}</span>
-            </div>
-          ) : (
-            <span>No profiles yet</span>
-          )}
-        </div>
-      </Link>
+            {/* Footer - Tags */}
+            {node.tags && node.tags.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-border/50">
+                <div className="flex flex-wrap gap-1.5">
+                  {node.tags.slice(0, 3).map((tag) => (
+                    <Badge
+                      key={tag}
+                      variant="outline"
+                      className="text-[10px] border-border/60 text-muted-foreground font-normal"
+                    >
+                      <Tag className="h-2.5 w-2.5 mr-1" />
+                      {tag}
+                    </Badge>
+                  ))}
+                  {node.tags.length > 3 && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] border-border/60 text-muted-foreground font-normal"
+                    >
+                      +{node.tags.length - 3}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Link>
+      </Card>
     </motion.div>
+  );
+}
+
+/**
+ * NodeCardCompact - Compact variant for dense lists
+ */
+export function NodeCardCompact({ node }: { node: NodeSummary }) {
+  const NodeIcon = nodeClassIcons[node.class] || Server;
+  const classConfig = nodeClassConfig[node.class] || nodeClassConfig.compute;
+  const status = statusConfig[node.status] || statusConfig.inactive;
+
+  return (
+    <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
+      <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors group">
+        <div className={cn(
+          'h-10 w-10 rounded-lg flex items-center justify-center shrink-0',
+          classConfig.bg
+        )}>
+          <NodeIcon className={cn('h-5 w-5', classConfig.color)} />
+        </div>
+        
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h4 className="font-medium text-sm text-foreground truncate group-hover:text-primary transition-colors">
+              {node.displayName}
+            </h4>
+            <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', status.bg)} />
+          </div>
+          <p className="text-xs text-muted-foreground font-mono truncate">
+            {node.nodeId}
+          </p>
+        </div>
+
+        <Badge variant="secondary" className="text-[10px] shrink-0">
+          {node.type}
+        </Badge>
+      </div>
+    </Link>
+  );
+}
+
+/**
+ * NodeCardSkeleton - Loading skeleton for node cards
+ */
+export function NodeCardSkeleton() {
+  return (
+    <Card className="h-full border-border">
+      <CardContent className="p-5 h-full">
+        <div className="flex items-start justify-between mb-4">
+          <div className="h-12 w-12 rounded-xl bg-muted animate-pulse" />
+          <div className="h-6 w-16 rounded-full bg-muted animate-pulse" />
+        </div>
+        <div className="space-y-2">
+          <div className="h-5 w-32 bg-muted animate-pulse rounded" />
+          <div className="h-3 w-24 bg-muted animate-pulse rounded" />
+        </div>
+        <div className="mt-4 flex gap-2">
+          <div className="h-5 w-16 bg-muted animate-pulse rounded" />
+          <div className="h-5 w-20 bg-muted animate-pulse rounded" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * NodeCardGridSkeleton - Grid of skeleton cards
+ */
+export function NodeCardGridSkeleton({ count = 4 }: { count?: number }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <NodeCardSkeleton key={i} />
+      ))}
+    </div>
   );
 }

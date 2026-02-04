@@ -126,7 +126,8 @@ const TYPE_CONFIG: Record<NetworkType, {
 
 interface FilterState {
   search: string;
-  type: NetworkType | 'all';
+  type: string;
+  [key: string]: string;
 }
 
 const NETWORK_FILTER_CONFIG: FilterConfig[] = [

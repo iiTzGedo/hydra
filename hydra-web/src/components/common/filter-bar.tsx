@@ -39,16 +39,16 @@ export interface SearchFilterConfig {
 
 export type FilterConfig = SelectFilterConfig | SearchFilterConfig;
 
-export interface FilterBarProps<T extends Record<string, string>> {
+export interface FilterBarProps<T extends Record<string, string> = Record<string, string>> {
   filters: T;
-  onFilterChange: (key: keyof T, value: string) => void;
+  onFilterChange: (key: string, value: string) => void;
   onClearAll?: () => void;
   config: FilterConfig[];
   className?: string;
   children?: React.ReactNode;
 }
 
-export function FilterBar<T extends Record<string, string>>({
+export function FilterBar<T extends Record<string, string> = Record<string, string>>({
   filters,
   onFilterChange,
   onClearAll,
@@ -80,7 +80,7 @@ export function FilterBar<T extends Record<string, string>>({
               <Input
                 placeholder={filterConfig.placeholder ?? 'Search...'}
                 value={filters[filterConfig.key as keyof T] ?? ''}
-                onChange={(e) => onFilterChange(filterConfig.key as keyof T, e.target.value)}
+                onChange={(e) => onFilterChange(filterConfig.key, e.target.value)}
                 className="pl-8 w-[200px] sm:w-[250px]"
               />
             </div>
@@ -92,7 +92,7 @@ export function FilterBar<T extends Record<string, string>>({
             <Select
               key={filterConfig.key}
               value={filters[filterConfig.key as keyof T] ?? 'all'}
-              onValueChange={(value) => onFilterChange(filterConfig.key as keyof T, value)}
+              onValueChange={(value) => onFilterChange(filterConfig.key, value)}
             >
               <SelectTrigger className={cn('w-[140px]', filterConfig.className)}>
                 <SelectValue placeholder={filterConfig.label} />

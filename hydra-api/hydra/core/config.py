@@ -1,6 +1,6 @@
 """Application configuration using pydantic-settings."""
 
-from functools import lru_cache
+from contextlib import contextmanager
 from typing import Literal
 
 from pydantic import Field, MongoDsn, RedisDsn
@@ -123,11 +123,47 @@ class Settings(BaseSettings):
         )
 
 
-@lru_cache
+_settings_instance: Settings | None = None
+
+
 def get_settings() -> Settings:
     """Get cached settings instance.
 
     Returns:
         Singleton Settings instance loaded from environment.
     """
-    return Settings()
+    global _settings_instance  # noqa: PLW0603
+    if _settings_instance is None:
+        _settings_instance = Settings()
+    return _settings_instance
+
+
+def clear_settings_cache() -> None:
+    """Clear the cached settings instance.
+
+    Call this to force settings to be reloaded from environment on next access.
+    Useful in tests to ensure clean state between test cases.
+    """
+    global _settings_instance  # noqa: PLW0603
+    _settings_instance = None
+
+
+@contextmanager
+def override_settings(settings: Settings):
+    """Temporarily override the global settings instance.
+
+    Use in tests to inject custom settings without touching the environment.
+
+    Args:
+        settings: The Settings instance to use as the override.
+
+    Yields:
+        The overridden Settings instance.
+    """
+    global _settings_instance  # noqa: PLW0603
+    previous = _settings_instance
+    _settings_instance = settings
+    try:
+        yield settings
+    finally:
+        _settings_instance = previous

@@ -10,7 +10,7 @@ export interface CustomTimeRange {
 
 export interface WidgetConfig {
   id: string;
-  type: 'stats' | 'capacity' | 'alerts' | 'activity' | 'topology-mini' | 'services';
+  type: 'stats' | 'capacity' | 'notifications' | 'activity' | 'topology-mini' | 'services';
   x: number;
   y: number;
   w: number;
@@ -21,10 +21,11 @@ export interface WidgetConfig {
 // Default widget layout for the dashboard grid
 const defaultWidgetLayout: WidgetConfig[] = [
   { id: 'stats', type: 'stats', x: 0, y: 0, w: 12, h: 2, visible: true },
-  { id: 'capacity', type: 'capacity', x: 0, y: 2, w: 8, h: 4, visible: true },
-  { id: 'alerts', type: 'alerts', x: 8, y: 2, w: 4, h: 4, visible: true },
-  { id: 'activity', type: 'activity', x: 0, y: 6, w: 6, h: 4, visible: true },
-  { id: 'services', type: 'services', x: 6, y: 6, w: 6, h: 4, visible: true },
+  { id: 'services', type: 'services', x: 0, y: 2, w: 6, h: 4, visible: true },
+  { id: 'notifications', type: 'notifications', x: 6, y: 2, w: 6, h: 4, visible: true },
+  { id: 'capacity', type: 'capacity', x: 0, y: 6, w: 12, h: 4, visible: true },
+  { id: 'topology-mini', type: 'topology-mini', x: 0, y: 10, w: 12, h: 4, visible: true },
+  { id: 'activity', type: 'activity', x: 0, y: 14, w: 12, h: 4, visible: true },
 ];
 
 interface DashboardState {
@@ -145,6 +146,43 @@ export const useDashboardStore = create<DashboardState>()(
         customTimeRange: state.customTimeRange,
         widgetLayout: state.widgetLayout,
       }),
+      merge: (persisted, current) => {
+        const persistedState = persisted as Partial<DashboardState>;
+        
+        // Start with current (has latest defaults for positions/sizing)
+        const merged: DashboardState = { ...current };
+        
+        // Apply persisted preferences for existing widgets
+        if (persistedState?.widgetLayout) {
+          const persistedIds = new Set(persistedState.widgetLayout.map((w) => w.id));
+          
+          merged.widgetLayout = current.widgetLayout.map((defaultWidget) => {
+            const persistedWidget = persistedState.widgetLayout?.find(
+              (p) => p.id === defaultWidget.id
+            );
+            return persistedWidget
+              ? { 
+                  ...defaultWidget, // Use defaults for position/size
+                  visible: persistedWidget.visible, // Use persisted visibility
+                }
+              : defaultWidget; // New widget uses defaults
+          });
+          
+          // Add any new default widgets that aren't in persisted state
+          const missing = defaultWidgetLayout.filter(
+            (w) => !persistedIds.has(w.id)
+          );
+          if (missing.length > 0) {
+            merged.widgetLayout = [...merged.widgetLayout, ...missing];
+          }
+        }
+        
+        // Apply other persisted state
+        if (persistedState?.timeRange) merged.timeRange = persistedState.timeRange;
+        if (persistedState?.customTimeRange) merged.customTimeRange = persistedState.customTimeRange;
+        
+        return merged;
+      },
     }
   )
 );

@@ -7,6 +7,8 @@ import structlog
 from pymongo import ReturnDocument
 
 from hydra.api.v1.core.exceptions import NotFoundError, ValidationError
+from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
+from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.models.chat import (
     ChatMessageCreate,
     ChatMessageUpsert,
@@ -17,6 +19,8 @@ from hydra.api.v1.models.chat import (
     ChatSessionUpdate,
 )
 from hydra.api.v1.services.chat_cache import ChatCacheService
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
 from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
@@ -41,7 +45,7 @@ class ChatService:
 
     def __init__(self, mongodb: MongoDB, cache: ChatCacheService | None = None):
         self.db = mongodb
-        self._cache = cache or ChatCacheService()
+        self._cache = cache or ChatCacheService(mongodb=mongodb)
 
     # ==================== Projects ====================
 
@@ -146,6 +150,25 @@ class ChatService:
 
         logger.info("chat_project_created", project_id=project_id, user_id=user_id)
 
+        audit_id = await log_audit(
+            AuditAction.CREATE,
+            "chat_project",
+            project_id,
+            "user",
+            user_id,
+            True,
+            details={"name": request.name, "userId": user_id},
+        )
+        await emit_notification(
+            NotificationType.CHAT_PROJECT_CREATED,
+            NotificationSource(component=SourceComponent.HYDRA_API, service="chat"),
+            "Chat project created",
+            f"Chat project '{request.name}' was created",
+            target_user_id=user_id,
+            details={"projectId": project_id, "entityId": project_id, "userId": user_id},
+            audit_entry_id=audit_id,
+        )
+
         return self._project_doc_to_response(doc, 0)
 
     async def update_project(
@@ -247,6 +270,8 @@ class ChatService:
             user_id=user_id,
             cascade=cascade,
         )
+
+        await log_audit(AuditAction.DELETE, "chat_project", project_id, "user", user_id, True)
 
         return {"deleted": True, "projectId": project_id}
 
@@ -489,6 +514,8 @@ class ChatService:
         await self._cache.invalidate_session_cache(session_id)
 
         logger.info("chat_session_deleted", session_id=session_id, user_id=user_id)
+
+        await log_audit(AuditAction.DELETE, "chat_session", session_id, "user", user_id, True)
 
         return {"deleted": True, "sessionId": session_id}
 

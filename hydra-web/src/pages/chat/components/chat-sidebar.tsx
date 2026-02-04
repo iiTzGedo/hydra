@@ -74,7 +74,7 @@ export interface InfraContext {
   nodes: number;
   services: number;
   networks: number;
-  alerts: number;
+  notifications: number;
 }
 
 export interface ChatSidebarProps {
@@ -624,7 +624,7 @@ export function ChatSidebar({
                   { icon: Server, text: 'List nodes' },
                   { icon: Boxes, text: 'Unhealthy services' },
                   { icon: Network, text: 'Show networks' },
-                  { icon: AlertTriangle, text: 'Active alerts' },
+                  { icon: AlertTriangle, text: 'Active notifications' },
                   { icon: Globe, text: 'Topology overview' },
                   { icon: Terminal, text: 'Recent changes' },
                 ].map((prompt, i) => (
@@ -657,8 +657,8 @@ export function ChatSidebar({
                   <div className="text-[9px] text-muted-foreground">Nets</div>
                 </div>
                 <div className="p-1.5 rounded bg-muted/60 text-center">
-                  <div className="text-sm font-bold text-foreground">{infraContext.alerts}</div>
-                  <div className="text-[9px] text-muted-foreground">Alerts</div>
+                  <div className="text-sm font-bold text-foreground">{infraContext.notifications}</div>
+                  <div className="text-[9px] text-muted-foreground">Notifs</div>
                 </div>
               </div>
             </div>

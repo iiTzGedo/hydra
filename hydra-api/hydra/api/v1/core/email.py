@@ -191,6 +191,88 @@ If you did not request this password reset, please ignore this email.
 
         return await self.send_email(to, subject, body, html)
 
+    async def send_notification_email(
+        self,
+        to: str,
+        notification: dict,
+    ) -> bool:
+        """Send a notification email.
+
+        Args:
+            to: Recipient email address
+            notification: Notification document or summary
+
+        Returns:
+            True if email was sent successfully
+        """
+        title = notification.get("title", "Notification")
+        message = notification.get("message", "")
+        tier = notification.get("tier", "")
+        tier_label = notification.get("tierLabel", "")
+        created_at = notification.get("createdAt", "")
+        try:
+            from datetime import datetime as _dt
+            if isinstance(created_at, _dt):
+                created_at = created_at.isoformat()
+        except Exception:
+            pass
+        notif_type = notification.get("type", "")
+        links = notification.get("links") or []
+
+        subject = f"Hydra Notification: {title}"
+
+        link_lines = ""
+        if links:
+            link_lines = "\nLinks:\n" + "\n".join(
+                f"- {l.get('label')}: {l.get('href')}" for l in links if l.get("href")
+            )
+
+        body = f"""Hydra Notification
+
+Title: {title}
+Message: {message}
+Type: {notif_type}
+Tier: {tier_label or tier}
+Time: {created_at}
+{link_lines}
+"""
+
+        html_links = ""
+        if links:
+            items = "".join(
+                f"<li><a href=\"{l.get('href')}\">{l.get('label') or l.get('href')}</a></li>"
+                for l in links if l.get("href")
+            )
+            html_links = f"<ul>{items}</ul>"
+
+        html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }}
+    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+    .meta {{ color: #6b7280; font-size: 13px; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>{title}</h2>
+    <p>{message}</p>
+    <p class="meta">
+      <strong>Type:</strong> {notif_type}<br/>
+      <strong>Tier:</strong> {tier_label or tier}<br/>
+      <strong>Time:</strong> {created_at}
+    </p>
+    {html_links}
+  </div>
+</body>
+</html>
+"""
+
+        return await self.send_email(to, subject, body, html)
+
 
 # Module-level instance for convenience
 _email_service: EmailService | None = None
@@ -226,3 +308,13 @@ async def send_email(
     """
     service = get_email_service(settings)
     return await service.send_email(to, subject, body, html)
+
+
+async def send_notification_email(
+    settings: "Settings",
+    to: str,
+    notification: dict,
+) -> bool:
+    """Convenience function to send notification emails."""
+    service = get_email_service(settings)
+    return await service.send_notification_email(to, notification)

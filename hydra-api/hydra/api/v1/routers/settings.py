@@ -3,8 +3,7 @@
 import structlog
 from fastapi import APIRouter, Depends
 
-from hydra.api.v1.core.deps import CurrentUser, require_permission
-from hydra.api.v1.core.exceptions import AuthorizationError
+from hydra.api.v1.core.deps import CurrentUser, check_not_agent, require_permission
 from hydra.api.v1.models.settings import (
     SystemSettingsResponse,
     SystemSettingsUpdate,
@@ -22,18 +21,6 @@ async def get_settings_service(mongodb: MongoDB = Depends(get_mongodb)) -> Setti
     """Get settings service dependency."""
     return SettingsService(mongodb)
 
-
-def _check_not_agent(current_user: dict) -> None:
-    """Verify user is not an agent.
-
-    Args:
-        current_user: Current authenticated user.
-
-    Raises:
-        AuthorizationError: If user is an agent.
-    """
-    if current_user.get("type") == "agent":
-        raise AuthorizationError("settings:read")
 
 
 @router.get(
@@ -58,7 +45,7 @@ async def get_user_settings(
     Raises:
         HTTPException 403: Agents cannot access settings.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "settings:read")
 
     result = await settings_service.get_user_settings(
         user_id=current_user["user_id"],
@@ -91,7 +78,7 @@ async def update_user_settings(
     Raises:
         HTTPException 403: Agents cannot access settings.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "settings:read")
 
     result = await settings_service.update_user_settings(
         user_id=current_user["user_id"],

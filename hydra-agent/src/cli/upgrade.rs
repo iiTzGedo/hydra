@@ -227,6 +227,29 @@ async fn perform_upgrade(args: UpgradeArgs, config: &AgentConfig, vault: &Vault)
     println!("Upgrade complete: {} -> {}", CURRENT_VERSION, target_version);
     println!();
 
+    // Report successful upgrade (best-effort)
+    if let Ok(api_client) = crate::api::ApiClient::new(config, vault) {
+        if let Err(e) = api_client
+            .report_event(
+                "agent_upgraded",
+                &format!("Agent upgraded: {}", config.node.node_id),
+                &format!(
+                    "Agent on node {} upgraded from {} to {}",
+                    config.node.node_id, CURRENT_VERSION, target_version
+                ),
+                Some(serde_json::json!({
+                    "nodeId": config.node.node_id,
+                    "oldVersion": CURRENT_VERSION,
+                    "newVersion": target_version,
+                    "target": target,
+                })),
+            )
+            .await
+        {
+            warn!("Failed to report upgrade event: {}", e);
+        }
+    }
+
     Ok(())
 }
 

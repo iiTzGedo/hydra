@@ -42,6 +42,7 @@ class MemoryInfo(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     total_bytes: int | None = Field(default=None, alias="totalBytes")
+    used_bytes: int | None = Field(default=None, alias="usedBytes")
     type: str | None = None
     speed_mhz: int | None = Field(default=None, alias="speedMhz")
     slots_used: int | None = Field(default=None, alias="slotsUsed")

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Cpu, MemoryStick, HardDrive, Server, Layers, ArrowRight } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+// Card imports removed - Widget container handles card styling
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCapacity } from '@/api/query';
 import { formatMemoryGB, formatStorageTB } from '@/lib/utils';
@@ -77,15 +77,8 @@ export function CapacityOverview() {
   }, [byClass]);
 
   return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <CardTitle className="text-foreground">Infrastructure Capacity</CardTitle>
-        <CardDescription className="text-muted-foreground">
-          Aggregated hardware resources from profiled nodes
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
+    <div>
+      {isLoading ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[...Array(4)].map((_, i) => (
@@ -372,7 +365,6 @@ export function CapacityOverview() {
             )}
           </div>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }

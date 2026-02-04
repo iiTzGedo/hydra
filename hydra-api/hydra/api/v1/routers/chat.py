@@ -3,8 +3,7 @@
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
 
-from hydra.api.v1.core.deps import CurrentUser
-from hydra.api.v1.core.exceptions import AuthorizationError
+from hydra.api.v1.core.deps import CurrentUser, check_not_agent
 from hydra.api.v1.models.chat import (
     ChatBulkUpsertResponse,
     ChatMessageBulkCreate,
@@ -33,11 +32,6 @@ async def get_chat_service(mongodb: MongoDB = Depends(get_mongodb)) -> ChatServi
     return ChatService(mongodb)
 
 
-def _check_not_agent(current_user: dict) -> None:
-    """Verify user is not an agent."""
-    if current_user.get("type") == "agent":
-        raise AuthorizationError("chat:read")
-
 
 @router.get(
     "/projects",
@@ -65,7 +59,7 @@ async def list_projects(
     Raises:
         HTTPException 403: Agents cannot access chat.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     projects, total = await chat_service.list_projects(
         user_id=current_user["user_id"],
@@ -104,7 +98,7 @@ async def create_project(
     Raises:
         HTTPException 403: Agents cannot access chat.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.create_project(
         request=request,
@@ -139,7 +133,7 @@ async def get_project(
         HTTPException 403: Agents cannot access chat or project not owned by user.
         HTTPException 404: Project not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.get_project(
         project_id=projectId,
@@ -176,7 +170,7 @@ async def update_project(
         HTTPException 403: Agents cannot access chat or project not owned by user.
         HTTPException 404: Project not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.update_project(
         project_id=projectId,
@@ -213,7 +207,7 @@ async def delete_project(
         HTTPException 403: Agents cannot access chat or project not owned by user.
         HTTPException 404: Project not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.delete_project(
         project_id=projectId,
@@ -252,7 +246,7 @@ async def list_sessions(
     Raises:
         HTTPException 403: Agents cannot access chat.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     sessions, total = await chat_service.list_sessions(
         user_id=current_user["user_id"],
@@ -292,7 +286,7 @@ async def create_session(
     Raises:
         HTTPException 403: Agents cannot access chat.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.create_session(
         request=request,
@@ -327,7 +321,7 @@ async def get_session(
         HTTPException 403: Agents cannot access chat or session not owned by user.
         HTTPException 404: Session not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.get_session(
         session_id=sessionId,
@@ -370,7 +364,7 @@ async def get_session_context(
         HTTPException 403: Agents cannot access chat or session not owned by user.
         HTTPException 404: Session not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.get_session_context(
         session_id=sessionId,
@@ -407,7 +401,7 @@ async def update_session(
         HTTPException 403: Agents cannot access chat or session not owned by user.
         HTTPException 404: Session not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.update_session(
         session_id=sessionId,
@@ -442,7 +436,7 @@ async def delete_session(
         HTTPException 403: Agents cannot access chat or session not owned by user.
         HTTPException 404: Session not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.delete_session(
         session_id=sessionId,
@@ -483,7 +477,7 @@ async def list_messages(
         HTTPException 403: Agents cannot access chat or session not owned by user.
         HTTPException 404: Session not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     messages, total = await chat_service.list_messages(
         session_id=sessionId,
@@ -528,7 +522,7 @@ async def create_message(
         HTTPException 403: Agents cannot access chat or session not owned by user.
         HTTPException 404: Session not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.create_message(
         session_id=sessionId,
@@ -566,7 +560,7 @@ async def bulk_upsert_messages(
         HTTPException 403: Agents cannot access chat or session not owned by user.
         HTTPException 404: Session not found.
     """
-    _check_not_agent(current_user)
+    check_not_agent(current_user, "chat:read")
 
     result = await chat_service.bulk_upsert_messages(
         session_id=sessionId,

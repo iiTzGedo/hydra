@@ -67,11 +67,34 @@ class ViewSettings(BaseModel):
 class NotificationSettings(BaseModel):
     """User notification preferences."""
 
+    # Delivery channels
     email_enabled: bool = Field(default=True, alias="emailEnabled")
     browser_enabled: bool = Field(default=True, alias="browserEnabled")
-    node_alerts: bool = Field(default=True, alias="nodeAlerts")
-    service_alerts: bool = Field(default=True, alias="serviceAlerts")
-    profile_updates: bool = Field(default=False, alias="profileUpdates")
+
+    # Per-channel minimum tier (1=all through 5=critical only)
+    browser_min_tier: int = Field(default=3, ge=1, le=5, alias="browserMinTier")
+    email_min_tier: int = Field(default=4, ge=1, le=5, alias="emailMinTier")
+
+    # Category toggles
+    node_notifications: bool = Field(default=True, alias="nodeNotifications")
+    service_notifications: bool = Field(default=True, alias="serviceNotifications")
+    profile_notifications: bool = Field(default=False, alias="profileNotifications")
+    security_notifications: bool = Field(default=True, alias="securityNotifications")
+    system_notifications: bool = Field(default=True, alias="systemNotifications")
+    command_notifications: bool = Field(default=True, alias="commandNotifications")
+
+    # Quiet hours
+    quiet_hours_enabled: bool = Field(default=False, alias="quietHoursEnabled")
+    quiet_hours_start: str | None = Field(default=None, alias="quietHoursStart")
+    quiet_hours_end: str | None = Field(default=None, alias="quietHoursEnd")
+    quiet_hours_min_tier: int = Field(default=5, ge=1, le=5, alias="quietHoursMinTier")
+
+    # Timezone
+    timezone: str = "UTC"
+
+    # Muting / suppression
+    muted_types: list[str] = Field(default_factory=list, alias="mutedTypes")
+    muted_group_keys: list[str] = Field(default_factory=list, alias="mutedGroupKeys")
 
     model_config = {"populate_by_name": True}
 

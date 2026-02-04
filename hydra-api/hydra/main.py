@@ -1,5 +1,6 @@
 """Hydra API root application entry point."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
@@ -18,6 +19,7 @@ from hydra.db.mongodb import get_mongodb
 from hydra.db.redis import get_redis
 from hydra.api.v1.main import app as v1_app
 from hydra.api.v1.routers import chat_ws, health
+from hydra.api.v1.services.health_scanner import HealthScanner
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent / "static"
@@ -49,10 +51,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     logger.info("hydra_api_started")
 
+    # Start background health scanner
+    scanner = HealthScanner(mongodb, redis)
+    scanner_task = asyncio.create_task(scanner.run())
+
     yield
 
     # Shutdown
     logger.info("shutting_down_hydra_api")
+    scanner_task.cancel()
+    try:
+        await scanner_task
+    except asyncio.CancelledError:
+        pass
     await redis.disconnect()
     await mongodb.disconnect()
     logger.info("hydra_api_stopped")

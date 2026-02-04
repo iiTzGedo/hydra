@@ -7,6 +7,7 @@ from typing import Any
 import redis.exceptions
 import structlog
 
+from hydra.db.mongodb import MongoDB
 from hydra.db.redis import RedisClient, get_redis
 
 logger = structlog.get_logger(__name__)
@@ -35,13 +36,15 @@ class ChatCacheService:
     CONTEXT_TTL = 300  # 5 minutes
     MODELS_TTL = 3600  # 1 hour
 
-    def __init__(self, redis_client: RedisClient | None = None):
+    def __init__(self, redis_client: RedisClient | None = None, mongodb: MongoDB | None = None):
         """Initialize the chat cache service.
 
         Args:
             redis_client: Redis client instance. Uses global if not provided.
+            mongodb: MongoDB instance for loading messages on cache miss.
         """
         self._redis = redis_client or get_redis()
+        self._mongodb = mongodb
 
     # =========================================================================
     # Session Messages Cache
@@ -103,10 +106,47 @@ class ChatCacheService:
             logger.error("cache_get_messages_unexpected_error", session_id=session_id, error=str(e), error_type=type(e).__name__)
             return None
 
+    async def _load_messages_from_db(self, session_id: str) -> list[dict[str, Any]] | None:
+        """Load all messages for a session from MongoDB.
+
+        Args:
+            session_id: Chat session identifier.
+
+        Returns:
+            List of message dicts, or None if MongoDB is not available.
+        """
+        if not self._mongodb:
+            return None
+
+        try:
+            cursor = self._mongodb.chat_messages.find(
+                {"sessionId": session_id}
+            ).sort("order", 1)
+            docs = await cursor.to_list(length=1000)
+            return [
+                {
+                    "message_id": doc.get("messageId"),
+                    "session_id": doc.get("sessionId"),
+                    "role": doc.get("role"),
+                    "content": doc.get("content"),
+                    "tool_calls": doc.get("toolCalls"),
+                    "order": doc.get("order"),
+                    "created_at": doc["createdAt"].isoformat() if doc.get("createdAt") else None,
+                }
+                for doc in docs
+            ]
+        except Exception as e:
+            logger.warning("db_message_load_failed", session_id=session_id, error=str(e))
+            return None
+
     async def append_message_to_cache(
         self, session_id: str, message: dict[str, Any]
     ) -> None:
         """Append a new message to the cached messages.
+
+        On cache miss, rebuilds the cache from MongoDB (if available) so
+        the full thread is preserved after TTL expiry. Falls back to seeding
+        with just the new message if MongoDB is not configured.
 
         Args:
             session_id: Chat session identifier.
@@ -118,6 +158,16 @@ class ChatCacheService:
                 existing.append(message)
                 await self.cache_session_messages(session_id, existing)
                 logger.debug("message_appended_to_cache", session_id=session_id)
+            else:
+                # Cache miss — rebuild from MongoDB if available
+                db_messages = await self._load_messages_from_db(session_id)
+                if db_messages:
+                    await self.cache_session_messages(session_id, db_messages)
+                    logger.debug("message_cache_rebuilt_from_db", session_id=session_id, count=len(db_messages))
+                else:
+                    # No MongoDB or no existing messages — seed with this message
+                    await self.cache_session_messages(session_id, [message])
+                    logger.debug("message_cache_seeded", session_id=session_id)
         except redis.exceptions.ConnectionError as e:
             logger.warning("cache_append_message_failed", session_id=session_id, error=str(e), error_type="redis_connection")
         except redis.exceptions.TimeoutError as e:

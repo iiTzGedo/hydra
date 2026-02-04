@@ -14,16 +14,14 @@
 
 use anyhow::{anyhow, Context, Result};
 use clap::Args;
-use rand::Rng;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::config::AgentConfig;
+use crate::utils::{API_KEY_DEFAULT_EXPIRY_DAYS, generate_agent_username, generate_agent_password};
 use crate::vault::{AgentCredentials, ApiKeyData, Vault};
-
-const API_KEY_EXPIRY_DAYS: i64 = 90;
 
 /// Register command arguments
 #[derive(Args, Debug)]
@@ -135,50 +133,6 @@ struct ApiErrorDetail {
     message: String,
 }
 
-/// Generate a random agent username (pattern: agent-XXXXXXXX where X is [0-9A-Z])
-fn generate_username() -> String {
-    const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let mut rng = rand::thread_rng();
-    let suffix: String = (0..8)
-        .map(|_| {
-            let idx = rng.gen_range(0..CHARS.len());
-            CHARS[idx] as char
-        })
-        .collect();
-    format!("agent-{}", suffix)
-}
-
-/// Generate a secure random password (32 characters, URL-safe base64)
-fn generate_password() -> String {
-    use rand::RngCore;
-    let mut rng = rand::thread_rng();
-    let mut bytes = [0u8; 24]; // 24 bytes = 32 base64 chars
-    rng.fill_bytes(&mut bytes);
-    base64_encode_urlsafe(&bytes)
-}
-
-/// URL-safe base64 encoding without padding
-fn base64_encode_urlsafe(data: &[u8]) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut result = String::with_capacity((data.len() * 4 + 2) / 3);
-
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as usize;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
-
-        result.push(CHARS[b0 >> 2] as char);
-        result.push(CHARS[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
-        if chunk.len() > 1 {
-            result.push(CHARS[((b1 & 0x0f) << 2) | (b2 >> 6)] as char);
-        }
-        if chunk.len() > 2 {
-            result.push(CHARS[b2 & 0x3f] as char);
-        }
-    }
-    result
-}
-
 /// Execute the register command
 pub async fn execute(args: &RegisterArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
     if args.status {
@@ -194,7 +148,8 @@ pub async fn execute(args: &RegisterArgs, config: &AgentConfig, vault: &Vault) -
     }
 
     if vault.has_agent_credentials() {
-        let creds = vault.load_agent_credentials()?.unwrap();
+        let creds = vault.load_agent_credentials()?
+            .ok_or_else(|| anyhow!("Agent credentials file exists but could not be loaded. Check vault integrity."))?;
         let has_valid_api_key = vault.has_api_key() && !vault.is_api_key_expired()?;
 
         println!();
@@ -275,7 +230,8 @@ async fn override_registration(config: &AgentConfig, vault: &Vault, args: &Regis
         println!();
         prompt_admin_login(config, vault).await?
     } else {
-        vault.load_session()?.unwrap()
+        vault.load_session()?
+            .ok_or_else(|| anyhow!("No active session found. Login first with 'hydra-agent login'."))?
     };
 
     // Confirm action
@@ -290,7 +246,8 @@ async fn override_registration(config: &AgentConfig, vault: &Vault, args: &Regis
 
     // Step 1: Delete agent account from API if it exists
     if vault.has_agent_credentials() {
-        let creds = vault.load_agent_credentials()?.unwrap();
+        let creds = vault.load_agent_credentials()?
+            .ok_or_else(|| anyhow!("Agent credentials file exists but could not be loaded. Check vault integrity."))?;
         info!("Deleting agent account '{}' from API...", creds.username);
 
         let client = Client::builder()
@@ -452,12 +409,12 @@ async fn register_with_existing_session(
     info!("Registering agent using session for {}...", session.username);
 
     let username = args.username.clone().unwrap_or_else(|| {
-        let generated = generate_username();
+        let generated = generate_agent_username();
         info!("Generated agent username: {}", generated);
         generated
     });
     let password = args.password.clone().unwrap_or_else(|| {
-        let generated = generate_password();
+        let generated = generate_agent_password();
         info!("Generated secure password for agent");
         generated
     });
@@ -529,12 +486,12 @@ async fn register_with_token(
     info!("Registering agent with registration token...");
 
     let username = args.username.clone().unwrap_or_else(|| {
-        let generated = generate_username();
+        let generated = generate_agent_username();
         info!("Generated agent username: {}", generated);
         generated
     });
     let password = args.password.clone().unwrap_or_else(|| {
-        let generated = generate_password();
+        let generated = generate_agent_password();
         info!("Generated secure password for agent");
         generated
     });
@@ -624,12 +581,12 @@ async fn register_with_session(
     info!("Registering agent using session for {}...", session_username);
 
     let username = args.username.clone().unwrap_or_else(|| {
-        let generated = generate_username();
+        let generated = generate_agent_username();
         info!("Generated agent username: {}", generated);
         generated
     });
     let password = args.password.clone().unwrap_or_else(|| {
-        let generated = generate_password();
+        let generated = generate_agent_password();
         info!("Generated secure password for agent");
         generated
     });
@@ -747,7 +704,7 @@ async fn create_api_key(
 ) -> Result<CreateApiKeyResponse> {
     let api_key_url = format!("{}/auth/apikeys", config.api.url);
 
-    let expires_at = (chrono::Utc::now() + chrono::Duration::days(API_KEY_EXPIRY_DAYS))
+    let expires_at = (chrono::Utc::now() + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS))
         .to_rfc3339();
 
     let request = CreateApiKeyRequest {

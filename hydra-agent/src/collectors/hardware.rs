@@ -66,6 +66,9 @@ pub struct CpuInfo {
 pub struct MemoryInfo {
     /// Total memory in bytes
     pub total_bytes: u64,
+    /// Used memory in bytes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub used_bytes: Option<u64>,
     /// Memory type (e.g., "DDR4", "DDR5")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_type: Option<String>,
@@ -131,6 +134,7 @@ impl HardwareCollector {
         let (memory_type, speed_mhz, slots_used, slots_total) = Self::get_memory_details();
         let memory_info = MemoryInfo {
             total_bytes: sys.total_memory(),
+            used_bytes: Some(sys.used_memory()),
             memory_type,
             speed_mhz,
             slots_used,

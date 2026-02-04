@@ -1,10 +1,12 @@
 """Authentication service for user and node authentication."""
 
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
 import structlog
 
+from hydra.api.v1.core.tasks import safe_create_task
 from hydra.core.config import get_settings
 from hydra.api.v1.core.exceptions import (
     ApiKeyNotFoundError,
@@ -26,6 +28,7 @@ from hydra.api.v1.core.security import (
     verify_password,
 )
 from hydra.db.mongodb import MongoDB
+from hydra.db.redis import RedisClient
 from hydra.api.v1.models.auth import (
     CreateApiKeyRequest,
     CreateRegistrationTokenRequest,
@@ -36,15 +39,24 @@ from hydra.api.v1.models.auth import (
     get_role_level,
 )
 from hydra.api.v1.core.role_utils import get_active_temporary_roles
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.models.notifications import NotificationType, NotificationSource, NotificationActor, ActorType
+from hydra.api.v1.services.query import log_audit
+from hydra.api.v1.models.query import AuditAction
 
 logger = structlog.get_logger(__name__)
+
+BRUTE_FORCE_WINDOW_SECONDS = 10 * 60
+BRUTE_FORCE_THRESHOLD = 5
+BRUTE_FORCE_NOTIFY_COOLDOWN_SECONDS = 10 * 60
 
 
 class AuthService:
     """Authentication and authorization service."""
 
-    def __init__(self, mongodb: MongoDB):
+    def __init__(self, mongodb: MongoDB, redis: RedisClient | None = None):
         self.db = mongodb
+        self.redis = redis
         self.settings = get_settings()
 
     @staticmethod
@@ -56,10 +68,168 @@ class AuthService:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
 
+    @staticmethod
+    def _device_fingerprint(ip: str | None, user_agent: str | None) -> str | None:
+        """Build a stable device fingerprint from IP + User-Agent."""
+        if not ip and not user_agent:
+            return None
+        seed = f"{ip or 'unknown'}|{user_agent or 'unknown'}".strip().lower()
+        return hashlib.sha256(seed.encode()).hexdigest()[:16]
+
+    async def _record_failed_login(
+        self,
+        username: str | None,
+        ip: str | None,
+        user_agent: str | None,
+        user_id: str | None = None,
+    ) -> None:
+        """Track failed logins and emit brute force detection when threshold is exceeded."""
+        if not self.redis or not ip:
+            return
+
+        ip_key = f"auth:failed:ip:{ip}"
+        user_key = f"auth:failed:user:{username}" if username else None
+
+        try:
+            pipe = self.redis.client.pipeline()
+            pipe.incr(ip_key)
+            pipe.expire(ip_key, BRUTE_FORCE_WINDOW_SECONDS)
+            if user_key:
+                pipe.incr(user_key)
+                pipe.expire(user_key, BRUTE_FORCE_WINDOW_SECONDS)
+            results = await pipe.execute()
+
+            ip_count = results[0] if results else 0
+
+            if ip_count >= BRUTE_FORCE_THRESHOLD:
+                notify_key = f"auth:bruteforce:notified:{ip}"
+                already_notified = await self.redis.client.get(notify_key)
+                if already_notified:
+                    return
+
+                await self.redis.client.setex(
+                    notify_key, BRUTE_FORCE_NOTIFY_COOLDOWN_SECONDS, "1"
+                )
+
+                audit_id = await log_audit(
+                    AuditAction.CREATE,
+                    "auth",
+                    ip,
+                    "system",
+                    "auth_service",
+                    True,
+                    details={
+                        "ip": ip,
+                        "username": username,
+                        "userId": user_id,
+                        "attempts": ip_count,
+                        "windowSeconds": BRUTE_FORCE_WINDOW_SECONDS,
+                    },
+                    ip=ip,
+                )
+
+                safe_create_task(
+                    emit_notification(
+                        notification_type=NotificationType.AUTH_BRUTE_FORCE_DETECTED,
+                        source=NotificationSource(component="hydra-api", service="auth"),
+                        title="Brute force login attempts detected",
+                        message=(
+                            f"Multiple failed login attempts detected from {ip} "
+                            f"({ip_count} attempts in {BRUTE_FORCE_WINDOW_SECONDS // 60}m)"
+                        ),
+                        details={
+                            "ip": ip,
+                            "username": username,
+                            "userId": user_id,
+                            "attempts": ip_count,
+                            "windowSeconds": BRUTE_FORCE_WINDOW_SECONDS,
+                            "userAgent": user_agent,
+                        },
+                        actor=NotificationActor(
+                            type=ActorType.SYSTEM,
+                            id="auth_service",
+                            ip=ip,
+                            userAgent=user_agent,
+                        ),
+                        audit_entry_id=audit_id,
+                    )
+                )
+        except Exception:
+            logger.exception("failed_login_tracking_failed", username=username, ip=ip)
+
+    async def _clear_failed_login(self, username: str | None, ip: str | None) -> None:
+        """Clear failed login counters after a successful login."""
+        if not self.redis:
+            return
+        keys = []
+        if ip:
+            keys.append(f"auth:failed:ip:{ip}")
+            keys.append(f"auth:bruteforce:notified:{ip}")
+        if username:
+            keys.append(f"auth:failed:user:{username}")
+        if keys:
+            try:
+                await self.redis.client.delete(*keys)
+            except Exception:
+                logger.exception("failed_login_clear_failed", username=username, ip=ip)
+
+    async def _update_login_device(
+        self,
+        user: dict,
+        ip: str | None,
+        user_agent: str | None,
+    ) -> tuple[bool, str | None]:
+        """Update login device tracking and return (is_new_device, device_id)."""
+        device_id = self._device_fingerprint(ip, user_agent)
+        if not device_id:
+            return False, None
+
+        now = datetime.now(timezone.utc)
+        user_id = user.get("userId")
+        devices = user.get("loginDevices", [])
+        existing = next(
+            (d for d in devices if d.get("deviceId") == device_id),
+            None,
+        )
+
+        if existing:
+            await self.db.users.update_one(
+                {"userId": user_id, "loginDevices.deviceId": device_id},
+                {
+                    "$set": {
+                        "loginDevices.$.lastSeenAt": now,
+                        "loginDevices.$.ip": ip,
+                        "loginDevices.$.userAgent": user_agent,
+                    }
+                },
+            )
+            return False, device_id
+
+        await self.db.users.update_one(
+            {"userId": user_id},
+            {
+                "$push": {
+                    "loginDevices": {
+                        "deviceId": device_id,
+                        "ip": ip,
+                        "userAgent": user_agent,
+                        "firstSeenAt": now,
+                        "lastSeenAt": now,
+                    }
+                }
+            },
+        )
+        return True, device_id
+
     # ==================== User Authentication ====================
 
     async def authenticate_user(
-        self, username: str, password: str, allow_system_accounts: bool = False
+        self,
+        username: str,
+        password: str,
+        allow_system_accounts: bool = False,
+        ip: str | None = None,
+        user_agent: str | None = None,
     ) -> dict:
         """Authenticate a user and return access/refresh tokens.
 
@@ -67,6 +237,8 @@ class AuthService:
             username: User's username.
             password: User's password.
             allow_system_accounts: If False, block system accounts (agent users) from login.
+            ip: Client IP address for audit and device tracking.
+            user_agent: User-Agent string for audit and device tracking.
 
         Returns:
             Dict with access_token, refresh_token, expires_in, and user details.
@@ -82,18 +254,19 @@ class AuthService:
 
         user = await self.db.users.find_one({"username": username})
         if not user:
+            await self._record_failed_login(username, ip, user_agent)
             raise InvalidCredentialsError()
 
-        if not verify_password(password, user["passwordHash"]):
+        password_valid = verify_password(password, user["passwordHash"])
+        if not password_valid:
             parent_id = user.get("parentUserId")
-            if not parent_id:
-                raise InvalidCredentialsError()
+            if parent_id:
+                parent = await self.db.users.find_one({"userId": parent_id})
+                if parent and parent.get("status") == "active":
+                    password_valid = verify_password(password, parent["passwordHash"])
 
-            parent = await self.db.users.find_one({"userId": parent_id})
-            if not parent or parent.get("status") != "active":
-                raise InvalidCredentialsError()
-
-            if not verify_password(password, parent["passwordHash"]):
+            if not password_valid:
+                await self._record_failed_login(username, ip, user_agent, user_id=user.get("userId"))
                 raise InvalidCredentialsError()
 
         if user.get("status") != "active":
@@ -106,6 +279,50 @@ class AuthService:
             {"userId": user["userId"]},
             {"$set": {"lastLogin": datetime.now(timezone.utc)}},
         )
+        await self._clear_failed_login(username, ip)
+
+        audit_id = await log_audit(
+            AuditAction.LOGIN,
+            "user",
+            user["userId"],
+            "user",
+            user["userId"],
+            True,
+            details={
+                "username": user["username"],
+                "userId": user["userId"],
+                "ip": ip,
+                "userAgent": user_agent,
+            },
+            ip=ip,
+        )
+
+        if not user.get("isSystemAccount", False):
+            is_new_device, device_id = await self._update_login_device(user, ip, user_agent)
+            if is_new_device:
+                safe_create_task(
+                    emit_notification(
+                        notification_type=NotificationType.USER_LOGIN_NEW_DEVICE,
+                        source=NotificationSource(component="hydra-api", service="auth"),
+                        title="New login device detected",
+                        message=f"New login detected for {user['username']}",
+                        details={
+                            "userId": user["userId"],
+                            "username": user["username"],
+                            "ip": ip,
+                            "userAgent": user_agent,
+                            "deviceId": device_id,
+                        },
+                        actor=NotificationActor(
+                            type=ActorType.USER,
+                            id=user["userId"],
+                            ip=ip,
+                            userAgent=user_agent,
+                        ),
+                        target_user_id=user["userId"],
+                        audit_entry_id=audit_id,
+                    )
+                )
 
         temp_roles = get_active_temporary_roles(user.get("temporaryRoles", []))
 
@@ -262,6 +479,38 @@ class AuthService:
             creator_role=creator_role,
             allowed_roles=allowed_roles,
         )
+
+        audit_id = await log_audit(
+            AuditAction.CREATE,
+            "registration_token",
+            token,
+            "user",
+            created_by,
+            True,
+            details={
+                "token": token,
+                "userId": created_by,
+                "scope": request.scope.value,
+                "expiresAt": expires_at.isoformat(),
+                "maxUses": max_uses,
+            },
+        )
+        safe_create_task(emit_notification(
+            notification_type=NotificationType.REGISTRATION_TOKEN_CREATED,
+            source=NotificationSource(component="hydra-api", service="auth"),
+            title="Registration token created",
+            message=f"Registration token created for {request.scope.value} scope",
+            details={
+                "token": token,
+                "entityId": token,
+                "userId": created_by,
+                "scope": request.scope.value,
+                "expiresAt": expires_at.isoformat(),
+                "maxUses": max_uses,
+            },
+            target_user_id=created_by,
+            audit_entry_id=audit_id,
+        ))
 
         return {
             "token": token,
@@ -477,6 +726,27 @@ class AuthService:
             registered_by=registered_by,
         )
 
+        audit_id = await log_audit(
+            AuditAction.REGISTER, "node", request.node_id,
+            "user", registered_by, True,
+            details={
+                "nodeId": request.node_id,
+                "nodeClass": request.node_class,
+                "nodeType": request.node_type,
+                "apiKeyId": key_id,
+            },
+        )
+
+        safe_create_task(emit_notification(
+            notification_type=NotificationType.NODE_REGISTERED,
+            source=NotificationSource(component="hydra-api", service="auth"),
+            title="Node registered",
+            message=f"Node {request.node_id} registered successfully",
+            details={"nodeId": request.node_id, "nodeClass": request.node_class},
+            actor=NotificationActor(type=ActorType.USER, id=registered_by),
+            audit_entry_id=audit_id,
+        ))
+
         return {
             "node_id": request.node_id,
             "api_key": api_key,
@@ -590,6 +860,23 @@ class AuthService:
         await self.db.api_keys.insert_one(key_doc)
         logger.info("api_key_created", key_id=key_id, user_id=user_id)
 
+        audit_id = await log_audit(
+            AuditAction.CREATE, "api_key", key_id,
+            "user", user_id, True,
+            details={"keyId": key_id, "name": request.name, "userId": user_id},
+        )
+
+        safe_create_task(emit_notification(
+            notification_type=NotificationType.API_KEY_CREATED,
+            source=NotificationSource(component="hydra-api", service="auth"),
+            title="API key created",
+            message=f"API key '{request.name}' created",
+            details={"keyId": key_id, "entityId": key_id, "name": request.name, "userId": user_id},
+            actor=NotificationActor(type=ActorType.USER, id=user_id),
+            target_user_id=user_id,
+            audit_entry_id=audit_id,
+        ))
+
         return {
             "key_id": key_id,
             "key": key,
@@ -659,6 +946,23 @@ class AuthService:
         )
 
         logger.info("api_key_revoked", key_id=key_id, user_id=user_id)
+
+        audit_id = await log_audit(
+            AuditAction.REVOKE, "api_key", key_id,
+            "user", user_id, True,
+            details={"keyId": key_id, "keyName": key_doc.get("name"), "userId": user_id},
+        )
+
+        safe_create_task(emit_notification(
+            notification_type=NotificationType.API_KEY_REVOKED,
+            source=NotificationSource(component="hydra-api", service="auth"),
+            title="API key revoked",
+            message=f"API key '{key_id}' revoked",
+            details={"keyId": key_id, "entityId": key_id, "userId": user_id},
+            actor=NotificationActor(type=ActorType.USER, id=user_id),
+            target_user_id=user_id,
+            audit_entry_id=audit_id,
+        ))
 
         return {
             "key_id": key_id,

@@ -364,7 +364,7 @@ function EventTimeline({
       <div className="relative">
         <div className="absolute left-[15px] top-0 bottom-0 w-px bg-muted" />
 
-        <div className="space-y-3">
+        <div className="space-y-7">
           {events.slice(0, 50).map((event) => {
             const meta = EVENT_META[event.eventType as TimelineEventType];
             const Icon = meta?.icon || History;
@@ -790,7 +790,7 @@ export default function TimeMachinePage() {
         <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
           <motion.div variants={staggerItemVariants}>
             <Card className="bg-card border-border">
-              <CardHeader className="pb-2">
+              <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                   <Clock className="h-4 w-4" />
                   Event Timeline

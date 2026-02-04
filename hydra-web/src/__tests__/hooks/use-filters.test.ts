@@ -10,6 +10,7 @@ interface TestFilters {
   search?: string;
   status?: string;
   category?: string;
+  [key: string]: string | undefined;
 }
 
 describe('useFilters', () => {

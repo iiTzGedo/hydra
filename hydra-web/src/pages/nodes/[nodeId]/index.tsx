@@ -4,7 +4,6 @@ import {
   Server,
   Network,
   Cpu,
-  ArrowLeft,
   Edit,
   Archive,
   RefreshCw,
@@ -19,7 +18,7 @@ import { toast } from 'sonner';
 import { useArchiveNode, useNode, useUpdateNode } from '@/api/nodes';
 import type { NodeKind } from '@/types/node';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { PageHeader } from '@/components/layout/page-header';
+import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getErrorMessage } from '@/lib/api-client';
@@ -174,8 +173,8 @@ export default function NodeDetailPage() {
   if (isLoading) {
     return (
       <div className="p-6">
-        <Skeleton className="h-8 w-48 mb-6" />
-        <div className="space-y-6">
+        <PageHeaderLayout isLoading showBreadcrumbs showBackButton />
+        <div className="mt-6 space-y-6">
           <Skeleton className="h-32" />
           <Skeleton className="h-12" />
           <Skeleton className="h-64" />
@@ -187,19 +186,22 @@ export default function NodeDetailPage() {
   if (error || !node) {
     return (
       <div className="p-6">
-        <Link
-          to={ROUTES.NODES}
-          className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Nodes
-        </Link>
-        <div className="rounded-xl border bg-card p-8 text-center">
+        <PageHeaderLayout
+          title="Node not found"
+          subtitle={`The node "${nodeId}" could not be found`}
+          showBreadcrumbs
+          showBackButton
+        />
+        <div className="mt-6 rounded-xl border bg-card p-8 text-center">
           <Server className="mx-auto h-12 w-12 text-muted-foreground" />
-          <h3 className="mt-4 text-lg font-semibold">Node not found</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            The node "{nodeId}" could not be found
+          <p className="mt-4 text-sm text-muted-foreground">
+            The node may have been removed or you may not have permission to view it.
           </p>
+          <Link to={ROUTES.NODES}>
+            <Button variant="outline" className="mt-4">
+              Return to Nodes
+            </Button>
+          </Link>
         </div>
       </div>
     );
@@ -210,17 +212,11 @@ export default function NodeDetailPage() {
 
   return (
     <div className="p-6">
-      <Link
-        to={ROUTES.NODES}
-        className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Nodes
-      </Link>
-
-      <PageHeader
+      <PageHeaderLayout
         title={node.displayName || node.id}
-        description={`${node.class} node - ${node.type}`}
+        subtitle={`${node.class} node - ${node.type}`}
+        showBreadcrumbs
+        showBackButton
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" asChild>
@@ -243,9 +239,8 @@ export default function NodeDetailPage() {
             </Button>
           </div>
         }
-      />
-
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-6">
+      >
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-2">
         <TabsList className="bg-card border border-border p-1 h-auto flex-wrap">
           {tabs.map((tab) => {
             const TabIcon = tab.icon;
@@ -286,6 +281,7 @@ export default function NodeDetailPage() {
           <GroupsTab node={node} />
         </TabsContent>
       </Tabs>
+      </PageHeaderLayout>
 
       <Dialog open={showEditDialog} onOpenChange={(open) => {
         setShowEditDialog(open);

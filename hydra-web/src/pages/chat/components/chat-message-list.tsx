@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Loader2, Sparkles, Server, Network, AlertTriangle, Boxes } from 'lucide-react';
+import { Bot, Loader2, Sparkles, Server, Network, Bell, Boxes } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MessageBubble } from './message-bubble';
 import type { ChatMessageResponse } from '@/api/chat';
@@ -8,7 +8,7 @@ const suggestedPrompts = [
   { icon: Server, text: 'List all compute nodes', category: 'nodes' },
   { icon: Boxes, text: 'Show services with health issues', category: 'services' },
   { icon: Network, text: 'What networks are configured?', category: 'networks' },
-  { icon: AlertTriangle, text: 'Show unacknowledged alerts', category: 'alerts' },
+  { icon: Bell, text: 'Show active notifications', category: 'notifications' },
 ];
 
 interface ChatMessageListProps {

@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, Query
 from hydra.api.v1.core.deps import MongoDBDep, require_permission
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.services import (
+    KnownServiceCreateRequest,
+    KnownServiceResponse,
     ServiceListParams,
     ServiceResponse,
     ServiceRuntime,
@@ -15,6 +17,9 @@ from hydra.api.v1.models.services import (
     ServiceSummary,
     UpdateServiceRequest,
 )
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.query import log_audit
+from hydra.api.v1.services.known_services import KnownServicesService
 from hydra.api.v1.services.services_service import ServicesService
 
 router = APIRouter(prefix="/services", tags=["Services"])
@@ -27,6 +32,14 @@ def get_services_service(mongodb: MongoDBDep) -> ServicesService:
 
 
 ServicesServiceDep = Annotated[ServicesService, Depends(get_services_service)]
+
+
+def get_known_services_service(mongodb: MongoDBDep) -> KnownServicesService:
+    """Get known services registry dependency."""
+    return KnownServicesService(mongodb)
+
+
+KnownServicesServiceDep = Annotated[KnownServicesService, Depends(get_known_services_service)]
 
 
 @router.get(
@@ -94,6 +107,91 @@ async def list_services(
         data=[ServiceSummary(**service) for service in services],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
+
+
+@router.get(
+    "/known",
+    response_model=SuccessResponse[list[KnownServiceResponse]],
+    summary="List Known Services",
+    description="List allow-listed services used to suppress unknown-service alerts.",
+    dependencies=[Depends(require_permission("services:read"))],
+)
+async def list_known_services(
+    known_services: KnownServicesServiceDep,
+    runtime: ServiceRuntime | None = None,
+    search: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> SuccessResponse[list[KnownServiceResponse]]:
+    """List known services used for unknown service detection."""
+    results, total = await known_services.list_known_services(
+        runtime=runtime.value if runtime else None,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+    return SuccessResponse(
+        data=[KnownServiceResponse(**item) for item in results],
+        meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@router.post(
+    "/known",
+    response_model=SuccessResponse[KnownServiceResponse],
+    summary="Create Known Service",
+    description="Add a known service to suppress unknown-service alerts.",
+)
+async def create_known_service(
+    request: KnownServiceCreateRequest,
+    known_services: KnownServicesServiceDep,
+    current_user: dict = Depends(require_permission("services:update")),
+) -> SuccessResponse[KnownServiceResponse]:
+    """Create a known service entry."""
+    created = await known_services.create_known_service(
+        request,
+        created_by=current_user.get("user_id"),
+    )
+    await log_audit(
+        AuditAction.CREATE,
+        "known_service",
+        created["knownServiceId"],
+        "user",
+        current_user.get("user_id", "unknown"),
+        True,
+        details={
+            "knownServiceId": created["knownServiceId"],
+            "runtime": created["runtime"],
+            "name": created["name"],
+        },
+    )
+    return SuccessResponse(data=KnownServiceResponse(**created))
+
+
+@router.delete(
+    "/known/{known_service_id}",
+    response_model=SuccessResponse[KnownServiceResponse],
+    summary="Delete Known Service",
+    description="Remove a known service from the registry.",
+)
+async def delete_known_service(
+    known_service_id: str,
+    known_services: KnownServicesServiceDep,
+    current_user: dict = Depends(require_permission("services:delete")),
+) -> SuccessResponse[KnownServiceResponse]:
+    """Delete a known service entry."""
+    deleted = await known_services.delete_known_service(known_service_id)
+    await log_audit(
+        AuditAction.DELETE,
+        "known_service",
+        known_service_id,
+        "user",
+        current_user.get("user_id", "unknown"),
+        True,
+        details={"knownServiceId": known_service_id},
+    )
+    return SuccessResponse(data=KnownServiceResponse(**deleted))
 
 
 @router.get(

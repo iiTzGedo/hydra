@@ -12,10 +12,8 @@ use tracing::{debug, info, warn};
 
 use crate::collectors::Profile;
 use crate::config::AgentConfig;
+use crate::utils::{API_KEY_DEFAULT_EXPIRY_DAYS, API_KEY_RENEWAL_THRESHOLD_DAYS, generate_agent_username, generate_agent_password};
 use crate::vault::{ApiKeyData, AgentCredentials, Vault};
-
-const API_KEY_RENEWAL_THRESHOLD_DAYS: i64 = 7;
-const API_KEY_DEFAULT_EXPIRY_DAYS: i64 = 90;
 
 /// API client for Hydra API communication.
 pub struct ApiClient {
@@ -312,7 +310,7 @@ fn compute_profile_version(
         return Ok("E0-0.0.0.1".to_string());
     }
 
-    let prev_meta = previous.unwrap();
+    let prev_meta = previous.expect("previous is guaranteed Some after is_none() check above");
     let mut total_diff = 0.0;
 
     let mut all_sections: HashSet<String> = HashSet::new();
@@ -439,44 +437,6 @@ impl ApiClient {
         self.vault.save_api_key(&api_key)?;
         info!("API key saved to vault");
         Ok(())
-    }
-
-    /// Generate a random agent username (pattern: agent-XXXXXXXX where X is [0-9A-Z]).
-    fn generate_agent_username() -> String {
-        use rand::Rng;
-        const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        let mut rng = rand::thread_rng();
-        let suffix: String = (0..8)
-            .map(|_| {
-                let idx = rng.gen_range(0..CHARS.len());
-                CHARS[idx] as char
-            })
-            .collect();
-        format!("agent-{}", suffix)
-    }
-
-    /// Generate a secure random password.
-    fn generate_agent_password() -> String {
-        use rand::RngCore;
-        let mut rng = rand::thread_rng();
-        let mut bytes = [0u8; 24];
-        rng.fill_bytes(&mut bytes);
-        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-        let mut result = String::with_capacity(32);
-        for chunk in bytes.chunks(3) {
-            let b0 = chunk[0] as usize;
-            let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
-            let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
-            result.push(CHARS[b0 >> 2] as char);
-            result.push(CHARS[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
-            if chunk.len() > 1 {
-                result.push(CHARS[((b1 & 0x0f) << 2) | (b2 >> 6)] as char);
-            }
-            if chunk.len() > 2 {
-                result.push(CHARS[b2 & 0x3f] as char);
-            }
-        }
-        result
     }
 
     /// Create API key for agent using its JWT.
@@ -621,8 +581,8 @@ impl ApiClient {
     /// Register the agent and node using a registration token.
     /// Per Some Updates.md: Generate credentials locally, register, login, create API key.
     pub async fn register_with_token(&self, registration_token: &str) -> Result<()> {
-        let agent_username = Self::generate_agent_username();
-        let agent_password = Self::generate_agent_password();
+        let agent_username = generate_agent_username();
+        let agent_password = generate_agent_password();
         debug!("Generated agent credentials: {}", agent_username);
 
         let agent_url = format!("{}/auth/register", self.config.api.url);
@@ -641,11 +601,26 @@ impl ApiClient {
 
         if !agent_response.status().is_success() {
             let error: ApiError = agent_response.json().await?;
-            return Err(anyhow!(
+            let err_msg = format!(
                 "Agent registration failed: {} - {}",
                 error.error.code,
                 error.error.message
-            ));
+            );
+
+            let _ = self
+                .report_event(
+                    "agent_registration_failed",
+                    &format!("Agent registration failed: {}", self.config.node.node_id),
+                    &err_msg,
+                    Some(serde_json::json!({
+                        "nodeId": self.config.node.node_id,
+                        "error": err_msg,
+                        "phase": "agent_registration",
+                    })),
+                )
+                .await;
+
+            return Err(anyhow!(err_msg));
         }
 
         let agent_result: AgentRegistrationResponse = agent_response.json().await?;
@@ -674,11 +649,26 @@ impl ApiClient {
 
         if !response.status().is_success() {
             let error: ApiError = response.json().await?;
-            return Err(anyhow!(
+            let err_msg = format!(
                 "Node registration failed: {} - {}",
-                error.error.code,
-                error.error.message
-            ));
+                error.error.code, error.error.message
+            );
+
+            // API key is stored in vault at this point, so we can report
+            let _ = self
+                .report_event(
+                    "agent_registration_failed",
+                    &format!("Node registration failed: {}", self.config.node.node_id),
+                    &err_msg,
+                    Some(serde_json::json!({
+                        "nodeId": self.config.node.node_id,
+                        "error": err_msg,
+                        "phase": "node_registration",
+                    })),
+                )
+                .await;
+
+            return Err(anyhow!(err_msg));
         }
 
         let result: DirectNodeRegistrationResponse = response.json().await?;
@@ -717,8 +707,8 @@ impl ApiClient {
         let login_result: LoginResponse = login_response.json().await?;
         info!("Login successful, registering agent...");
 
-        let agent_username = Self::generate_agent_username();
-        let agent_password = Self::generate_agent_password();
+        let agent_username = generate_agent_username();
+        let agent_password = generate_agent_password();
         debug!("Generated agent credentials: {}", agent_username);
 
         let agent_url = format!("{}/auth/register", self.config.api.url);
@@ -737,11 +727,26 @@ impl ApiClient {
 
         if !agent_response.status().is_success() {
             let error: ApiError = agent_response.json().await?;
-            return Err(anyhow!(
+            let err_msg = format!(
                 "Agent registration failed: {} - {}",
                 error.error.code,
                 error.error.message
-            ));
+            );
+
+            let _ = self
+                .report_event(
+                    "agent_registration_failed",
+                    &format!("Agent registration failed: {}", self.config.node.node_id),
+                    &err_msg,
+                    Some(serde_json::json!({
+                        "nodeId": self.config.node.node_id,
+                        "error": err_msg,
+                        "phase": "agent_registration",
+                    })),
+                )
+                .await;
+
+            return Err(anyhow!(err_msg));
         }
 
         let agent_result: AgentRegistrationResponse = agent_response.json().await?;
@@ -770,11 +775,26 @@ impl ApiClient {
 
         if !response.status().is_success() {
             let error: ApiError = response.json().await?;
-            return Err(anyhow!(
+            let err_msg = format!(
                 "Node registration failed: {} - {}",
-                error.error.code,
-                error.error.message
-            ));
+                error.error.code, error.error.message
+            );
+
+            // API key is stored in vault at this point, so we can report
+            let _ = self
+                .report_event(
+                    "agent_registration_failed",
+                    &format!("Node registration failed: {}", self.config.node.node_id),
+                    &err_msg,
+                    Some(serde_json::json!({
+                        "nodeId": self.config.node.node_id,
+                        "error": err_msg,
+                        "phase": "node_registration",
+                    })),
+                )
+                .await;
+
+            return Err(anyhow!(err_msg));
         }
 
         let result: DirectNodeRegistrationResponse = response.json().await?;
@@ -783,6 +803,73 @@ impl ApiClient {
             registered_by = %result.registered_by,
             "Registration with credentials successful"
         );
+        Ok(())
+    }
+
+    /// Report an event to the Hydra API for notification emission.
+    ///
+    /// Used to report failures and state changes (profile failures,
+    /// registration failures, successful profiles, upgrades) so the
+    /// notification system can alert operators.
+    ///
+    /// This is best-effort: errors are logged but do not propagate.
+    pub async fn report_event(
+        &self,
+        event_type: &str,
+        title: &str,
+        message: &str,
+        details: Option<Value>,
+    ) -> Result<()> {
+        let url = format!("{}/agent/report", self.config.api.url);
+
+        let api_key = match self.ensure_api_key().await {
+            Ok(key) => key,
+            Err(e) => {
+                warn!("Cannot report event (no API key): {}", e);
+                return Ok(());
+            }
+        };
+
+        let mut body = serde_json::json!({
+            "eventType": event_type,
+            "title": title,
+            "message": message,
+            "nodeId": self.config.node.node_id,
+        });
+
+        if let Some(d) = details {
+            body["details"] = d;
+        }
+
+        let response = self
+            .client
+            .post(&url)
+            .header("X-API-Key", &api_key)
+            .json(&body)
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) if resp.status().is_success() => {
+                debug!(event_type = event_type, "Event reported successfully");
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                warn!(
+                    event_type = event_type,
+                    status = %status,
+                    "Event report returned non-success status"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    event_type = event_type,
+                    error = %e,
+                    "Failed to report event"
+                );
+            }
+        }
+
         Ok(())
     }
 

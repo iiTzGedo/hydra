@@ -42,6 +42,14 @@ INDEXES: dict[str, list[IndexModel]] = {
             default_language="english",
         ),
     ],
+    "known_services": [
+        IndexModel([("knownServiceId", ASCENDING)], unique=True),
+        IndexModel([("runtime", ASCENDING), ("normalizedName", ASCENDING)], unique=True),
+        IndexModel(
+            [("name", TEXT), ("description", TEXT)],
+            default_language="english",
+        ),
+    ],
     "groups": [
         IndexModel([("groupId", ASCENDING)], unique=True),
         IndexModel([("parentGroupIds", ASCENDING)]),
@@ -132,6 +140,30 @@ INDEXES: dict[str, list[IndexModel]] = {
     ],
     "user_settings": [
         IndexModel([("userId", ASCENDING)], unique=True),
+    ],
+    "notifications": [
+        IndexModel([("notificationId", ASCENDING)], unique=True),
+        IndexModel(
+            [("targetRoles", ASCENDING), ("status", ASCENDING), ("createdAt", DESCENDING)]
+        ),
+        IndexModel(
+            [("targetUserId", ASCENDING), ("status", ASCENDING), ("createdAt", DESCENDING)]
+        ),
+        IndexModel([("groupKey", ASCENDING), ("status", ASCENDING)]),
+        IndexModel(
+            [("tier", ASCENDING), ("status", ASCENDING), ("createdAt", DESCENDING)]
+        ),
+        IndexModel([("source.component", ASCENDING), ("createdAt", DESCENDING)]),
+        IndexModel([("source.nodeId", ASCENDING), ("createdAt", DESCENDING)]),
+        IndexModel([("expiresAt", ASCENDING)], expireAfterSeconds=0),
+        IndexModel([("correlationId", ASCENDING)], sparse=True),
+        IndexModel([("auditEntryId", ASCENDING)], sparse=True),
+    ],
+    "notification_reads": [
+        IndexModel(
+            [("notificationId", ASCENDING), ("userId", ASCENDING)], unique=True
+        ),
+        IndexModel([("userId", ASCENDING), ("readAt", DESCENDING)]),
     ],
 }
 

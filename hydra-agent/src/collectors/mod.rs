@@ -14,6 +14,7 @@ pub mod storage;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use serde_json::json;
 use tracing::info;
 
 use crate::config::AgentConfig;
@@ -125,6 +126,19 @@ pub async fn collect_profile(config: &AgentConfig) -> Result<Profile> {
         metadata: std::collections::HashMap::new(),
     };
 
+    if let Some(target) = detect_target() {
+        profile
+            .metadata
+            .insert("agentTarget".to_string(), json!(target));
+    }
+    profile.metadata.insert(
+        "scheduleIntervalSeconds".to_string(),
+        json!(config.schedule.interval_seconds),
+    );
+    profile
+        .metadata
+        .insert("scheduleEnabled".to_string(), json!(config.schedule.enabled));
+
     if collectors.contains(&"hardware".to_string()) {
         info!("Collecting hardware information...");
         profile.hardware = Some(HardwareCollector::collect()?);
@@ -146,4 +160,26 @@ pub async fn collect_profile(config: &AgentConfig) -> Result<Profile> {
     }
 
     Ok(profile)
+}
+
+fn detect_target() -> Option<String> {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+
+    let target_os = match os {
+        "linux" => "linux",
+        "macos" => "darwin",
+        "windows" => "windows",
+        "freebsd" => "freebsd",
+        _ => return None,
+    };
+
+    let target_arch = match arch {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        "arm" => "armv7",
+        _ => return None,
+    };
+
+    Some(format!("{}-{}", target_os, target_arch))
 }

@@ -60,20 +60,22 @@ import { NewProjectModal, MCPConfigModal, LLMConfigModal } from './modals';
 import { useNodes } from '@/api/nodes';
 import { useServices } from '@/api/services';
 import { useNetworks } from '@/api/networks';
+import { useNotificationStats } from '@/api/notifications';
 
 const useInfrastructureContext = () => {
   const { data: nodesData } = useNodes({ limit: 1 });
   const { data: servicesData } = useServices({ limit: 1 });
   const { data: networksData } = useNetworks({ limit: 1 });
+  const { data: notifStats } = useNotificationStats();
 
   return useMemo(
     () => ({
       nodes: nodesData?.total ?? 0,
       services: servicesData?.total ?? 0,
       networks: networksData?.total ?? 0,
-      alerts: 0, // TODO: Wire to alerts API when ready
+      notifications: notifStats?.total ?? 0,
     }),
-    [nodesData, servicesData, networksData]
+    [nodesData, servicesData, networksData, notifStats]
   );
 };
 

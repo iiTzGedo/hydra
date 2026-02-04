@@ -833,3 +833,182 @@ async def service_dependency_map(args: dict[str, Any]) -> str:
             logger.warning("network_analysis_failed", error=str(e))
 
     return toon.format(dependency_map)
+
+
+# =============================================================================
+# Notification Tools
+# =============================================================================
+
+@tool(
+    name="list_notifications",
+    description="List notifications with optional filtering by tier, status, source, and node. Returns notifications visible to the current user.",
+    schema={
+        "type": "object",
+        "properties": {
+            "tier": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Filter by exact tier: 1=User(Blue), 2=System(Green), 3=Warning(Yellow), 4=High(Orange), 5=Critical(Red)",
+            },
+            "tierMin": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Filter by minimum tier (inclusive). E.g. tierMin=3 returns Warning, High, and Critical.",
+            },
+            "status": {
+                "type": "string",
+                "enum": ["active", "resolved", "expired"],
+                "description": "Filter by notification status. Defaults to 'active'.",
+            },
+            "source": {
+                "type": "string",
+                "enum": ["hydra-api", "hydra-agent", "hydra-mcp", "hydra-web", "system"],
+                "description": "Filter by source component",
+            },
+            "nodeId": {
+                "type": "string",
+                "description": "Filter by originating node ID",
+            },
+            "type": {
+                "type": "string",
+                "description": "Filter by notification type (e.g. 'node_offline', 'service_crashed')",
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "description": "Max results to return (default 50)",
+            },
+        },
+    },
+    required_permission="notifications:read",
+)
+async def list_notifications_tool(args: dict[str, Any]) -> str:
+    """List notifications with filtering."""
+    notifications, _ = await client.list_notifications(
+        tier=args.get("tier"),
+        tier_min=args.get("tierMin"),
+        status=args.get("status"),
+        source=args.get("source"),
+        node_id=args.get("nodeId"),
+        notification_type=args.get("type"),
+        limit=args.get("limit", 50),
+    )
+
+    items = _safe_list(notifications)
+    return _format_list_response("notifications", items)
+
+
+@tool(
+    name="get_notification_stats",
+    description="Get aggregated notification statistics: total count, unread count, and breakdowns by tier, status, and source component.",
+    schema={
+        "type": "object",
+        "properties": {},
+    },
+    required_permission="notifications:read",
+)
+async def get_notification_stats_tool(args: dict[str, Any]) -> str:
+    """Get notification statistics."""
+    stats = await client.get_notification_stats()
+    return toon.format(stats)
+
+
+# =============================================================================
+# Audit Log Tools
+# =============================================================================
+
+@tool(
+    name="list_audit_entries",
+    description="List audit log entries with optional filtering by action, resource type, resource ID, actor, and time range. Returns a chronological record of write operations performed on the system.",
+    schema={
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": "Filter by action (e.g. 'create', 'update', 'delete')",
+            },
+            "resourceType": {
+                "type": "string",
+                "description": "Filter by resource type (e.g. 'node', 'service', 'group', 'network', 'user')",
+            },
+            "resourceId": {
+                "type": "string",
+                "description": "Filter by specific resource ID",
+            },
+            "actorId": {
+                "type": "string",
+                "description": "Filter by actor (user) ID who performed the action",
+            },
+            "since": {
+                "type": "string",
+                "format": "date-time",
+                "description": "ISO timestamp for start of time range",
+            },
+            "until": {
+                "type": "string",
+                "format": "date-time",
+                "description": "ISO timestamp for end of time range",
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "description": "Max results to return (default 100)",
+            },
+            "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Number of results to skip for pagination",
+            },
+        },
+    },
+    required_permission="audit:read",
+)
+async def list_audit_entries_tool(args: dict[str, Any]) -> str:
+    """List audit log entries with optional filtering."""
+    entries = await client.list_audit_entries(
+        action=args.get("action"),
+        resource_type=args.get("resourceType"),
+        resource_id=args.get("resourceId"),
+        actor_id=args.get("actorId"),
+        since=args.get("since"),
+        until=args.get("until"),
+        limit=args.get("limit", 100),
+        offset=args.get("offset", 0),
+    )
+
+    items = _safe_list(entries)
+    return _format_list_response("auditEntries", items)
+
+
+@tool(
+    name="delete_audit_entries",
+    description="Delete audit log entries within a specified time range. Both 'since' and 'until' are required to prevent accidental bulk deletion.",
+    schema={
+        "type": "object",
+        "properties": {
+            "since": {
+                "type": "string",
+                "format": "date-time",
+                "description": "ISO timestamp for start of deletion range (required)",
+            },
+            "until": {
+                "type": "string",
+                "format": "date-time",
+                "description": "ISO timestamp for end of deletion range (required)",
+            },
+        },
+        "required": ["since", "until"],
+    },
+    required_permission="audit:delete",
+)
+async def delete_audit_entries_tool(args: dict[str, Any]) -> str:
+    """Delete audit log entries within a time range."""
+    result = await client.delete_audit_entries(
+        since=args["since"],
+        until=args["until"],
+    )
+    return toon.format(result)

@@ -14,6 +14,11 @@ import {
   LogIn,
   LogOut,
   Zap,
+  CheckCircle,
+  CheckCheck,
+  Archive,
+  Upload,
+  XCircle,
 } from 'lucide-react';
 import type { Role } from '@/types/user';
 import type { AuditAction } from '@/types/query';
@@ -54,6 +59,11 @@ export const actionIcons: Record<AuditAction, typeof User> = {
   logout: LogOut,
   register: UserPlus,
   execute: Zap,
+  acknowledge: CheckCircle,
+  resolve: CheckCheck,
+  archive: Archive,
+  submit: Upload,
+  revoke: XCircle,
 };
 
 export const actionVariants: Record<AuditAction, 'success' | 'default' | 'destructive' | 'secondary' | 'warning'> = {
@@ -64,4 +74,9 @@ export const actionVariants: Record<AuditAction, 'success' | 'default' | 'destru
   logout: 'secondary',
   register: 'success',
   execute: 'warning',
+  acknowledge: 'default',
+  resolve: 'success',
+  archive: 'secondary',
+  submit: 'default',
+  revoke: 'destructive',
 };

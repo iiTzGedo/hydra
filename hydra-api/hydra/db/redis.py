@@ -1,4 +1,4 @@
-"""Redis client for caching and command queue."""
+"""Redis client for caching, command queue, and pub/sub."""
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -16,7 +16,6 @@ class RedisClient:
 
     CACHE_PREFIX = "cache:"
     COMMAND_QUEUE_PREFIX = "cmd_queue:"
-    SESSION_PREFIX = "session:"
     RATE_LIMIT_PREFIX = "rate:"
 
     def __init__(self, settings: Settings | None = None):
@@ -75,6 +74,28 @@ class RedisClient:
             return True
         except redis.RedisError as e:
             logger.error("redis_health_check_failed", error=str(e))
+            try:
+                from hydra.api.v1.models.notifications import (
+                    NotificationSource,
+                    NotificationType,
+                    SourceComponent,
+                )
+                from hydra.api.v1.core.tasks import safe_create_task
+                from hydra.api.v1.services.notifications import emit_notification
+
+                safe_create_task(
+                    emit_notification(
+                        notification_type=NotificationType.DATABASE_CONNECTION_FAILED,
+                        source=NotificationSource(
+                            component=SourceComponent.HYDRA_API, service="redis"
+                        ),
+                        title="Redis connection failed",
+                        message=f"Redis health check failed: {e}",
+                        group_key="database_connection_failed_redis",
+                    )
+                )
+            except Exception:
+                pass  # If DB is also down, can't write notification
             return False
 
     async def cache_get(self, key: str) -> str | None:
@@ -148,6 +169,31 @@ class RedisClient:
         results = await pipe.execute()
         current_count = results[0]
         return current_count <= max_requests
+
+    async def publish(self, channel: str, message: str) -> int:
+        """Publish a message to a Redis pub/sub channel.
+
+        Args:
+            channel: Channel name to publish to.
+            message: Message string (typically JSON-encoded).
+
+        Returns:
+            Number of subscribers that received the message.
+        """
+        return await self.client.publish(channel, message)
+
+    async def subscribe(self, *channels: str) -> redis.client.PubSub:
+        """Subscribe to one or more Redis pub/sub channels.
+
+        Args:
+            channels: Channel names to subscribe to.
+
+        Returns:
+            PubSub instance for iterating over messages.
+        """
+        pubsub = self.client.pubsub()
+        await pubsub.subscribe(*channels)
+        return pubsub
 
 
 _redis: RedisClient | None = None

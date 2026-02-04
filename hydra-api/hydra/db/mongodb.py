@@ -89,6 +89,28 @@ class MongoDB:
             return True
         except (ConnectionFailure, ServerSelectionTimeoutError) as e:
             logger.error("mongodb_health_check_failed", error=str(e))
+            try:
+                from hydra.api.v1.models.notifications import (
+                    NotificationSource,
+                    NotificationType,
+                    SourceComponent,
+                )
+                from hydra.api.v1.core.tasks import safe_create_task
+                from hydra.api.v1.services.notifications import emit_notification
+
+                safe_create_task(
+                    emit_notification(
+                        notification_type=NotificationType.DATABASE_CONNECTION_FAILED,
+                        source=NotificationSource(
+                            component=SourceComponent.HYDRA_API, service="mongodb"
+                        ),
+                        title="MongoDB connection failed",
+                        message=f"MongoDB health check failed: {e}",
+                        group_key="database_connection_failed_mongodb",
+                    )
+                )
+            except Exception:
+                pass  # DB may be down — can't write notification
             return False
 
     @property
@@ -110,6 +132,11 @@ class MongoDB:
     def services(self):
         """Services collection."""
         return self.db.services
+
+    @property
+    def known_services(self):
+        """Known services registry collection."""
+        return self.db.known_services
 
     @property
     def groups(self):
@@ -200,6 +227,21 @@ class MongoDB:
     def user_settings(self):
         """User settings collection."""
         return self.db.user_settings
+
+    @property
+    def system_settings(self):
+        """System settings collection."""
+        return self.db.system_settings
+
+    @property
+    def notifications(self):
+        """Notifications collection."""
+        return self.db.notifications
+
+    @property
+    def notification_reads(self):
+        """Per-user notification read state collection."""
+        return self.db.notification_reads
 
 
 _mongodb: MongoDB | None = None

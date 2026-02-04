@@ -1,5 +1,6 @@
-import { ReactNode } from 'react';
-import { Settings2, Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { ReactNode, useState } from 'react';
+import { Settings2, Eye, EyeOff, RotateCcw, Maximize2, Minimize2, LucideIcon } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -8,12 +9,13 @@ import {
 } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import { useDashboardStore, type WidgetConfig } from '@/stores/dashboard-store';
 
 const WIDGET_LABELS: Record<WidgetConfig['type'], string> = {
   stats: 'Stats Cards',
   capacity: 'Capacity Overview',
-  alerts: 'Recent Alerts',
+  notifications: 'Recent Activities',
   activity: 'Recent Activity',
   'topology-mini': 'Mini Topology',
   services: 'Services Status',
@@ -35,11 +37,28 @@ interface WidgetProps {
   id: string;
   children: ReactNode;
   className?: string;
+  title?: string;
+  description?: string;
+  icon?: LucideIcon;
+  actions?: ReactNode;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
 }
 
-export function Widget({ id, children, className = '' }: WidgetProps) {
+export function Widget({
+  id,
+  children,
+  className = '',
+  title,
+  description,
+  icon: Icon,
+  actions,
+  collapsible = false,
+  defaultCollapsed = false
+}: WidgetProps) {
   const { widgetLayout, isEditMode } = useDashboardStore();
   const config = widgetLayout.find((w) => w.id === id);
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
 
   if (!config?.visible) {
     return null;
@@ -47,16 +66,78 @@ export function Widget({ id, children, className = '' }: WidgetProps) {
 
   return (
     <div
-      className={`relative ${className} ${
-        isEditMode ? 'ring-2 ring-dashed ring-muted-foreground/30 rounded-lg' : ''
-      }`}
+      className={cn(
+        'relative rounded-xl border border-border bg-card overflow-hidden',
+        isEditMode && 'ring-2 ring-dashed ring-muted-foreground/30',
+        className
+      )}
     >
-      {isEditMode && (
+      {/* Widget Header */}
+      {(title || Icon || isEditMode) && (
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+          <div className="flex items-center gap-2">
+            {Icon && (
+              <div className="p-1.5 rounded-lg bg-muted">
+                <Icon className="h-4 w-4 text-primary" />
+              </div>
+            )}
+            <div>
+              {title && (
+                <h3 className="font-semibold text-sm text-foreground">{title}</h3>
+              )}
+              {description && (
+                <p className="text-xs text-muted-foreground">{description}</p>
+              )}
+            </div>
+            {isEditMode && !title && (
+              <span className="text-xs text-muted-foreground">
+                {WIDGET_LABELS[config.type] || id}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {actions}
+            {collapsible && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={() => setIsCollapsed(!isCollapsed)}
+              >
+                {isCollapsed ? (
+                  <Maximize2 className="h-3.5 w-3.5" />
+                ) : (
+                  <Minimize2 className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {/* Edit Mode Label (when no header) */}
+      {isEditMode && !title && !Icon && (
         <div className="absolute -top-3 left-2 bg-card px-2 py-0.5 text-xs text-muted-foreground rounded border border-border z-10">
           {WIDGET_LABELS[config.type] || id}
         </div>
       )}
-      {children}
+      
+      {/* Widget Content */}
+      <AnimatePresence initial={false}>
+        {!isCollapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <div className="p-4">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

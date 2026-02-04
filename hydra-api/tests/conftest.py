@@ -11,7 +11,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from hydra.core.config import Settings, get_settings
+from hydra.core.config import Settings, clear_settings_cache, get_settings, override_settings
 from hydra.api.v1.core.security import create_access_token
 from hydra.db.mongodb import MongoDB, get_mongodb
 from hydra.db.redis import RedisClient, get_redis
@@ -28,10 +28,18 @@ def event_loop():
     loop.close()
 
 
+@pytest.fixture(autouse=True)
+def _clear_settings():
+    """Clear settings cache between tests to ensure isolation."""
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
+
+
 @pytest.fixture
 def test_settings() -> Settings:
-    """Get test settings."""
-    return Settings(
+    """Get test settings and inject as global override."""
+    settings = Settings(
         env="development",
         debug=True,
         mongodb_uri="mongodb://localhost:27017",
@@ -40,6 +48,8 @@ def test_settings() -> Settings:
         jwt_secret="test-secret-key",
         jwt_expire_minutes=60,
     )
+    with override_settings(settings):
+        yield settings
 
 
 def create_mock_collection() -> MagicMock:
