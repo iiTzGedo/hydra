@@ -367,11 +367,15 @@ class TestWebSocketEndpoint:
         mock_ws.headers = {}
         mock_ws.close = AsyncMock()
 
-        with patch("hydra.api.v1.routers.chat_ws.get_user_from_token") as mock_auth:
-            mock_auth.return_value = None
+        with patch("hydra.api.v1.routers.chat_ws._authenticate_from_connection") as mock_conn_auth, \
+             patch("hydra.api.v1.routers.chat_ws._authenticate_from_message") as mock_msg_auth:
+            mock_conn_auth.return_value = None
+            mock_msg_auth.return_value = None
 
             from hydra.api.v1.routers.chat_ws import chat_websocket
 
+            mock_ws.accept = AsyncMock()
+            mock_ws.send_json = AsyncMock()
             mock_mongodb = MagicMock()
             await chat_websocket(mock_ws, mock_mongodb)
 
@@ -385,7 +389,7 @@ class TestWebSocketEndpoint:
         mock_ws.headers = {}
         mock_ws.close = AsyncMock()
 
-        with patch("hydra.api.v1.routers.chat_ws.get_user_from_token") as mock_auth:
+        with patch("hydra.api.v1.routers.chat_ws._authenticate_from_connection") as mock_auth:
             mock_auth.return_value = {"sub": "agent_node", "sub_type": "agent"}
 
             from hydra.api.v1.routers.chat_ws import chat_websocket
@@ -409,7 +413,7 @@ class TestWebSocketEndpoint:
         mock_ws.send_json = AsyncMock()
         mock_ws.receive_json = AsyncMock(side_effect=WebSocketDisconnect())
 
-        with patch("hydra.api.v1.routers.chat_ws.get_user_from_token") as mock_auth:
+        with patch("hydra.api.v1.routers.chat_ws._authenticate_from_connection") as mock_auth:
             mock_auth.return_value = {"sub": "user_123", "sub_type": "user"}
 
             from hydra.api.v1.routers.chat_ws import chat_websocket

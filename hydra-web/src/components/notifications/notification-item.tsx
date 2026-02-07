@@ -169,12 +169,15 @@ export const NotificationItem = forwardRef<HTMLButtonElement, NotificationItemPr
                 {isUnread && onMarkRead && tier <= INFO_MAX_TIER && (
                   <>
                     <span className="text-border">•</span>
-                    <button
+                    <span
+                      role="button"
+                      tabIndex={0}
                       onClick={handleMarkRead}
-                      className="text-xs text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary/20 rounded px-1"
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMarkRead(e as unknown as React.MouseEvent); } }}
+                      className="text-xs text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary/20 rounded px-1 cursor-pointer"
                     >
                       Mark read
-                    </button>
+                    </span>
                   </>
                 )}
               </div>

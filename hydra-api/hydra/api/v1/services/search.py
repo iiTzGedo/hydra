@@ -1,5 +1,7 @@
 """Global search service."""
 
+import re
+
 import structlog
 from pymongo.errors import OperationFailure
 
@@ -137,7 +139,7 @@ class SearchService:
         search_query: dict = {"status": {"$ne": "archived"}}
 
         if query:
-            regex = {"$regex": query, "$options": "i"}
+            regex = {"$regex": re.escape(query), "$options": "i"}
             search_query["$or"] = [
                 {"nodeId": regex},
                 {"displayName": regex},
@@ -231,7 +233,7 @@ class SearchService:
         search_query: dict = {}
 
         if query:
-            regex = {"$regex": query, "$options": "i"}
+            regex = {"$regex": re.escape(query), "$options": "i"}
             search_query["$or"] = [
                 {"serviceId": regex},
                 {"name": regex},
@@ -267,7 +269,7 @@ class SearchService:
         search_query: dict = {}
 
         if query:
-            regex = {"$regex": query, "$options": "i"}
+            regex = {"$regex": re.escape(query), "$options": "i"}
             search_query["$or"] = [
                 {"groupId": regex},
                 {"name": regex},
@@ -308,7 +310,7 @@ class SearchService:
         search_query: dict = {}
 
         if query:
-            regex = {"$regex": query, "$options": "i"}
+            regex = {"$regex": re.escape(query), "$options": "i"}
             search_query["$or"] = [
                 {"networkId": regex},
                 {"name": regex},

@@ -237,7 +237,7 @@ export default function NodesPage() {
   const handleEditNode = useCallback(async (data: UpdateNodeRequest) => {
     if (!editingNode) return;
     try {
-      await updateNodeMutation.mutateAsync({ nodeId: editingNode.nodeId, data });
+      await updateNodeMutation.mutateAsync({ id: editingNode.nodeId, data });
       toast.success(`Node "${editingNode.displayName}" updated successfully`);
       setEditingNode(null);
     } catch (err: unknown) {

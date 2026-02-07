@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
-import type { ApiResponse, PaginatedResponse } from '@/types/api';
+import {
+  createListHook,
+  createDetailHook,
+  createCreateMutation,
+  createUpdateMutation,
+} from '@/api/create-entity-hooks';
+import type { ApiResponse } from '@/types/api';
 import type {
   Network,
   NetworkSummary,
@@ -11,54 +17,17 @@ import type {
   NetworkNodeInfo,
 } from '@/types/network';
 
-type NetworkSummaryWithId = NetworkSummary & { id: string };
+export const useNetworks = createListHook<NetworkSummary, NetworkListParams>({
+  endpoint: '/networks',
+  idField: 'networkId',
+  queryKey: queryKeys.networks.list,
+});
 
-export function useNetworks(params?: NetworkListParams) {
-  return useQuery({
-    queryKey: queryKeys.networks.list(params),
-    queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<NetworkSummary[]>>('/networks', {
-        params: {
-          type: params?.type,
-          parentNetworkId: params?.parentNetworkId,
-          routerNodeId: params?.routerNodeId,
-          cidr: params?.cidr,
-          tags: params?.tags,
-          search: params?.search,
-          limit: params?.limit ?? 20,
-          offset: params?.offset ?? 0,
-          sortBy: params?.sortBy,
-          sortOrder: params?.sortOrder,
-        },
-      });
-      const items: NetworkSummaryWithId[] = response.data.data.map(network => ({
-        ...network,
-        id: network.networkId,
-      }));
-      const result: PaginatedResponse<NetworkSummaryWithId> = {
-        items,
-        total: response.data.meta?.total ?? response.data.data.length,
-        limit: response.data.meta?.limit ?? params?.limit ?? 20,
-        offset: response.data.meta?.offset ?? params?.offset ?? 0,
-      };
-      return result;
-    },
-  });
-}
-
-type NetworkWithId = Network & { id: string };
-
-export function useNetwork(networkId: string) {
-  return useQuery({
-    queryKey: queryKeys.networks.detail(networkId),
-    queryFn: async (): Promise<NetworkWithId> => {
-      const response = await apiClient.get<ApiResponse<Network>>(`/networks/${networkId}`);
-      const network = response.data.data;
-      return { ...network, id: network.networkId };
-    },
-    enabled: !!networkId,
-  });
-}
+export const useNetwork = createDetailHook<Network>({
+  endpoint: '/networks',
+  idField: 'networkId',
+  queryKey: queryKeys.networks.detail,
+});
 
 export function useNetworkNodes(networkId: string) {
   return useQuery({
@@ -76,44 +45,19 @@ export function useNetworkNodes(networkId: string) {
   });
 }
 
-export function useCreateNetwork() {
-  const queryClient = useQueryClient();
+export const useCreateNetwork = createCreateMutation<CreateNetworkRequest, Network>({
+  endpoint: '/networks',
+  listQueryKey: queryKeys.networks.list,
+});
 
-  return useMutation({
-    mutationFn: async (data: CreateNetworkRequest) => {
-      const response = await apiClient.post<ApiResponse<Network>>('/networks', data);
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.networks.list() });
-    },
-  });
-}
+export const useUpdateNetwork = createUpdateMutation<UpdateNetworkRequest, Network>({
+  endpoint: '/networks',
+  method: 'put',
+  listQueryKey: queryKeys.networks.list,
+  detailQueryKey: queryKeys.networks.detail,
+});
 
-export function useUpdateNetwork() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      networkId,
-      data,
-    }: {
-      networkId: string;
-      data: UpdateNetworkRequest;
-    }) => {
-      const response = await apiClient.put<ApiResponse<Network>>(
-        `/networks/${networkId}`,
-        data
-      );
-      return response.data.data;
-    },
-    onSuccess: (_data, { networkId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.networks.detail(networkId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.networks.list() });
-    },
-  });
-}
-
+// Custom delete — supports `force` parameter
 export function useDeleteNetwork() {
   const queryClient = useQueryClient();
 

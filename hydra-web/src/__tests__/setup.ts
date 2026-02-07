@@ -55,3 +55,11 @@ Object.defineProperty(window, 'scrollTo', {
   writable: true,
   value: () => {},
 });
+
+// MSW server lifecycle hooks
+import { beforeAll, afterEach, afterAll } from 'vitest';
+import { server } from './msw/server';
+
+beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }));
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());

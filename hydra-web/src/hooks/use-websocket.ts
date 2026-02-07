@@ -72,25 +72,25 @@ export async function refreshAccessToken(): Promise<string | null> {
 
 /**
  * Build WebSocket URL from API URL configuration.
+ * Token is NOT included in the URL — authentication happens via message after connection.
  * @param path - WebSocket path relative to API base (e.g., '/chat/ws')
- * @param token - Authentication token
  */
-export function buildWsUrl(path: string, token: string): string {
+export function buildWsUrl(path: string): string {
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
 
   try {
     const url = new URL(apiUrl);
     const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     const basePath = url.pathname.replace(/\/$/, '');
-    const wsUrl = `${wsProtocol}//${url.host}${basePath}${path}?token=${token}`;
+    const wsUrl = `${wsProtocol}//${url.host}${basePath}${path}`;
 
-    wsDebug.log('Constructed URL:', wsUrl.replace(/token=[^&]+/, 'token=***'));
+    wsDebug.log('Constructed URL:', wsUrl);
     return wsUrl;
   } catch {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/api/v1${path}?token=${token}`;
+    const wsUrl = `${wsProtocol}//${window.location.host}/api/v1${path}`;
 
-    wsDebug.warn('URL parsing failed, using fallback:', wsUrl.replace(/token=[^&]+/, 'token=***'));
+    wsDebug.warn('URL parsing failed, using fallback:', wsUrl);
     return wsUrl;
   }
 }
@@ -190,7 +190,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
       return;
     }
 
-    const wsUrl = buildWsUrl(path, tokenToUse);
+    const wsUrl = buildWsUrl(path);
 
     try {
       wsDebug.log('Attempting connection...', {
@@ -202,17 +202,10 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        wsDebug.log('Connected successfully');
-        reconnectAttemptRef.current = 0;
-        setIsConnected(true);
-        onConnectedRef.current?.();
+        wsDebug.log('Connected, sending authentication message...');
 
-        // Start ping interval
-        pingIntervalRef.current = window.setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: pingType }));
-          }
-        }, PING_INTERVAL);
+        // Send authentication via message instead of URL parameter
+        ws.send(JSON.stringify({ type: 'authenticate', token: tokenToUse }));
       };
 
       ws.onclose = (event) => {
@@ -273,6 +266,23 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+
+          // Handle authentication response from server
+          if (data.type === 'authenticated') {
+            wsDebug.log('Authenticated successfully');
+            reconnectAttemptRef.current = 0;
+            setIsConnected(true);
+            onConnectedRef.current?.();
+
+            // Start ping interval after successful auth
+            pingIntervalRef.current = window.setInterval(() => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: pingType }));
+              }
+            }, PING_INTERVAL);
+            return;
+          }
+
           onMessageRef.current?.(data);
         } catch (e) {
           console.error('[WebSocket] Failed to parse message:', e);

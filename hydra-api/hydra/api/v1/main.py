@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, FileResponse
 
 from hydra.api.v1 import __version__
 from hydra.core.config import get_settings
+from hydra.api.v1.core.context import get_request_id, set_request_id
 from hydra.api.v1.core.exceptions import HydraError
 from hydra.api.v1.routers import ai, auth, chat, commands, docs, groups, ha, health, install, mcp, networks, nodes, notifications, profiles, query, search, services, settings as settings_router, timemachine, topologies, users
 
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        set_request_id(request_id)
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
@@ -76,7 +78,7 @@ def create_app() -> FastAPI:
     # Exception handlers
     @app.exception_handler(HydraError)
     async def hydra_error_handler(request: Request, exc: HydraError) -> JSONResponse:
-        request_id = request.headers.get("X-Request-ID", "unknown")
+        request_id = get_request_id()
         logger.warning(
             "hydra_error",
             code=exc.code,
@@ -99,7 +101,7 @@ def create_app() -> FastAPI:
     async def validation_error_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        request_id = request.headers.get("X-Request-ID", "unknown")
+        request_id = get_request_id()
         errors = exc.errors()
         logger.warning("validation_error", errors=errors)
         return JSONResponse(
@@ -116,7 +118,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def general_error_handler(request: Request, exc: Exception) -> JSONResponse:
-        request_id = request.headers.get("X-Request-ID", "unknown")
+        request_id = get_request_id()
         logger.exception("unhandled_error", error=str(exc))
 
         # Fire-and-forget notification for unhandled errors (rate-limited via group_key)
@@ -190,7 +192,7 @@ def create_app() -> FastAPI:
     app.include_router(install.router)
     app.include_router(ai.router)
     app.include_router(chat.router)
-    # Note: chat_ws.router is included at root app level for WebSocket compatibility
+    # Note: chat_ws.router and notifications_ws.router are included at root app level for WebSocket compatibility
     app.include_router(mcp.router)
     app.include_router(notifications.router)
     app.include_router(search.router)

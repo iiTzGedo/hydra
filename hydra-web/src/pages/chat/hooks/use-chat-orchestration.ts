@@ -9,6 +9,8 @@ import {
   useChatMessages,
   useSessionContext,
   useCreateChatProject,
+  useUpdateChatProject,
+  useDeleteChatProject,
   useCreateChatSession,
   useUpdateChatSession,
   useDeleteChatSession,
@@ -188,6 +190,8 @@ export function useChatOrchestration() {
 
   // ── Mutations ───────────────────────────────────────────────────────
   const createProjectMutation = useCreateChatProject();
+  const updateProjectMutation = useUpdateChatProject();
+  const deleteProjectMutation = useDeleteChatProject();
   const createSessionMutation = useCreateChatSession();
   const updateSessionMutation = useUpdateChatSession();
   const deleteSessionMutation = useDeleteChatSession();
@@ -565,6 +569,51 @@ export function useChatOrchestration() {
     [createProjectMutation, toast]
   );
 
+  const handleRenameProject = useCallback(
+    (projectId: string, newName: string) => {
+      if (!newName.trim()) return;
+      updateProjectMutation.mutate(
+        { projectId, data: { name: newName.trim() } },
+        {
+          onError: () => {
+            toast({
+              title: 'Failed to rename project',
+              description: 'Please try again.',
+              variant: 'destructive',
+            });
+          },
+        }
+      );
+    },
+    [updateProjectMutation, toast]
+  );
+
+  const handleDeleteProject = useCallback(
+    (projectId: string) => {
+      const sessionsInProject = sessions.filter((s) => s.projectId === projectId);
+      const currentInProject = sessionsInProject.some((s) => s.sessionId === currentSessionId);
+
+      deleteProjectMutation.mutate(
+        { projectId, cascade: true },
+        {
+          onSuccess: () => {
+            if (currentInProject) {
+              setCurrentSessionId(null);
+            }
+          },
+          onError: () => {
+            toast({
+              title: 'Failed to delete project',
+              description: 'Please try again.',
+              variant: 'destructive',
+            });
+          },
+        }
+      );
+    },
+    [sessions, currentSessionId, deleteProjectMutation, toast]
+  );
+
   const handleSelectSession = useCallback(
     (sessionId: string) => {
       setCurrentSessionId(sessionId);
@@ -866,6 +915,8 @@ export function useChatOrchestration() {
     handleDuplicateSession,
     handleExportSession,
     handleCreateProject,
+    handleRenameProject,
+    handleDeleteProject,
     handleSend,
 
     // LLM provider handlers

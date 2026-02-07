@@ -19,6 +19,9 @@ export default defineConfig({
       reporter: ['text', 'html'],
       exclude: ['node_modules/', 'src/__tests__/setup.ts'],
     },
+    env: {
+      VITE_API_URL: 'http://localhost:8080/api/v1',
+    },
   },
   optimizeDeps: {
     include: ['elkjs/lib/elk.bundled.js'],

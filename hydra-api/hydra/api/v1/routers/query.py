@@ -20,6 +20,7 @@ from hydra.api.v1.models.query import (
     QueryRequest,
     QueryResponse,
 )
+from hydra.api.v1.services.groups import GroupsService
 from hydra.api.v1.services.query import AuditService, QueryService, log_audit
 
 router = APIRouter(tags=["Query & Analytics"])
@@ -28,7 +29,7 @@ logger = structlog.get_logger(__name__)
 
 def get_query_service(mongodb: MongoDBDep) -> QueryService:
     """Get query service dependency."""
-    return QueryService(mongodb)
+    return QueryService(mongodb, groups_service=GroupsService(mongodb))
 
 
 def get_audit_service(mongodb: MongoDBDep) -> AuditService:

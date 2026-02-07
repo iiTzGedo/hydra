@@ -98,6 +98,8 @@ export interface ChatSidebarProps {
   onDuplicateSession: (sessionId?: string) => void;
   onExportSession: (sessionId?: string) => void;
   onDeleteSession: (sessionId?: string) => void;
+  onRenameProject: (projectId: string, newName: string) => void;
+  onDeleteProject: (projectId: string) => void;
 
   // Tools tab props
   isHydraMcpInSession: boolean;
@@ -147,6 +149,8 @@ export function ChatSidebar({
   onDuplicateSession,
   onExportSession,
   onDeleteSession,
+  onRenameProject,
+  onDeleteProject,
   isHydraMcpInSession,
   isHydraMcpHealthy,
   hydraMcpHealth,
@@ -254,6 +258,8 @@ export function ChatSidebar({
                             onDrop={(sessionId) =>
                               onMoveSessionToProject(sessionId, project.projectId)
                             }
+                            onRename={(newName) => onRenameProject(project.projectId, newName)}
+                            onDelete={() => onDeleteProject(project.projectId)}
                           >
                             {projectSessions.map((session) => (
                               <ChatListItem

@@ -1,5 +1,6 @@
 """Service management service."""
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -62,10 +63,11 @@ class ServicesService:
         if params.port:
             filter_query["exposure.ports.port"] = params.port
         if params.search:
+            escaped = re.escape(params.search)
             filter_query["$or"] = [
-                {"name": {"$regex": params.search, "$options": "i"}},
-                {"displayName": {"$regex": params.search, "$options": "i"}},
-                {"serviceId": {"$regex": params.search, "$options": "i"}},
+                {"name": {"$regex": escaped, "$options": "i"}},
+                {"displayName": {"$regex": escaped, "$options": "i"}},
+                {"serviceId": {"$regex": escaped, "$options": "i"}},
             ]
 
         sort_field_map = {

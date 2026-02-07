@@ -1,5 +1,6 @@
 """Documentation service for infrastructure knowledge base management."""
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -138,10 +139,11 @@ class DocsService:
         if params.tags:
             query["tags"] = {"$all": params.tags}
         if params.search:
+            escaped = re.escape(params.search)
             query["$or"] = [
-                {"title": {"$regex": params.search, "$options": "i"}},
-                {"description": {"$regex": params.search, "$options": "i"}},
-                {"content": {"$regex": params.search, "$options": "i"}},
+                {"title": {"$regex": escaped, "$options": "i"}},
+                {"description": {"$regex": escaped, "$options": "i"}},
+                {"content": {"$regex": escaped, "$options": "i"}},
             ]
 
         total = await self.docs.count_documents(query)

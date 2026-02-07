@@ -32,12 +32,14 @@ class WSMessageType:
     """WebSocket message types for client-server communication."""
 
     # Client -> Server
+    AUTHENTICATE = "authenticate"
     CHAT_REQUEST = "chat_request"
     RETRY_MESSAGE = "retry_message"  # Retry generating response for orphaned user message
     CANCEL = "cancel"
     PING = "ping"
 
     # Server -> Client
+    AUTHENTICATED = "authenticated"
     TEXT_DELTA = "text_delta"
     TOOL_CALL_START = "tool_call_start"
     TOOL_CALL_RESULT = "tool_call_result"
@@ -947,30 +949,15 @@ async def _notification_listener(
                 pass
 
 
-async def get_user_from_token(websocket: WebSocket) -> dict | None:
-    """Extract and verify user from WebSocket authentication.
-
-    Checks for JWT token in query parameters or Authorization header.
+def _verify_token(token: str) -> dict | None:
+    """Verify a JWT token and return the decoded payload.
 
     Args:
-        websocket: The WebSocket connection instance.
+        token: JWT token string.
 
     Returns:
-        Decoded user payload if valid, None otherwise.
+        Decoded payload if valid, None otherwise.
     """
-    token = websocket.query_params.get("token")
-    logger.debug("ws_auth_attempt", has_query_token=bool(token))
-
-    if not token:
-        auth_header = websocket.headers.get("authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-            logger.debug("ws_auth_using_header", has_header_token=bool(token))
-
-    if not token:
-        logger.warning("ws_auth_no_token")
-        return None
-
     try:
         payload = decode_token(token)
         logger.info("ws_auth_success", user_id=payload.get("sub"))
@@ -980,6 +967,74 @@ async def get_user_from_token(websocket: WebSocket) -> dict | None:
         return None
 
 
+async def _authenticate_from_connection(websocket: WebSocket) -> dict | None:
+    """Try to authenticate from query parameters or headers (legacy support).
+
+    Args:
+        websocket: The WebSocket connection instance.
+
+    Returns:
+        Decoded user payload if valid, None if no token found in connection params.
+    """
+    token = websocket.query_params.get("token")
+    if not token:
+        auth_header = websocket.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+
+    if not token:
+        return None
+
+    return _verify_token(token)
+
+
+async def get_user_from_token(websocket: WebSocket) -> dict | None:
+    """Extract and verify user from WebSocket query params or Authorization header.
+
+    Public API used by other WebSocket endpoints (e.g., notifications).
+
+    Args:
+        websocket: The WebSocket connection instance.
+
+    Returns:
+        Decoded user payload if valid, None otherwise.
+    """
+    return await _authenticate_from_connection(websocket)
+
+
+async def _authenticate_from_message(websocket: WebSocket) -> dict | None:
+    """Wait for an authenticate message from the client after connection.
+
+    Expects the first message to be: { type: 'authenticate', token: '<jwt>' }
+    Times out after 10 seconds.
+
+    Args:
+        websocket: The accepted WebSocket connection.
+
+    Returns:
+        Decoded user payload if valid, None otherwise.
+    """
+    try:
+        data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+    except asyncio.TimeoutError:
+        logger.warning("ws_auth_timeout")
+        return None
+    except Exception as e:
+        logger.warning("ws_auth_receive_error", error=str(e))
+        return None
+
+    if data.get("type") != WSMessageType.AUTHENTICATE:
+        logger.warning("ws_auth_unexpected_message", msg_type=data.get("type"))
+        return None
+
+    token = data.get("token")
+    if not token:
+        logger.warning("ws_auth_no_token_in_message")
+        return None
+
+    return _verify_token(token)
+
+
 @router.websocket("/chat/ws")
 async def chat_websocket(
     websocket: WebSocket,
@@ -987,23 +1042,26 @@ async def chat_websocket(
 ):
     """WebSocket endpoint for real-time chat with streaming LLM responses.
 
-    Authenticates via JWT token in query parameter or Authorization header.
+    Authenticates via message-based auth (preferred) or legacy query param/header.
     Supports bidirectional communication for chat requests, cancellation, and ping/pong.
 
     Args:
         websocket: The WebSocket connection instance.
         mongodb: MongoDB database dependency.
 
-    Connection:
-        - Query param: ws://host/api/v1/chat/ws?token=<jwt>
-        - Header: Authorization: Bearer <jwt>
+    Authentication:
+        - Preferred: Connect without token, send { type: 'authenticate', token: '<jwt>' }
+        - Legacy: Query param ws://host/api/v1/chat/ws?token=<jwt>
+        - Legacy: Header Authorization: Bearer <jwt>
 
     Client Messages:
+        - authenticate: {type, token} (first message for message-based auth)
         - chat_request: {type, sessionId, content, providerId?}
         - cancel: {type: "cancel"}
         - ping: {type: "ping"}
 
     Server Messages:
+        - authenticated: Confirms successful authentication
         - text_delta: Streaming text chunks
         - tool_call_start: Tool execution started
         - tool_call_result: Tool execution completed
@@ -1011,17 +1069,35 @@ async def chat_websocket(
         - error: Error occurred
         - pong: Response to ping
     """
-    user = await get_user_from_token(websocket)
+    # Try legacy auth from query params/headers first
+    user = await _authenticate_from_connection(websocket)
+    needs_message_auth = user is None
 
-    if not user:
-        await websocket.close(code=4001, reason="Unauthorized")
-        return
-
-    if user.get("sub_type") == "agent":
+    if user and user.get("sub_type") == "agent":
         await websocket.close(code=4003, reason="Agents cannot use chat")
         return
 
+    if not needs_message_auth and not user:
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
     await websocket.accept()
+
+    # If no token in connection, wait for message-based auth
+    if needs_message_auth:
+        user = await _authenticate_from_message(websocket)
+        if not user:
+            await websocket.send_json({"type": WSMessageType.ERROR, "error": "Authentication failed"})
+            await websocket.close(code=4001, reason="Unauthorized")
+            return
+
+        if user.get("sub_type") == "agent":
+            await websocket.send_json({"type": WSMessageType.ERROR, "error": "Agents cannot use chat"})
+            await websocket.close(code=4003, reason="Agents cannot use chat")
+            return
+
+    # Send authenticated confirmation
+    await websocket.send_json({"type": WSMessageType.AUTHENTICATED})
 
     handler = ChatWebSocketHandler(
         websocket=websocket,

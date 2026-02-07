@@ -21,8 +21,9 @@ logger = structlog.get_logger(__name__)
 class QueryService:
     """Service for advanced queries and analytics."""
 
-    def __init__(self, mongodb: MongoDB):
+    def __init__(self, mongodb: MongoDB, groups_service: Any = None):
         self.mongodb = mongodb
+        self._groups_service = groups_service
 
     def _get_collection(self, name: QueryCollection):
         """Get collection by name."""
@@ -92,15 +93,16 @@ class QueryService:
         if network_id:
             query["networkIds"] = network_id
 
-        if group_id:
-            group = await self.mongodb.groups.find_one({"groupId": group_id})
-            if group:
-                members = group.get("members", {})
-                node_ids = [m.get("nodeId") for m in members.get("nodes", []) if m.get("nodeId")]
+        if group_id and self._groups_service:
+            try:
+                node_ids = await self._groups_service.get_member_node_ids(group_id)
                 if node_ids:
                     query["nodeId"] = {"$in": node_ids}
+            except Exception:
+                logger.warning("group_capacity_filter_failed", group_id=group_id)
+
         pipeline = [
-            {"$match": {"status": "active"}},
+            {"$match": query},
             {
                 "$lookup": {
                     "from": "profiles",
@@ -163,7 +165,7 @@ class QueryService:
 
         if group_by == CapacityGroupBy.CLASS or group_by is None:
             class_pipeline = [
-                {"$match": {"status": "active"}},
+                {"$match": query},
                 {
                     "$lookup": {
                         "from": "profiles",
@@ -207,8 +209,9 @@ class QueryService:
             response["byClass"] = by_class
 
         if group_by == CapacityGroupBy.LOCATION or group_by is None:
+            location_query = {**query, "location.site": {"$exists": True}}
             location_pipeline = [
-                {"$match": {"status": "active", "location.site": {"$exists": True}}},
+                {"$match": location_query},
                 {
                     "$lookup": {
                         "from": "profiles",

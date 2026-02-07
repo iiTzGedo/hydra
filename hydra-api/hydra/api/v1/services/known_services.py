@@ -1,5 +1,6 @@
 """Known services registry for filtering unknown service notifications."""
 
+import re
 from datetime import datetime, timezone
 import secrets
 
@@ -48,9 +49,10 @@ class KnownServicesService:
         if runtime:
             query["runtime"] = runtime
         if search:
+            escaped = re.escape(search)
             query["$or"] = [
-                {"name": {"$regex": search, "$options": "i"}},
-                {"normalizedName": {"$regex": search, "$options": "i"}},
+                {"name": {"$regex": escaped, "$options": "i"}},
+                {"normalizedName": {"$regex": escaped, "$options": "i"}},
             ]
 
         total = await self.db.known_services.count_documents(query)

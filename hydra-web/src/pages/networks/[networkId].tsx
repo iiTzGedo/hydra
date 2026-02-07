@@ -91,7 +91,7 @@ export default function NetworkDetailPage() {
       .filter(Boolean);
     try {
       await updateNetwork.mutateAsync({
-        networkId: network.networkId,
+        id: network.networkId,
         data: {
           name: editForm.name || undefined,
           description: editForm.description || undefined,

@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
-import type { ApiResponse, PaginatedResponse } from '@/types/api';
+import {
+  createListHook,
+  createDetailHook,
+  createCreateMutation,
+  createUpdateMutation,
+  createDeleteMutation,
+} from '@/api/create-entity-hooks';
+import type { ApiResponse } from '@/types/api';
 import type {
   Group,
   GroupSummary,
@@ -14,50 +21,17 @@ import type {
 
 type GroupWithId = GroupSummary & { id: string };
 
-export function useGroups(params?: GroupListParams) {
-  return useQuery({
-    queryKey: queryKeys.groups.list(params),
-    queryFn: async () => {
-      const response = await apiClient.get<ApiResponse<GroupSummary[]>>('/groups', {
-        params: {
-          types: params?.types,
-          parentGroupId: params?.parentGroupId,
-          tags: params?.tags,
-          search: params?.search,
-          limit: params?.limit ?? 20,
-          offset: params?.offset ?? 0,
-          sortBy: params?.sortBy,
-          sortOrder: params?.sortOrder,
-        },
-      });
-      const items: GroupWithId[] = response.data.data.map(group => ({
-        ...group,
-        id: group.groupId,
-      }));
-      const result: PaginatedResponse<GroupWithId> = {
-        items,
-        total: response.data.meta?.total ?? items.length,
-        limit: response.data.meta?.limit ?? params?.limit ?? 20,
-        offset: response.data.meta?.offset ?? params?.offset ?? 0,
-      };
-      return result;
-    },
-  });
-}
+export const useGroups = createListHook<GroupSummary, GroupListParams>({
+  endpoint: '/groups',
+  idField: 'groupId',
+  queryKey: queryKeys.groups.list,
+});
 
-type GroupDetailWithId = Group & { id: string };
-
-export function useGroup(groupId: string) {
-  return useQuery({
-    queryKey: queryKeys.groups.detail(groupId),
-    queryFn: async (): Promise<GroupDetailWithId> => {
-      const response = await apiClient.get<ApiResponse<Group>>(`/groups/${groupId}`);
-      const group = response.data.data;
-      return { ...group, id: group.groupId };
-    },
-    enabled: !!groupId,
-  });
-}
+export const useGroup = createDetailHook<Group>({
+  endpoint: '/groups',
+  idField: 'groupId',
+  queryKey: queryKeys.groups.detail,
+});
 
 export function useGroupMembers(
   groupId: string,
@@ -95,48 +69,22 @@ export function useGroupMembers(
   });
 }
 
-export function useCreateGroup() {
-  const queryClient = useQueryClient();
+export const useCreateGroup = createCreateMutation<CreateGroupRequest, Group>({
+  endpoint: '/groups',
+  listQueryKey: queryKeys.groups.list,
+});
 
-  return useMutation({
-    mutationFn: async (data: CreateGroupRequest) => {
-      const response = await apiClient.post<ApiResponse<Group>>('/groups', data);
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.groups.list() });
-    },
-  });
-}
+export const useUpdateGroup = createUpdateMutation<UpdateGroupRequest, Group>({
+  endpoint: '/groups',
+  method: 'put',
+  listQueryKey: queryKeys.groups.list,
+  detailQueryKey: queryKeys.groups.detail,
+});
 
-export function useUpdateGroup() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ groupId, data }: { groupId: string; data: UpdateGroupRequest }) => {
-      const response = await apiClient.put<ApiResponse<Group>>(`/groups/${groupId}`, data);
-      return response.data.data;
-    },
-    onSuccess: (_data, { groupId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.groups.detail(groupId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.groups.list() });
-    },
-  });
-}
-
-export function useDeleteGroup() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (groupId: string) => {
-      const response = await apiClient.delete(`/groups/${groupId}`);
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.groups.list() });
-    },
-  });
-}
+export const useDeleteGroup = createDeleteMutation({
+  endpoint: '/groups',
+  listQueryKey: queryKeys.groups.list,
+});
 
 export function useResolveGroup() {
   const queryClient = useQueryClient();

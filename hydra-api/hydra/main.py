@@ -18,7 +18,7 @@ from hydra.db.indexes import ensure_indexes
 from hydra.db.mongodb import get_mongodb
 from hydra.db.redis import get_redis
 from hydra.api.v1.main import app as v1_app
-from hydra.api.v1.routers import chat_ws, health
+from hydra.api.v1.routers import chat_ws, health, notifications_ws
 from hydra.api.v1.services.health_scanner import HealthScanner
 
 # Static files directory
@@ -122,9 +122,10 @@ def create_app() -> FastAPI:
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-    # Include WebSocket router at root level (before mount)
+    # Include WebSocket routers at root level (before mount)
     # This ensures WebSocket connections bypass the sub-application routing issues
     app.include_router(chat_ws.router, prefix="/api/v1")
+    app.include_router(notifications_ws.router, prefix="/api/v1")
 
     # Mount versioned API
     app.mount("/api/v1", v1_app)

@@ -88,7 +88,7 @@ export default function GroupDetailPage() {
       .filter(Boolean);
     try {
       await updateGroup.mutateAsync({
-        groupId: group.groupId,
+        id: group.groupId,
         data: {
           name: editForm.name || undefined,
           description: editForm.description || undefined,

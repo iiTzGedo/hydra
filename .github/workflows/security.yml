@@ -18,16 +18,14 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pip-audit
-      - name: Audit ${{ matrix.component }}
-        run: pip-audit -r <(pip install -e ".[${{ matrix.component == 'hydra-api' && 'dev' || '' }}]" --dry-run --report - 2>/dev/null || pip-audit --desc -f json ${{ matrix.component }})
-        working-directory: ${{ matrix.component }}
-        continue-on-error: true
-      - name: Install and audit
+      - name: Install dependencies
         run: |
           cd ${{ matrix.component }}
           pip install -e "." 2>/dev/null || true
+      - name: Audit ${{ matrix.component }}
+        run: |
+          cd ${{ matrix.component }}
           pip-audit --desc
-        continue-on-error: true
 
   npm-audit:
     name: NPM Dependencies
@@ -45,7 +43,6 @@ jobs:
       - run: npm ci
       - name: Audit
         run: npm audit --omit=dev
-        continue-on-error: true
 
   cargo-audit:
     name: Rust Dependencies
@@ -59,4 +56,25 @@ jobs:
       - run: cargo install cargo-audit
       - name: Audit
         run: cargo audit
-        continue-on-error: true
+
+  container-scan:
+    name: Container Image Scan
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - context: hydra-web
+            dockerfile: hydra-web/Dockerfile.dev
+            image: hydra-web:scan
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t ${{ matrix.image }} -f ${{ matrix.dockerfile }} ${{ matrix.context }}
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ matrix.image }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true

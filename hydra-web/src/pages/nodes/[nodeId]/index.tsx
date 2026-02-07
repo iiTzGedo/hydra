@@ -130,7 +130,7 @@ export default function NodeDetailPage() {
       .filter(Boolean);
     try {
       await updateNode.mutateAsync({
-        nodeId: node.id,
+        id: node.id,
         data: {
           displayName: editForm.displayName || undefined,
           description: editForm.description || undefined,

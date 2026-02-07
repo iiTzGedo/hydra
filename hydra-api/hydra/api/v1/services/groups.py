@@ -1,5 +1,6 @@
 """Group management service with selector resolution."""
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -86,10 +87,11 @@ class GroupsService:
         if params.tags:
             filter_query["tags"] = {"$all": params.tags}
         if params.search:
+            escaped = re.escape(params.search)
             filter_query["$or"] = [
-                {"name": {"$regex": params.search, "$options": "i"}},
-                {"groupId": {"$regex": params.search, "$options": "i"}},
-                {"description": {"$regex": params.search, "$options": "i"}},
+                {"name": {"$regex": escaped, "$options": "i"}},
+                {"groupId": {"$regex": escaped, "$options": "i"}},
+                {"description": {"$regex": escaped, "$options": "i"}},
             ]
 
         sort_field_map = {
@@ -139,10 +141,15 @@ class GroupsService:
         if existing:
             raise GroupAlreadyExistsError(request.group_id)
 
-        for parent_id in request.parent_group_ids:
-            parent = await self.db.groups.find_one({"groupId": parent_id})
-            if not parent:
-                raise GroupNotFoundError(parent_id)
+        if request.parent_group_ids:
+            parent_ids = list(set(request.parent_group_ids))
+            found_parents = await self.db.groups.find(
+                {"groupId": {"$in": parent_ids}}
+            ).to_list(length=len(parent_ids))
+            found_ids = {p["groupId"] for p in found_parents}
+            for parent_id in parent_ids:
+                if parent_id not in found_ids:
+                    raise GroupNotFoundError(parent_id)
 
         now = datetime.now(timezone.utc)
 
@@ -197,12 +204,17 @@ class GroupsService:
         if request.selectors is not None:
             update_fields["selectors"] = request.selectors.model_dump(by_alias=True, exclude_none=True)
         if request.parent_group_ids is not None:
-            for parent_id in request.parent_group_ids:
-                if parent_id == group_id:
-                    raise ValidationError("Group cannot be its own parent")
-                parent = await self.db.groups.find_one({"groupId": parent_id})
-                if not parent:
-                    raise GroupNotFoundError(parent_id)
+            if group_id in request.parent_group_ids:
+                raise ValidationError("Group cannot be its own parent")
+            parent_ids = list(set(request.parent_group_ids))
+            if parent_ids:
+                found_parents = await self.db.groups.find(
+                    {"groupId": {"$in": parent_ids}}
+                ).to_list(length=len(parent_ids))
+                found_ids = {p["groupId"] for p in found_parents}
+                for parent_id in parent_ids:
+                    if parent_id not in found_ids:
+                        raise GroupNotFoundError(parent_id)
             update_fields["parentGroupIds"] = request.parent_group_ids
         if request.tags is not None:
             update_fields["tags"] = request.tags
@@ -384,6 +396,35 @@ class GroupsService:
             members["services"] = services
 
         return members
+
+    async def get_member_node_ids(self, group_id: str) -> list[str]:
+        """Get node IDs belonging to a group via selector resolution.
+
+        Lightweight method that returns only node IDs without full member details.
+
+        Args:
+            group_id: The group identifier.
+
+        Returns:
+            List of node IDs matching the group's selectors.
+
+        Raises:
+            GroupNotFoundError: If the group does not exist.
+        """
+        group = await self.db.groups.find_one({"groupId": group_id})
+        if not group:
+            raise GroupNotFoundError(group_id)
+
+        if "node" not in group.get("types", []):
+            return []
+
+        selectors = GroupSelectors(**group.get("selectors", {}))
+        filter_query = self._build_node_filter(selectors)
+        if not filter_query:
+            return []
+
+        cursor = self.db.nodes.find(filter_query, {"nodeId": 1, "_id": 0})
+        return [doc["nodeId"] async for doc in cursor]
 
     async def _resolve_nodes(
         self,

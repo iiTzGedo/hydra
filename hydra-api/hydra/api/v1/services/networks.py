@@ -1,6 +1,7 @@
 """Network management service."""
 
 import ipaddress
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -103,10 +104,11 @@ class NetworksService:
         if params.tags:
             filter_query["tags"] = {"$all": params.tags}
         if params.search:
+            escaped = re.escape(params.search)
             filter_query["$or"] = [
-                {"name": {"$regex": params.search, "$options": "i"}},
-                {"networkId": {"$regex": params.search, "$options": "i"}},
-                {"cidr": {"$regex": params.search, "$options": "i"}},
+                {"name": {"$regex": escaped, "$options": "i"}},
+                {"networkId": {"$regex": escaped, "$options": "i"}},
+                {"cidr": {"$regex": escaped, "$options": "i"}},
             ]
 
         sort_field_map = {

@@ -124,6 +124,8 @@ export default function ChatPage() {
           onDuplicateSession={chat.handleDuplicateSession}
           onExportSession={chat.handleExportSession}
           onDeleteSession={chat.handleDeleteSession}
+          onRenameProject={chat.handleRenameProject}
+          onDeleteProject={chat.handleDeleteProject}
           isHydraMcpInSession={chat.isHydraMcpInSession}
           isHydraMcpHealthy={chat.isHydraMcpHealthy}
           hydraMcpHealth={chat.hydraMcpHealth}

@@ -16,7 +16,6 @@ import {
 import { useAuthStore } from '@/stores/auth-store';
 import type { Role } from '@/types/user';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -303,109 +302,37 @@ export default function SettingsPage() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.15 }}
           >
-            <Tabs value={topActiveTab} onValueChange={handleTopTabChange}>
-              <AnimatePresence mode="wait">
-                <TabsContent value="general" className="mt-0">
-                  <motion.div
-                    key="general"
-                    variants={tabVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                  >
-                    <GeneralSettings />
-                  </motion.div>
-                </TabsContent>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={topActiveTab}
+                variants={tabVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+              >
+                {topActiveTab === 'general' && <GeneralSettings />}
+                {topActiveTab === 'ai' && <AISettings />}
+                {topActiveTab === 'notifications' && <NotificationSettings />}
+                {topActiveTab === 'security' && <SecuritySettings />}
+                {topActiveTab === 'users' && <UserManagement />}
+              </motion.div>
+            </AnimatePresence>
 
-                <TabsContent value="ai" className="mt-0">
-                  <motion.div
-                    key="ai"
-                    variants={tabVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                  >
-                    <AISettings />
-                  </motion.div>
-                </TabsContent>
+            {visibleBottomTabs.length > 0 && <div className="mt-8" />}
 
-                <TabsContent value="notifications" className="mt-0">
-                  <motion.div
-                    key="notifications"
-                    variants={tabVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                  >
-                    <NotificationSettings />
-                  </motion.div>
-                </TabsContent>
-
-                <TabsContent value="security" className="mt-0">
-                  <motion.div
-                    key="security"
-                    variants={tabVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                  >
-                    <SecuritySettings />
-                  </motion.div>
-                </TabsContent>
-
-                <TabsContent value="users" className="mt-0">
-                  <motion.div
-                    key="users"
-                    variants={tabVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                  >
-                    <UserManagement />
-                  </motion.div>
-                </TabsContent>
-              </AnimatePresence>
-            </Tabs>
-
-            <Tabs value={bottomActiveTab} onValueChange={handleBottomTabChange}>
-              <AnimatePresence mode="wait">
-                <TabsContent value="agent" className="mt-0">
-                  <motion.div
-                    key="agent"
-                    variants={tabVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                  >
-                    <AgentSettings />
-                  </motion.div>
-                </TabsContent>
-
-                <TabsContent value="secrets" className="mt-0">
-                  <motion.div
-                    key="secrets"
-                    variants={tabVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                  >
-                    <SecretsSection />
-                  </motion.div>
-                </TabsContent>
-
-                <TabsContent value="audit" className="mt-0">
-                  <motion.div
-                    key="audit"
-                    variants={tabVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                  >
-                    <AuditLogSection />
-                  </motion.div>
-                </TabsContent>
-              </AnimatePresence>
-            </Tabs>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={bottomActiveTab}
+                variants={tabVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+              >
+                {bottomActiveTab === 'agent' && <AgentSettings />}
+                {bottomActiveTab === 'secrets' && <SecretsSection />}
+                {bottomActiveTab === 'audit' && <AuditLogSection />}
+              </motion.div>
+            </AnimatePresence>
           </motion.div>
         </div>
       </div>
