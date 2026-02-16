@@ -34,6 +34,7 @@ GroupsServiceDep = Annotated[GroupsService, Depends(get_groups_service)]
 @router.get(
     "",
     response_model=SuccessResponse[list[GroupSummary]],
+    response_model_by_alias=True,
     summary="List Groups",
     description="List all groups with optional filters and pagination.",
     dependencies=[Depends(require_permission("groups:read"))],
@@ -92,6 +93,7 @@ async def list_groups(
 @router.post(
     "",
     response_model=SuccessResponse[GroupResponse],
+    response_model_by_alias=True,
     status_code=201,
     summary="Create Group",
     description="Create a new group with selector-based membership.",
@@ -121,6 +123,7 @@ async def create_group(
 @router.get(
     "/{group_id}",
     response_model=SuccessResponse[GroupResponse],
+    response_model_by_alias=True,
     summary="Get Group",
     description="Get detailed information about a specific group.",
     dependencies=[Depends(require_permission("groups:read"))],
@@ -154,9 +157,10 @@ async def get_group(
     return SuccessResponse(data=GroupResponse(**group))
 
 
-@router.put(
+@router.patch(
     "/{group_id}",
     response_model=SuccessResponse[GroupResponse],
+    response_model_by_alias=True,
     summary="Update Group",
     description="Update group metadata and selectors.",
     dependencies=[Depends(require_permission("groups:update"))],
@@ -187,6 +191,7 @@ async def update_group(
 @router.delete(
     "/{group_id}",
     response_model=SuccessResponse[GroupResponse],
+    response_model_by_alias=True,
     summary="Delete Group",
     description="Delete a group.",
     dependencies=[Depends(require_permission("groups:delete"))],
@@ -215,6 +220,7 @@ async def delete_group(
 @router.get(
     "/{group_id}/members",
     response_model=SuccessResponse[GroupMembers],
+    response_model_by_alias=True,
     summary="Get Group Members",
     description="Get resolved members of a group with pagination.",
     dependencies=[Depends(require_permission("groups:read"))],
@@ -261,6 +267,7 @@ async def get_group_members(
 @router.post(
     "/{group_id}/resolve",
     response_model=SuccessResponse[GroupResolveResult],
+    response_model_by_alias=True,
     summary="Resolve Group",
     description="Force re-resolution of group membership and update cached counts.",
     dependencies=[Depends(require_permission("groups:update"))],

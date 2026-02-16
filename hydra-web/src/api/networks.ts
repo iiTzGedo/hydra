@@ -52,7 +52,7 @@ export const useCreateNetwork = createCreateMutation<CreateNetworkRequest, Netwo
 
 export const useUpdateNetwork = createUpdateMutation<UpdateNetworkRequest, Network>({
   endpoint: '/networks',
-  method: 'put',
+  method: 'patch',
   listQueryKey: queryKeys.networks.list,
   detailQueryKey: queryKeys.networks.detail,
 });

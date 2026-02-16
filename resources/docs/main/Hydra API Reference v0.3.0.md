@@ -819,7 +819,7 @@ Revoke temporary role.
 
 ## Nodes
 
-### POST /node/register
+### POST /nodes/register
 
 Register a new node.
 
@@ -871,7 +871,7 @@ Register a new node.
 
 ---
 
-### POST /node/{nodeId}/apikey/refresh
+### POST /nodes/{node_id}/apikey/refresh
 
 Refresh API key for a node.
 

@@ -8,6 +8,7 @@ import {
   Info,
   Server,
   ShieldAlert,
+  Trash2,
   User,
   XCircle,
 } from 'lucide-react';
@@ -41,6 +42,8 @@ interface NotificationDetailsModalProps {
   onOpenChange: (open: boolean) => void;
   onAcknowledge?: (id: string) => void;
   onResolve?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  canWrite?: boolean;
 }
 
 function formatTimestamp(ts: string | null | undefined): string {
@@ -71,6 +74,8 @@ export function NotificationDetailsModal({
   onOpenChange,
   onAcknowledge,
   onResolve,
+  onDelete,
+  canWrite = true,
 }: NotificationDetailsModalProps) {
   const navigate = useNavigate();
 
@@ -80,8 +85,8 @@ export function NotificationDetailsModal({
   const colors = TIER_COLORS[tier];
   const Icon = tierIcons[tier];
   const isActive = notification.status === 'active';
-  const canAcknowledge = isActive && !notification.acknowledgedAt && tier >= ACKNOWLEDGE_MIN_TIER;
-  const canResolve = isActive && tier >= RESOLVE_MIN_TIER;
+  const canAcknowledge = canWrite && isActive && !notification.acknowledgedAt && tier >= ACKNOWLEDGE_MIN_TIER;
+  const canResolve = canWrite && isActive && tier >= RESOLVE_MIN_TIER;
   const primaryLink = notification.links?.[0];
 
   return (
@@ -101,7 +106,7 @@ export function NotificationDetailsModal({
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                   {notification.status}
                 </Badge>
-                {notification.acknowledgedAt && (
+                {notification.acknowledgedAt && notification.status === 'active' && (
                   <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                     <Check className="h-3 w-3" />
                     Acknowledged
@@ -256,6 +261,20 @@ export function NotificationDetailsModal({
         </ScrollArea>
 
         <DialogFooter className="flex-shrink-0 gap-2 sm:gap-2">
+          {onDelete && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive mr-auto"
+              onClick={() => {
+                onDelete(notification.notificationId);
+                onOpenChange(false);
+              }}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete
+            </Button>
+          )}
           {primaryLink && (
             <Button
               variant="outline"

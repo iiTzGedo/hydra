@@ -184,7 +184,7 @@ impl AgentConfig {
     fn validate(&self) -> Result<()> {
         let node_id_re = Regex::new(r"^[a-z]+([._-][a-z0-9]+){0,2}$")
             .context("Invalid node ID regex pattern")?;
-        let tag_re = Regex::new(r"^[a-z]+[_:]?[a-z]+$")
+        let tag_re = Regex::new(r"^[a-z]+[-_:]?[a-z]+$")
             .context("Invalid tag regex pattern")?;
 
         if !node_id_re.is_match(&self.node.node_id) {
@@ -206,7 +206,7 @@ impl AgentConfig {
         for tag in &self.node.tags {
             if tag.len() > 64 || !tag_re.is_match(tag) {
                 return Err(anyhow!(
-                    "Invalid tag '{}'. Must match ^[a-z]+[_:]?[a-z]+$ and be <= 64 chars",
+                    "Invalid tag '{}'. Must match ^[a-z]+[-_:]?[a-z]+$ and be <= 64 chars",
                     tag
                 ));
             }

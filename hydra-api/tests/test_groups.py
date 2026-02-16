@@ -243,7 +243,7 @@ async def test_update_group_success(
     mock_mongodb.groups.find_one = AsyncMock(side_effect=[sample_group, updated_group])
     mock_mongodb.groups.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
 
-    response = await client.put(
+    response = await client.patch(
         f"/api/v1/groups/{sample_group['groupId']}",
         json={
             "name": "Updated Group",
@@ -401,7 +401,7 @@ async def test_groups_forbidden_for_viewer_update(
     viewer_user["role"] = "viewer"
     mock_mongodb.users.find_one = AsyncMock(return_value=viewer_user)
 
-    response = await client.put(
+    response = await client.patch(
         f"/api/v1/groups/{sample_group['groupId']}",
         json={"name": "Should Fail"},
         headers={"Authorization": f"Bearer {viewer_token}"},

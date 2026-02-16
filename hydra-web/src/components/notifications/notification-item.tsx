@@ -8,6 +8,7 @@ import {
   Info,
   Server,
   ShieldAlert,
+  Trash2,
   XCircle,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -31,6 +32,7 @@ interface NotificationItemProps {
   onMarkRead?: (id: string) => void;
   onAcknowledge?: (id: string) => void;
   onResolve?: (id: string) => void;
+  onDelete?: (id: string) => void;
   /**
    * Called when a tier 4-5 notification is clicked to show details modal
    */
@@ -43,6 +45,10 @@ interface NotificationItemProps {
    * Whether to auto-focus this item (for keyboard navigation)
    */
   autoFocus?: boolean;
+  /**
+   * Whether the user has write permission (can acknowledge/resolve)
+   */
+  canWrite?: boolean;
 }
 
 /**
@@ -72,9 +78,11 @@ export const NotificationItem = forwardRef<HTMLButtonElement, NotificationItemPr
       onMarkRead,
       onAcknowledge,
       onResolve,
+      onDelete,
       onViewDetails,
       onClick,
       autoFocus,
+      canWrite = true,
     },
     ref
   ) {
@@ -247,7 +255,7 @@ export const NotificationItem = forwardRef<HTMLButtonElement, NotificationItemPr
                   <span>{notification.source.nodeId}</span>
                 </>
               )}
-              {notification.acknowledgedAt && (
+              {notification.acknowledgedAt && notification.status === 'active' && (
                 <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                   <Check className="h-3 w-3" />
                   Acknowledged
@@ -267,8 +275,8 @@ export const NotificationItem = forwardRef<HTMLButtonElement, NotificationItemPr
                   Mark read
                 </Button>
               )}
-              {/* Acknowledge: tier 3+ (Yellow/Orange/Red) */}
-              {isActive && !notification.acknowledgedAt && onAcknowledge && tier >= ACKNOWLEDGE_MIN_TIER && (
+              {/* Acknowledge: tier 3+ — only if user has write permission */}
+              {canWrite && isActive && !notification.acknowledgedAt && onAcknowledge && tier >= ACKNOWLEDGE_MIN_TIER && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -278,8 +286,8 @@ export const NotificationItem = forwardRef<HTMLButtonElement, NotificationItemPr
                   Acknowledge
                 </Button>
               )}
-              {/* Resolve: tier 4+ (Orange/Red) */}
-              {isActive && onResolve && tier >= RESOLVE_MIN_TIER && (
+              {/* Resolve: tier 3+ — only if user has write permission */}
+              {canWrite && isActive && onResolve && tier >= RESOLVE_MIN_TIER && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -295,6 +303,20 @@ export const NotificationItem = forwardRef<HTMLButtonElement, NotificationItemPr
                     {primaryLink.label}
                     <ChevronRight className="ml-0.5 h-3 w-3" />
                   </button>
+                </Button>
+              )}
+              {/* Delete: available to all users */}
+              {onDelete && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(notification.notificationId);
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
                 </Button>
               )}
             </div>

@@ -183,6 +183,16 @@ class QueryMixin:
                         {"$group": {"_id": "$source.component", "count": {"$sum": 1}}}
                     ],
                     "total": [{"$count": "count"}],
+                    # Tier 3+ that haven't been acknowledged yet
+                    "unacknowledgedHighTier": [
+                        {"$match": {"acknowledgedAt": None, "tier": {"$gte": 3}}},
+                        {"$count": "count"},
+                    ],
+                    # Tier 3+ acknowledged but not yet resolved
+                    "acknowledgedPending": [
+                        {"$match": {"acknowledgedAt": {"$ne": None}, "tier": {"$gte": 3}}},
+                        {"$count": "count"},
+                    ],
                 }
             },
         ]
@@ -197,24 +207,50 @@ class QueryMixin:
         by_status = {r["_id"]: r["count"] for r in facets.get("byStatus", [])}
         by_source = {r["_id"]: r["count"] for r in facets.get("bySource", [])}
 
-        # Compute unread count: total active minus those with read state
-        active_ids_cursor = self.db.notifications.find(
+        unack_high = facets.get("unacknowledgedHighTier", [{}])
+        unacknowledged_high_tier = unack_high[0].get("count", 0) if unack_high else 0
+
+        ack_pending = facets.get("acknowledgedPending", [{}])
+        acknowledged_pending = ack_pending[0].get("count", 0) if ack_pending else 0
+
+        # Compute unread count for low-tier (1-2) notifications
+        low_tier_ids_cursor = self.db.notifications.find(
+            {**visibility_filter, "status": NotificationStatus.ACTIVE.value, "tier": {"$lte": 2}},
+            {"notificationId": 1, "_id": 0},
+        )
+        low_tier_ids = [d["notificationId"] for d in await low_tier_ids_cursor.to_list(length=10000)]
+
+        low_tier_read_count = 0
+        if low_tier_ids:
+            low_tier_read_count = await self.db.notification_reads.count_documents(
+                {"notificationId": {"$in": low_tier_ids}, "userId": user_id}
+            )
+
+        unread_low_tier = len(low_tier_ids) - low_tier_read_count
+
+        # Also compute total unread across all tiers
+        all_active_ids_cursor = self.db.notifications.find(
             {**visibility_filter, "status": NotificationStatus.ACTIVE.value},
             {"notificationId": 1, "_id": 0},
         )
-        active_ids = [d["notificationId"] for d in await active_ids_cursor.to_list(length=10000)]
+        all_active_ids = [d["notificationId"] for d in await all_active_ids_cursor.to_list(length=10000)]
 
-        read_count = 0
-        if active_ids:
-            read_count = await self.db.notification_reads.count_documents(
-                {"notificationId": {"$in": active_ids}, "userId": user_id}
+        total_read_count = 0
+        if all_active_ids:
+            total_read_count = await self.db.notification_reads.count_documents(
+                {"notificationId": {"$in": all_active_ids}, "userId": user_id}
             )
 
-        unread = total_count - read_count
+        unread = total_count - total_read_count
+
+        # needsAttention = unread tier 1-2 + unacknowledged tier 3+
+        needs_attention = max(unread_low_tier, 0) + unacknowledged_high_tier
 
         return {
             "total": total_count,
             "unread": max(unread, 0),
+            "needsAttention": needs_attention,
+            "acknowledgedPending": acknowledged_pending,
             "byTier": by_tier,
             "byStatus": by_status,
             "bySource": by_source,

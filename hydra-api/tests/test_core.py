@@ -184,12 +184,13 @@ class TestValidators:
 
     def test_validate_tag_valid(self):
         """Test valid tags."""
-        # Pattern: ^[a-z]+[_:]?[a-z]+$
+        # Pattern: ^[a-z]+[-_:]?[a-z]+$
         valid_tags = [
             "production",
             "web_server",
             "env:prod",
             "testenv",
+            "auto-discovered",
         ]
         for tag in valid_tags:
             assert validate_tag(tag) is True, f"Expected '{tag}' to be valid"

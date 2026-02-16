@@ -37,6 +37,7 @@ async def get_mcp_service(mongodb: MongoDB = Depends(get_mongodb)) -> MCPService
 @router.get(
     "/hydra/health",
     response_model=HydraMCPHealthResponse,
+    response_model_by_alias=True,
     summary="Check Hydra MCP Health",
     description="Check the health of the built-in Hydra MCP server.",
 )
@@ -70,6 +71,7 @@ async def check_hydra_health(
 @router.get(
     "/hydra/tools",
     response_model=MCPToolsResponse,
+    response_model_by_alias=True,
     summary="List Hydra MCP Tools",
     description="List tools available on the built-in Hydra MCP server.",
 )
@@ -99,6 +101,7 @@ async def list_hydra_tools(
 @router.get(
     "/hydra/prompts",
     response_model=MCPPromptsResponse,
+    response_model_by_alias=True,
     summary="List Hydra MCP Prompts",
     description="List prompts available on the built-in Hydra MCP server.",
 )
@@ -133,6 +136,7 @@ async def list_hydra_prompts(
 @router.get(
     "/servers",
     response_model=MCPServerListResponse,
+    response_model_by_alias=True,
     summary="List MCP Servers",
     description="List configured MCP servers for the current user.",
 )
@@ -179,6 +183,7 @@ async def list_servers(
 @router.post(
     "/servers",
     response_model=MCPServerResponse,
+    response_model_by_alias=True,
     status_code=201,
     summary="Create MCP Server",
     description="Create a new MCP server configuration.",
@@ -212,22 +217,23 @@ async def create_server(
 
 
 @router.get(
-    "/servers/{serverId}",
+    "/servers/{server_id}",
     response_model=MCPServerResponse,
+    response_model_by_alias=True,
     summary="Get MCP Server",
     description="Get a specific MCP server configuration.",
 )
 async def get_server(
     current_user: CurrentUser,
     mcp_service: MCPService = Depends(get_mcp_service),
-    serverId: str = Path(description="Server ID"),
+    server_id: str = Path(description="Server ID"),
 ) -> MCPServerResponse:
     """Retrieve a specific MCP server by ID.
 
     Args:
         current_user: Authenticated user making the request.
         mcp_service: MCP service instance.
-        serverId: Unique identifier of the MCP server.
+        server_id: Unique identifier of the MCP server.
 
     Returns:
         MCP server configuration details.
@@ -239,7 +245,7 @@ async def get_server(
     check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.get_server(
-        server_id=serverId,
+        server_id=server_id,
         user_id=current_user["user_id"],
     )
 
@@ -247,8 +253,9 @@ async def get_server(
 
 
 @router.put(
-    "/servers/{serverId}",
+    "/servers/{server_id}",
     response_model=MCPServerResponse,
+    response_model_by_alias=True,
     summary="Update MCP Server",
     description="Update an MCP server configuration.",
 )
@@ -256,7 +263,7 @@ async def update_server(
     request: MCPServerUpdate,
     current_user: CurrentUser,
     mcp_service: MCPService = Depends(get_mcp_service),
-    serverId: str = Path(description="Server ID"),
+    server_id: str = Path(description="Server ID"),
 ) -> MCPServerResponse:
     """Update an existing MCP server configuration.
 
@@ -264,7 +271,7 @@ async def update_server(
         request: Server update request with fields to modify.
         current_user: Authenticated user making the request.
         mcp_service: MCP service instance.
-        serverId: Unique identifier of the MCP server.
+        server_id: Unique identifier of the MCP server.
 
     Returns:
         Updated MCP server details.
@@ -276,7 +283,7 @@ async def update_server(
     check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.update_server(
-        server_id=serverId,
+        server_id=server_id,
         request=request,
         user_id=current_user["user_id"],
     )
@@ -285,21 +292,21 @@ async def update_server(
 
 
 @router.delete(
-    "/servers/{serverId}",
+    "/servers/{server_id}",
     summary="Delete MCP Server",
     description="Delete an MCP server configuration.",
 )
 async def delete_server(
     current_user: CurrentUser,
     mcp_service: MCPService = Depends(get_mcp_service),
-    serverId: str = Path(description="Server ID"),
+    server_id: str = Path(description="Server ID"),
 ) -> dict:
     """Delete an MCP server configuration.
 
     Args:
         current_user: Authenticated user making the request.
         mcp_service: MCP service instance.
-        serverId: Unique identifier of the MCP server.
+        server_id: Unique identifier of the MCP server.
 
     Returns:
         Confirmation of deletion.
@@ -311,7 +318,7 @@ async def delete_server(
     check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.delete_server(
-        server_id=serverId,
+        server_id=server_id,
         user_id=current_user["user_id"],
     )
 
@@ -319,15 +326,16 @@ async def delete_server(
 
 
 @router.get(
-    "/servers/{serverId}/health",
+    "/servers/{server_id}/health",
     response_model=MCPHealthResponse,
+    response_model_by_alias=True,
     summary="Check MCP Server Health",
     description="Check the health/connectivity of an MCP server.",
 )
 async def check_health(
     current_user: CurrentUser,
     mcp_service: MCPService = Depends(get_mcp_service),
-    serverId: str = Path(description="Server ID"),
+    server_id: str = Path(description="Server ID"),
 ) -> MCPHealthResponse:
     """Check the health and connectivity of an MCP server.
 
@@ -336,7 +344,7 @@ async def check_health(
     Args:
         current_user: Authenticated user making the request.
         mcp_service: MCP service instance.
-        serverId: Unique identifier of the MCP server.
+        server_id: Unique identifier of the MCP server.
 
     Returns:
         Health status including connectivity, latency, and any errors.
@@ -348,7 +356,7 @@ async def check_health(
     check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.check_health(
-        server_id=serverId,
+        server_id=server_id,
         user_id=current_user["user_id"],
     )
 
@@ -356,15 +364,16 @@ async def check_health(
 
 
 @router.get(
-    "/servers/{serverId}/tools",
+    "/servers/{server_id}/tools",
     response_model=MCPToolsResponse,
+    response_model_by_alias=True,
     summary="List MCP Server Tools",
     description="List tools available on an MCP server.",
 )
 async def list_tools(
     current_user: CurrentUser,
     mcp_service: MCPService = Depends(get_mcp_service),
-    serverId: str = Path(description="Server ID"),
+    server_id: str = Path(description="Server ID"),
 ) -> MCPToolsResponse:
     """List all tools available on an MCP server.
 
@@ -373,7 +382,7 @@ async def list_tools(
     Args:
         current_user: Authenticated user making the request.
         mcp_service: MCP service instance.
-        serverId: Unique identifier of the MCP server.
+        server_id: Unique identifier of the MCP server.
 
     Returns:
         List of tools with their names, descriptions, and input schemas.
@@ -385,7 +394,7 @@ async def list_tools(
     check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.list_tools(
-        server_id=serverId,
+        server_id=server_id,
         user_id=current_user["user_id"],
     )
 
@@ -393,15 +402,16 @@ async def list_tools(
 
 
 @router.get(
-    "/servers/{serverId}/resources",
+    "/servers/{server_id}/resources",
     response_model=MCPResourcesResponse,
+    response_model_by_alias=True,
     summary="List MCP Server Resources",
     description="List resources available on an MCP server.",
 )
 async def list_resources(
     current_user: CurrentUser,
     mcp_service: MCPService = Depends(get_mcp_service),
-    serverId: str = Path(description="Server ID"),
+    server_id: str = Path(description="Server ID"),
 ) -> MCPResourcesResponse:
     """List all resources available on an MCP server.
 
@@ -410,7 +420,7 @@ async def list_resources(
     Args:
         current_user: Authenticated user making the request.
         mcp_service: MCP service instance.
-        serverId: Unique identifier of the MCP server.
+        server_id: Unique identifier of the MCP server.
 
     Returns:
         List of resources with their URIs, names, and descriptions.
@@ -422,7 +432,7 @@ async def list_resources(
     check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.list_resources(
-        server_id=serverId,
+        server_id=server_id,
         user_id=current_user["user_id"],
     )
 
@@ -430,15 +440,16 @@ async def list_resources(
 
 
 @router.get(
-    "/servers/{serverId}/prompts",
+    "/servers/{server_id}/prompts",
     response_model=MCPPromptsResponse,
+    response_model_by_alias=True,
     summary="List MCP Server Prompts",
     description="List prompts available on an MCP server.",
 )
 async def list_prompts(
     current_user: CurrentUser,
     mcp_service: MCPService = Depends(get_mcp_service),
-    serverId: str = Path(description="Server ID"),
+    server_id: str = Path(description="Server ID"),
 ) -> MCPPromptsResponse:
     """List all prompts available on an MCP server.
 
@@ -447,7 +458,7 @@ async def list_prompts(
     Args:
         current_user: Authenticated user making the request.
         mcp_service: MCP service instance.
-        serverId: Unique identifier of the MCP server.
+        server_id: Unique identifier of the MCP server.
 
     Returns:
         List of prompts with their names, descriptions, and arguments.
@@ -459,7 +470,7 @@ async def list_prompts(
     check_not_agent(current_user, "mcp:read")
 
     result = await mcp_service.list_prompts(
-        server_id=serverId,
+        server_id=server_id,
         user_id=current_user["user_id"],
     )
 

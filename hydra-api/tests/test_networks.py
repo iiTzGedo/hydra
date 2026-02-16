@@ -252,7 +252,7 @@ async def test_update_network_success(
     mock_mongodb.networks.find_one = AsyncMock(side_effect=[sample_network, updated_network])
     mock_mongodb.networks.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
 
-    response = await client.put(
+    response = await client.patch(
         f"/api/v1/networks/{sample_network['networkId']}",
         json={
             "name": "Updated Network",
@@ -390,7 +390,7 @@ async def test_networks_forbidden_for_viewer_update(
     viewer_user["role"] = "viewer"
     mock_mongodb.users.find_one = AsyncMock(return_value=viewer_user)
 
-    response = await client.put(
+    response = await client.patch(
         f"/api/v1/networks/{sample_network['networkId']}",
         json={"name": "Should Fail"},
         headers={"Authorization": f"Bearer {viewer_token}"},

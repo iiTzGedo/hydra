@@ -39,6 +39,7 @@ DocsServiceDep = Annotated[DocsService, Depends(get_docs_service)]
 @router.get(
     "",
     response_model=SuccessResponse[list[DocSummary]],
+    response_model_by_alias=True,
     summary="List Documentation",
     description="List documentation with optional filters.",
     dependencies=[Depends(require_permission("docs:read"))],
@@ -113,6 +114,7 @@ async def list_docs(
 @router.post(
     "",
     response_model=SuccessResponse[DocCreatedResponse],
+    response_model_by_alias=True,
     status_code=201,
     summary="Create Documentation",
     description="Create new infrastructure documentation.",
@@ -153,6 +155,7 @@ async def create_doc(
 @router.get(
     "/{doc_id}",
     response_model=SuccessResponse[DocResponse],
+    response_model_by_alias=True,
     summary="Get Documentation",
     description="Get documentation content by ID.",
     dependencies=[Depends(require_permission("docs:read"))],
@@ -204,6 +207,7 @@ async def get_doc(
 @router.put(
     "/{doc_id}",
     response_model=SuccessResponse[DocUpdatedResponse],
+    response_model_by_alias=True,
     summary="Update Documentation",
     description="Update existing documentation.",
     dependencies=[Depends(require_permission("docs:update"))],
@@ -247,6 +251,7 @@ async def update_doc(
 @router.delete(
     "/{doc_id}",
     response_model=SuccessResponse[DocDeletedResponse],
+    response_model_by_alias=True,
     summary="Delete Documentation",
     description="Delete or archive documentation.",
     dependencies=[Depends(require_permission("docs:delete"))],

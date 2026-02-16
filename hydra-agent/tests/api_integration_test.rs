@@ -415,7 +415,7 @@ async fn test_register_with_token_success() {
 
     // Node registration
     Mock::given(method("POST"))
-        .and(path("/node/register"))
+        .and(path("/nodes/register"))
         .and(header("X-API-Key", "hyk_new_agent_key"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "nodeId": "test-node-01",
@@ -512,7 +512,7 @@ async fn test_register_with_credentials_success() {
 
     // Node registration
     Mock::given(method("POST"))
-        .and(path("/node/register"))
+        .and(path("/nodes/register"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "nodeId": "test-node-01",
             "apiKey": "hyk_node_key",

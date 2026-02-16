@@ -33,6 +33,7 @@ NetworksServiceDep = Annotated[NetworksService, Depends(get_networks_service)]
 @router.get(
     "",
     response_model=SuccessResponse[list[NetworkSummary]],
+    response_model_by_alias=True,
     summary="List Networks",
     description="List all networks with optional filters and pagination.",
     dependencies=[Depends(require_permission("networks:read"))],
@@ -97,6 +98,7 @@ async def list_networks(
 @router.post(
     "",
     response_model=SuccessResponse[NetworkResponse],
+    response_model_by_alias=True,
     status_code=201,
     summary="Create Network",
     description="Create a new network manually.",
@@ -132,6 +134,7 @@ async def create_network(
 @router.get(
     "/{network_id}",
     response_model=SuccessResponse[NetworkResponse],
+    response_model_by_alias=True,
     summary="Get Network",
     description="Get detailed information about a specific network.",
     dependencies=[Depends(require_permission("networks:read"))],
@@ -159,9 +162,10 @@ async def get_network(
     return SuccessResponse(data=NetworkResponse(**network))
 
 
-@router.put(
+@router.patch(
     "/{network_id}",
     response_model=SuccessResponse[NetworkResponse],
+    response_model_by_alias=True,
     summary="Update Network",
     description="Update network configuration.",
     dependencies=[Depends(require_permission("networks:update"))],
@@ -192,6 +196,7 @@ async def update_network(
 @router.delete(
     "/{network_id}",
     response_model=SuccessResponse[NetworkResponse],
+    response_model_by_alias=True,
     summary="Delete Network",
     description="Delete a network. Use force=true to delete even if nodes are associated.",
     dependencies=[Depends(require_permission("networks:delete"))],
@@ -223,6 +228,7 @@ async def delete_network(
 @router.get(
     "/{network_id}/nodes",
     response_model=SuccessResponse[list[NetworkNodeInfo]],
+    response_model_by_alias=True,
     summary="Get Network Nodes",
     description="Get all nodes that belong to a specific network.",
     dependencies=[Depends(require_permission("networks:read"))],

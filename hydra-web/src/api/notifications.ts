@@ -6,6 +6,7 @@ import type {
   Notification,
   NotificationBulkActionRequest,
   NotificationBulkActionResponse,
+  NotificationBulkDeleteRequest,
   NotificationListParams,
   NotificationStats,
 } from '@/types/notification';
@@ -175,6 +176,27 @@ export function useDeleteNotification() {
     mutationFn: async (notificationId: string) => {
       const response = await apiClient.delete<ApiResponse<{ notificationId: string; deleted: boolean }>>(
         `/notifications/${notificationId}`
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Bulk Delete
+// ---------------------------------------------------------------------------
+
+export function useDeleteNotifications() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (body: NotificationBulkDeleteRequest) => {
+      const response = await apiClient.post<ApiResponse<NotificationBulkActionResponse>>(
+        '/notifications/delete-many',
+        body
       );
       return response.data.data;
     },

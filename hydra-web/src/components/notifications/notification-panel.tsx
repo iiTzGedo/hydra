@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import { Bell, CheckCheck, Loader2, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -52,17 +52,27 @@ export function NotificationPanel({
   mobile = false,
   triggerRef: _triggerRef,
 }: NotificationPanelProps) {
+  // Fetch more than we display so client-side filtering has enough items
   const { data, isLoading } = useNotifications({
-    limit: mobile ? 20 : 10,
+    limit: mobile ? 30 : 15,
     status: 'active',
+    acknowledged: false, // Only unacknowledged (covers tier 3+)
   });
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllRead();
   const panelRef = useRef<HTMLDivElement>(null);
   const firstItemRef = useRef<HTMLButtonElement>(null);
 
-  const notifications = data?.data ?? [];
+  // Filter to only unattended notifications:
+  // - Tier 3+: already filtered by acknowledged=false from the API
+  // - Tier 1-2: also filter out already-read ones client-side
+  const notifications = useMemo(() => {
+    return (data?.data ?? [])
+      .filter(n => n.tier >= 3 || !n.readAt)
+      .slice(0, mobile ? 20 : 10);
+  }, [data, mobile]);
   const total = data?.meta?.total ?? 0;
+  const hasUnreadLowTier = notifications.some(n => n.tier <= 2 && !n.readAt);
 
   // Handle mark single notification as read
   const handleMarkRead = useCallback(
@@ -150,13 +160,13 @@ export function NotificationPanel({
       <div className="flex items-center justify-between border-b px-4 py-3 bg-muted/30">
         <div className="flex items-center gap-2">
           <h3 className="font-semibold text-foreground">Notifications</h3>
-          {total > 0 && (
+          {notifications.length > 0 && (
             <Badge variant="secondary" className="text-xs">
-              {total}
+              {notifications.length}
             </Badge>
           )}
         </div>
-        {notifications.length > 0 && (
+        {hasUnreadLowTier && (
           <Button
             variant="ghost"
             size="sm"
@@ -221,7 +231,7 @@ export function NotificationPanel({
       </ScrollArea>
 
       {/* Footer */}
-      {total > 0 && (
+      {(notifications.length > 0 || total > 0) && (
         <div className="border-t px-4 py-3 bg-muted/30">
           <Button
             variant="ghost"

@@ -14,7 +14,7 @@ from hydra.api.v1.models.notifications import (
 # ------------------------------------------------------------------
 
 ACKNOWLEDGE_MIN_TIER = 3  # Yellow (Warning) and above
-RESOLVE_MIN_TIER = 4      # Orange (High) and above
+RESOLVE_MIN_TIER = 3      # Yellow (Warning) and above
 
 # ------------------------------------------------------------------
 # Category Map

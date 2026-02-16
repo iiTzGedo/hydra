@@ -209,11 +209,11 @@ Interactive documentation is available when the API is running:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/nodes` | List nodes with filtering |
-| POST | `/api/v1/node/register` | Register a new node |
-| GET | `/api/v1/nodes/{nodeId}` | Get node details |
-| PATCH | `/api/v1/nodes/{nodeId}` | Update node metadata |
-| DELETE | `/api/v1/nodes/{nodeId}` | Archive a node |
-| POST | `/api/v1/nodes/{nodeId}/apikey/refresh` | Refresh node API key |
+| POST | `/api/v1/nodes/register` | Register a new node |
+| GET | `/api/v1/nodes/{node_id}` | Get node details |
+| PATCH | `/api/v1/nodes/{node_id}` | Update node metadata |
+| DELETE | `/api/v1/nodes/{node_id}` | Archive a node |
+| POST | `/api/v1/nodes/{node_id}/apikey/refresh` | Refresh node API key |
 
 ### Profiles
 

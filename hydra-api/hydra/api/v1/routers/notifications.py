@@ -12,6 +12,7 @@ from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.notifications import (
     NotificationBulkActionRequest,
     NotificationBulkActionResponse,
+    NotificationBulkDeleteRequest,
     NotificationResponse,
     NotificationStatsResponse,
 )
@@ -40,6 +41,17 @@ def _user_roles(current_user: dict) -> list[str]:
     return roles
 
 
+def _has_permission(current_user: dict, permission: str) -> bool:
+    """Check if a user has a specific permission."""
+    perms = current_user.get("permissions", [])
+    if "*:*" in perms:
+        return True
+    if permission in perms:
+        return True
+    resource, _ = permission.split(":", 1) if ":" in permission else (permission, "*")
+    return f"{resource}:*" in perms
+
+
 # --------------------------------------------------------------------------
 # List
 # --------------------------------------------------------------------------
@@ -48,6 +60,7 @@ def _user_roles(current_user: dict) -> list[str]:
 @router.get(
     "",
     response_model=SuccessResponse[list[NotificationResponse]],
+    response_model_by_alias=True,
     summary="List Notifications",
     description="List notifications visible to the current user with optional filters.",
     dependencies=[Depends(require_permission("notifications:read"))],
@@ -124,6 +137,7 @@ async def list_notifications(
 @router.get(
     "/stats",
     response_model=SuccessResponse[NotificationStatsResponse],
+    response_model_by_alias=True,
     summary="Notification Stats",
     description="Get aggregated notification counts for the current user.",
     dependencies=[Depends(require_permission("notifications:read"))],
@@ -155,6 +169,7 @@ async def get_notification_stats(
 @router.get(
     "/{notification_id}",
     response_model=SuccessResponse[NotificationResponse],
+    response_model_by_alias=True,
     summary="Get Notification",
     description="Get a single notification by ID.",
     dependencies=[Depends(require_permission("notifications:read"))],
@@ -192,6 +207,7 @@ async def get_notification(
 @router.patch(
     "/{notification_id}/read",
     response_model=SuccessResponse[dict],
+    response_model_by_alias=True,
     summary="Mark Read",
     description="Mark a notification as read for the current user.",
     dependencies=[Depends(require_permission("notifications:read"))],
@@ -232,6 +248,7 @@ async def mark_read(
 @router.patch(
     "/{notification_id}/acknowledge",
     response_model=SuccessResponse[NotificationResponse],
+    response_model_by_alias=True,
     summary="Acknowledge Notification",
     description="Acknowledge a notification (marks it as seen and handled).",
     dependencies=[Depends(require_permission("notifications:write"))],
@@ -289,6 +306,7 @@ async def acknowledge_notification(
 @router.patch(
     "/{notification_id}/resolve",
     response_model=SuccessResponse[NotificationResponse],
+    response_model_by_alias=True,
     summary="Resolve Notification",
     description="Manually resolve a notification.",
     dependencies=[Depends(require_permission("notifications:write"))],
@@ -346,9 +364,10 @@ async def resolve_notification(
 @router.delete(
     "/{notification_id}",
     response_model=SuccessResponse[dict],
+    response_model_by_alias=True,
     summary="Delete Notification",
-    description="Delete a notification (admin only).",
-    dependencies=[Depends(require_permission("notifications:manage"))],
+    description="Delete a notification. Users can delete their own notifications; write/manage users can delete any visible notification.",
+    dependencies=[Depends(require_permission("notifications:read"))],
 )
 async def delete_notification(
     notification_id: str,
@@ -356,6 +375,11 @@ async def delete_notification(
     current_user: CurrentUser,
 ) -> SuccessResponse[dict]:
     """Delete a notification and its read state.
+
+    Permission model:
+    - notifications:manage: unrestricted delete
+    - notifications:write: can delete any visible notification
+    - notifications:read: can delete own notifications (targetUserId == user_id)
 
     Args:
         notification_id: Notification ID.
@@ -366,12 +390,22 @@ async def delete_notification(
         Deletion confirmation.
 
     Raises:
-        NotFoundError: If notification not found.
+        NotFoundError: If notification not found or insufficient permissions.
     """
-    deleted = await notification_service.delete_notification(notification_id)
+    user_id = current_user["user_id"]
+    roles = _user_roles(current_user)
+    has_write = _has_permission(current_user, "notifications:write")
+    has_manage = _has_permission(current_user, "notifications:manage")
+
+    deleted = await notification_service.delete_notification(
+        notification_id,
+        user_id=user_id,
+        user_roles=roles,
+        has_write=has_write,
+        has_manage=has_manage,
+    )
     if not deleted:
         raise NotFoundError("notification", notification_id)
-    user_id = current_user["user_id"]
     await log_audit(
         action=AuditAction.DELETE,
         resource_type="notification",
@@ -390,6 +424,7 @@ async def delete_notification(
 @router.post(
     "/read-all",
     response_model=SuccessResponse[NotificationBulkActionResponse],
+    response_model_by_alias=True,
     summary="Mark All Read",
     description="Mark all matching notifications as read for the current user.",
     dependencies=[Depends(require_permission("notifications:read"))],
@@ -435,6 +470,66 @@ async def mark_all_read(
 
 
 # --------------------------------------------------------------------------
+# Bulk: Delete Many
+# --------------------------------------------------------------------------
+
+
+@router.post(
+    "/delete-many",
+    response_model=SuccessResponse[NotificationBulkActionResponse],
+    response_model_by_alias=True,
+    summary="Bulk Delete Notifications",
+    description="Delete multiple notifications by IDs or filter criteria.",
+    dependencies=[Depends(require_permission("notifications:read"))],
+)
+async def delete_many_notifications(
+    notification_service: NotificationServiceDep,
+    current_user: CurrentUser,
+    body: NotificationBulkDeleteRequest,
+) -> SuccessResponse[NotificationBulkActionResponse]:
+    """Bulk delete notifications.
+
+    Permission model:
+    - notifications:manage: unrestricted delete
+    - notifications:write: can delete any visible notification
+    - notifications:read: can delete own notifications (targetUserId == user_id)
+
+    Args:
+        notification_service: Notification service instance.
+        current_user: Authenticated user.
+        body: Delete criteria (IDs, status, tier, before date).
+
+    Returns:
+        Number of notifications deleted.
+    """
+    user_id = current_user["user_id"]
+    roles = _user_roles(current_user)
+    has_write = _has_permission(current_user, "notifications:write")
+    has_manage = _has_permission(current_user, "notifications:manage")
+
+    count = await notification_service.delete_many(
+        user_id=user_id,
+        user_roles=roles,
+        notification_ids=body.notification_ids,
+        status=body.status.value if body.status else None,
+        tier=body.tier,
+        before=body.before,
+        has_write=has_write,
+        has_manage=has_manage,
+    )
+    if count > 0:
+        await log_audit(
+            action=AuditAction.DELETE,
+            resource_type="notification",
+            resource_id="bulk",
+            actor_type="user",
+            actor_id=user_id,
+            details={"action": "delete_many", "affectedCount": count},
+        )
+    return SuccessResponse(data=NotificationBulkActionResponse(affected_count=count))
+
+
+# --------------------------------------------------------------------------
 # Bulk: Acknowledge All
 # --------------------------------------------------------------------------
 
@@ -442,6 +537,7 @@ async def mark_all_read(
 @router.post(
     "/acknowledge-all",
     response_model=SuccessResponse[NotificationBulkActionResponse],
+    response_model_by_alias=True,
     summary="Acknowledge All",
     description="Acknowledge all matching notifications.",
     dependencies=[Depends(require_permission("notifications:write"))],

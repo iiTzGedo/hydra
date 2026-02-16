@@ -1,6 +1,6 @@
 """Tests for notification helpers and list behavior."""
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,6 +12,7 @@ from hydra.api.v1.models.notifications import (
 )
 from hydra.api.v1.models.settings import NotificationSettings
 from hydra.api.v1.services.notifications import NotificationService, should_deliver
+from tests.utils import create_mock_cursor
 
 
 class _FakeAggregate:
@@ -19,6 +20,7 @@ class _FakeAggregate:
         self._result = result
 
     async def to_list(self, length=None):
+        _ = length
         return self._result
 
 
@@ -96,3 +98,80 @@ async def test_list_notifications_read_filter_uses_aggregate():
     assert total == 2
     assert notifications == list_result
     assert mock_db.notifications.aggregate.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_notification_with_write_requires_visibility():
+    mock_db = MagicMock()
+    mock_db.notifications = MagicMock()
+    mock_db.notification_reads = MagicMock()
+    mock_db.notifications.find_one = AsyncMock(
+        return_value={"notificationId": "ntf-1", "targetUserId": "user-admin", "targetRoles": ["admin"]}
+    )
+    mock_db.notifications.delete_one = AsyncMock(return_value=MagicMock(deleted_count=1))
+    mock_db.notification_reads.delete_many = AsyncMock()
+
+    service = NotificationService(mock_db, MagicMock())
+    deleted = await service.delete_notification(
+        "ntf-1",
+        user_id="user-operator",
+        user_roles=["operator"],
+        has_write=True,
+        has_manage=False,
+    )
+
+    assert deleted is False
+    mock_db.notifications.delete_one.assert_not_awaited()
+    mock_db.notification_reads.delete_many.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delete_notification_with_write_allows_visible_notification():
+    mock_db = MagicMock()
+    mock_db.notifications = MagicMock()
+    mock_db.notification_reads = MagicMock()
+    mock_db.notifications.find_one = AsyncMock(
+        return_value={"notificationId": "ntf-1", "targetUserId": None, "targetRoles": ["operator"]}
+    )
+    mock_db.notifications.delete_one = AsyncMock(return_value=MagicMock(deleted_count=1))
+    mock_db.notification_reads.delete_many = AsyncMock(return_value=MagicMock(deleted_count=1))
+
+    service = NotificationService(mock_db, MagicMock())
+    deleted = await service.delete_notification(
+        "ntf-1",
+        user_id="user-operator",
+        user_roles=["operator"],
+        has_write=True,
+        has_manage=False,
+    )
+
+    assert deleted is True
+    mock_db.notifications.delete_one.assert_awaited_once_with({"notificationId": "ntf-1"})
+    mock_db.notification_reads.delete_many.assert_awaited_once_with({"notificationId": "ntf-1"})
+
+
+@pytest.mark.asyncio
+async def test_delete_many_with_manage_is_not_visibility_scoped():
+    mock_db = MagicMock()
+    mock_db.notifications = MagicMock()
+    mock_db.notification_reads = MagicMock()
+    mock_db.notifications.find = MagicMock(
+        return_value=create_mock_cursor([{"notificationId": "ntf-1"}])
+    )
+    mock_db.notifications.delete_many = AsyncMock(return_value=MagicMock(deleted_count=1))
+    mock_db.notification_reads.delete_many = AsyncMock(return_value=MagicMock(deleted_count=1))
+
+    service = NotificationService(mock_db, MagicMock())
+    deleted_count = await service.delete_many(
+        user_id="user-viewer",
+        user_roles=["viewer"],
+        status="resolved",
+        has_write=False,
+        has_manage=True,
+    )
+
+    assert deleted_count == 1
+    query = mock_db.notifications.find.call_args.args[0]
+    assert query["status"] == "resolved"
+    assert "$or" not in query
+    assert "targetUserId" not in query

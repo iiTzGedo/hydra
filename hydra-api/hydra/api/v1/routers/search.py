@@ -26,6 +26,7 @@ async def get_search_service(mongodb: MongoDB = Depends(get_mongodb)) -> SearchS
 @router.get(
     "/search",
     response_model=SearchResponse,
+    response_model_by_alias=True,
     summary="Global Search",
     description="Search across nodes, services, groups, and networks.",
 )

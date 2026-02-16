@@ -621,6 +621,7 @@ class AgentEventResponse(BaseModel):
     summary="Report Agent Event",
     description="Agents report events (failures, state changes) which create notifications.",
     response_model=AgentEventResponse,
+    response_model_by_alias=True,
     responses={
         200: {"description": "Event accepted and notification created"},
         400: {"description": "Invalid event type"},

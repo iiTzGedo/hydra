@@ -57,6 +57,7 @@ logger = structlog.get_logger(__name__)
 @router.post(
     "/login",
     response_model=LoginResponse,
+    response_model_by_alias=True,
     summary="User Login",
     description="""Authenticate a user with username and password.
 
@@ -133,6 +134,7 @@ async def login(
 @router.post(
     "/refresh",
     response_model=TokenResponse,
+    response_model_by_alias=True,
     summary="Refresh Token",
     description="Get a new access token using a refresh token.",
 )
@@ -163,6 +165,7 @@ async def refresh_token(
 @router.post(
     "/password/forgot",
     response_model=ForgotPasswordResponse,
+    response_model_by_alias=True,
     summary="Forgot Password",
     description="""Request a password reset email.
 
@@ -193,6 +196,7 @@ async def forgot_password(
 @router.post(
     "/password/reset",
     response_model=ResetPasswordResponse,
+    response_model_by_alias=True,
     summary="Reset Password",
     description="Reset password using a reset token received via email.",
 )
@@ -221,6 +225,7 @@ async def reset_password(
 @router.post(
     "/password/change",
     response_model=ChangePasswordResponse,
+    response_model_by_alias=True,
     summary="Change Password",
     description="Change password for the currently authenticated user.",
 )
@@ -256,6 +261,7 @@ async def change_password(
 @router.post(
     "/register",
     response_model=UserRegistrationResponse,
+    response_model_by_alias=True,
     status_code=201,
     summary="Register User",
     description="Register a new user account. Agent registrations require admin/operator auth or a valid registration token.",
@@ -339,6 +345,7 @@ async def register_user(
 @router.get(
     "/approvals",
     response_model=PendingUsersListResponse,
+    response_model_by_alias=True,
     summary="List Pending Approvals",
     description="List pending user registrations awaiting approval. Admin only.",
     dependencies=[Depends(require_permission("users:*"))],
@@ -388,6 +395,7 @@ async def list_pending_approvals(
 @router.post(
     "/approvals",
     response_model=ApprovalResponse,
+    response_model_by_alias=True,
     summary="Approve User",
     description="Approve a pending user registration. Admin only.",
     dependencies=[Depends(require_permission("users:*"))],
@@ -424,8 +432,9 @@ async def approve_user(
 
 
 @router.delete(
-    "/approvals/{userId}",
+    "/approvals/{user_id}",
     response_model=RejectionResponse,
+    response_model_by_alias=True,
     summary="Reject User",
     description="Reject and delete a pending user registration. Admin only.",
     dependencies=[Depends(require_permission("users:*"))],
@@ -433,14 +442,14 @@ async def approve_user(
 async def reject_user(
     users_service: UsersServiceDep,
     current_user: CurrentUser,
-    userId: str = Path(description="Pending user ID"),
+    user_id: str = Path(description="Pending user ID"),
 ) -> RejectionResponse:
     """Reject and delete a pending user registration.
 
     Args:
         users_service: Users service instance.
         current_user: Admin user rejecting the request.
-        userId: ID of the pending user to reject.
+        user_id: ID of the pending user to reject.
 
     Returns:
         Rejection confirmation.
@@ -449,7 +458,7 @@ async def reject_user(
         HTTPException 404: Pending user not found.
         HTTPException 403: Insufficient permissions.
     """
-    result = await users_service.reject_user(userId, current_user["user_id"])
+    result = await users_service.reject_user(user_id, current_user["user_id"])
     return RejectionResponse(
         user_id=result["user_id"],
         rejected=result["rejected"],
@@ -461,6 +470,7 @@ async def reject_user(
 @router.post(
     "/tokens",
     response_model=RegistrationTokenResponse,
+    response_model_by_alias=True,
     status_code=201,
     summary="Create Registration Token",
     description="""Create a new registration token for user or node registration.
@@ -526,6 +536,7 @@ async def create_registration_token(
 @router.get(
     "/tokens",
     response_model=RegistrationTokenListResponse,
+    response_model_by_alias=True,
     summary="List Registration Tokens",
     description="""List registration tokens created by the current user.
 
@@ -598,6 +609,7 @@ async def list_registration_tokens(
 @router.post(
     "/apikeys",
     response_model=ApiKeyResponse,
+    response_model_by_alias=True,
     status_code=201,
     summary="Create API Key",
     description="Create a new API key for programmatic access.",
@@ -650,6 +662,7 @@ async def create_api_key(
 @router.get(
     "/apikeys",
     response_model=ApiKeyListResponse,
+    response_model_by_alias=True,
     summary="List API Keys",
     description="List API keys owned by the current user.",
 )
@@ -714,22 +727,23 @@ async def list_api_keys(
 
 
 @router.delete(
-    "/apikeys/{keyId}",
+    "/apikeys/{key_id}",
     response_model=ApiKeyRevokeResponse,
+    response_model_by_alias=True,
     summary="Revoke API Key",
     description="Revoke an API key.",
 )
 async def revoke_api_key(
     auth_service: AuthServiceDep,
     current_user: CurrentUser,
-    keyId: str = Path(description="API key ID"),
+    key_id: str = Path(description="API key ID"),
 ) -> ApiKeyRevokeResponse:
     """Revoke an API key to prevent further use.
 
     Args:
         auth_service: Authentication service instance.
         current_user: Authenticated user.
-        keyId: ID of the API key to revoke.
+        key_id: ID of the API key to revoke.
 
     Returns:
         Revocation confirmation.
@@ -739,7 +753,7 @@ async def revoke_api_key(
         HTTPException 403: Cannot revoke key owned by another user.
     """
     result = await auth_service.revoke_api_key(
-        keyId,
+        key_id,
         current_user["user_id"],
         current_user.get("role"),
     )
@@ -753,6 +767,7 @@ async def revoke_api_key(
 @router.get(
     "/me",
     response_model=CurrentUserResponse,
+    response_model_by_alias=True,
     summary="Get Current User",
     description="Get information about the currently authenticated user or agent.",
 )
@@ -781,6 +796,7 @@ async def get_current_user_info(
 @router.post(
     "/users",
     response_model=UserInfo,
+    response_model_by_alias=True,
     status_code=201,
     summary="Create User",
     description="Create a new user account directly. Admin only.",
@@ -814,8 +830,9 @@ async def create_user(
 
 
 @router.post(
-    "/register/sub/{userId}",
+    "/register/sub/{user_id}",
     response_model=SubAccountLinkResponse,
+    response_model_by_alias=True,
     status_code=201,
     summary="Link Sub-Account",
     description="""Link an existing user as a sub-account of the current user.
@@ -834,7 +851,7 @@ async def link_sub_account(
     request: SubAccountLinkRequest,
     users_service: UsersServiceDep,
     current_user: CurrentUser,
-    userId: str = Path(description="User ID of the account to link as sub-account"),
+    user_id: str = Path(description="User ID of the account to link as sub-account"),
 ) -> SubAccountLinkResponse:
     """Link an existing user as a sub-account of the current user.
 
@@ -842,7 +859,7 @@ async def link_sub_account(
         request: Link request with password verification.
         users_service: Users service instance.
         current_user: Parent user making the request.
-        userId: ID of the user to link as sub-account.
+        user_id: ID of the user to link as sub-account.
 
     Returns:
         Link confirmation with sub-account details.
@@ -854,7 +871,7 @@ async def link_sub_account(
     """
     result = await users_service.link_sub_account(
         parent_user_id=current_user["user_id"],
-        target_user_id=userId,
+        target_user_id=user_id,
         target_password=request.password,
         reset_password=request.reset_password,
     )
@@ -869,21 +886,21 @@ async def link_sub_account(
 
 
 @router.delete(
-    "/sub/{userId}",
+    "/sub/{user_id}",
     summary="Unlink Sub-Account",
     description="Unlink a sub-account from the current user.",
 )
 async def unlink_sub_account(
     users_service: UsersServiceDep,
     current_user: CurrentUser,
-    userId: str = Path(description="User ID of the sub-account to unlink"),
+    user_id: str = Path(description="User ID of the sub-account to unlink"),
 ) -> dict:
     """Unlink a sub-account from the current user.
 
     Args:
         users_service: Users service instance.
         current_user: Parent user making the request.
-        userId: ID of the sub-account to unlink.
+        user_id: ID of the sub-account to unlink.
 
     Returns:
         Unlink confirmation.
@@ -894,7 +911,7 @@ async def unlink_sub_account(
     """
     result = await users_service.unlink_sub_account(
         parent_user_id=current_user["user_id"],
-        sub_account_user_id=userId,
+        sub_account_user_id=user_id,
     )
     return {
         "parentUserId": result["parent_user_id"],

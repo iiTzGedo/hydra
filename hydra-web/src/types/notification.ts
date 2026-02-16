@@ -64,6 +64,8 @@ export interface Notification {
 export interface NotificationStats {
   total: number;
   unread: number;
+  needsAttention: number;
+  acknowledgedPending: number;
   byTier: Record<string, number>;
   byStatus: Record<string, number>;
   bySource: Record<string, number>;
@@ -97,11 +99,18 @@ export interface NotificationBulkActionResponse {
   affectedCount: number;
 }
 
+export interface NotificationBulkDeleteRequest {
+  notificationIds?: string[];
+  status?: NotificationStatus;
+  tier?: NotificationTier;
+  before?: string;
+}
+
 /** Minimum tier required for acknowledge action (Yellow+). */
 export const ACKNOWLEDGE_MIN_TIER: NotificationTier = 3;
 
-/** Minimum tier required for resolve action (Orange+). */
-export const RESOLVE_MIN_TIER: NotificationTier = 4;
+/** Minimum tier required for resolve action (Warning+). */
+export const RESOLVE_MIN_TIER: NotificationTier = 3;
 
 /** Maximum tier for informational notifications (Blue/Green). */
 export const INFO_MAX_TIER: NotificationTier = 2;

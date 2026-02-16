@@ -1,15 +1,15 @@
 """Known services registry for filtering unknown service notifications."""
 
 import re
-from datetime import datetime, timezone
 import secrets
+from datetime import UTC, datetime
 
 import structlog
 from pymongo import DESCENDING
 
 from hydra.api.v1.core.exceptions import NotFoundError, ValidationError
-from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.services import KnownServiceCreateRequest
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -88,7 +88,7 @@ class KnownServicesService:
         if existing:
             raise ValidationError("Known service already exists for this runtime and name")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         known_service_id = f"ksvc_{secrets.token_urlsafe(6)}"
         doc = {
             "knownServiceId": known_service_id,
@@ -118,7 +118,7 @@ class KnownServicesService:
             {"knownServiceId": known_service_id}
         )
         if not existing:
-            raise NotFoundError(f"Known service '{known_service_id}' not found")
+            raise NotFoundError("known_service", known_service_id)
 
         await self.db.known_services.delete_one({"knownServiceId": known_service_id})
         logger.info("known_service_deleted", known_service_id=known_service_id)

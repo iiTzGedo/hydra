@@ -279,7 +279,8 @@ export function StatsCards() {
   const criticalCount = notifStats?.byTier?.critical ?? 0;
   const highCount = notifStats?.byTier?.high ?? 0;
   const warningCount = notifStats?.byTier?.warning ?? 0;
-  const activeTotal = notifStats?.total ?? 0;
+  const needsAttention = notifStats?.needsAttention ?? 0;
+  const acknowledgedPending = notifStats?.acknowledgedPending ?? 0;
 
   // Show skeleton loading state
   if (nodesLoading || servicesLoading || networksLoading || notifLoading) {
@@ -365,12 +366,12 @@ export function StatsCards() {
 
       <StatCard
         title="Notifications"
-        value={activeTotal}
+        value={needsAttention}
         icon={Bell}
         href={ROUTES.NOTIFICATIONS}
         color="amber"
         trend={
-          activeTotal > 0
+          needsAttention > 0
             ? {
                 value: notifStats?.unread ?? 0,
                 direction: 'neutral',
@@ -409,7 +410,17 @@ export function StatsCards() {
                 },
               ]
             : []),
-          ...(activeTotal === 0
+          ...(acknowledgedPending > 0
+            ? [
+                {
+                  label: 'in progress',
+                  value: acknowledgedPending,
+                  href: `${ROUTES.NOTIFICATIONS}?acknowledged=true`,
+                  variant: 'success' as const,
+                },
+              ]
+            : []),
+          ...(needsAttention === 0
             ? [
                 {
                   label: 'All clear',

@@ -46,6 +46,7 @@ HAServiceDep = Annotated[HomeAssistantService, Depends(get_ha_service)]
 @router.get(
     "/status",
     response_model=SuccessResponse[HAStatusResponse],
+    response_model_by_alias=True,
     summary="Get HA Status",
     description="Get Home Assistant integration status.",
     dependencies=[Depends(require_permission("ha:read"))],
@@ -81,6 +82,7 @@ async def get_ha_status(
 @router.get(
     "/devices",
     response_model=SuccessResponse[HADeviceListResponse],
+    response_model_by_alias=True,
     summary="List HA Devices",
     description="List Home Assistant devices mapped to Hydra nodes.",
     dependencies=[Depends(require_permission("ha:read"))],
@@ -150,6 +152,7 @@ async def list_ha_devices(
 @router.post(
     "/sync",
     response_model=SuccessResponse[HASyncResponse],
+    response_model_by_alias=True,
     status_code=202,
     summary="Sync from HA",
     description="Trigger sync from Home Assistant.",
@@ -187,6 +190,7 @@ async def sync_ha(
 @router.post(
     "/control",
     response_model=SuccessResponse[HAControlResponse],
+    response_model_by_alias=True,
     summary="Control HA Device",
     description="Control a Home Assistant device.",
     dependencies=[Depends(require_permission("ha:control"))],
@@ -223,6 +227,7 @@ async def control_ha_device(
 @router.get(
     "/areas",
     response_model=SuccessResponse[HAAreaListResponse],
+    response_model_by_alias=True,
     summary="List HA Areas",
     description="List Home Assistant areas.",
     dependencies=[Depends(require_permission("ha:read"))],

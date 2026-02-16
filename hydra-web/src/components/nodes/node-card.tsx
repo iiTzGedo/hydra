@@ -106,33 +106,81 @@ export function NodeCard({ node, onEdit, onArchive }: NodeCardProps) {
       <Card className="group h-full border-border bg-card overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-foreground/10">
         <Link to={`${ROUTES.NODES}/${node.nodeId}`} className="block h-full">
           <CardContent className="p-5 h-full flex flex-col">
-            {/* Header */}
-            <div className="flex items-start justify-between mb-4">
-              <div className={cn(
-                'h-12 w-12 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-110',
-                classConfig.bg,
-                classConfig.border,
-                'border'
-              )}>
-                <NodeIcon className={cn('h-6 w-6', classConfig.color)} />
+            {/* Main content: left details + right status/actions */}
+            <div className="flex flex-1 items-start gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="mb-4">
+                  <div
+                    className={cn(
+                      'h-12 w-12 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-110',
+                      classConfig.bg,
+                      classConfig.border,
+                      'border'
+                    )}
+                  >
+                    <NodeIcon className={cn('h-6 w-6', classConfig.color)} />
+                  </div>
+                </div>
+
+                <h3 className="font-semibold text-foreground text-base mb-1 truncate group-hover:text-primary transition-colors">
+                  {node.displayName}
+                </h3>
+                <p className="text-xs text-muted-foreground font-mono truncate mb-4">
+                  {node.nodeId}
+                </p>
+
+                {/* Meta info */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        'text-[10px] uppercase tracking-wider font-medium',
+                        classConfig.bg,
+                        classConfig.color,
+                        'border-0'
+                      )}
+                    >
+                      {node.type}
+                    </Badge>
+                    <span className="text-muted-foreground">/</span>
+                    <span className="text-xs text-muted-foreground capitalize">
+                      {node.kind || 'unknown'}
+                    </span>
+                  </div>
+
+                  {/* Last profile */}
+                  {node.lastProfileAt && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      <span>Profiled {formatRelativeTime(node.lastProfileAt)}</span>
+                    </div>
+                  )}
+                </div>
               </div>
-              
-              <div className="flex items-center gap-2">
+
+              <div className="flex h-full flex-col items-end justify-between gap-3">
                 {/* Status indicator */}
                 <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-muted">
-                  <span className={cn(
-                    'relative flex h-2 w-2',
-                    status.pulse && 'status-pulse'
-                  )}>
-                    <span className={cn(
-                      'relative inline-flex rounded-full h-2 w-2',
-                      status.bg
-                    )} />
-                    {status.pulse && (
-                      <span className={cn(
-                        'animate-ping absolute inline-flex h-full w-full rounded-full opacity-75',
+                  <span
+                    className={cn(
+                      'relative flex h-2 w-2',
+                      status.pulse && 'status-pulse'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'relative inline-flex rounded-full h-2 w-2',
                         status.bg
-                      )} />
+                      )}
+                    />
+                    {status.pulse && (
+                      <span
+                        className={cn(
+                          'animate-ping absolute inline-flex h-full w-full rounded-full opacity-75',
+                          status.bg
+                        )}
+                      />
                     )}
                   </span>
                   <span className={cn('text-xs font-medium', status.color)}>
@@ -177,45 +225,6 @@ export function NodeCard({ node, onEdit, onArchive }: NodeCardProps) {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                )}
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1">
-              <h3 className="font-semibold text-foreground text-base mb-1 truncate group-hover:text-primary transition-colors">
-                {node.displayName}
-              </h3>
-              <p className="text-xs text-muted-foreground font-mono truncate mb-4">
-                {node.nodeId}
-              </p>
-
-              {/* Meta info */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant="secondary"
-                    className={cn(
-                      'text-[10px] uppercase tracking-wider font-medium',
-                      classConfig.bg,
-                      classConfig.color,
-                      'border-0'
-                    )}
-                  >
-                    {node.type}
-                  </Badge>
-                  <span className="text-muted-foreground">/</span>
-                  <span className="text-xs text-muted-foreground capitalize">
-                    {node.kind || 'unknown'}
-                  </span>
-                </div>
-
-                {/* Last profile */}
-                {node.lastProfileAt && (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    <span>Profiled {formatRelativeTime(node.lastProfileAt)}</span>
-                  </div>
                 )}
               </div>
             </div>

@@ -32,6 +32,7 @@ TimeMachineServiceDep = Annotated[TimeMachineService, Depends(get_timemachine_se
 @router.get(
     "/node/{node_id}",
     response_model=SuccessResponse[NodeTimeMachineResponse],
+    response_model_by_alias=True,
     summary="Get Node State at Time",
     description="Reconstruct a node's state at a specific point in time.",
     dependencies=[Depends(require_permission("nodes:read")), Depends(require_permission("profiles:read"))],
@@ -67,6 +68,7 @@ async def get_node_state_at(
 @router.get(
     "/topology",
     response_model=SuccessResponse[TopologyTimeMachineResponse],
+    response_model_by_alias=True,
     summary="Get Topology at Time",
     description="Get the topology that was valid at a specific point in time.",
     dependencies=[Depends(require_permission("topologies:read"))],
@@ -99,6 +101,7 @@ async def get_topology_at(
 @router.get(
     "/timeline",
     response_model=SuccessResponse[TimelineResponse],
+    response_model_by_alias=True,
     summary="Get Timeline",
     description="Get a timeline of infrastructure events within a time range.",
     dependencies=[Depends(require_permission("nodes:read"))],

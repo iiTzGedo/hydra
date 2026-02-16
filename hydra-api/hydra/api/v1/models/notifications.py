@@ -221,7 +221,7 @@ AUTO_RESOLVE_MAP: dict[NotificationType, list[NotificationType]] = {
 
 # Default target roles per tier (who sees these notifications)
 DEFAULT_TARGET_ROLES: dict[int, list[str]] = {
-    1: ["admin", "operator", "viewer"],  # user events visible to most
+    1: ["admin", "operator", "viewer", "family"],  # user events visible to most
     2: ["admin", "operator"],  # system events for ops
     3: ["admin", "operator"],  # warnings for ops
     4: ["admin", "operator"],  # high severity for ops
@@ -318,6 +318,8 @@ class NotificationStatsResponse(BaseModel):
 
     total: int
     unread: int
+    needs_attention: int = Field(default=0, alias="needsAttention")
+    acknowledged_pending: int = Field(default=0, alias="acknowledgedPending")
     by_tier: dict[str, int] = Field(alias="byTier")
     by_status: dict[str, int] = Field(alias="byStatus")
     by_source: dict[str, int] = Field(alias="bySource")
@@ -333,6 +335,17 @@ class NotificationBulkActionRequest(BaseModel):
     status: NotificationStatus | None = None
     source: SourceComponent | None = None
     node_id: str | None = Field(default=None, alias="nodeId")
+
+
+class NotificationBulkDeleteRequest(BaseModel):
+    """Request body for bulk notification delete."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    notification_ids: list[str] | None = Field(default=None, alias="notificationIds")
+    status: NotificationStatus | None = None
+    tier: int | None = None
+    before: datetime | None = None
 
 
 class NotificationBulkActionResponse(BaseModel):

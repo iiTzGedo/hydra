@@ -17,7 +17,7 @@ NODE_ID_PATTERN_LEGACY = r"^[a-z0-9][a-z0-9.-]{2,63}$"
 _NODE_ID_NEW_RE = re.compile(NODE_ID_PATTERN_NEW)
 _NODE_ID_LEGACY_RE = re.compile(NODE_ID_PATTERN_LEGACY)
 
-TAG_PATTERN = r"^[a-z]+[_:]?[a-z]+$"
+TAG_PATTERN = r"^[a-z]+[-_:]?[a-z]+$"
 _TAG_RE = re.compile(TAG_PATTERN)
 
 NETWORK_ID_PATTERN = r"^[a-z]{1,}[0-9a-z]*([-]?net)$"

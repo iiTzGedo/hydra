@@ -26,6 +26,7 @@ async def get_settings_service(mongodb: MongoDB = Depends(get_mongodb)) -> Setti
 @router.get(
     "",
     response_model=UserSettingsResponse,
+    response_model_by_alias=True,
     summary="Get User Settings",
     description="Get settings for the current user.",
 )
@@ -57,6 +58,7 @@ async def get_user_settings(
 @router.put(
     "",
     response_model=UserSettingsResponse,
+    response_model_by_alias=True,
     summary="Update User Settings",
     description="Update settings for the current user.",
 )
@@ -91,6 +93,7 @@ async def update_user_settings(
 @router.get(
     "/system",
     response_model=SystemSettingsResponse,
+    response_model_by_alias=True,
     summary="Get System Settings",
     description="Get system-wide settings. Admin only.",
     dependencies=[Depends(require_permission("settings:*"))],
@@ -119,6 +122,7 @@ async def get_system_settings(
 @router.put(
     "/system",
     response_model=SystemSettingsResponse,
+    response_model_by_alias=True,
     summary="Update System Settings",
     description="Update system-wide settings. Admin only.",
     dependencies=[Depends(require_permission("settings:*"))],

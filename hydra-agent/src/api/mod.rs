@@ -22,7 +22,7 @@ pub struct ApiClient {
     vault: Vault,
 }
 
-/// Node registration request sent to /node/register
+/// Node registration request sent to /nodes/register
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NodeRegistrationRequest {
@@ -98,7 +98,7 @@ struct AgentRegistrationResponse {
     created_at: String,
 }
 
-/// Node registration response from /node/register (returned directly, not wrapped in data)
+/// Node registration response from /nodes/register (returned directly, not wrapped in data)
 /// Note: Some endpoints use SuccessResponse wrapper, others return directly
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
@@ -633,7 +633,7 @@ impl ApiClient {
         self.save_credentials_from_agent(&agent_result, &agent_password)?;
         self.save_api_key_from_response(&api_key_response)?;
 
-        let register_url = format!("{}/node/register", self.config.api.url);
+        let register_url = format!("{}/nodes/register", self.config.api.url);
         let request = self.build_registration_request();
 
         debug!(?request, "Registering node with agent API key");
@@ -759,7 +759,7 @@ impl ApiClient {
         self.save_credentials_from_agent(&agent_result, &agent_password)?;
         self.save_api_key_from_response(&api_key_response)?;
 
-        let register_url = format!("{}/node/register", self.config.api.url);
+        let register_url = format!("{}/nodes/register", self.config.api.url);
         let request = self.build_registration_request();
 
         debug!(?request, "Registering node with agent API key");

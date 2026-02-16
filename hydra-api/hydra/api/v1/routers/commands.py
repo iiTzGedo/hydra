@@ -39,6 +39,7 @@ CommandsServiceDep = Annotated[CommandsService, Depends(get_commands_service)]
 @router.post(
     "",
     response_model=SuccessResponse[CommandQueuedResponse],
+    response_model_by_alias=True,
     status_code=202,
     summary="Queue Command",
     description="Queue a command for execution on a target node.",
@@ -91,6 +92,7 @@ async def create_command(
 @router.get(
     "",
     response_model=SuccessResponse[list[CommandSummary]],
+    response_model_by_alias=True,
     summary="List Commands",
     description="List command history with optional filters.",
     dependencies=[Depends(require_permission("commands:read"))],
@@ -151,6 +153,7 @@ async def list_commands(
 @router.get(
     "/{command_id}",
     response_model=SuccessResponse[CommandResponse],
+    response_model_by_alias=True,
     summary="Get Command",
     description="Get detailed information about a specific command.",
     dependencies=[Depends(require_permission("commands:read"))],
@@ -196,6 +199,7 @@ async def get_command(
 @router.post(
     "/{command_id}/cancel",
     response_model=SuccessResponse[CommandCancelledResponse],
+    response_model_by_alias=True,
     summary="Cancel Command",
     description="Cancel a pending or queued command.",
     dependencies=[Depends(require_permission("commands:execute"))],
@@ -235,6 +239,7 @@ nodes_commands_router = APIRouter(prefix="/nodes", tags=["Nodes"])
 @nodes_commands_router.get(
     "/{node_id}/commands/poll",
     response_model=SuccessResponse[CommandPollResponse],
+    response_model_by_alias=True,
     summary="Poll Commands",
     description="Poll for pending commands (agent endpoint).",
     dependencies=[Depends(require_permission("commands:poll"))],
@@ -265,6 +270,7 @@ async def poll_commands(
 @nodes_commands_router.post(
     "/{node_id}/commands/{command_id}/result",
     response_model=SuccessResponse[CommandResultSubmittedResponse],
+    response_model_by_alias=True,
     summary="Submit Command Result",
     description="Submit command execution result (agent endpoint).",
     dependencies=[Depends(require_permission("commands:poll"))],

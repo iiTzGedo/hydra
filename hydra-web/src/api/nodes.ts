@@ -59,7 +59,7 @@ export function useRegisterNode() {
 
   return useMutation({
     mutationFn: async (data: NodeRegistrationRequest) => {
-      const response = await apiClient.post<NodeRegistrationResponse>('/node/register', data);
+      const response = await apiClient.post<NodeRegistrationResponse>('/nodes/register', data);
       return response.data;
     },
     onSuccess: () => {

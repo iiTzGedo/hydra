@@ -290,7 +290,7 @@ async fn register_node(
         .build()
         .context("Failed to create HTTP client")?;
 
-    let register_url = format!("{}/node/register", config.api.url);
+    let register_url = format!("{}/nodes/register", config.api.url);
     let request = NodeRegisterRequest {
         node_id: actual_node_id.to_string(),
         class: actual_class.to_string(),

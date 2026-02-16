@@ -21,7 +21,7 @@ async def test_register_node_success(
     mock_mongodb.tokens.update_one = AsyncMock()
 
     response = await client.post(
-        "/api/v1/node/register",
+        "/api/v1/nodes/register",
         json={
             "nodeId": "new-test-node",
             "class": "compute",
@@ -52,7 +52,7 @@ async def test_register_node_duplicate(
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.post(
-        "/api/v1/node/register",
+        "/api/v1/nodes/register",
         json={
             "nodeId": sample_node["nodeId"],
             "class": "compute",
@@ -76,7 +76,7 @@ async def test_register_node_invalid_token(
     mock_mongodb.tokens.find_one = AsyncMock(return_value=None)
 
     response = await client.post(
-        "/api/v1/node/register",
+        "/api/v1/nodes/register",
         json={
             "nodeId": "test-node",
             "class": "compute",
@@ -103,7 +103,7 @@ async def test_register_node_expired_token(
     mock_mongodb.tokens.find_one = AsyncMock(return_value=expired_token)
 
     response = await client.post(
-        "/api/v1/node/register",
+        "/api/v1/nodes/register",
         json={
             "nodeId": "test-node",
             "class": "compute",

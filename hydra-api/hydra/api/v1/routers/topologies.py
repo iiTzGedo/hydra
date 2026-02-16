@@ -34,6 +34,7 @@ TopologiesServiceDep = Annotated[TopologiesService, Depends(get_topologies_servi
 @router.get(
     "",
     response_model=SuccessResponse[list[TopologySummary]],
+    response_model_by_alias=True,
     summary="List Topologies",
     description="List all topology snapshots with optional filters and pagination.",
     dependencies=[Depends(require_permission("topologies:read"))],
@@ -81,6 +82,7 @@ async def list_topologies(
 @router.get(
     "/latest",
     response_model=SuccessResponse[TopologyResponse],
+    response_model_by_alias=True,
     summary="Get Latest Topology",
     description="Get the latest topology for a specific mode.",
     dependencies=[Depends(require_permission("topologies:read"))],
@@ -111,6 +113,7 @@ async def get_latest_topology(
 @router.get(
     "/diff",
     response_model=SuccessResponse[TopologyDiffResponse],
+    response_model_by_alias=True,
     summary="Compare Topologies",
     description="Compare two topologies and return the differences.",
     dependencies=[Depends(require_permission("topologies:read"))],
@@ -144,6 +147,7 @@ async def diff_topologies(
 @router.get(
     "/{topology_id}",
     response_model=SuccessResponse[TopologyResponse],
+    response_model_by_alias=True,
     summary="Get Topology",
     description="Get detailed information about a specific topology.",
     dependencies=[Depends(require_permission("topologies:read"))],
@@ -174,6 +178,7 @@ async def get_topology(
 @router.post(
     "/generate",
     response_model=SuccessResponse[TopologyResponse],
+    response_model_by_alias=True,
     status_code=201,
     summary="Generate Topology",
     description="Trigger generation of a new topology snapshot.",
@@ -203,6 +208,7 @@ async def generate_topology(
 @router.get(
     "/subgraph",
     response_model=SuccessResponse[SubgraphResponse],
+    response_model_by_alias=True,
     summary="Get Node Subgraph",
     description="Get a subgraph centered on a specific node with its immediate neighbors.",
     dependencies=[Depends(require_permission("topologies:read"))],

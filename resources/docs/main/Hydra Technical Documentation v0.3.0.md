@@ -1895,7 +1895,7 @@ chmod +x hydra-agent-linux-amd64
 
 1. User provides their Hydra credentials
 2. Agent authenticates user via `POST /auth/login`
-3. Agent calls `POST /node/register` with user's access token
+3. Agent calls `POST /nodes/register` with user's access token
 4. Agent receives node-specific API key
 5. Agent stores API key in `/etc/hydra/credentials.json`
 6. All subsequent agent operations use the node API key

@@ -38,6 +38,7 @@ def get_uptime() -> float:
 @router.get(
     "/health",
     response_model=HealthCheck,
+    response_model_by_alias=True,
     summary="Health Check",
     description="Check the health status of the API and its dependencies.",
 )
@@ -107,6 +108,7 @@ async def health_check(
 @router.get(
     "/info",
     response_model=ServiceInfo,
+    response_model_by_alias=True,
     summary="Service Information",
     description="Get information about the service and its statistics.",
 )

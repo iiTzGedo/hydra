@@ -15,16 +15,19 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 
-from hydra.db.mongodb import MongoDB
-from hydra.db.redis import RedisClient
 from hydra.api.v1.models.notifications import (
+    DEDUP_WINDOW,
     NotificationActor,
     NotificationSource,
+    NotificationStatus,
     NotificationType,
+    build_group_key,
 )
+from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.services.notifications import NotificationService
 from hydra.api.v1.services.query import log_audit
-from hydra.api.v1.models.query import AuditAction
+from hydra.db.mongodb import MongoDB
+from hydra.db.redis import RedisClient
 
 logger = structlog.get_logger(__name__)
 
@@ -84,12 +87,29 @@ class HealthScanner:
                 continue
         return intervals
 
+    async def _has_recent_dedup_candidate(self, group_key: str) -> bool:
+        """Check if a notification exists that would be deduplicated right now."""
+        window_start = datetime.now(UTC) - DEDUP_WINDOW
+        existing = await self.db.notifications.find_one(
+            {
+                "groupKey": group_key,
+                "status": NotificationStatus.ACTIVE.value,
+                "$or": [
+                    {"event.lastSeenAt": {"$gte": window_start}},
+                    {"createdAt": {"$gte": window_start}},
+                ],
+            },
+            {"notificationId": 1},
+        )
+        return existing is not None
+
     async def _has_active_notification(self, notification_type: NotificationType, group_key: str) -> bool:
+        """Check if any active notification exists for this type/group key."""
         existing = await self.db.notifications.find_one(
             {
                 "type": notification_type.value,
                 "groupKey": group_key,
-                "status": "active",
+                "status": NotificationStatus.ACTIVE.value,
             },
             {"notificationId": 1},
         )
@@ -110,15 +130,23 @@ class HealthScanner:
         group_key: str | None = None,
         target_user_id: str | None = None,
     ) -> None:
-        audit_id = await log_audit(
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            actor_type="system",
-            actor_id="health_scanner",
-            success=True,
-            details=details,
+        # Only suppress audit when this event would deduplicate within DEDUP_WINDOW.
+        resolved_key = group_key or build_group_key(
+            notification_type, source, details
         )
+        dedup_candidate_exists = await self._has_recent_dedup_candidate(resolved_key)
+
+        audit_id = None
+        if not dedup_candidate_exists:
+            audit_id = await log_audit(
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                actor_type="system",
+                actor_id="health_scanner",
+                success=True,
+                details=details,
+            )
 
         await self.notif.emit(
             notification_type=notification_type,
@@ -181,7 +209,7 @@ class HealthScanner:
             *(coro for _, coro in checks),
             return_exceptions=True,
         )
-        for (name, _), result in zip(checks, results):
+        for (name, _), result in zip(checks, results, strict=False):
             if isinstance(result, Exception):
                 logger.error(
                     "health_scanner_check_failed",
@@ -782,8 +810,8 @@ class HealthScanner:
             return
 
         try:
+            from hydra.api.v1.services.storage import StorageSource, get_cached_storage_service
             from hydra.core.config import get_settings
-            from hydra.api.v1.services.storage import get_cached_storage_service, StorageSource
         except Exception:
             return
 

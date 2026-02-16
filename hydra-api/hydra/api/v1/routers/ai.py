@@ -44,6 +44,7 @@ async def get_ai_service(mongodb: MongoDB = Depends(get_mongodb)) -> AIService:
 @router.get(
     "/configs",
     response_model=LLMConfigListResponse,
+    response_model_by_alias=True,
     summary="List LLM Configurations",
     description="List saved LLM configurations for the current user.",
 )
@@ -84,6 +85,7 @@ async def list_configs(
 @router.post(
     "/configs",
     response_model=LLMConfigResponse,
+    response_model_by_alias=True,
     status_code=201,
     summary="Create LLM Configuration",
     description="Create a new LLM configuration.",
@@ -117,22 +119,23 @@ async def create_config(
 
 
 @router.get(
-    "/configs/{configId}",
+    "/configs/{config_id}",
     response_model=LLMConfigResponse,
+    response_model_by_alias=True,
     summary="Get LLM Configuration",
     description="Get a specific LLM configuration.",
 )
 async def get_config(
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
-    configId: str = Path(description="Configuration ID"),
+    config_id: str = Path(description="Configuration ID"),
 ) -> LLMConfigResponse:
     """Retrieve a specific LLM configuration by ID.
 
     Args:
         current_user: Authenticated user making the request.
         ai_service: AI service instance.
-        configId: Unique identifier of the LLM configuration.
+        config_id: Unique identifier of the LLM configuration.
 
     Returns:
         LLM configuration details.
@@ -144,7 +147,7 @@ async def get_config(
     check_not_agent(current_user, "ai:read")
 
     result = await ai_service.get_config(
-        config_id=configId,
+        config_id=config_id,
         user_id=current_user["user_id"],
     )
 
@@ -152,8 +155,9 @@ async def get_config(
 
 
 @router.put(
-    "/configs/{configId}",
+    "/configs/{config_id}",
     response_model=LLMConfigResponse,
+    response_model_by_alias=True,
     summary="Update LLM Configuration",
     description="Update an LLM configuration.",
 )
@@ -161,7 +165,7 @@ async def update_config(
     request: LLMConfigUpdate,
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
-    configId: str = Path(description="Configuration ID"),
+    config_id: str = Path(description="Configuration ID"),
 ) -> LLMConfigResponse:
     """Update an existing LLM configuration.
 
@@ -169,7 +173,7 @@ async def update_config(
         request: Configuration update request with fields to modify.
         current_user: Authenticated user making the request.
         ai_service: AI service instance.
-        configId: Unique identifier of the LLM configuration.
+        config_id: Unique identifier of the LLM configuration.
 
     Returns:
         Updated LLM configuration details.
@@ -181,7 +185,7 @@ async def update_config(
     check_not_agent(current_user, "ai:update")
 
     result = await ai_service.update_config(
-        config_id=configId,
+        config_id=config_id,
         request=request,
         user_id=current_user["user_id"],
     )
@@ -190,21 +194,21 @@ async def update_config(
 
 
 @router.delete(
-    "/configs/{configId}",
+    "/configs/{config_id}",
     summary="Delete LLM Configuration",
     description="Delete an LLM configuration.",
 )
 async def delete_config(
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
-    configId: str = Path(description="Configuration ID"),
+    config_id: str = Path(description="Configuration ID"),
 ) -> dict:
     """Delete an LLM configuration.
 
     Args:
         current_user: Authenticated user making the request.
         ai_service: AI service instance.
-        configId: Unique identifier of the LLM configuration.
+        config_id: Unique identifier of the LLM configuration.
 
     Returns:
         Confirmation of deletion.
@@ -216,7 +220,7 @@ async def delete_config(
     check_not_agent(current_user, "ai:delete")
 
     result = await ai_service.delete_config(
-        config_id=configId,
+        config_id=config_id,
         user_id=current_user["user_id"],
     )
 
@@ -224,15 +228,16 @@ async def delete_config(
 
 
 @router.post(
-    "/configs/{configId}/validate",
+    "/configs/{config_id}/validate",
     response_model=LLMConfigValidateResponse,
+    response_model_by_alias=True,
     summary="Validate LLM Configuration",
     description="Validate an LLM configuration by testing the API connection.",
 )
 async def validate_config(
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
-    configId: str = Path(description="Configuration ID"),
+    config_id: str = Path(description="Configuration ID"),
 ) -> LLMConfigValidateResponse:
     """Validate an LLM configuration by testing API connectivity.
 
@@ -242,7 +247,7 @@ async def validate_config(
     Args:
         current_user: Authenticated user making the request.
         ai_service: AI service instance.
-        configId: Unique identifier of the LLM configuration.
+        config_id: Unique identifier of the LLM configuration.
 
     Returns:
         Validation result with success status and any error details.
@@ -254,7 +259,7 @@ async def validate_config(
     check_not_agent(current_user, "ai:read")
 
     result = await ai_service.validate_config(
-        config_id=configId,
+        config_id=config_id,
         user_id=current_user["user_id"],
     )
 
@@ -267,15 +272,16 @@ async def validate_config(
 
 
 @router.get(
-    "/providers/{providerType}/models",
+    "/providers/{provider_type}/models",
     response_model=LLMModelsResponse,
+    response_model_by_alias=True,
     summary="List Provider Models",
     description="Fetch available models from an LLM provider API.",
 )
 async def list_provider_models(
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
-    providerType: LLMProviderType = Path(description="Provider type to fetch models for"),
+    provider_type: LLMProviderType = Path(description="Provider type to fetch models for"),
     configId: str | None = Query(
         default=None,
         alias="configId",
@@ -297,7 +303,7 @@ async def list_provider_models(
     Args:
         current_user: Authenticated user making the request.
         ai_service: AI service instance.
-        providerType: The LLM provider type (anthropic, openai, ollama, openrouter).
+        provider_type: The LLM provider type (anthropic, openai, ollama, openrouter).
         configId: Optional ID of a stored config to use its API key.
         tools_only: If true, filter to models that support tool/function calling.
 
@@ -312,7 +318,7 @@ async def list_provider_models(
     check_not_agent(current_user, "ai:read")
 
     result = await ai_service.fetch_provider_models(
-        provider_type=providerType,
+        provider_type=provider_type,
         user_id=current_user["user_id"],
         config_id=configId,
         tools_only=tools_only,
@@ -329,6 +335,7 @@ async def list_provider_models(
 @router.get(
     "/global-keys",
     response_model=GlobalAPIKeysResponse,
+    response_model_by_alias=True,
     summary="List Global API Keys",
     description="List all configured global API keys for the current user.",
 )
@@ -356,22 +363,23 @@ async def list_global_keys(
 
 
 @router.get(
-    "/global-keys/{providerType}",
+    "/global-keys/{provider_type}",
     response_model=GlobalAPIKeyResponse,
+    response_model_by_alias=True,
     summary="Get Global API Key",
     description="Get the global API key for a specific provider.",
 )
 async def get_global_key(
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
-    providerType: LLMProviderType = Path(description="Provider type"),
+    provider_type: LLMProviderType = Path(description="Provider type"),
 ) -> GlobalAPIKeyResponse:
     """Get the global API key for a specific provider.
 
     Args:
         current_user: Authenticated user making the request.
         ai_service: AI service instance.
-        providerType: The LLM provider type.
+        provider_type: The LLM provider type.
 
     Returns:
         Global API key details (masked).
@@ -383,7 +391,7 @@ async def get_global_key(
     check_not_agent(current_user, "ai:read")
 
     result = await ai_service.get_global_key(
-        provider_type=providerType,
+        provider_type=provider_type,
         user_id=current_user["user_id"],
     )
 
@@ -391,8 +399,9 @@ async def get_global_key(
 
 
 @router.put(
-    "/global-keys/{providerType}",
+    "/global-keys/{provider_type}",
     response_model=GlobalAPIKeyResponse,
+    response_model_by_alias=True,
     summary="Set Global API Key",
     description="Set or update the global API key for a provider.",
 )
@@ -400,7 +409,7 @@ async def set_global_key(
     request: GlobalAPIKeyCreate,
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
-    providerType: LLMProviderType = Path(description="Provider type"),
+    provider_type: LLMProviderType = Path(description="Provider type"),
 ) -> GlobalAPIKeyResponse:
     """Set or update the global API key for a provider.
 
@@ -408,7 +417,7 @@ async def set_global_key(
         request: API key and scopes to set.
         current_user: Authenticated user making the request.
         ai_service: AI service instance.
-        providerType: The LLM provider type.
+        provider_type: The LLM provider type.
 
     Returns:
         Updated global API key details (masked).
@@ -419,7 +428,7 @@ async def set_global_key(
     check_not_agent(current_user, "ai:create")
 
     result = await ai_service.set_global_key(
-        provider_type=providerType,
+        provider_type=provider_type,
         request=request,
         user_id=current_user["user_id"],
     )
@@ -428,21 +437,21 @@ async def set_global_key(
 
 
 @router.delete(
-    "/global-keys/{providerType}",
+    "/global-keys/{provider_type}",
     summary="Delete Global API Key",
     description="Delete the global API key for a provider.",
 )
 async def delete_global_key(
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
-    providerType: LLMProviderType = Path(description="Provider type"),
+    provider_type: LLMProviderType = Path(description="Provider type"),
 ) -> dict:
     """Delete the global API key for a provider.
 
     Args:
         current_user: Authenticated user making the request.
         ai_service: AI service instance.
-        providerType: The LLM provider type.
+        provider_type: The LLM provider type.
 
     Returns:
         Confirmation of deletion.
@@ -454,7 +463,7 @@ async def delete_global_key(
     check_not_agent(current_user, "ai:delete")
 
     result = await ai_service.delete_global_key(
-        provider_type=providerType,
+        provider_type=provider_type,
         user_id=current_user["user_id"],
     )
 
@@ -462,22 +471,23 @@ async def delete_global_key(
 
 
 @router.post(
-    "/global-keys/{providerType}/validate",
+    "/global-keys/{provider_type}/validate",
     response_model=GlobalKeyValidateResponse,
+    response_model_by_alias=True,
     summary="Validate Global API Key",
     description="Validate a global API key by testing the API connection.",
 )
 async def validate_global_key(
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
-    providerType: LLMProviderType = Path(description="Provider type"),
+    provider_type: LLMProviderType = Path(description="Provider type"),
 ) -> GlobalKeyValidateResponse:
     """Validate a global API key by testing API connectivity.
 
     Args:
         current_user: Authenticated user making the request.
         ai_service: AI service instance.
-        providerType: The LLM provider type.
+        provider_type: The LLM provider type.
 
     Returns:
         Validation result with success status and any error details.
@@ -489,7 +499,7 @@ async def validate_global_key(
     check_not_agent(current_user, "ai:read")
 
     result = await ai_service.validate_global_key(
-        provider_type=providerType,
+        provider_type=provider_type,
         user_id=current_user["user_id"],
     )
 

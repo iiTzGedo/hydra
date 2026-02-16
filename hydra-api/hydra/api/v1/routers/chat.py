@@ -36,6 +36,7 @@ async def get_chat_service(mongodb: MongoDB = Depends(get_mongodb)) -> ChatServi
 @router.get(
     "/projects",
     response_model=ChatProjectListResponse,
+    response_model_by_alias=True,
     summary="List Chat Projects",
     description="List chat projects for the current user.",
 )
@@ -76,6 +77,7 @@ async def list_projects(
 @router.post(
     "/projects",
     response_model=ChatProjectResponse,
+    response_model_by_alias=True,
     status_code=201,
     summary="Create Chat Project",
     description="Create a new chat project.",
@@ -109,22 +111,23 @@ async def create_project(
 
 
 @router.get(
-    "/projects/{projectId}",
+    "/projects/{project_id}",
     response_model=ChatProjectResponse,
+    response_model_by_alias=True,
     summary="Get Chat Project",
     description="Get a specific chat project.",
 )
 async def get_project(
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    projectId: str = Path(description="Project ID"),
+    project_id: str = Path(description="Project ID"),
 ) -> ChatProjectResponse:
     """Retrieve a specific chat project by ID.
 
     Args:
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        projectId: Unique identifier of the project.
+        project_id: Unique identifier of the project.
 
     Returns:
         Project details.
@@ -136,7 +139,7 @@ async def get_project(
     check_not_agent(current_user, "chat:read")
 
     result = await chat_service.get_project(
-        project_id=projectId,
+        project_id=project_id,
         user_id=current_user["user_id"],
     )
 
@@ -144,8 +147,9 @@ async def get_project(
 
 
 @router.put(
-    "/projects/{projectId}",
+    "/projects/{project_id}",
     response_model=ChatProjectResponse,
+    response_model_by_alias=True,
     summary="Update Chat Project",
     description="Update a chat project.",
 )
@@ -153,7 +157,7 @@ async def update_project(
     request: ChatProjectUpdate,
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    projectId: str = Path(description="Project ID"),
+    project_id: str = Path(description="Project ID"),
 ) -> ChatProjectResponse:
     """Update an existing chat project.
 
@@ -161,7 +165,7 @@ async def update_project(
         request: Fields to update.
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        projectId: Unique identifier of the project.
+        project_id: Unique identifier of the project.
 
     Returns:
         Updated project details.
@@ -173,7 +177,7 @@ async def update_project(
     check_not_agent(current_user, "chat:read")
 
     result = await chat_service.update_project(
-        project_id=projectId,
+        project_id=project_id,
         request=request,
         user_id=current_user["user_id"],
     )
@@ -182,14 +186,14 @@ async def update_project(
 
 
 @router.delete(
-    "/projects/{projectId}",
+    "/projects/{project_id}",
     summary="Delete Chat Project",
     description="Delete a chat project and optionally cascade delete sessions.",
 )
 async def delete_project(
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    projectId: str = Path(description="Project ID"),
+    project_id: str = Path(description="Project ID"),
     cascade: bool = Query(default=True, description="Delete sessions and messages"),
 ) -> dict:
     """Delete a chat project and optionally its sessions.
@@ -197,7 +201,7 @@ async def delete_project(
     Args:
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        projectId: Unique identifier of the project.
+        project_id: Unique identifier of the project.
         cascade: Delete associated sessions and messages.
 
     Returns:
@@ -210,7 +214,7 @@ async def delete_project(
     check_not_agent(current_user, "chat:read")
 
     result = await chat_service.delete_project(
-        project_id=projectId,
+        project_id=project_id,
         user_id=current_user["user_id"],
         cascade=cascade,
     )
@@ -221,6 +225,7 @@ async def delete_project(
 @router.get(
     "/sessions",
     response_model=ChatSessionListResponse,
+    response_model_by_alias=True,
     summary="List Chat Sessions",
     description="List chat sessions for the current user.",
 )
@@ -264,6 +269,7 @@ async def list_sessions(
 @router.post(
     "/sessions",
     response_model=ChatSessionResponse,
+    response_model_by_alias=True,
     status_code=201,
     summary="Create Chat Session",
     description="Create a new chat session.",
@@ -297,22 +303,23 @@ async def create_session(
 
 
 @router.get(
-    "/sessions/{sessionId}",
+    "/sessions/{session_id}",
     response_model=ChatSessionResponse,
+    response_model_by_alias=True,
     summary="Get Chat Session",
     description="Get a specific chat session.",
 )
 async def get_session(
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    sessionId: str = Path(description="Session ID"),
+    session_id: str = Path(description="Session ID"),
 ) -> ChatSessionResponse:
     """Retrieve a specific chat session by ID.
 
     Args:
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        sessionId: Unique identifier of the session.
+        session_id: Unique identifier of the session.
 
     Returns:
         Session details.
@@ -324,7 +331,7 @@ async def get_session(
     check_not_agent(current_user, "chat:read")
 
     result = await chat_service.get_session(
-        session_id=sessionId,
+        session_id=session_id,
         user_id=current_user["user_id"],
     )
 
@@ -332,15 +339,16 @@ async def get_session(
 
 
 @router.get(
-    "/sessions/{sessionId}/context",
+    "/sessions/{session_id}/context",
     response_model=SessionContextResponse,
+    response_model_by_alias=True,
     summary="Get Session Context",
     description="Get real-time session context for UI display.",
 )
 async def get_session_context(
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    sessionId: str = Path(description="Session ID"),
+    session_id: str = Path(description="Session ID"),
 ) -> SessionContextResponse:
     """Get real-time session context including token counts and costs.
 
@@ -355,7 +363,7 @@ async def get_session_context(
     Args:
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        sessionId: Unique identifier of the session.
+        session_id: Unique identifier of the session.
 
     Returns:
         Session context with usage metrics.
@@ -367,7 +375,7 @@ async def get_session_context(
     check_not_agent(current_user, "chat:read")
 
     result = await chat_service.get_session_context(
-        session_id=sessionId,
+        session_id=session_id,
         user_id=current_user["user_id"],
     )
 
@@ -375,8 +383,9 @@ async def get_session_context(
 
 
 @router.put(
-    "/sessions/{sessionId}",
+    "/sessions/{session_id}",
     response_model=ChatSessionResponse,
+    response_model_by_alias=True,
     summary="Update Chat Session",
     description="Update a chat session.",
 )
@@ -384,7 +393,7 @@ async def update_session(
     request: ChatSessionUpdate,
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    sessionId: str = Path(description="Session ID"),
+    session_id: str = Path(description="Session ID"),
 ) -> ChatSessionResponse:
     """Update an existing chat session.
 
@@ -392,7 +401,7 @@ async def update_session(
         request: Fields to update.
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        sessionId: Unique identifier of the session.
+        session_id: Unique identifier of the session.
 
     Returns:
         Updated session details.
@@ -404,7 +413,7 @@ async def update_session(
     check_not_agent(current_user, "chat:read")
 
     result = await chat_service.update_session(
-        session_id=sessionId,
+        session_id=session_id,
         request=request,
         user_id=current_user["user_id"],
     )
@@ -413,21 +422,21 @@ async def update_session(
 
 
 @router.delete(
-    "/sessions/{sessionId}",
+    "/sessions/{session_id}",
     summary="Delete Chat Session",
     description="Delete a chat session and its messages.",
 )
 async def delete_session(
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    sessionId: str = Path(description="Session ID"),
+    session_id: str = Path(description="Session ID"),
 ) -> dict:
     """Delete a chat session and all its messages.
 
     Args:
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        sessionId: Unique identifier of the session.
+        session_id: Unique identifier of the session.
 
     Returns:
         Deletion confirmation.
@@ -439,7 +448,7 @@ async def delete_session(
     check_not_agent(current_user, "chat:read")
 
     result = await chat_service.delete_session(
-        session_id=sessionId,
+        session_id=session_id,
         user_id=current_user["user_id"],
     )
 
@@ -447,15 +456,16 @@ async def delete_session(
 
 
 @router.get(
-    "/sessions/{sessionId}/messages",
+    "/sessions/{session_id}/messages",
     response_model=ChatMessageListResponse,
+    response_model_by_alias=True,
     summary="List Chat Messages",
     description="List messages in a chat session.",
 )
 async def list_messages(
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    sessionId: str = Path(description="Session ID"),
+    session_id: str = Path(description="Session ID"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     order: str = Query(default="asc", pattern="^(asc|desc)$"),
@@ -465,7 +475,7 @@ async def list_messages(
     Args:
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        sessionId: Unique identifier of the session.
+        session_id: Unique identifier of the session.
         limit: Maximum number of results to return.
         offset: Number of results to skip.
         order: Sort order (asc for oldest first, desc for newest first).
@@ -480,7 +490,7 @@ async def list_messages(
     check_not_agent(current_user, "chat:read")
 
     messages, total = await chat_service.list_messages(
-        session_id=sessionId,
+        session_id=session_id,
         user_id=current_user["user_id"],
         limit=limit,
         offset=offset,
@@ -495,8 +505,9 @@ async def list_messages(
 
 
 @router.post(
-    "/sessions/{sessionId}/messages",
+    "/sessions/{session_id}/messages",
     response_model=ChatMessageResponse,
+    response_model_by_alias=True,
     status_code=201,
     summary="Create Chat Message",
     description="Create a new message in a chat session.",
@@ -505,7 +516,7 @@ async def create_message(
     request: ChatMessageCreate,
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    sessionId: str = Path(description="Session ID"),
+    session_id: str = Path(description="Session ID"),
 ) -> ChatMessageResponse:
     """Add a new message to a chat session.
 
@@ -513,7 +524,7 @@ async def create_message(
         request: Message content and role.
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        sessionId: Unique identifier of the session.
+        session_id: Unique identifier of the session.
 
     Returns:
         Created message details.
@@ -525,7 +536,7 @@ async def create_message(
     check_not_agent(current_user, "chat:read")
 
     result = await chat_service.create_message(
-        session_id=sessionId,
+        session_id=session_id,
         request=request,
         user_id=current_user["user_id"],
     )
@@ -534,8 +545,9 @@ async def create_message(
 
 
 @router.post(
-    "/sessions/{sessionId}/messages/bulk",
+    "/sessions/{session_id}/messages/bulk",
     response_model=ChatBulkUpsertResponse,
+    response_model_by_alias=True,
     summary="Bulk Upsert Messages",
     description="Bulk create/update messages for background save from web client.",
 )
@@ -543,7 +555,7 @@ async def bulk_upsert_messages(
     request: ChatMessageBulkCreate,
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    sessionId: str = Path(description="Session ID"),
+    session_id: str = Path(description="Session ID"),
 ) -> ChatBulkUpsertResponse:
     """Bulk create or update messages for efficient background saves.
 
@@ -551,7 +563,7 @@ async def bulk_upsert_messages(
         request: List of messages to upsert.
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        sessionId: Unique identifier of the session.
+        session_id: Unique identifier of the session.
 
     Returns:
         Upsert result with counts.
@@ -563,7 +575,7 @@ async def bulk_upsert_messages(
     check_not_agent(current_user, "chat:read")
 
     result = await chat_service.bulk_upsert_messages(
-        session_id=sessionId,
+        session_id=session_id,
         messages=request.messages,
         user_id=current_user["user_id"],
     )

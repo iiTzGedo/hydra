@@ -51,6 +51,7 @@ GroupsServiceDep = Annotated[GroupsService, Depends(get_groups_service)]
 @router.get(
     "",
     response_model=SuccessResponse[list[NodeSummary]],
+    response_model_by_alias=True,
     summary="List Nodes",
     description="List all nodes with optional filters and pagination.",
     dependencies=[Depends(require_permission("nodes:read"))],
@@ -121,6 +122,7 @@ async def list_nodes(
 @router.get(
     "/agents",
     response_model=AgentListResponse,
+    response_model_by_alias=True,
     summary="List Agents",
     description="""List all registered agents (nodes with active hydra-agent installations).
 
@@ -175,6 +177,7 @@ async def list_agents(
 @router.get(
     "/{node_id}",
     response_model=SuccessResponse[NodeResponse],
+    response_model_by_alias=True,
     summary="Get Node",
     description="Get detailed information about a specific node.",
     dependencies=[Depends(require_permission("nodes:read"))],
@@ -203,6 +206,7 @@ async def get_node(
 @router.patch(
     "/{node_id}",
     response_model=SuccessResponse[NodeResponse],
+    response_model_by_alias=True,
     summary="Update Node",
     description="Update node metadata (display name, description, tags, etc.).",
     dependencies=[Depends(require_permission("nodes:update"))],
@@ -233,6 +237,7 @@ async def update_node(
 @router.delete(
     "/{node_id}",
     response_model=SuccessResponse[NodeResponse],
+    response_model_by_alias=True,
     summary="Archive Node",
     description="Archive a node (soft delete). The node's data is preserved.",
     dependencies=[Depends(require_permission("nodes:delete"))],
@@ -261,6 +266,7 @@ async def archive_node(
 @router.get(
     "/{node_id}/children",
     response_model=SuccessResponse[list[NodeSummary]],
+    response_model_by_alias=True,
     summary="Get Node Children",
     description="Get all child nodes of a parent node.",
     dependencies=[Depends(require_permission("nodes:read"))],
@@ -289,6 +295,7 @@ async def get_node_children(
 @router.get(
     "/{node_id}/groups",
     response_model=SuccessResponse[list[GroupSummary]],
+    response_model_by_alias=True,
     summary="Get Node Groups",
     description="Get all groups that a node belongs to based on selector matching.",
     dependencies=[Depends(require_permission("nodes:read"))],
@@ -312,12 +319,13 @@ async def get_node_groups(
     return SuccessResponse(data=groups)
 
 
-node_router = APIRouter(prefix="/node", tags=["Node Registration"])
+node_router = APIRouter(prefix="/nodes", tags=["Node Registration"])
 
 
 @node_router.post(
     "/register",
     response_model=NodeRegistrationResponse,
+    response_model_by_alias=True,
     status_code=201,
     summary="Register Node",
     description="""Register a new node and get API key credentials.
@@ -329,7 +337,7 @@ Supports three authentication methods:
 
 Example with registration token:
 ```bash
-curl -X POST https://hydra.local/api/v1/node/register \\
+curl -X POST https://hydra.local/api/v1/nodes/register \\
   -H "X-Registration-Token: reg_abc123..." \\
   -H "Content-Type: application/json" \\
   -d '{"nodeId": "my-server", "class": "compute", "type": "physical", "displayName": "My Server"}'
@@ -376,8 +384,9 @@ async def register_node(
 
 
 @node_router.post(
-    "/{nodeId}/apikey/refresh",
+    "/{node_id}/apikey/refresh",
     response_model=NodeApiKeyRefreshResponse,
+    response_model_by_alias=True,
     summary="Refresh Node API Key",
     description="Refresh the API key for a node. Previous key is revoked.",
     dependencies=[Depends(require_permission("nodes:update"))],
@@ -385,14 +394,14 @@ async def register_node(
 async def refresh_node_api_key(
     auth_service: AuthServiceDep,
     current_user: CurrentUser,
-    nodeId: str = Path(description="Node ID"),
+    node_id: str = Path(description="Node ID"),
 ) -> NodeApiKeyRefreshResponse:
     """Generate a new API key for a node and revoke the previous one.
 
     Args:
         auth_service: Authentication service instance.
         current_user: Authenticated user making the request.
-        nodeId: Unique identifier of the node.
+        node_id: Unique identifier of the node.
 
     Returns:
         New API key credentials and revocation confirmation.
@@ -401,7 +410,7 @@ async def refresh_node_api_key(
         HTTPException 404: Node not found.
         HTTPException 403: Insufficient permissions.
     """
-    result = await auth_service.refresh_node_api_key(nodeId, current_user["user_id"])
+    result = await auth_service.refresh_node_api_key(node_id, current_user["user_id"])
     return NodeApiKeyRefreshResponse(
         node_id=result["node_id"],
         api_key_id=result["api_key_id"],

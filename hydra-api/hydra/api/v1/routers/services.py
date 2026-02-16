@@ -45,6 +45,7 @@ KnownServicesServiceDep = Annotated[KnownServicesService, Depends(get_known_serv
 @router.get(
     "",
     response_model=SuccessResponse[list[ServiceSummary]],
+    response_model_by_alias=True,
     summary="List Services",
     description="List all discovered services with optional filters and pagination.",
     dependencies=[Depends(require_permission("services:read"))],
@@ -112,6 +113,7 @@ async def list_services(
 @router.get(
     "/known",
     response_model=SuccessResponse[list[KnownServiceResponse]],
+    response_model_by_alias=True,
     summary="List Known Services",
     description="List allow-listed services used to suppress unknown-service alerts.",
     dependencies=[Depends(require_permission("services:read"))],
@@ -140,6 +142,8 @@ async def list_known_services(
 @router.post(
     "/known",
     response_model=SuccessResponse[KnownServiceResponse],
+    response_model_by_alias=True,
+    status_code=201,
     summary="Create Known Service",
     description="Add a known service to suppress unknown-service alerts.",
 )
@@ -172,6 +176,7 @@ async def create_known_service(
 @router.delete(
     "/known/{known_service_id}",
     response_model=SuccessResponse[KnownServiceResponse],
+    response_model_by_alias=True,
     summary="Delete Known Service",
     description="Remove a known service from the registry.",
 )
@@ -197,6 +202,7 @@ async def delete_known_service(
 @router.get(
     "/{service_id}",
     response_model=SuccessResponse[ServiceResponse],
+    response_model_by_alias=True,
     summary="Get Service",
     description="Get detailed information about a specific service.",
     dependencies=[Depends(require_permission("services:read"))],
@@ -225,6 +231,7 @@ async def get_service(
 @router.patch(
     "/{service_id}",
     response_model=SuccessResponse[ServiceResponse],
+    response_model_by_alias=True,
     summary="Update Service",
     description="Update service metadata (display name, description, tags).",
     dependencies=[Depends(require_permission("services:update"))],
@@ -255,6 +262,7 @@ async def update_service(
 @router.delete(
     "/{service_id}",
     response_model=SuccessResponse[ServiceResponse],
+    response_model_by_alias=True,
     summary="Archive Service",
     description="Archive a service (soft delete). The service's data is preserved.",
     dependencies=[Depends(require_permission("services:delete"))],
@@ -286,6 +294,7 @@ nodes_services_router = APIRouter(prefix="/nodes", tags=["Nodes"])
 @nodes_services_router.get(
     "/{node_id}/services",
     response_model=SuccessResponse[list[ServiceSummary]],
+    response_model_by_alias=True,
     summary="Get Node Services",
     description="Get all services running on a specific node.",
     dependencies=[Depends(require_permission("services:read"))],

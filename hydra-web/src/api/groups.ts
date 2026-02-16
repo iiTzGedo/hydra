@@ -76,7 +76,7 @@ export const useCreateGroup = createCreateMutation<CreateGroupRequest, Group>({
 
 export const useUpdateGroup = createUpdateMutation<UpdateGroupRequest, Group>({
   endpoint: '/groups',
-  method: 'put',
+  method: 'patch',
   listQueryKey: queryKeys.groups.list,
   detailQueryKey: queryKeys.groups.detail,
 });

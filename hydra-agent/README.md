@@ -510,7 +510,7 @@ on_startup = true                        # Collect immediately on startup
 | Field | Pattern | Examples |
 |-------|---------|----------|
 | `node_id` | `^[a-z]+([._-][a-z0-9]+){0,2}$` | `proxmox-01`, `web.server`, `ha_core` |
-| `tags` | `^[a-z]+[_:]?[a-z]+$` (each) | `production`, `web_server`, `tier:frontend` |
+| `tags` | `^[a-z]+[-_:]?[a-z]+$` (each) | `production`, `web_server`, `tier:frontend` |
 | `parent_node_id` | Same as `node_id` | `hypervisor-01` |
 
 ## Credential Vault
@@ -555,7 +555,7 @@ The agent stores credentials securely in a vault directory with restricted permi
 
 3. Register Node
    └── hydra-agent node register
-       ├── POST /api/v1/node/register
+       ├── POST /api/v1/nodes/register
        └── Save node registration to vault
 
 4. Activate Service

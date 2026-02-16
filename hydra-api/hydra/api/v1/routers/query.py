@@ -44,6 +44,7 @@ AuditServiceDep = Annotated[AuditService, Depends(get_audit_service)]
 @router.post(
     "/query",
     response_model=SuccessResponse[QueryResponse],
+    response_model_by_alias=True,
     summary="Execute Query",
     description="Execute a structured query across collections.",
 )
@@ -79,6 +80,7 @@ async def execute_query(
 @router.get(
     "/capacity",
     response_model=SuccessResponse[CapacityResponse],
+    response_model_by_alias=True,
     summary="Get Capacity",
     description="Get infrastructure capacity summary.",
     dependencies=[Depends(require_permission("nodes:read"))],
@@ -156,6 +158,7 @@ async def get_capacity(
 @router.get(
     "/audit",
     response_model=SuccessResponse[list[AuditEntry]],
+    response_model_by_alias=True,
     summary="Get Audit Log",
     description="Get audit log entries.",
     dependencies=[Depends(require_permission("audit:read"))],
@@ -223,6 +226,7 @@ async def get_audit_log(
 @router.delete(
     "/audit",
     response_model=SuccessResponse[dict],
+    response_model_by_alias=True,
     summary="Delete Audit Entries",
     description="Delete audit log entries within a time window. Admin only.",
     dependencies=[Depends(require_permission("audit:delete"))],

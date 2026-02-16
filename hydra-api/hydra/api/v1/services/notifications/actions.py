@@ -6,8 +6,8 @@ from typing import Any
 import structlog
 
 from hydra.api.v1.models.notifications import (
-    NotificationStatus,
     RESOLVED_RETENTION,
+    NotificationStatus,
 )
 from hydra.api.v1.services.notifications.preferences import (
     ACKNOWLEDGE_MIN_TIER,
@@ -226,28 +226,38 @@ class ActionsMixin:
     async def resolve(
         self, notification_id: str, user_id: str
     ) -> dict | None:
-        """Manually resolve a notification (tier 4+ only). Returns updated doc or None."""
+        """Manually resolve a notification (tier 3+ only). Returns updated doc or None.
+
+        Resolving cascades: auto-acknowledges (if not already) and auto-marks read.
+        """
         now = datetime.now(UTC)
         expires_at = now + RESOLVED_RETENTION
 
+        # Use aggregation pipeline update to conditionally set acknowledgedAt/By
         result = await self.db.notifications.find_one_and_update(
             {
                 "notificationId": notification_id,
                 "status": NotificationStatus.ACTIVE.value,
                 "tier": {"$gte": RESOLVE_MIN_TIER},
             },
-            {
-                "$set": {
-                    "status": NotificationStatus.RESOLVED.value,
-                    "resolvedAt": now,
-                    "resolvedBy": user_id,
-                    "expiresAt": expires_at,
+            [
+                {
+                    "$set": {
+                        "status": NotificationStatus.RESOLVED.value,
+                        "resolvedAt": now,
+                        "resolvedBy": user_id,
+                        "expiresAt": expires_at,
+                        "acknowledgedAt": {"$ifNull": ["$acknowledgedAt", now]},
+                        "acknowledgedBy": {"$ifNull": ["$acknowledgedBy", user_id]},
+                    }
                 }
-            },
+            ],
             return_document=True,
         )
         if result:
             result.pop("_id", None)
+            # Auto-mark as read for this user
+            await self.mark_read(notification_id, user_id)
             logger.info(
                 "notification_resolved",
                 notification_id=notification_id,
@@ -259,8 +269,44 @@ class ActionsMixin:
     # Delete
     # ------------------------------------------------------------------
 
-    async def delete_notification(self, notification_id: str) -> bool:
-        """Hard-delete a notification and its read state. Returns True if deleted."""
+    async def delete_notification(
+        self,
+        notification_id: str,
+        user_id: str | None = None,
+        user_roles: list[str] | None = None,
+        has_write: bool = False,
+        has_manage: bool = False,
+    ) -> bool:
+        """Hard-delete a notification and its read state. Returns True if deleted.
+
+        Permission enforcement:
+        - has_manage: unrestricted delete
+        - has_write: can delete any visible notification
+        - notifications:read only: can delete own notifications (targetUserId == user_id)
+        """
+        roles = user_roles or []
+        doc = await self.db.notifications.find_one(
+            {"notificationId": notification_id},
+            {"_id": 0, "targetUserId": 1, "targetRoles": 1},
+        )
+        if doc is None:
+            return False
+
+        # Permission check
+        target_user_id = doc.get("targetUserId")
+        target_roles = doc.get("targetRoles") or []
+        is_own_notification = bool(user_id and target_user_id == user_id)
+        is_role_visible = bool(set(target_roles) & set(roles))
+
+        if not has_manage:
+            if has_write:
+                if not (is_own_notification or is_role_visible):
+                    return False
+            elif is_own_notification:
+                pass  # Own notification
+            else:
+                return False
+
         result = await self.db.notifications.delete_one(
             {"notificationId": notification_id}
         )
@@ -271,3 +317,68 @@ class ActionsMixin:
             logger.info("notification_deleted", notification_id=notification_id)
             return True
         return False
+
+    async def delete_many(
+        self,
+        user_id: str,
+        user_roles: list[str],
+        notification_ids: list[str] | None = None,
+        *,
+        status: str | None = None,
+        tier: int | None = None,
+        before: datetime | None = None,
+        has_write: bool = False,
+        has_manage: bool = False,
+    ) -> int:
+        """Bulk delete notifications with visibility and ownership enforcement.
+
+        Returns count of deleted notifications.
+        """
+        visibility_filter: dict[str, Any] = {
+            "$or": [
+                {"targetRoles": {"$in": user_roles}},
+                {"targetUserId": user_id},
+            ]
+        }
+        if has_manage:
+            query: dict[str, Any] = {}
+        else:
+            query = {**visibility_filter}
+
+        # Apply filters
+        if notification_ids:
+            query["notificationId"] = {"$in": notification_ids}
+        if status:
+            query["status"] = status
+        if tier is not None:
+            query["tier"] = tier
+        if before:
+            query["createdAt"] = {"$lte": before}
+
+        # For read-only users, restrict to own notifications
+        if not has_manage and not has_write:
+            query["targetUserId"] = user_id
+
+        # Get IDs before deleting
+        cursor = self.db.notifications.find(query, {"notificationId": 1, "_id": 0})
+        ids_to_delete = [d["notificationId"] for d in await cursor.to_list(length=10000)]
+
+        if not ids_to_delete:
+            return 0
+
+        result = await self.db.notifications.delete_many(
+            {"notificationId": {"$in": ids_to_delete}}
+        )
+
+        # Clean up read state
+        if result.deleted_count > 0:
+            await self.db.notification_reads.delete_many(
+                {"notificationId": {"$in": ids_to_delete}}
+            )
+            logger.info(
+                "notifications_bulk_deleted",
+                user_id=user_id,
+                count=result.deleted_count,
+            )
+
+        return result.deleted_count
