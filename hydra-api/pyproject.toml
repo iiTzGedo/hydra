@@ -3,7 +3,7 @@ name = "hydra-api"
 version = "0.1.0"
 description = "Hydra API Service - Central REST API for infrastructure management"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [{ name = "iiTZGedo" }]
 dependencies = [
@@ -13,8 +13,7 @@ dependencies = [
     "redis>=5.0.0",
     "pydantic[email]>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "python-jose[cryptography]>=3.3.0",
-    "passlib[argon2]>=1.7.4",
+    "PyJWT[crypto]>=2.8.0",
     "argon2-cffi>=23.1.0",
     "httpx>=0.26.0",
     "structlog>=24.1.0",
@@ -41,7 +40,7 @@ build-backend = "hatchling.build"
 packages = ["hydra"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 100
 select = [
     "E",   # pycodestyle errors
@@ -69,7 +68,7 @@ testpaths = ["tests"]
 addopts = "-v --cov=hydra --cov-report=term-missing --cov-fail-under=60"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true

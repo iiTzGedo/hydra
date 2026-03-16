@@ -55,7 +55,10 @@ export function UserManagement() {
             type="text"
             placeholder="Search users..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
             className="pl-10 bg-muted border-border text-foreground"
           />
         </div>
@@ -170,6 +173,7 @@ function UserRow({ user }: { user: UserSummary }) {
             variant="ghost"
             size="icon"
             className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+            aria-label={`Actions for ${user.username}`}
           >
             <MoreVertical className="h-4 w-4" />
           </Button>

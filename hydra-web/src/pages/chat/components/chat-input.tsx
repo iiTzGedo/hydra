@@ -84,6 +84,7 @@ export function ChatInput({
             onClick={onSend}
             disabled={!value.trim() || isStreaming}
             className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white h-[44px] w-20"
+            aria-label="Send message"
           >
             {isStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>

@@ -5,7 +5,7 @@
 <h1 align="center">Hydra API</h1>
 
 <p align="center">
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12%2B-blue.svg" alt="Python"></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg" alt="FastAPI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
 </p>
@@ -66,41 +66,37 @@
 # Clone and navigate
 cd hydra-api
 
-# Install with uv (recommended)
-uv venv && source .venv/bin/activate
-uv pip install -e ".[dev]"
+# Sync the local development environment
+uv sync --extra dev
 
 # Configure environment
 cp .env.example .env
 # Edit .env with your MongoDB/Redis URIs
 
 # Run development server
-uvicorn hydra.main:app --reload --port 8080
+uv run uvicorn hydra.main:app --reload --port 8080
 ```
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - MongoDB 6.0+
 - Redis 7+
-- [uv](https://github.com/astral-sh/uv) (recommended) or pip
+- [uv](https://github.com/astral-sh/uv)
+- [Docker Engine](https://docs.docker.com/engine/install/) with the [Compose plugin](https://docs.docker.com/compose/install/) (`docker compose`) — for containerized deployment
 - [Garage](https://garagehq.deuxfleurs.fr/) or S3-compatible storage (optional, for agent distribution)
 
 ### Install Dependencies
 
 ```bash
-# With uv (recommended)
-uv venv
-source .venv/bin/activate
-uv pip install -e ".[dev]"
-
-# Or with pip
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+# Sync the project and development dependencies from uv.lock
+uv sync --extra dev
 ```
+
+`uv sync` creates and manages the local virtual environment automatically, so you do not need to
+activate `.venv` before running project commands.
 
 ## Configuration
 
@@ -160,13 +156,13 @@ S3-compatible storage for agent binary distribution:
 
 ```bash
 # Development mode with auto-reload
-uvicorn hydra.main:app --reload --host 0.0.0.0 --port 8080
+uv run uvicorn hydra.main:app --reload --host 0.0.0.0 --port 8080
 
 # Production mode with workers
-uvicorn hydra.main:app --host 0.0.0.0 --port 8080 --workers 4
+uv run uvicorn hydra.main:app --host 0.0.0.0 --port 8080 --workers 4
 
 # With gunicorn (recommended for production)
-gunicorn hydra.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8080
+uv run gunicorn hydra.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8080
 ```
 
 ## API Documentation
@@ -336,19 +332,19 @@ hydra-api/
 
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run with coverage
-pytest --cov=hydra --cov-report=html
+uv run pytest --cov=hydra --cov-report=html
 
 # Run specific test file
-pytest tests/test_auth.py
+uv run pytest tests/test_auth.py
 
 # Run specific test
-pytest tests/test_nodes.py::test_list_nodes_success -v
+uv run pytest tests/test_nodes.py::test_list_nodes_success -v
 
 # Run async tests only
-pytest -m asyncio
+uv run pytest -m asyncio
 ```
 
 ### Test Fixtures
@@ -389,14 +385,14 @@ docker run -p 8080:8080 \
 ### Docker Compose
 
 ```bash
-# Start with docker-compose
-docker-compose -f docker-compose.dev.yml up hydra-api
+# Start with docker compose
+docker compose -f docker-compose.dev.yml up hydra-api
 
 # Start with local databases
-docker-compose -f docker-compose.dev.yml --profile local-db up
+docker compose -f docker-compose.dev.yml --profile local-db up
 
 # View logs
-docker-compose -f docker-compose.dev.yml logs -f hydra-api
+docker compose -f docker-compose.dev.yml logs -f hydra-api
 ```
 
 ## Development
@@ -405,19 +401,19 @@ docker-compose -f docker-compose.dev.yml logs -f hydra-api
 
 ```bash
 # Format code
-ruff format .
+uv run ruff format .
 
 # Lint code
-ruff check .
+uv run ruff check .
 
 # Type check
-mypy hydra
+uv run mypy hydra
 ```
 
 ### Pre-commit Hooks
 
 ```bash
-pip install pre-commit
+uv tool install pre-commit
 pre-commit install
 pre-commit run --all-files
 ```

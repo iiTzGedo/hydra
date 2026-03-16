@@ -141,6 +141,7 @@ export function ChatHeader({
             size="icon"
             className="h-8 w-8 text-muted-foreground hover:text-foreground"
             onClick={onOpenLLMConfig}
+            aria-label="Open LLM settings"
           >
             <Settings className="h-4 w-4" />
           </Button>

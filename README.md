@@ -21,7 +21,7 @@
   <img src="https://img.shields.io/badge/license-Apache%202.0-green.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/rust-1.75+-orange.svg" alt="Rust">
-  <img src="https://img.shields.io/badge/node-18+-green.svg" alt="Node.js">
+  <img src="https://img.shields.io/badge/node-22+-green.svg" alt="Node.js">
 </p>
 
 ---
@@ -60,9 +60,10 @@ Hydra transforms how homelabs, smart homes, and small-to-medium infrastructure e
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - Rust 1.75+ (for agent)
-- Node.js 18+ (for web)
+- Node.js 22+ (for web)
+- [Docker Engine](https://docs.docker.com/engine/install/) with the [Compose plugin](https://docs.docker.com/compose/install/) (`docker compose`)
 - MongoDB 7.x
 - Redis 7.x
 - [Minio](https://docs.min.io/enterprise/aistor-object-store/) | [Garage](https://garagehq.deuxfleurs.fr/documentation/quick-start/) (S3 Compatible Object Storage)
@@ -79,7 +80,7 @@ cp .env.example .env
 # Edit .env with your settings
 
 # Start all services with local databases
-docker-compose -f docker-compose.dev.yml --profile local-db up -d
+docker compose -f docker compose.dev.yml --profile local-db up -d
 ```
 
 ### Manual Setup
@@ -88,7 +89,7 @@ Each component can be set up individually. See the component READMEs for detaile
 
 | Component | Quick Start |
 |-----------|-------------|
-| [hydra-api](hydra-api/README.md) | `cd hydra-api && uv pip install -e . && uvicorn hydra.main:app --port 8080` |
+| [hydra-api](hydra-api/README.md) | `cd hydra-api && uv sync --extra dev && uv run uvicorn hydra.main:app --port 8080` |
 | [hydra-agent](hydra-agent/README.md) | `cd hydra-agent && cargo build --release` |
 | [hydra-web](hydra-web/README.md) | `cd hydra-web && npm install && npm run dev` |
 | [hydra-mcp](hydra-mcp/README.md) | `cd hydra-mcp && uv pip install -e . && hydra-mcp` |
@@ -230,7 +231,7 @@ See [hydra-mcp/README.md](hydra-mcp/README.md) for full MCP documentation includ
 
 ```bash
 # API tests
-cd hydra-api && pytest --cov=hydra
+cd hydra-api && uv run pytest --cov=hydra
 
 # Agent tests
 cd hydra-agent && cargo test
@@ -245,8 +246,8 @@ cd hydra-mcp && pytest
 ### Code Quality
 
 ```bash
-# Python (API & MCP)
-ruff check . && ruff format . && mypy hydra
+# API
+cd hydra-api && uv run ruff check . && uv run ruff format . && uv run mypy hydra
 
 # Rust (Agent)
 cargo clippy && cargo fmt
@@ -297,7 +298,7 @@ We welcome contributions! Please see our contributing guidelines (coming soon).
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Run tests (`pytest` / `cargo test` / `npm test`)
+4. Run relevant tests (`cd hydra-api && uv run pytest`, `cargo test`, `npm test`)
 5. Commit your changes (`git commit -m 'Add amazing feature'`)
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
@@ -310,11 +311,11 @@ git clone https://github.com/YOUR_USERNAME/hydra.git
 cd hydra
 
 # Install pre-commit hooks
-pip install pre-commit
+uv tool install pre-commit
 pre-commit install
 
 # Start development databases
-docker-compose -f docker-compose.dev.yml --profile local-db up -d mongodb redis
+docker compose -f docker compose.dev.yml --profile local-db up -d mongodb redis
 ```
 
 ## Community

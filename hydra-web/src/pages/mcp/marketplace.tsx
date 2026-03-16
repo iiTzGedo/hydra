@@ -442,6 +442,7 @@ export default function MCPMarketplacePage() {
                                     size="icon"
                                     onClick={() => handleRemoveServer(server.serverId)}
                                     className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                    aria-label={`Remove ${server.name}`}
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
@@ -545,6 +546,7 @@ export default function MCPMarketplacePage() {
                                 onClick={() => handleSyncSource(source.id)}
                                 disabled={isSyncing === source.id}
                                 className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
+                                aria-label={`Sync ${source.name}`}
                               >
                                 {isSyncing === source.id ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -566,6 +568,7 @@ export default function MCPMarketplacePage() {
                                   size="icon"
                                   onClick={() => handleRemoveSource(source.id)}
                                   className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                  aria-label={`Remove ${source.name}`}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
@@ -598,6 +601,7 @@ export default function MCPMarketplacePage() {
               <div className="space-y-2">
                 <Label className="text-foreground">Name *</Label>
                 <Input
+                  aria-label="Server name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g., My MCP Server"
@@ -608,6 +612,7 @@ export default function MCPMarketplacePage() {
               <div className="space-y-2">
                 <Label className="text-foreground">Endpoint URL</Label>
                 <Input
+                  aria-label="Server endpoint URL"
                   value={endpoint}
                   onChange={(e) => setEndpoint(e.target.value)}
                   placeholder="ws://localhost:3000 or http://..."
@@ -618,6 +623,7 @@ export default function MCPMarketplacePage() {
               <div className="space-y-2">
                 <Label className="text-foreground">Description</Label>
                 <Input
+                  aria-label="Server description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Optional description"
@@ -629,7 +635,10 @@ export default function MCPMarketplacePage() {
                 <div className="space-y-2">
                   <Label className="text-foreground">Category</Label>
                   <Select value={category} onValueChange={(v) => setCategory(v as MCPServerCategory)}>
-                    <SelectTrigger className="bg-background border-border text-foreground">
+                    <SelectTrigger
+                      className="bg-background border-border text-foreground"
+                      aria-label="Server category"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-popover border-border">
@@ -645,6 +654,7 @@ export default function MCPMarketplacePage() {
                 <div className="space-y-2">
                   <Label className="text-foreground">Docs URL</Label>
                   <Input
+                    aria-label="Server docs URL"
                     value={docsUrl}
                     onChange={(e) => setDocsUrl(e.target.value)}
                     placeholder="https://..."
@@ -685,6 +695,7 @@ export default function MCPMarketplacePage() {
               <div className="space-y-2">
                 <Label className="text-foreground">Name *</Label>
                 <Input
+                  aria-label="Marketplace source name"
                   value={newSourceName}
                   onChange={(e) => setNewSourceName(e.target.value)}
                   placeholder="e.g., Community Registry"
@@ -695,6 +706,7 @@ export default function MCPMarketplacePage() {
               <div className="space-y-2">
                 <Label className="text-foreground">URL *</Label>
                 <Input
+                  aria-label="Marketplace source URL"
                   value={newSourceUrl}
                   onChange={(e) => setNewSourceUrl(e.target.value)}
                   placeholder="https://registry.example.com/mcp"

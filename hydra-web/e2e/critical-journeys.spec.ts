@@ -1,38 +1,32 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 const TEST_USER = {
   username: 'system_admin',
   password: 'system12345',
 };
 
+async function login(page: Page) {
+  await page.goto('/login');
+  await page.getByLabel(/username/i).fill(TEST_USER.username);
+  await page.getByLabel(/password/i).fill(TEST_USER.password);
+  await page.getByRole('button', { name: /sign in|log in|login/i }).click();
+  await expect(page).toHaveURL(/dashboard/, { timeout: 10_000 });
+}
+
 test.describe('Authentication', () => {
   test('login and redirect to dashboard', async ({ page }) => {
-    await page.goto('/login');
-    await page.getByLabel(/username/i).fill(TEST_USER.username);
-    await page.getByLabel(/password/i).fill(TEST_USER.password);
-    await page.getByRole('button', { name: /sign in|log in|login/i }).click();
-
-    await expect(page).toHaveURL(/dashboard/, { timeout: 10_000 });
+    await login(page);
   });
 
   test('logout returns to login page', async ({ page }) => {
-    // Login first
-    await page.goto('/login');
-    await page.getByLabel(/username/i).fill(TEST_USER.username);
-    await page.getByLabel(/password/i).fill(TEST_USER.password);
-    await page.getByRole('button', { name: /sign in|log in|login/i }).click();
-    await expect(page).toHaveURL(/dashboard/, { timeout: 10_000 });
+    await login(page);
 
-    // Open user dropdown menu (avatar/name area in top-right)
     await page.getByText('system_admin').first().click();
-
-    // Click "Log out" menu item
     await page.getByText(/log ?out/i).click();
     await expect(page).toHaveURL(/login/, { timeout: 10_000 });
   });
 
   test('unauthenticated user is redirected to login', async ({ page }) => {
-    // Navigate to a blank page first so localStorage is accessible
     await page.goto('/login');
     await page.evaluate(() => localStorage.clear());
 
@@ -43,12 +37,7 @@ test.describe('Authentication', () => {
 
 test.describe('Authenticated Pages', () => {
   test.beforeEach(async ({ page }) => {
-    // Login before each test
-    await page.goto('/login');
-    await page.getByLabel(/username/i).fill(TEST_USER.username);
-    await page.getByLabel(/password/i).fill(TEST_USER.password);
-    await page.getByRole('button', { name: /sign in|log in|login/i }).click();
-    await expect(page).toHaveURL(/dashboard/, { timeout: 10_000 });
+    await login(page);
   });
 
   test('dashboard loads with key widgets', async ({ page }) => {
@@ -82,12 +71,18 @@ test.describe('Authenticated Pages', () => {
     await expect(content).toBeVisible();
   });
 
-  test('topology page renders', async ({ page }) => {
+  test('topology page supports mode switching and search controls', async ({ page }) => {
     await page.goto('/topology');
     await page.waitForLoadState('networkidle');
 
-    const content = page.locator('main');
-    await expect(content).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Infrastructure Topology/i })).toBeVisible();
+
+    const search = page.getByLabel(/Search nodes/i);
+    await search.fill('proxmox');
+    await expect(search).toHaveValue('proxmox');
+
+    await page.getByRole('tab', { name: /Network/i }).click();
+    await expect(page.getByRole('heading', { name: /Network Topology/i })).toBeVisible();
   });
 
   test('notifications page loads', async ({ page }) => {
@@ -98,19 +93,47 @@ test.describe('Authenticated Pages', () => {
     await expect(content).toBeVisible();
   });
 
-  test('chat page loads', async ({ page }) => {
+  test('chat page exposes tools and LLM configuration entry points', async ({ page }) => {
     await page.goto('/chat');
     await page.waitForLoadState('networkidle');
 
-    const content = page.locator('main');
-    await expect(content).toBeVisible();
+    await expect(page.locator('main')).toBeVisible();
+    await page.getByRole('tab', { name: /^Tools$/ }).click();
+    await expect(page.getByRole('heading', { name: /Hydra MCP/i })).toBeVisible();
+
+    await page.getByRole('button', { name: /Open LLM settings/i }).click();
+    await expect(page.getByRole('heading', { name: /LLM Configurations/i })).toBeVisible();
   });
 
-  test('settings page loads with tabs', async ({ page }) => {
-    await page.goto('/settings');
+  test('settings users page exposes user management controls', async ({ page }) => {
+    await page.goto('/settings?top=users');
     await page.waitForLoadState('networkidle');
 
-    const content = page.locator('main');
-    await expect(content).toBeVisible();
+    await expect(page).toHaveURL(/\/settings\?top=users/);
+    await expect(
+      page.locator('#main-content').getByRole('heading', { name: /^Settings$/ }).first()
+    ).toBeVisible();
+
+    const search = page.getByPlaceholder('Search users...');
+    await expect(search).toBeVisible();
+    await search.fill('system');
+    await expect(search).toHaveValue('system');
+  });
+
+  test('mcp marketplace supports source management entry points', async ({ page }) => {
+    await page.goto('/mcp-marketplace');
+    await page.waitForLoadState('networkidle');
+
+    await expect(
+      page.locator('#main-content').getByRole('heading', { name: /^MCP Marketplace$/ }).first()
+    ).toBeVisible();
+
+    await page.getByRole('tab', { name: /Marketplace Sources/i }).click();
+    await expect(
+      page.locator('#main-content').getByRole('heading', { name: /^Marketplace Sources$/ })
+    ).toBeVisible();
+
+    await page.getByRole('button', { name: /^Add Source$/ }).click();
+    await expect(page.getByRole('heading', { name: /Add Marketplace Source/i })).toBeVisible();
   });
 });

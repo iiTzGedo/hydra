@@ -5,7 +5,7 @@
 <h1 align="center">Hydra MCP</h1>
 
 <p align="center">
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12%2B-blue.svg" alt="Python"></a>
   <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-1.0-purple.svg" alt="MCP"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
 </p>
@@ -96,6 +96,13 @@ hydra-mcp
 # Or with streamable-http (Claude Desktop remote)
 HYDRA_MCP_TRANSPORT=streamable-http hydra-mcp
 ```
+
+## Prerequisites
+
+- Python 3.12+
+- [uv](https://github.com/astral-sh/uv) (recommended) or pip
+- [Docker Engine](https://docs.docker.com/engine/install/) with the [Compose plugin](https://docs.docker.com/compose/install/) (`docker compose`) — for containerized deployment
+- A running [hydra-api](../hydra-api/README.md) instance
 
 ## Installation
 
@@ -410,13 +417,13 @@ docker run -it --rm \
 
 ```bash
 # Start all services
-docker-compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml up -d
 
 # Start only hydra-mcp
-docker-compose -f docker-compose.dev.yml up -d hydra-mcp
+docker compose -f docker-compose.dev.yml up -d hydra-mcp
 
 # View logs
-docker-compose -f docker-compose.dev.yml logs -f hydra-mcp
+docker compose -f docker-compose.dev.yml logs -f hydra-mcp
 ```
 
 ## Architecture

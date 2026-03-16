@@ -15,7 +15,7 @@ help:
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test          Run all tests"
-	@echo "  make test-api      Run API tests (pytest)"
+	@echo "  make test-api      Run API tests (uv run pytest)"
 	@echo "  make test-web      Run Web tests (vitest)"
 	@echo "  make test-mcp      Run MCP tests (pytest)"
 	@echo "  make test-agent    Run Agent tests (cargo test)"
@@ -46,7 +46,7 @@ help:
 test: test-api test-web test-mcp test-agent
 
 test-api:
-	cd hydra-api && python -m pytest tests/ -v
+	cd hydra-api && uv run pytest tests/ -v
 
 test-web:
 	cd hydra-web && npx vitest run
@@ -62,7 +62,7 @@ test-agent:
 lint: lint-api lint-web lint-mcp lint-agent
 
 lint-api:
-	cd hydra-api && python -m ruff check .
+	cd hydra-api && uv run ruff check .
 
 lint-web:
 	cd hydra-web && npx eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0
@@ -74,7 +74,7 @@ lint-agent:
 	cd hydra-agent && cargo clippy -- -D warnings
 
 lint-fix:
-	cd hydra-api && python -m ruff check --fix .
+	cd hydra-api && uv run ruff check --fix .
 	cd hydra-mcp && python -m ruff check --fix .
 	cd hydra-web && npx eslint . --ext ts,tsx --fix
 
@@ -83,7 +83,7 @@ lint-fix:
 typecheck: typecheck-api typecheck-web typecheck-mcp
 
 typecheck-api:
-	cd hydra-api && python -m mypy hydra/
+	cd hydra-api && uv run mypy hydra/
 
 typecheck-web:
 	cd hydra-web && npx tsc --noEmit
@@ -117,7 +117,7 @@ docker-logs:
 setup: setup-api setup-web setup-mcp setup-agent
 
 setup-api:
-	cd hydra-api && pip install -e ".[dev]"
+	cd hydra-api && uv sync --extra dev
 
 setup-web:
 	cd hydra-web && npm install

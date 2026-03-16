@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-18%2B-61DAFB.svg" alt="React"></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.0%2B-3178C6.svg" alt="TypeScript"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-22%2B-green.svg" alt="Node.js"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
 </p>
 
@@ -25,14 +26,11 @@
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
 - [Pages & Routes](#pages--routes)
-- [UI Component Library](#ui-component-library)
-- [State Management](#state-management)
-- [API Integration](#api-integration)
-- [Theming](#theming)
-- [Authentication](#authentication)
-- [Building for Production](#building-for-production)
-- [Docker](#docker)
 - [Development](#development)
+- [Testing](#testing)
+- [Docker](#docker)
+- [Security](#security)
+- [Troubleshooting](#troubleshooting)
 - [License](#license)
 
 ## Features
@@ -46,10 +44,13 @@
 - **Time Machine** - Navigate historical infrastructure states with timeline scrubbing
 - **Admin Dashboard** - User management, registration tokens, API keys, and audit logs
 - **MCP Chat** - AI chat interface with LLM provider configuration and MCP server management
+- **Notifications** - Real-time notification system with read tracking
 
 ## Quick Start
 
 ```bash
+cd hydra-web
+
 # Install dependencies
 npm install
 
@@ -61,13 +62,16 @@ cp .env.example .env
 npm run dev
 ```
 
+The dev server starts at `http://localhost:5173`. Requires a running [hydra-api](../hydra-api/README.md) instance.
+
 ## Installation
 
 ### Prerequisites
 
-- Node.js 18+
-- npm or yarn
-- Running hydra-api instance
+- Node.js 22+
+- npm
+- [Docker Engine](https://docs.docker.com/engine/install/) with the [Compose plugin](https://docs.docker.com/compose/install/) (`docker compose`) — for containerized deployment
+- A running [hydra-api](../hydra-api/README.md) instance
 
 ### Install Dependencies
 
@@ -78,12 +82,10 @@ npm install
 ### Environment Setup
 
 ```bash
-# Copy environment template
 cp .env.example .env
-
-# Edit .env with your configuration
-VITE_API_URL=http://localhost:8080/api/v1
 ```
+
+Edit `.env` with your configuration (see [Configuration](#configuration) below).
 
 ## Configuration
 
@@ -94,50 +96,31 @@ VITE_API_URL=http://localhost:8080/api/v1
 ## Project Structure
 
 ```
-src/
-├── api/                 # TanStack Query hooks for API calls
-│   ├── auth.ts          # Authentication endpoints
-│   ├── nodes.ts         # Node CRUD operations
-│   ├── profiles.ts      # Profile history
-│   ├── services.ts      # Service management
-│   ├── networks.ts      # Network operations
-│   ├── groups.ts        # Group management
-│   ├── topologies.ts    # Topology generation
-│   ├── timemachine.ts   # Historical state queries
-│   ├── users.ts         # User management
-│   └── mcp.ts           # MCP server integration
-├── components/
-│   ├── ui/              # Reusable UI components (shadcn-style)
-│   ├── layout/          # App shell (sidebar, header, etc.)
-│   ├── dashboard/       # Dashboard widgets
-│   ├── topology/        # ReactFlow nodes and controls
-│   ├── timemachine/     # Timeline scrubber and historical view
-│   └── chat/            # MCP chat interface
-├── pages/               # Route components
-│   ├── auth/            # Login, register, password reset
-│   ├── dashboard/       # Main dashboard
-│   ├── nodes/           # Node list and details
-│   ├── services/        # Service list and details
-│   ├── networks/        # Network list and details
-│   ├── groups/          # Group list, details, and creation
-│   ├── topology/        # Interactive topology viewer
-│   ├── timemachine/     # Historical state browser
-│   ├── admin/           # Admin pages (users, tokens, etc.)
-│   ├── chat/            # MCP chat page
-│   ├── mcp/             # MCP server management
-│   └── settings/        # User settings
-├── stores/              # Zustand stores
-│   ├── auth-store.ts    # Authentication state
-│   ├── ui-store.ts      # UI preferences (theme, sidebar)
-│   └── mcp-store.ts     # MCP server connections
-├── types/               # TypeScript type definitions
-├── lib/                 # Utilities and constants
-│   ├── api-client.ts    # Axios instance with interceptors
-│   ├── query-client.ts  # TanStack Query configuration
-│   ├── constants.ts     # Routes, colors, labels
-│   ├── utils.ts         # Helper functions
-│   └── animations.ts    # Framer Motion variants
-└── router/              # React Router configuration
+hydra-web/
+├── Dockerfile               # Production multi-stage build (Node build + nginx)
+├── nginx.conf               # Nginx SPA routing and caching config
+├── package.json             # Dependencies and scripts
+├── vite.config.ts           # Vite build configuration
+├── tsconfig.json            # TypeScript configuration
+├── tailwind.config.js       # Tailwind CSS configuration
+├── e2e/                     # Playwright end-to-end tests
+│   └── critical-journeys.spec.ts
+└── src/
+    ├── api/                 # TanStack Query hooks for API calls
+    ├── components/          # Reusable UI components
+    │   ├── ui/              # Primitive components (Radix UI + CVA)
+    │   ├── layout/          # App shell (sidebar, header)
+    │   ├── dashboard/       # Dashboard widgets
+    │   ├── topology/        # ReactFlow nodes and controls
+    │   ├── timemachine/     # Timeline scrubber and historical view
+    │   └── chat/            # MCP chat interface components
+    ├── hooks/               # Shared React hooks
+    ├── lib/                 # Utilities, constants, API client
+    ├── pages/               # Route page components
+    ├── router/              # React Router configuration
+    ├── stores/              # Zustand client state stores
+    ├── types/               # TypeScript type definitions
+    └── __tests__/           # Unit and integration tests
 ```
 
 ## Pages & Routes
@@ -157,111 +140,69 @@ src/
 | `/topology` | Topology Viewer | Interactive infrastructure graph |
 | `/timemachine` | Time Machine | Historical state navigation |
 | `/chat` | MCP Chat | AI chat interface |
-| `/mcp/marketplace` | MCP Marketplace | Browse MCP servers |
+| `/mcp/marketplace` | MCP Marketplace | MCP server management |
 | `/admin/users` | User Management | Admin user CRUD |
 | `/admin/tokens` | Token Management | Registration tokens |
 | `/admin/apikeys` | API Keys | API key management |
 | `/admin/audit` | Audit Log | Activity audit trail |
+| `/notifications` | Notifications | Notification center |
 | `/settings` | Settings | User preferences |
 
-## UI Component Library
+## Development
 
-Built with Radix UI primitives and class-variance-authority (CVA) for variant management.
+### Scripts
 
-### Available Components
+| Script | Command | Description |
+|--------|---------|-------------|
+| `dev` | `npm run dev` | Start Vite dev server with HMR |
+| `build` | `npm run build` | Type-check and build production bundle |
+| `preview` | `npm run preview` | Preview production build locally |
+| `lint` | `npm run lint` | Run ESLint |
+| `lint:fix` | `npm run lint:fix` | Auto-fix lint issues |
+| `typecheck` | `npm run typecheck` | Run TypeScript type checking |
+| `test` | `npm run test` | Run Vitest unit tests |
+| `test:watch` | `npm run test:watch` | Run tests in watch mode |
+| `test:e2e` | `npm run test:e2e` | Run Playwright E2E tests |
 
-| Component | Description |
-|-----------|-------------|
-| `Button` | Primary actions with variants: default, destructive, outline, secondary, ghost, link, success, warning |
-| `Card` | Container with CardHeader, CardTitle, CardDescription, CardContent, CardFooter |
-| `Badge` | Status indicators: default, secondary, destructive, outline, success, warning, compute, network, iot |
-| `Input` | Text input field |
-| `Textarea` | Multi-line text input |
-| `Label` | Form field labels |
-| `Select` | Dropdown selection |
-| `Dialog` | Modal dialogs |
-| `DropdownMenu` | Action menus |
-| `Tabs` | Tabbed navigation |
-| `Table` | Data tables |
-| `Tooltip` | Hover hints |
-| `Avatar` | User avatars |
-| `Skeleton` | Loading placeholders |
-| `Progress` | Progress bars |
-| `Checkbox` | Checkbox inputs |
-| `Switch` | Toggle switches |
-| `Slider` | Range sliders |
-| `ScrollArea` | Custom scrollbars |
-| `Separator` | Visual dividers |
-| `Popover` | Floating content panels |
-| `Command` | Command palette / autocomplete |
+### Tech Stack
 
-### Usage Example
+| Library | Version | Purpose |
+|---------|---------|---------|
+| React | 18 | UI framework |
+| TypeScript | 5 | Type safety |
+| Vite | 6 | Build tool and dev server |
+| TailwindCSS | 3 | Utility-first styling |
+| Radix UI | Latest | Headless UI primitives |
+| TanStack Query | 5 | Server state management |
+| Zustand | 4 | Client state management |
+| ReactFlow | 12 | Topology visualization |
+| Framer Motion | 11 | Animations |
+| Recharts | 2 | Dashboard charts |
+| Axios | 1 | HTTP client |
 
-```tsx
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+### Authentication
 
-function NodeCard({ node }) {
-  return (
-    <Card className="hover:bg-accent/50 transition-colors">
-      <CardHeader>
-        <CardTitle>{node.nodeId}</CardTitle>
-        <Badge variant={node.class}>{node.class}</Badge>
-      </CardHeader>
-      <CardContent>
-        <p className="text-muted-foreground">{node.description}</p>
-        <Button variant="outline" size="sm">View Details</Button>
-      </CardContent>
-    </Card>
-  );
-}
-```
+JWT authentication with access and refresh tokens:
 
-## State Management
+1. Login stores tokens in the auth store (memory)
+2. Axios interceptor attaches `Authorization` header to every request
+3. 401 responses trigger automatic token refresh
+4. Refresh failure redirects to `/login`
 
-### Zustand Stores
+### Role-Based Access
 
-| Store | Purpose |
-|-------|---------|
-| `auth-store` | JWT tokens, user info, login/logout |
-| `ui-store` | Theme, sidebar state, preferences |
-| `mcp-store` | MCP server connections, chat state |
+| Role | Access |
+|------|--------|
+| `admin` | Full access |
+| `operator` | Infrastructure management |
+| `viewer` | Read-only access |
+| `family` | IoT controls only |
 
-### TanStack Query
-
-Server state managed via TanStack Query with automatic caching and refetching.
-
-```typescript
-// Example: Fetch nodes with caching
-const { data, isLoading, error } = useNodes({ limit: 20, class: 'compute' });
-
-// Example: Mutation with cache invalidation
-const mutation = useUpdateNode();
-await mutation.mutateAsync({ nodeId, data: { tags: ['production'] } });
-```
-
-## API Integration
-
-All API calls use TanStack Query hooks defined in `src/api/`:
-
-| Hook | Endpoint |
-|------|----------|
-| `useNodes` | GET `/nodes` |
-| `useNode` | GET `/nodes/:nodeId` |
-| `useServices` | GET `/services` |
-| `useNetworks` | GET `/networks` |
-| `useGroups` | GET `/groups` |
-| `useTopology` | GET `/topologies/current` |
-| `useTimeMachineState` | GET `/timemachine/state` |
-
-## Theming
+### Theming
 
 Dark theme with Geist Mono font. Colors defined using HSL CSS variables.
 
-### Design Tokens
-
-| Token | Description | Value |
+| Token | Description | Color |
 |-------|-------------|-------|
 | `--primary` | Primary actions | Hydra Blue |
 | `--compute` | Compute nodes | Purple `#8B5CF6` |
@@ -271,41 +212,35 @@ Dark theme with Geist Mono font. Colors defined using HSL CSS variables.
 | `--warning` | Warning states | Amber |
 | `--destructive` | Error/danger | Red |
 
-Theme preference persisted in localStorage.
+Theme preference is persisted in `localStorage`.
 
-## Authentication
+## Testing
 
-JWT authentication with access and refresh tokens:
+### Unit & Integration Tests
 
-1. Login stores tokens in auth store (memory)
-2. Axios interceptor attaches `Authorization` header
-3. 401 responses trigger automatic token refresh
-4. Refresh failure redirects to login
-
-### Role-Based Access
-
-| Role | Access |
-|------|--------|
-| admin | Full access |
-| operator | Infrastructure management |
-| viewer | Read-only access |
-| family | IoT controls only |
-
-## Building for Production
+Tests use [Vitest](https://vitest.dev/) with [Testing Library](https://testing-library.com/) and [MSW](https://mswjs.io/) for API mocking.
 
 ```bash
-# Build optimized bundle
-npm run build
+# Run all unit tests
+npm run test
 
-# Preview production build
-npm run preview
+# Run in watch mode
+npm run test:watch
 ```
 
-Output in `dist/` directory with:
-- Code splitting by route
-- Tree shaking
-- Asset hashing for cache busting
-- Gzip-ready chunks
+### End-to-End Tests
+
+E2E tests use [Playwright](https://playwright.dev/) against a running dev environment.
+
+```bash
+# Install Playwright browsers (first time)
+npx playwright install
+
+# Run E2E tests
+npm run test:e2e
+```
+
+Log in with the test account (`system_admin` / `system12345`).
 
 ## Docker
 
@@ -315,64 +250,48 @@ Output in `dist/` directory with:
 docker build -t hydra-web:latest .
 ```
 
+This runs a multi-stage build: Node.js builds the production bundle, then nginx serves the static assets.
+
 ### Running with Docker
 
 ```bash
-docker run -p 3000:80 \
-  -e VITE_API_URL=http://localhost:8080/api/v1 \
-  hydra-web:latest
+docker run -p 3000:80 hydra-web:latest
 ```
 
-### Docker Compose
+> **Note:** `VITE_API_URL` is baked into the bundle at build time. To change it, rebuild the image with the desired value or use runtime env substitution in `nginx.conf`.
+
+### Docker Compose (Development)
+
+From the repository root:
 
 ```bash
-# Start with docker-compose
-docker-compose -f docker-compose.dev.yml up hydra-web
+# Start all Hydra services
+docker compose -f docker-compose.dev.yml up -d
+
+# Start only hydra-web
+docker compose -f docker-compose.dev.yml up -d hydra-web
 
 # View logs
-docker-compose -f docker-compose.dev.yml logs -f hydra-web
+docker compose -f docker-compose.dev.yml logs -f hydra-web
 ```
 
-## Development
+## Security
 
-### Scripts
+- All API communication uses JWT tokens — no credentials stored in the browser beyond memory
+- Axios interceptor handles token refresh transparently
+- Role-based route guards prevent unauthorized page access
+- CORS configured via the API (`HYDRA_CORS_ORIGINS`)
 
-```bash
-# Development server with HMR
-npm run dev
+## Troubleshooting
 
-# Type checking
-npm run typecheck
-
-# Lint code
-npm run lint
-
-# Format code
-npm run format
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
-```
-
-### Tech Stack
-
-| Library | Purpose |
-|---------|---------|
-| React 18 | UI framework |
-| TypeScript 5 | Type safety |
-| Vite | Build tool and dev server |
-| TailwindCSS | Utility-first styling |
-| Radix UI | Headless UI primitives |
-| TanStack Query | Server state management |
-| Zustand | Client state management |
-| ReactFlow | Topology visualization |
-| Framer Motion | Animations |
-| Recharts | Dashboard charts |
-| Axios | HTTP client |
+| Problem | Solution |
+|---------|----------|
+| `VITE_API_URL` not working | Ensure the variable is set **before** `npm run build`; Vite inlines env vars at build time |
+| CORS errors in browser | Check `HYDRA_CORS_ORIGINS` in the API includes your web origin (e.g., `http://localhost:5173`) |
+| Blank page after deploy | Verify nginx `try_files` fallback is configured for SPA routing |
+| 401 loops | Clear browser storage and re-login; the refresh token may have expired |
+| `npm install` engine warning | Ensure Node.js >= 22 (`node --version`) |
 
 ## License
 
-Apache-2.0 - See [LICENSE](../LICENSE) for details.
+Apache-2.0 — See [LICENSE](../LICENSE) for details.

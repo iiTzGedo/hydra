@@ -3,7 +3,8 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 
@@ -102,7 +103,7 @@ def decode_token(token: str, settings: Settings | None = None) -> dict[str, Any]
             algorithms=[settings.jwt_algorithm],
         )
         return payload
-    except JWTError as e:
+    except PyJWTError as e:
         raise InvalidTokenError(f"Token validation failed: {str(e)}")
 
 

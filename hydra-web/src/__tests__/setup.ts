@@ -56,10 +56,28 @@ Object.defineProperty(window, 'scrollTo', {
   value: () => {},
 });
 
+// Radix Select relies on pointer capture APIs that jsdom does not implement.
+if (!HTMLElement.prototype.hasPointerCapture) {
+  HTMLElement.prototype.hasPointerCapture = () => false;
+}
+if (!HTMLElement.prototype.setPointerCapture) {
+  HTMLElement.prototype.setPointerCapture = () => {};
+}
+if (!HTMLElement.prototype.releasePointerCapture) {
+  HTMLElement.prototype.releasePointerCapture = () => {};
+}
+if (!HTMLElement.prototype.scrollIntoView) {
+  HTMLElement.prototype.scrollIntoView = () => {};
+}
+
 // MSW server lifecycle hooks
 import { beforeAll, afterEach, afterAll } from 'vitest';
 import { server } from './msw/server';
+import { resetMockState } from './msw/mock-state';
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  resetMockState();
+});
 afterAll(() => server.close());

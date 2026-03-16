@@ -108,7 +108,7 @@ class EmailService:
                 "email_dependency_missing",
                 message="aiosmtplib is not installed",
             )
-            raise EmailError("aiosmtplib is not installed. Run: pip install aiosmtplib")
+            raise EmailError("aiosmtplib is not installed. Run `uv sync` to install project dependencies.")
 
         except Exception as e:
             logger.error(

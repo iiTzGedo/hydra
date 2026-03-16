@@ -216,6 +216,7 @@ export function useCheckMCPServerHealth() {
     },
     onSuccess: (_data, serverId) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.mcp.serverStatus(serverId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcp.servers() });
     },
   });
 }

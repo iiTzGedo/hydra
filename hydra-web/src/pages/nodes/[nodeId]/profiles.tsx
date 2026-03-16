@@ -139,6 +139,8 @@ export default function NodeProfilesPage() {
                   <div className="flex items-start gap-4">
                     <button
                       onClick={() => toggleProfileSelection(profileKey)}
+                      aria-label={`Select profile ${profile.version}`}
+                      aria-pressed={selectedProfiles.includes(profileKey)}
                       className={cn(
                         'mt-1 h-5 w-5 rounded border-2 flex items-center justify-center transition-colors',
                         selectedProfiles.includes(profileKey)

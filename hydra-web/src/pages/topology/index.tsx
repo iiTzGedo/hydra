@@ -321,6 +321,7 @@ export default function TopologyPage() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
+                aria-label="Search nodes"
                 placeholder="Search nodes..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -337,7 +338,7 @@ export default function TopologyPage() {
             </div>
 
             <Select value={filterClass} onValueChange={setFilterClass}>
-              <SelectTrigger className="w-[130px]">
+              <SelectTrigger className="w-[130px]" aria-label="Filter node types">
                 <SelectValue placeholder="All Types" />
               </SelectTrigger>
               <SelectContent>
@@ -371,7 +372,7 @@ export default function TopologyPage() {
                     value={selectedGroupId || 'none'}
                     onValueChange={(value) => setSelectedGroupId(value === 'none' ? null : value)}
                   >
-                    <SelectTrigger className="w-[150px]">
+                    <SelectTrigger className="w-[150px]" aria-label="Highlight group">
                       <Users className="h-4 w-4 mr-2" />
                       <SelectValue placeholder="Highlight Group" />
                     </SelectTrigger>
