@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useTopologyStore } from '@/stores/topology-store';
-import type { TopologyMode, ViewportState } from '@/stores/topology-store';
+import type { ViewportState } from '@/stores/topology-store';
 
 describe('topology-store', () => {
   beforeEach(() => {

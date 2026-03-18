@@ -187,12 +187,18 @@ export interface Profile extends ProfileSummary {
 
 export interface ProfileListParams extends ListParams {}
 
+export interface ProfileDiffChangeSummary {
+  added?: number;
+  removed?: number;
+  changed?: number;
+}
+
 export interface ProfileDiff {
   fromVersion: string;
   toVersion: string;
   fromProfileId: string;
   toProfileId: string;
   changedSections: string[];
-  changeSummary: Record<string, unknown>;
+  changeSummary: Record<string, ProfileDiffChangeSummary>;
   diffPercentage: number;
 }

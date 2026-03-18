@@ -15,6 +15,12 @@ node_id = "my-server-01"
 # Node class: compute, networking, or iot
 class = "compute"
 
+# Agent tier: lite, normal, or max
+# - lite: profile collection only
+# - normal: profile + poll-based command execution (default)
+# - max: profile + embedded HTTP server for direct execution
+tier = "normal"
+
 # Node type: physical or logical
 node_type = "physical"
 
@@ -52,8 +58,8 @@ retries = 3
 level = "neutral"
 
 # Enabled collectors (default: all)
-# Available: hardware, network, storage, software, services
-collectors = ["hardware", "network", "storage", "software", "services"]
+# Available: hardware, network, storage, software
+collectors = ["hardware", "network", "storage", "software"]
 
 # Include package list (can be slow on systems with many packages)
 include_packages = true
@@ -76,3 +82,38 @@ interval_seconds = 21600
 
 # Collect on startup
 on_startup = true
+
+# Command poll interval in seconds (normal/max tier only)
+# Lite-tier agents never poll for commands
+poll_interval_seconds = 30
+
+# =============================================================================
+# Embedded Control Server (max-tier only)
+# =============================================================================
+# When tier = "max", the agent can run an embedded HTTP server that accepts
+# direct requests from the Hydra API for synchronous command execution,
+# health checks, network probing, and configuration updates.
+#
+# The server authenticates requests using a bearer token (agentServerSecret)
+# generated during node registration and stored in the secure vault.
+
+[server]
+# Enable the embedded control server (only effective when tier = "max")
+enabled = false
+
+# Bind address (0.0.0.0 for all interfaces)
+bind_address = "0.0.0.0"
+
+# Reachable address advertised back to the API for direct control requests
+# Required when server.enabled = true
+# advertise_address = "192.168.1.10"
+
+# Server port
+port = 9100
+
+# Enable TLS (recommended for production, disable for local development)
+tls_enabled = true
+
+# TLS certificate and key paths (required when tls_enabled = true)
+# tls_cert_file = "/etc/hydra/certs/agent.crt"
+# tls_key_file = "/etc/hydra/certs/agent.key"

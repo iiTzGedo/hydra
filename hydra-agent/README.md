@@ -489,8 +489,7 @@ collectors = [                           # Enabled collectors
   "hardware",
   "network",
   "storage",
-  "software",
-  "services"
+  "software"
 ]
 include_packages = true                  # Include installed packages
 include_users = true                     # Include user list
@@ -503,6 +502,16 @@ config_files = [                         # Config files to track (hashed)
 enabled = true                           # Enable scheduled collection
 interval_seconds = 86400                 # Collection interval (default: 24 hours)
 on_startup = true                        # Collect immediately on startup
+poll_interval_seconds = 30               # Command poll interval for normal/max tiers
+
+[server]
+enabled = false                          # Max tier only
+bind_address = "0.0.0.0"                # Local bind address only
+advertise_address = "192.168.1.10"      # Required reachable address for the API
+port = 9100
+tls_enabled = true
+# tls_cert_file = "/etc/hydra/certs/agent.crt"
+# tls_key_file = "/etc/hydra/certs/agent.key"
 ```
 
 ### Validation Rules
@@ -512,6 +521,10 @@ on_startup = true                        # Collect immediately on startup
 | `node_id` | `^[a-z]+([._-][a-z0-9]+){0,2}$` | `proxmox-01`, `web.server`, `ha_core` |
 | `tags` | `^[a-z]+[-_:]?[a-z]+$` (each) | `production`, `web_server`, `tier:frontend` |
 | `parent_node_id` | Same as `node_id` | `hypervisor-01` |
+
+When `[server].enabled = true`, the agent must use `node.tier = "max"` and provide a non-wildcard `[server].advertise_address`. The bind address is never advertised back to the API.
+
+Configuration updates pushed through the embedded control server are validated before they are written, persisted atomically, and should be treated as restart-required in this phase even when the in-memory handler state refreshes successfully.
 
 ## Credential Vault
 

@@ -107,15 +107,9 @@ pub async fn execute(args: UpgradeArgs, config: &AgentConfig, vault: &Vault) -> 
             print_version_check(&info);
             Ok(())
         }
-        Some(UpgradeCommand::List) => {
-            list_versions(config, vault, &args.source).await
-        }
-        Some(UpgradeCommand::Rollback) => {
-            rollback()
-        }
-        None => {
-            perform_upgrade(args, config, vault).await
-        }
+        Some(UpgradeCommand::List) => list_versions(config, vault, &args.source).await,
+        Some(UpgradeCommand::Rollback) => rollback(),
+        None => perform_upgrade(args, config, vault).await,
     }
 }
 
@@ -153,7 +147,10 @@ async fn perform_upgrade(args: UpgradeArgs, config: &AgentConfig, vault: &Vault)
     println!("  Source:  {}", args.source);
     println!();
 
-    info!("Downloading hydra-agent v{} for {}...", target_version, target);
+    info!(
+        "Downloading hydra-agent v{} for {}...",
+        target_version, target
+    );
     println!("Downloading binary...");
 
     let temp_path = download_binary(config, vault, &target, &target_version, &args.source).await?;
@@ -173,7 +170,10 @@ async fn perform_upgrade(args: UpgradeArgs, config: &AgentConfig, vault: &Vault)
         println!("ERROR: Failed to replace binary, rolling back...");
         if let Err(rb_err) = rollback() {
             println!("CRITICAL: Rollback also failed: {}", rb_err);
-            println!("Manual intervention required. Backup at: {}", backup_path.display());
+            println!(
+                "Manual intervention required. Backup at: {}",
+                backup_path.display()
+            );
         }
         if service_was_running && !args.no_restart {
             let _ = restart_service_impl();
@@ -189,7 +189,10 @@ async fn perform_upgrade(args: UpgradeArgs, config: &AgentConfig, vault: &Vault)
             println!("WARNING: Failed to restart service, rolling back...");
             if let Err(rb_err) = rollback() {
                 println!("CRITICAL: Rollback also failed: {}", rb_err);
-                println!("Manual intervention required. Backup at: {}", backup_path.display());
+                println!(
+                    "Manual intervention required. Backup at: {}",
+                    backup_path.display()
+                );
             } else {
                 let _ = restart_service_impl();
             }
@@ -224,7 +227,10 @@ async fn perform_upgrade(args: UpgradeArgs, config: &AgentConfig, vault: &Vault)
     }
 
     println!();
-    println!("Upgrade complete: {} -> {}", CURRENT_VERSION, target_version);
+    println!(
+        "Upgrade complete: {} -> {}",
+        CURRENT_VERSION, target_version
+    );
     println!();
 
     // Report successful upgrade (best-effort)
@@ -254,7 +260,11 @@ async fn perform_upgrade(args: UpgradeArgs, config: &AgentConfig, vault: &Vault)
 }
 
 /// Check for available updates from the API
-async fn check_for_updates(config: &AgentConfig, vault: &Vault, source: &str) -> Result<VersionInfo> {
+async fn check_for_updates(
+    config: &AgentConfig,
+    vault: &Vault,
+    source: &str,
+) -> Result<VersionInfo> {
     let client = build_http_client(config)?;
     let api_key = get_api_key(vault)?;
 
@@ -466,8 +476,8 @@ fn backup_current_binary() -> Result<PathBuf> {
     let backup = backup_binary_path();
 
     if !current.exists() {
-        let current_exe = std::env::current_exe()
-            .context("Failed to get current executable path")?;
+        let current_exe =
+            std::env::current_exe().context("Failed to get current executable path")?;
         info!(
             "Installed path {} not found, backing up running executable: {}",
             current.display(),
@@ -499,9 +509,8 @@ fn replace_binary(new_binary: &Path) -> Result<()> {
     let target = installed_binary_path();
 
     if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).with_context(|| {
-            format!("Failed to create directory: {}", parent.display())
-        })?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
     }
 
     std::fs::copy(new_binary, &target).with_context(|| {
@@ -643,7 +652,10 @@ fn rollback() -> Result<()> {
         }
     }
 
-    println!("Rollback complete. Restored previous binary from {}", backup.display());
+    println!(
+        "Rollback complete. Restored previous binary from {}",
+        backup.display()
+    );
     println!();
 
     Ok(())
@@ -691,9 +703,7 @@ async fn list_versions(config: &AgentConfig, vault: &Vault, source: &str) -> Res
             std::collections::BTreeMap::new();
 
         for entry in &versions_response.data {
-            let targets = version_map
-                .entry(entry.version.clone())
-                .or_default();
+            let targets = version_map.entry(entry.version.clone()).or_default();
             if let Some(ref t) = entry.target {
                 if !targets.contains(t) {
                     targets.push(t.clone());
@@ -808,11 +818,9 @@ fn build_http_client(config: &AgentConfig) -> Result<Client> {
 
 /// Get the API key from the vault
 fn get_api_key(vault: &Vault) -> Result<String> {
-    vault
-        .get_api_key()?
-        .ok_or_else(|| anyhow!(
-            "No API key available. Run 'hydra-agent register' first, or set HYDRA_API_KEY."
-        ))
+    vault.get_api_key()?.ok_or_else(|| {
+        anyhow!("No API key available. Run 'hydra-agent register' first, or set HYDRA_API_KEY.")
+    })
 }
 
 #[cfg(test)]
@@ -852,7 +860,11 @@ mod tests {
         let result = detect_target();
         assert!(result.is_ok());
         let target = result.unwrap();
-        assert!(target.contains('-'), "Target should contain a dash: {}", target);
+        assert!(
+            target.contains('-'),
+            "Target should contain a dash: {}",
+            target
+        );
     }
 
     #[test]
@@ -861,7 +873,10 @@ mod tests {
         #[cfg(unix)]
         assert_eq!(path, PathBuf::from("/usr/local/bin/hydra-agent"));
         #[cfg(windows)]
-        assert_eq!(path, PathBuf::from(r"C:\Program Files\Hydra\hydra-agent.exe"));
+        assert_eq!(
+            path,
+            PathBuf::from(r"C:\Program Files\Hydra\hydra-agent.exe")
+        );
     }
 
     #[test]
@@ -870,6 +885,9 @@ mod tests {
         #[cfg(unix)]
         assert_eq!(path, PathBuf::from("/usr/local/bin/hydra-agent.backup"));
         #[cfg(windows)]
-        assert_eq!(path, PathBuf::from(r"C:\Program Files\Hydra\hydra-agent.exe.backup"));
+        assert_eq!(
+            path,
+            PathBuf::from(r"C:\Program Files\Hydra\hydra-agent.exe.backup")
+        );
     }
 }

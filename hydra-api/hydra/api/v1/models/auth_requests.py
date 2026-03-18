@@ -132,6 +132,10 @@ class NodeRegistrationRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     parent_node_id: str | None = Field(default=None, alias="parentNodeId")
     location: dict | None = None
+    agent_tier: str | None = Field(default=None, alias="agentTier")
+    server_address: str | None = Field(default=None, alias="serverAddress", max_length=256)
+    server_port: int | None = Field(default=None, alias="serverPort", ge=1, le=65535)
+    server_tls_enabled: bool | None = Field(default=None, alias="serverTlsEnabled")
 
     model_config = {"populate_by_name": True}
 
@@ -146,6 +150,14 @@ class NodeRegistrationRequest(BaseModel):
             )
         return v
 
+    @field_validator("agent_tier")
+    @classmethod
+    def validate_agent_tier(cls, v: str | None) -> str | None:
+        """Validate agent tier is one of the allowed values."""
+        if v is not None and v not in ("lite", "normal", "max"):
+            raise ValueError("Agent tier must be one of: lite, normal, max")
+        return v
+
     @field_validator("tags")
     @classmethod
     def validate_tags(cls, v: list[str]) -> list[str]:
@@ -157,6 +169,28 @@ class NodeRegistrationRequest(BaseModel):
                     f"and be max 64 characters."
                 )
         return v
+
+    @model_validator(mode="after")
+    def validate_server_metadata(self) -> "NodeRegistrationRequest":
+        server_values = (
+            self.server_address,
+            self.server_port,
+            self.server_tls_enabled,
+        )
+        has_any_server_metadata = any(value is not None for value in server_values)
+        has_all_server_metadata = all(value is not None for value in server_values)
+
+        if has_any_server_metadata and not has_all_server_metadata:
+            raise ValueError(
+                "serverAddress, serverPort, and serverTlsEnabled must be provided together"
+            )
+
+        if has_any_server_metadata and self.agent_tier != "max":
+            raise ValueError(
+                "Server metadata may only be provided for max-tier agents"
+            )
+
+        return self
 
 
 class CreateApiKeyRequest(BaseModel):

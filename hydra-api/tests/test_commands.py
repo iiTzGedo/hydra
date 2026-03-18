@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from httpx import AsyncClient
 
@@ -56,6 +57,47 @@ def operator_token(test_settings):
     )
 
 
+class DummyResponse:
+    """Minimal HTTP response stub for direct-agent execution tests."""
+
+    def __init__(self, status_code: int, payload: dict | None = None):
+        self.status_code = status_code
+        self._payload = payload or {}
+
+    def json(self) -> dict:
+        return self._payload
+
+
+def make_dummy_async_client(
+    *,
+    response: DummyResponse | None = None,
+    error: Exception | None = None,
+    capture: dict | None = None,
+):
+    """Build a dummy httpx.AsyncClient replacement for direct execution tests."""
+
+    class _DummyAsyncClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url: str, headers: dict | None = None, json: dict | None = None):
+            if capture is not None:
+                capture["url"] = url
+                capture["headers"] = headers
+                capture["json"] = json
+            if error is not None:
+                raise error
+            return response or DummyResponse(200, {})
+
+    return _DummyAsyncClient
+
+
 @pytest.mark.asyncio
 async def test_create_command_success(
     client: AsyncClient,
@@ -68,7 +110,9 @@ async def test_create_command_success(
     mock_mongodb.users.find_one = AsyncMock(
         return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
     )
-    mock_mongodb.nodes.find_one = AsyncMock(return_value={"nodeId": "server-01", "status": "active"})
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={"nodeId": "server-01", "status": "active"}
+    )
     mock_mongodb.commands.insert_one = AsyncMock()
     mock_mongodb.commands.find_one = AsyncMock(return_value=sample_command)
 
@@ -87,6 +131,214 @@ async def test_create_command_success(
     data = response.json()
     assert data["data"]["target"]["nodeId"] == "server-01"
     assert data["data"]["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_create_command_rejects_lite_tier(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Test lite-tier nodes reject command execution."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={
+            "nodeId": "server-01",
+            "status": "active",
+            "agentTier": "lite",
+        }
+    )
+
+    response = await client.post(
+        "/api/v1/commands",
+        json={
+            "type": "system",
+            "target": {"nodeId": "server-01"},
+            "action": "run",
+            "parameters": {"command": "uptime"},
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["code"] == "COMMAND_NOT_SUPPORTED"
+    mock_mongodb.commands.insert_one.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_command_normal_tier_queues_for_poll(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Test normal-tier nodes queue commands for polling."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={
+            "nodeId": "server-01",
+            "status": "active",
+            "agentTier": "normal",
+        }
+    )
+
+    response = await client.post(
+        "/api/v1/commands",
+        json={
+            "type": "system",
+            "target": {"nodeId": "server-01"},
+            "action": "run",
+            "parameters": {"command": "uptime"},
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["data"]["executionMethod"] == "poll"
+    assert data["data"]["status"] == "queued"
+    mock_mongodb.commands.insert_one.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_command_max_tier_transport_failure_falls_back_and_updates_reachability(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+    monkeypatch,
+):
+    """Test transport errors fall back to polling and count against reachability."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={
+            "nodeId": "server-01",
+            "status": "active",
+            "agentTier": "max",
+            "serverAddress": "agent.internal.example",
+            "serverPort": 9443,
+            "serverTlsEnabled": True,
+            "agentServerSecret": "hsk_api_secret_123",
+            "serverReachable": True,
+            "failedDirectAttempts": 2,
+        }
+    )
+    mock_mongodb.nodes.find_one_and_update = AsyncMock(
+        return_value={"nodeId": "server-01", "failedDirectAttempts": 3}
+    )
+    mock_mongodb.nodes.update_one = AsyncMock()
+
+    capture: dict = {}
+    request = httpx.Request("POST", "https://agent.internal.example:9443/execute")
+    monkeypatch.setattr(
+        "hydra.api.v1.services.commands.httpx.AsyncClient",
+        make_dummy_async_client(
+            error=httpx.ConnectError("connect failed", request=request),
+            capture=capture,
+        ),
+    )
+
+    response = await client.post(
+        "/api/v1/commands",
+        json={
+            "type": "service",
+            "target": {
+                "nodeId": "server-01",
+                "serviceId": "svc-nginx-a1b2",
+            },
+            "action": "restart",
+            "parameters": {"graceful": True},
+            "timeoutSeconds": 120,
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["data"]["executionMethod"] == "poll"
+    assert capture["url"] == "https://agent.internal.example:9443/execute"
+    assert capture["json"]["registryId"] == "restart"
+    assert capture["json"]["target"] == {
+        "nodeId": "server-01",
+        "serviceId": "svc-nginx-a1b2",
+    }
+    assert capture["json"]["timeoutSeconds"] == 120
+    mock_mongodb.nodes.find_one_and_update.assert_awaited_once()
+    mock_mongodb.nodes.update_one.assert_awaited_once_with(
+        {"nodeId": "server-01"},
+        {"$set": {"serverReachable": False}},
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_command_max_tier_http_501_falls_back_without_changing_reachability(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+    monkeypatch,
+):
+    """Test agent HTTP errors fall back to polling without poisoning reachability state."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={
+            "nodeId": "server-01",
+            "status": "active",
+            "agentTier": "max",
+            "serverAddress": "agent.internal.example",
+            "serverPort": 9443,
+            "serverTlsEnabled": True,
+            "agentServerSecret": "hsk_api_secret_123",
+            "serverReachable": True,
+            "failedDirectAttempts": 2,
+        }
+    )
+    mock_mongodb.nodes.find_one_and_update = AsyncMock()
+    mock_mongodb.nodes.update_one = AsyncMock()
+
+    capture: dict = {}
+    monkeypatch.setattr(
+        "hydra.api.v1.services.commands.httpx.AsyncClient",
+        make_dummy_async_client(
+            response=DummyResponse(
+                501,
+                {"error": {"code": "NOT_IMPLEMENTED", "message": "Requires P2B"}},
+            ),
+            capture=capture,
+        ),
+    )
+
+    response = await client.post(
+        "/api/v1/commands",
+        json={
+            "type": "service",
+            "target": {
+                "nodeId": "server-01",
+                "serviceId": "svc-nginx-a1b2",
+            },
+            "action": "restart",
+            "parameters": {"graceful": True},
+            "timeoutSeconds": 120,
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["data"]["executionMethod"] == "poll"
+    assert capture["url"] == "https://agent.internal.example:9443/execute"
+    mock_mongodb.nodes.find_one_and_update.assert_not_awaited()
+    mock_mongodb.nodes.update_one.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -216,18 +468,27 @@ async def test_cancel_command_success(
 
 
 @pytest.mark.asyncio
-async def test_poll_commands(
+async def test_poll_commands_returns_typed_target_and_resets_failures(
     client: AsyncClient,
     mock_mongodb,
     agent_token,
     sample_command,
     sample_node,
 ):
-    """Test polling commands for a node (agent endpoint)."""
-    mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
-    mock_mongodb.commands.find_one_and_update = AsyncMock(
-        side_effect=[sample_command, None]
-    )
+    """Test polling returns the typed target contract and resets direct failure state."""
+    command_for_node = sample_command.copy()
+    command_for_node["target"] = {
+        "nodeId": sample_node["nodeId"],
+        "serviceId": "svc-nginx-a1b2",
+    }
+    node_with_failures = {
+        **sample_node,
+        "serverReachable": True,
+        "failedDirectAttempts": 2,
+    }
+
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=node_with_failures)
+    mock_mongodb.commands.find_one_and_update = AsyncMock(side_effect=[command_for_node, None])
 
     response = await client.get(
         f"/api/v1/nodes/{sample_node['nodeId']}/commands/poll",
@@ -237,6 +498,15 @@ async def test_poll_commands(
     assert response.status_code == 200
     data = response.json()
     assert len(data["data"]["commands"]) == 1
+    assert data["data"]["commands"][0]["target"] == {
+        "nodeId": sample_node["nodeId"],
+        "serviceId": "svc-nginx-a1b2",
+    }
+    poll_update = mock_mongodb.nodes.update_one.await_args.args[1]["$set"]
+    assert poll_update["serverReachable"] is True
+    assert poll_update["failedDirectAttempts"] == 0
+    assert "lastSeenAt" in poll_update
+    assert "lastPollContact" in poll_update
 
 
 @pytest.mark.asyncio

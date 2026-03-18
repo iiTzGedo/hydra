@@ -11,6 +11,7 @@ rust-version = "1.75"
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+rustls = "0.23"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
@@ -29,6 +30,14 @@ rpassword = "7.3"
 regex = "1.10"
 sha2 = "0.10"
 rand = "0.9"
+tempfile = "3.9"
+
+# Embedded HTTP control server (max-tier agents)
+axum = { version = "0.7", features = ["tokio"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+subtle = "2.6"
 
 # System info collectors
 sysinfo = "0.30"
@@ -36,7 +45,7 @@ hostname = "0.3"
 local-ip-address = "0.6"
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.29", features = ["user", "net", "fs"] }
+nix = { version = "0.29", features = ["user", "net", "fs", "signal"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 procfs = "0.16"
@@ -63,7 +72,6 @@ winreg = "0.52"
 tokio-test = "0.4"
 mockall = "0.12"
 wiremock = "0.5"
-tempfile = "3.9"
 
 [profile.release]
 lto = true

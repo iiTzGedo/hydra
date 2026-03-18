@@ -64,6 +64,14 @@ class NodeStatus(str, Enum):
     PENDING = "pending"
 
 
+class AgentTier(str, Enum):
+    """Agent tier classification."""
+
+    LITE = "lite"
+    NORMAL = "normal"
+    MAX = "max"
+
+
 class NodeResponse(BaseModel):
     """Full node response model."""
 
@@ -84,6 +92,14 @@ class NodeResponse(BaseModel):
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
     last_seen_at: datetime | None = Field(default=None, alias="lastSeenAt")
     status: NodeStatus
+    agent_tier: AgentTier | None = Field(default=None, alias="agentTier")
+    server_address: str | None = Field(default=None, alias="serverAddress")
+    server_port: int | None = Field(default=None, alias="serverPort")
+    server_tls_enabled: bool | None = Field(default=None, alias="serverTlsEnabled")
+    server_reachable: bool | None = Field(default=None, alias="serverReachable")
+    failed_direct_attempts: int | None = Field(default=None, alias="failedDirectAttempts")
+    last_direct_contact: datetime | None = Field(default=None, alias="lastDirectContact")
+    last_poll_contact: datetime | None = Field(default=None, alias="lastPollContact")
 
 
 class NodeSummary(BaseModel):
@@ -101,6 +117,7 @@ class NodeSummary(BaseModel):
     status: NodeStatus
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
     last_seen_at: datetime | None = Field(default=None, alias="lastSeenAt")
+    agent_tier: AgentTier | None = Field(default=None, alias="agentTier")
 
 
 class AgentInfo(BaseModel):
@@ -120,6 +137,7 @@ class AgentInfo(BaseModel):
     profile_count: int = Field(default=0, alias="profileCount")
     last_profile_version: str | None = Field(default=None, alias="lastProfileVersion")
     is_healthy: bool = Field(alias="isHealthy", description="True if seen within last 24 hours")
+    agent_tier: AgentTier | None = Field(default=None, alias="agentTier")
 
     model_config = {"populate_by_name": True}
 
@@ -167,6 +185,7 @@ class NodeListParams(BaseModel):
     node_type: NodeType | None = Field(default=None, alias="type")
     kind: NodeKind | None = None
     status: NodeStatus | None = None
+    agent_tier: AgentTier | None = Field(default=None, alias="agentTier")
     tags: list[str] | None = None
     parent_node_id: str | None = Field(default=None, alias="parentNodeId")
     network_id: str | None = Field(default=None, alias="networkId")

@@ -11,8 +11,8 @@
 
 use chrono::{Duration, Utc};
 use hydra_agent::vault::{
-    AgentCredentials, ApiKeyData, NodeRegistrationData, SessionData, Vault,
-    ENV_AGENT_PWD, ENV_AGENT_USER, ENV_API_KEY,
+    AgentCredentials, ApiKeyData, NodeRegistrationData, SessionData, Vault, ENV_AGENT_PWD,
+    ENV_AGENT_USER, ENV_API_KEY,
 };
 use std::env;
 use tempfile::TempDir;
@@ -38,9 +38,7 @@ fn sample_agent_credentials() -> AgentCredentials {
 }
 
 fn sample_api_key(expires_in_days: Option<i64>) -> ApiKeyData {
-    let expires_at = expires_in_days.map(|days| {
-        (Utc::now() + Duration::days(days)).to_rfc3339()
-    });
+    let expires_at = expires_in_days.map(|days| (Utc::now() + Duration::days(days)).to_rfc3339());
 
     ApiKeyData {
         api_key: "hyk_agent_test_key_xyz789".to_string(),
@@ -89,11 +87,15 @@ fn test_agent_credentials_save_and_load() {
     let creds = sample_agent_credentials();
 
     // Save credentials
-    vault.save_agent_credentials(&creds).expect("Should save credentials");
+    vault
+        .save_agent_credentials(&creds)
+        .expect("Should save credentials");
     assert!(vault.has_agent_credentials());
 
     // Load and verify
-    let loaded = vault.load_agent_credentials().expect("Should load")
+    let loaded = vault
+        .load_agent_credentials()
+        .expect("Should load")
         .expect("Should have credentials");
 
     assert_eq!(loaded.user_id, creds.user_id);
@@ -130,7 +132,9 @@ fn test_agent_credentials_without_password() {
     };
 
     vault.save_agent_credentials(&creds).expect("Should save");
-    let loaded = vault.load_agent_credentials().expect("Should load")
+    let loaded = vault
+        .load_agent_credentials()
+        .expect("Should load")
         .expect("Should have credentials");
 
     assert!(loaded.password.is_none());
@@ -147,7 +151,9 @@ fn test_agent_credentials_update() {
     creds.password = Some("new_password_456".to_string());
     vault.save_agent_credentials(&creds).expect("Should update");
 
-    let loaded = vault.load_agent_credentials().expect("Should load")
+    let loaded = vault
+        .load_agent_credentials()
+        .expect("Should load")
         .expect("Should have credentials");
     assert_eq!(loaded.password, Some("new_password_456".to_string()));
 }
@@ -164,7 +170,9 @@ fn test_api_key_save_and_load() {
     vault.save_api_key(&api_key).expect("Should save API key");
     assert!(vault.has_api_key());
 
-    let loaded = vault.load_api_key().expect("Should load")
+    let loaded = vault
+        .load_api_key()
+        .expect("Should load")
         .expect("Should have API key");
 
     assert_eq!(loaded.api_key, api_key.api_key);
@@ -257,7 +265,9 @@ fn test_session_save_and_load() {
     vault.save_session(&session).expect("Should save session");
     assert!(vault.has_session());
 
-    let loaded = vault.load_session().expect("Should load")
+    let loaded = vault
+        .load_session()
+        .expect("Should load")
         .expect("Should have session");
 
     assert_eq!(loaded.access_token, session.access_token);
@@ -355,7 +365,9 @@ fn test_node_registration_save_and_load() {
     vault.save_node_registration(&reg).expect("Should save");
     assert!(vault.has_node_registration());
 
-    let loaded = vault.load_node_registration().expect("Should load")
+    let loaded = vault
+        .load_node_registration()
+        .expect("Should load")
         .expect("Should have registration");
 
     assert_eq!(loaded.node_id, reg.node_id);
@@ -463,7 +475,9 @@ fn test_export_to_env() {
     let creds = sample_agent_credentials();
     let api_key = sample_api_key(Some(90));
 
-    vault.save_agent_credentials(&creds).expect("Should save creds");
+    vault
+        .save_agent_credentials(&creds)
+        .expect("Should save creds");
     vault.save_api_key(&api_key).expect("Should save API key");
 
     // Export to env
@@ -471,8 +485,14 @@ fn test_export_to_env() {
 
     // Verify the exported vector contains the expected values
     // (Checking the vector is more reliable than checking env vars in parallel tests)
-    assert!(!exported.is_empty(), "Should export at least some variables");
-    assert!(exported.len() >= 2, "Should export at least user and password");
+    assert!(
+        !exported.is_empty(),
+        "Should export at least some variables"
+    );
+    assert!(
+        exported.len() >= 2,
+        "Should export at least user and password"
+    );
 
     // Check that the expected values are in the exported vector
     let exported_map: std::collections::HashMap<_, _> = exported.into_iter().collect();
@@ -626,10 +646,18 @@ fn test_clear_all() {
     let (_temp_dir, vault) = create_test_vault();
 
     // Save everything
-    vault.save_agent_credentials(&sample_agent_credentials()).expect("Save creds");
-    vault.save_api_key(&sample_api_key(Some(90))).expect("Save API key");
-    vault.save_session(&sample_session(3600)).expect("Save session");
-    vault.save_node_registration(&sample_node_registration()).expect("Save node reg");
+    vault
+        .save_agent_credentials(&sample_agent_credentials())
+        .expect("Save creds");
+    vault
+        .save_api_key(&sample_api_key(Some(90)))
+        .expect("Save API key");
+    vault
+        .save_session(&sample_session(3600))
+        .expect("Save session");
+    vault
+        .save_node_registration(&sample_node_registration())
+        .expect("Save node reg");
 
     env::set_var(ENV_API_KEY, "test");
 
@@ -668,10 +696,18 @@ fn test_vault_status_full() {
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
-    vault.save_agent_credentials(&sample_agent_credentials()).expect("Save creds");
-    vault.save_api_key(&sample_api_key(Some(90))).expect("Save API key");
-    vault.save_session(&sample_session(3600)).expect("Save session");
-    vault.save_node_registration(&sample_node_registration()).expect("Save node reg");
+    vault
+        .save_agent_credentials(&sample_agent_credentials())
+        .expect("Save creds");
+    vault
+        .save_api_key(&sample_api_key(Some(90)))
+        .expect("Save API key");
+    vault
+        .save_session(&sample_session(3600))
+        .expect("Save session");
+    vault
+        .save_node_registration(&sample_node_registration())
+        .expect("Save node reg");
 
     let status = vault.status();
 
@@ -747,10 +783,14 @@ fn test_multiple_vault_instances() {
     let vault2 = Vault::new(temp_dir.path());
 
     // Save with one instance
-    vault1.save_agent_credentials(&sample_agent_credentials()).expect("Save");
+    vault1
+        .save_agent_credentials(&sample_agent_credentials())
+        .expect("Save");
 
     // Load with another instance
-    let loaded = vault2.load_agent_credentials().expect("Load")
+    let loaded = vault2
+        .load_agent_credentials()
+        .expect("Load")
         .expect("Should have creds");
 
     assert_eq!(loaded.username, "agent-TESTNODE01");
@@ -787,9 +827,13 @@ fn test_special_characters_in_credentials() {
         created_at: "2024-01-01T00:00:00Z".to_string(),
     };
 
-    vault.save_agent_credentials(&creds).expect("Should save with special chars");
+    vault
+        .save_agent_credentials(&creds)
+        .expect("Should save with special chars");
 
-    let loaded = vault.load_agent_credentials().expect("Should load")
+    let loaded = vault
+        .load_agent_credentials()
+        .expect("Should load")
         .expect("Should have creds");
 
     assert_eq!(loaded.password, creds.password);
@@ -807,9 +851,13 @@ fn test_unicode_in_credentials() {
         created_at: "2024-01-01T00:00:00Z".to_string(),
     };
 
-    vault.save_agent_credentials(&creds).expect("Should save unicode");
+    vault
+        .save_agent_credentials(&creds)
+        .expect("Should save unicode");
 
-    let loaded = vault.load_agent_credentials().expect("Should load")
+    let loaded = vault
+        .load_agent_credentials()
+        .expect("Should load")
         .expect("Should have creds");
 
     assert_eq!(loaded.username, creds.username);

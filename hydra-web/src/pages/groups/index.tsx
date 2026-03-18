@@ -62,34 +62,19 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { EntityListPage, type StatCard, type ColumnConfig, type TableDensity } from '@/components/common/entity-list-page';
-import { FilterBar, type FilterConfig } from '@/components/common/filter-bar';
+import { EntityListPage, type StatCard, type TableDensity } from '@/components/common/entity-list-page';
+import { FilterBar } from '@/components/common/filter-bar';
 import type { ViewMode } from '@/components/common/view-mode-toggle';
-
-const GROUP_FILTER_CONFIG: FilterConfig[] = [
-  {
-    type: 'search',
-    key: 'search',
-    placeholder: 'Search groups by name...',
-    className: 'flex-1 max-w-md',
-  },
-];
+import {
+  GROUP_COLUMNS,
+  GROUP_FILTER_CONFIG,
+  type GroupColumnKey,
+} from './list-config';
 
 interface FilterState {
   search: string;
   [key: string]: string;
 }
-
-type GroupColumnKey = 'group' | 'types' | 'nodes' | 'services' | 'tags' | 'actions';
-
-const GROUP_COLUMNS: ColumnConfig[] = [
-  { key: 'group', label: 'Group' },
-  { key: 'types', label: 'Types' },
-  { key: 'nodes', label: 'Nodes' },
-  { key: 'services', label: 'Services' },
-  { key: 'tags', label: 'Tags' },
-  { key: 'actions', label: 'Actions' },
-];
 
 export default function GroupsPage() {
   useDocumentTitle('Groups');

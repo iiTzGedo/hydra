@@ -39,6 +39,8 @@ pub struct Profile {
     pub collected_at: DateTime<Utc>,
     /// Version of the agent that collected this profile
     pub agent_version: String,
+    /// Agent tier (lite, normal, max)
+    pub agent_tier: String,
     /// Collection level used (minimal, neutral, comprehensive)
     pub collection_level: String,
     /// Hardware information (CPU, memory, system IDs)
@@ -118,6 +120,7 @@ pub async fn collect_profile(config: &AgentConfig) -> Result<Profile> {
         version: String::new(),
         collected_at: Utc::now(),
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
+        agent_tier: config.node.tier.to_string(),
         collection_level: config.collection.level.clone(),
         hardware: None,
         network: None,
@@ -135,9 +138,10 @@ pub async fn collect_profile(config: &AgentConfig) -> Result<Profile> {
         "scheduleIntervalSeconds".to_string(),
         json!(config.schedule.interval_seconds),
     );
-    profile
-        .metadata
-        .insert("scheduleEnabled".to_string(), json!(config.schedule.enabled));
+    profile.metadata.insert(
+        "scheduleEnabled".to_string(),
+        json!(config.schedule.enabled),
+    );
 
     if collectors.contains(&"hardware".to_string()) {
         info!("Collecting hardware information...");

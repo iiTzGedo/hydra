@@ -450,10 +450,7 @@ pub fn is_elevated() -> bool {
 pub fn windows_version() -> Option<String> {
     use std::process::Command;
 
-    let output = Command::new("cmd")
-        .args(["/c", "ver"])
-        .output()
-        .ok()?;
+    let output = Command::new("cmd").args(["/c", "ver"]).output().ok()?;
 
     Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }

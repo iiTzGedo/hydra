@@ -187,28 +187,30 @@ pub async fn execute(args: &NodeArgs, config: &AgentConfig, vault: &Vault) -> Re
         Some(NodeCommand::Update { display_name, tags }) => {
             update_node(config, vault, display_name.as_deref(), tags.as_deref()).await
         }
-        None => {
-            show_status(vault)
-        }
+        None => show_status(vault),
     }
 }
 
 /// Update a single node field (for --update / -u shorthand)
-async fn update_node_field(config: &AgentConfig, vault: &Vault, key: &str, value: &str) -> Result<()> {
+async fn update_node_field(
+    config: &AgentConfig,
+    vault: &Vault,
+    key: &str,
+    value: &str,
+) -> Result<()> {
     match key {
-        "display_name" | "displayName" => {
-            update_node(config, vault, Some(value), None).await
-        }
-        "tags" => {
-            update_node(config, vault, None, Some(value)).await
-        }
+        "display_name" | "displayName" => update_node(config, vault, Some(value), None).await,
+        "tags" => update_node(config, vault, None, Some(value)).await,
         "kind" => {
             // Update kind via API - need to implement
-            Err(anyhow!("Updating 'kind' is not yet supported via shorthand. Use config to update."))
+            Err(anyhow!(
+                "Updating 'kind' is not yet supported via shorthand. Use config to update."
+            ))
         }
-        _ => {
-            Err(anyhow!("Unknown node field: '{}'. Valid fields: display_name, tags", key))
-        }
+        _ => Err(anyhow!(
+            "Unknown node field: '{}'. Valid fields: display_name, tags",
+            key
+        )),
     }
 }
 
@@ -234,7 +236,8 @@ async fn register_node(
 
         // Reconcile: Check if API still has this node registered
         if let Some((header_name, header_value)) = vault.get_auth_header()? {
-            match check_node_exists_in_api(config, &header_name, &header_value, &reg.node_id).await {
+            match check_node_exists_in_api(config, &header_name, &header_value, &reg.node_id).await
+            {
                 Ok(true) => {
                     println!();
                     println!("Node '{}' is already registered.", reg.node_id);
@@ -327,9 +330,20 @@ async fn register_node(
         // Handle specific error codes for idempotency
         if status_code == reqwest::StatusCode::CONFLICT {
             // Node already exists in API - try to reconcile
-            info!("Node '{}' already exists in API. Syncing local state...", actual_node_id);
+            info!(
+                "Node '{}' already exists in API. Syncing local state...",
+                actual_node_id
+            );
             if let Some((header_name, header_value)) = vault.get_auth_header()? {
-                match fetch_and_save_node_registration(config, vault, &header_name, &header_value, actual_node_id).await {
+                match fetch_and_save_node_registration(
+                    config,
+                    vault,
+                    &header_name,
+                    &header_value,
+                    actual_node_id,
+                )
+                .await
+                {
                     Ok(_) => {
                         println!();
                         println!("✓ Node '{}' already registered in API.", actual_node_id);
@@ -394,9 +408,7 @@ async fn check_node_exists_in_api(
     header_value: &str,
     node_id: &str,
 ) -> Result<bool> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
+    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
 
     let url = format!("{}/nodes/{}", config.api.url, node_id);
     let response = client
@@ -416,9 +428,7 @@ async fn fetch_and_save_node_registration(
     header_value: &str,
     node_id: &str,
 ) -> Result<()> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
+    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
 
     let url = format!("{}/nodes/{}", config.api.url, node_id);
     let response = client
@@ -560,7 +570,9 @@ async fn update_node(
     tags: Option<&str>,
 ) -> Result<()> {
     if display_name.is_none() && tags.is_none() {
-        return Err(anyhow!("At least one of --display-name or --tags is required"));
+        return Err(anyhow!(
+            "At least one of --display-name or --tags is required"
+        ));
     }
 
     let reg = vault

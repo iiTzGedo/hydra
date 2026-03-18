@@ -82,12 +82,8 @@ fn parse_list_values(value: &str) -> Vec<String> {
 fn backup_config(config_path: &PathBuf) -> Result<()> {
     if config_path.exists() {
         let backup_path = config_path.with_extension("toml.bak");
-        std::fs::copy(config_path, &backup_path).with_context(|| {
-            format!(
-                "Failed to create backup file: {}",
-                backup_path.display()
-            )
-        })?;
+        std::fs::copy(config_path, &backup_path)
+            .with_context(|| format!("Failed to create backup file: {}", backup_path.display()))?;
     }
     Ok(())
 }
@@ -230,11 +226,15 @@ async fn set_value(ctx: &ConfigContext<'_>, key: &str, value: &str) -> Result<()
             set_nested_value_item(&mut doc, &parts, Item::Value(Value::from(value)))?;
         }
         ConfigValueType::Bool => {
-            let parsed = value.parse::<bool>().map_err(|_| anyhow!("Invalid boolean: {}", value))?;
+            let parsed = value
+                .parse::<bool>()
+                .map_err(|_| anyhow!("Invalid boolean: {}", value))?;
             set_nested_value_item(&mut doc, &parts, Item::Value(Value::from(parsed)))?;
         }
         ConfigValueType::Integer => {
-            let parsed = value.parse::<i64>().map_err(|_| anyhow!("Invalid integer: {}", value))?;
+            let parsed = value
+                .parse::<i64>()
+                .map_err(|_| anyhow!("Invalid integer: {}", value))?;
             set_nested_value_item(&mut doc, &parts, Item::Value(Value::from(parsed)))?;
         }
         ConfigValueType::StringList => {
@@ -298,16 +298,22 @@ async fn push_node_update_to_api(
     use crate::config::AgentConfig;
 
     let config = AgentConfig::load(ctx.config_path)?;
-    let vault = ctx.vault.ok_or_else(|| anyhow!("Vault not available for API call"))?;
+    let vault = ctx
+        .vault
+        .ok_or_else(|| anyhow!("Vault not available for API call"))?;
 
     if !vault.has_node_registration() {
         debug!("Node not registered, skipping API update");
         return Ok(());
     }
 
-    let node_reg = vault.load_node_registration()?.ok_or_else(|| anyhow!("Node registration data not found"))?;
+    let node_reg = vault
+        .load_node_registration()?
+        .ok_or_else(|| anyhow!("Node registration data not found"))?;
 
-    let auth = vault.get_auth_header()?.ok_or_else(|| anyhow!("No authentication available"))?;
+    let auth = vault
+        .get_auth_header()?
+        .ok_or_else(|| anyhow!("No authentication available"))?;
 
     let update_request = match field {
         "display_name" => NodeUpdateRequest {
@@ -346,9 +352,7 @@ async fn push_node_update_to_api(
         }
     };
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
+    let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
 
     let update_url = format!("{}/nodes/{}", config.api.url, node_reg.node_id);
     debug!("Pushing node update to {}", update_url);
@@ -362,7 +366,10 @@ async fn push_node_update_to_api(
 
     if !response.status().is_success() {
         let status = response.status();
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
         return Err(anyhow!("API returned {}: {}", status, error_text));
     }
 
@@ -502,7 +509,10 @@ fn init_config(config_path: &PathBuf, values: &[String], force: bool) -> Result<
             ("node", "description") => description = Some(value),
             ("node", "tags") => tags = parse_list_values(&value),
             _ => {
-                warn!("Ignoring unsupported init key '{}' - set it after init with 'config set'", key);
+                warn!(
+                    "Ignoring unsupported init key '{}' - set it after init with 'config set'",
+                    key
+                );
             }
         }
     }
@@ -604,10 +614,7 @@ fn validate_config(config_path: &PathBuf) -> Result<()> {
     println!();
 
     if !config_path.exists() {
-        return Err(anyhow!(
-            "Config file not found: {}",
-            config_path.display()
-        ));
+        return Err(anyhow!("Config file not found: {}", config_path.display()));
     }
 
     let contents = std::fs::read_to_string(config_path)?;

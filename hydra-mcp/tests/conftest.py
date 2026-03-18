@@ -32,8 +32,8 @@ def mock_client():
     # Mock list_nodes response — return type is tuple[list[dict], int]
     client.list_nodes.return_value = (
         [
-            {"nodeId": "node-1", "name": "Server 1", "class": "compute", "status": "active"},
-            {"nodeId": "node-2", "name": "Server 2", "class": "compute", "status": "active"},
+            {"nodeId": "node-1", "name": "Server 1", "class": "compute", "status": "active", "agentTier": "normal"},
+            {"nodeId": "node-2", "name": "Server 2", "class": "compute", "status": "active", "agentTier": "max"},
         ],
         2,
     )
@@ -45,6 +45,7 @@ def mock_client():
         "class": "compute",
         "type": "physical",
         "status": "active",
+        "agentTier": "normal",
         "services": [],
         "children": [],
     }

@@ -44,7 +44,12 @@ pub struct Cli {
     pub aliased: bool,
 
     /// Path to configuration file
-    #[arg(short = 'c', long, default_value = "/etc/hydra/agent.toml", env = "HYDRA_CONFIG")]
+    #[arg(
+        short = 'c',
+        long,
+        default_value = "/etc/hydra/agent.toml",
+        env = "HYDRA_CONFIG"
+    )]
     pub config: PathBuf,
 
     /// Operating mode (live = API mode, dev = local output only)

@@ -9,6 +9,7 @@ import {
   useEdgesState,
   Node,
   Edge,
+  type NodeTypes,
   Position,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -44,8 +45,7 @@ interface HistoricalTopologyProps {
   isLoading: boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const nodeTypes: Record<string, any> = {
+const nodeTypes: NodeTypes = {
   topology: TopologyNodeComponent,
 };
 

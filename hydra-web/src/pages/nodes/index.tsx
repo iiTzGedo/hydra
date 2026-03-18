@@ -10,15 +10,13 @@ import {
   Loader2,
   RefreshCw,
   Server,
-  Wifi,
-  Cpu,
   Eye,
   Edit,
   Archive,
   MoreHorizontal,
 } from 'lucide-react';
-import { EntityListPage, type StatCard, type ColumnConfig, type TableDensity } from '@/components/common/entity-list-page';
-import { FilterBar, type FilterConfig } from '@/components/common/filter-bar';
+import { EntityListPage, type StatCard, type TableDensity } from '@/components/common/entity-list-page';
+import { FilterBar } from '@/components/common/filter-bar';
 import { PageBreadcrumbs } from '@/components/layout/page-breadcrumbs';
 import { type ViewMode } from '@/components/common/view-mode-toggle';
 import { useNodes, useRegisterNode, useUpdateNode, useArchiveNode } from '@/api/nodes';
@@ -60,62 +58,14 @@ import { cn, formatRelativeTime } from '@/lib/utils';
 import { getErrorMessage } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import type { NodeKind, NodeClass, NodeType, NodeStatus, NodeSummary, UpdateNodeRequest } from '@/types/node';
+import {
+  NODE_COLUMNS,
+  NODE_FILTER_CONFIG,
+  nodeClassColors,
+  nodeClassIcons,
+} from './list-config';
 
 type NodeSummaryWithId = NodeSummary & { id: string };
-
-const nodeClassIcons: Record<string, React.ElementType> = {
-  compute: Server,
-  networking: Wifi,
-  iot: Cpu,
-};
-
-const classColors: Record<string, string> = {
-  compute: 'text-compute',
-  networking: 'text-network',
-  iot: 'text-iot',
-};
-
-const NODE_FILTER_CONFIG: FilterConfig[] = [
-  {
-    type: 'search',
-    key: 'search',
-    placeholder: 'Search by hostname, IP, or tag...',
-    className: 'flex-1',
-  },
-  {
-    type: 'select',
-    key: 'class',
-    label: 'Class',
-    options: [
-      { value: 'compute', label: 'Compute' },
-      { value: 'networking', label: 'Networking' },
-      { value: 'iot', label: 'IoT' },
-    ],
-    allLabel: 'All Classes',
-    className: 'w-[130px]',
-  },
-  {
-    type: 'select',
-    key: 'status',
-    label: 'Status',
-    options: [
-      { value: 'active', label: 'Online' },
-      { value: 'pending', label: 'Warning' },
-      { value: 'inactive', label: 'Offline' },
-      { value: 'archived', label: 'Archived' },
-    ],
-    allLabel: 'All Status',
-    className: 'w-[120px]',
-  },
-];
-
-const NODE_COLUMNS: ColumnConfig[] = [
-  { key: 'node', label: 'Node' },
-  { key: 'class', label: 'Class' },
-  { key: 'type', label: 'Type' },
-  { key: 'status', label: 'Status' },
-  { key: 'lastProfile', label: 'Last Profile' },
-];
 
 export default function NodesPage() {
   useDocumentTitle('Node Explorer');
@@ -275,6 +225,7 @@ export default function NodesPage() {
       {cols.node && <TableHead className="text-muted-foreground">Node</TableHead>}
       {cols.class && <TableHead className="text-muted-foreground">Class</TableHead>}
       {cols.type && <TableHead className="text-muted-foreground">Type</TableHead>}
+      {cols.tier && <TableHead className="text-muted-foreground">Tier</TableHead>}
       {cols.status && <TableHead className="text-muted-foreground">Status</TableHead>}
       {cols.lastProfile && <TableHead className="text-muted-foreground">Last Profile</TableHead>}
       <TableHead className="w-[50px]"></TableHead>
@@ -305,7 +256,7 @@ export default function NodesPage() {
               to={`${ROUTES.NODES}/${node.nodeId}`}
               className="flex items-center gap-3"
             >
-              <div className={cn('h-8 w-8 flex items-center justify-center rounded bg-muted', classColors[node.class])}>
+              <div className={cn('h-8 w-8 flex items-center justify-center rounded bg-muted', nodeClassColors[node.class])}>
                 <NodeIcon className="h-4 w-4" />
               </div>
               <div>
@@ -319,7 +270,7 @@ export default function NodesPage() {
         )}
         {cols.class && (
           <TableCell>
-            <Badge variant="secondary" className={`${classColors[node.class]} bg-transparent`}>
+            <Badge variant="secondary" className={`${nodeClassColors[node.class]} bg-transparent`}>
               {node.class}
             </Badge>
           </TableCell>
@@ -327,6 +278,11 @@ export default function NodesPage() {
         {cols.type && (
           <TableCell className="text-muted-foreground">
             {node.type} / {node.kind || 'unknown'}
+          </TableCell>
+        )}
+        {cols.tier && (
+          <TableCell className="text-muted-foreground text-sm capitalize">
+            {node.agentTier || 'normal'}
           </TableCell>
         )}
         {cols.status && (

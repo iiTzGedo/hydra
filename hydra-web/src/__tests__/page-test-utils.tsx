@@ -93,7 +93,13 @@ export function renderWithRoute(
     queryClient: testQueryClient,
     ...render(
       <QueryClientProvider client={testQueryClient}>
-        <MemoryRouter initialEntries={[route]}>
+        <MemoryRouter
+          initialEntries={[route]}
+          future={{
+            v7_relativeSplatPath: true,
+            v7_startTransition: true,
+          }}
+        >
           <Routes>
             <Route path={path} element={ui} />
           </Routes>

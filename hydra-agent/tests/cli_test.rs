@@ -6,8 +6,8 @@
 //! - Command structure validation
 //! - Help generation
 
-use hydra_agent::cli::{Cli, Commands, OperatingMode};
 use clap::Parser;
+use hydra_agent::cli::{Cli, Commands, OperatingMode};
 
 // =============================================================================
 // OperatingMode Parsing Tests
@@ -58,19 +58,18 @@ fn test_config_default_path() {
 fn test_config_custom_path() {
     let cli = Cli::try_parse_from([
         "hydra-agent",
-        "--config", "/custom/path/agent.toml",
-        "status"
-    ]).unwrap();
+        "--config",
+        "/custom/path/agent.toml",
+        "status",
+    ])
+    .unwrap();
     assert_eq!(cli.config.to_string_lossy(), "/custom/path/agent.toml");
 }
 
 #[test]
 fn test_config_short_flag() {
-    let cli = Cli::try_parse_from([
-        "hydra-agent",
-        "-c", "/etc/hydra/custom.toml",
-        "status"
-    ]).unwrap();
+    let cli =
+        Cli::try_parse_from(["hydra-agent", "-c", "/etc/hydra/custom.toml", "status"]).unwrap();
     assert_eq!(cli.config.to_string_lossy(), "/etc/hydra/custom.toml");
 }
 
@@ -86,10 +85,7 @@ fn test_login_command_basic() {
 
 #[test]
 fn test_login_with_username() {
-    let cli = Cli::try_parse_from([
-        "hydra-agent", "login",
-        "-u", "admin"
-    ]).unwrap();
+    let cli = Cli::try_parse_from(["hydra-agent", "login", "-u", "admin"]).unwrap();
 
     if let Some(Commands::Login(args)) = cli.command {
         assert_eq!(args.username, Some("admin".to_string()));
@@ -100,11 +96,7 @@ fn test_login_with_username() {
 
 #[test]
 fn test_login_with_password() {
-    let cli = Cli::try_parse_from([
-        "hydra-agent", "login",
-        "-u", "admin",
-        "-p", "secret"
-    ]).unwrap();
+    let cli = Cli::try_parse_from(["hydra-agent", "login", "-u", "admin", "-p", "secret"]).unwrap();
 
     if let Some(Commands::Login(args)) = cli.command {
         assert_eq!(args.username, Some("admin".to_string()));
@@ -193,10 +185,7 @@ fn test_register_command_basic() {
 
 #[test]
 fn test_register_with_token() {
-    let cli = Cli::try_parse_from([
-        "hydra-agent", "register",
-        "--token", "reg_abc123"
-    ]).unwrap();
+    let cli = Cli::try_parse_from(["hydra-agent", "register", "--token", "reg_abc123"]).unwrap();
 
     if let Some(Commands::Register(args)) = cli.command {
         assert_eq!(args.token, Some("reg_abc123".to_string()));
@@ -207,10 +196,8 @@ fn test_register_with_token() {
 
 #[test]
 fn test_register_with_username() {
-    let cli = Cli::try_parse_from([
-        "hydra-agent", "register",
-        "--username", "custom-agent"
-    ]).unwrap();
+    let cli =
+        Cli::try_parse_from(["hydra-agent", "register", "--username", "custom-agent"]).unwrap();
 
     if let Some(Commands::Register(args)) = cli.command {
         assert_eq!(args.username, Some("custom-agent".to_string()));
@@ -395,13 +382,24 @@ fn test_install_command_basic() {
 #[test]
 fn test_install_command_custom_dirs() {
     let cli = Cli::try_parse_from([
-        "hydra-agent", "install",
-        "--install-dir", "/opt/hydra/bin",
-        "--config-dir", "/opt/hydra/etc",
-        "--log-dir", "/opt/hydra/log"
-    ]).unwrap();
+        "hydra-agent",
+        "install",
+        "--install-dir",
+        "/opt/hydra/bin",
+        "--config-dir",
+        "/opt/hydra/etc",
+        "--log-dir",
+        "/opt/hydra/log",
+    ])
+    .unwrap();
 
-    if let Some(Commands::Install { install_dir, config_dir, log_dir, .. }) = cli.command {
+    if let Some(Commands::Install {
+        install_dir,
+        config_dir,
+        log_dir,
+        ..
+    }) = cli.command
+    {
         assert_eq!(install_dir.to_string_lossy(), "/opt/hydra/bin");
         assert_eq!(config_dir.to_string_lossy(), "/opt/hydra/etc");
         assert_eq!(log_dir.to_string_lossy(), "/opt/hydra/log");
@@ -489,12 +487,16 @@ fn test_mode_enum_values() {
 fn test_combined_global_and_command_flags() {
     let cli = Cli::try_parse_from([
         "hydra-agent",
-        "-m", "dev",
-        "-c", "/custom/config.toml",
+        "-m",
+        "dev",
+        "-c",
+        "/custom/config.toml",
         "login",
-        "-u", "admin",
-        "-a"
-    ]).unwrap();
+        "-u",
+        "admin",
+        "-a",
+    ])
+    .unwrap();
 
     assert_eq!(cli.mode, OperatingMode::Dev);
     assert_eq!(cli.config.to_string_lossy(), "/custom/config.toml");

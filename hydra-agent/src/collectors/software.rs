@@ -9,7 +9,7 @@ use sysinfo::System;
 
 use crate::config::AgentConfig;
 
-/// Software profile containing OS and package information.
+/// Software profile containing OS, package, and user information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SoftwareProfile {
@@ -20,6 +20,9 @@ pub struct SoftwareProfile {
     /// Total number of packages (if collected)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub package_count: Option<usize>,
+    /// List of system users (non-system accounts)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub users: Vec<UserInfo>,
 }
 
 /// Operating system information.
@@ -53,6 +56,24 @@ pub struct Package {
     /// Package manager (e.g., "dpkg", "rpm", "brew")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manager: Option<String>,
+}
+
+/// System user account information.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserInfo {
+    /// Username
+    pub name: String,
+    /// User ID
+    pub uid: u32,
+    /// Primary group ID
+    pub gid: u32,
+    /// Home directory
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub home: Option<String>,
+    /// Login shell
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
 }
 
 /// Collector for software information.
@@ -96,10 +117,17 @@ impl SoftwareCollector {
             Some(packages.len())
         };
 
+        let users = if config.collection.include_users {
+            Self::collect_users()
+        } else {
+            vec![]
+        };
+
         Ok(SoftwareProfile {
             os: os_info,
             packages,
             package_count,
+            users,
         })
     }
 
@@ -147,10 +175,7 @@ impl SoftwareCollector {
             }
         }
 
-        if let Ok(output) = std::process::Command::new("pacman")
-            .args(["-Q"])
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new("pacman").args(["-Q"]).output() {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
@@ -160,6 +185,38 @@ impl SoftwareCollector {
                             name: parts[0].to_string(),
                             version: parts.get(1).map(|v| v.to_string()),
                             manager: Some("pacman".to_string()),
+                        });
+                    }
+                }
+                return Ok(packages);
+            }
+        }
+
+        // Alpine Linux
+        if let Ok(output) = std::process::Command::new("apk")
+            .args(["info", "-v"])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    // apk info -v outputs "name-version" format
+                    // Find the last hyphen that separates name from version
+                    if let Some(idx) = line.rfind('-') {
+                        packages.push(Package {
+                            name: line[..idx].to_string(),
+                            version: Some(line[idx + 1..].to_string()),
+                            manager: Some("apk".to_string()),
+                        });
+                    } else {
+                        packages.push(Package {
+                            name: line.to_string(),
+                            version: None,
+                            manager: Some("apk".to_string()),
                         });
                     }
                 }
@@ -304,10 +361,7 @@ impl SoftwareCollector {
     fn collect_packages() -> Result<Vec<Package>> {
         let mut packages = Vec::new();
 
-        if let Ok(output) = std::process::Command::new("pkg_info")
-            .args(["-q"])
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new("pkg_info").args(["-q"]).output() {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
@@ -335,10 +389,7 @@ impl SoftwareCollector {
     fn collect_packages() -> Result<Vec<Package>> {
         let mut packages = Vec::new();
 
-        if let Ok(output) = std::process::Command::new("pkg_info")
-            .args(["-a"])
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new("pkg_info").args(["-a"]).output() {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
@@ -376,5 +427,91 @@ impl SoftwareCollector {
     )))]
     fn collect_packages() -> Result<Vec<Package>> {
         Ok(vec![])
+    }
+
+    /// Collects non-system user accounts.
+    #[cfg(unix)]
+    fn collect_users() -> Vec<UserInfo> {
+        let mut users = Vec::new();
+
+        if let Ok(contents) = std::fs::read_to_string("/etc/passwd") {
+            for line in contents.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() < 7 {
+                    continue;
+                }
+
+                let uid: u32 = match parts[2].parse() {
+                    Ok(id) => id,
+                    Err(_) => continue,
+                };
+                let gid: u32 = match parts[3].parse() {
+                    Ok(id) => id,
+                    Err(_) => continue,
+                };
+
+                // Filter out system accounts (UID < 1000 on most Linux,
+                // except root which we include) and nologin/false shells
+                let shell = parts[6];
+                let is_nologin = shell.ends_with("nologin")
+                    || shell.ends_with("/false")
+                    || shell.ends_with("/shutdown")
+                    || shell.ends_with("/halt");
+
+                if uid == 0 || (uid >= 1000 && !is_nologin) {
+                    users.push(UserInfo {
+                        name: parts[0].to_string(),
+                        uid,
+                        gid,
+                        home: Some(parts[5].to_string()).filter(|s| !s.is_empty()),
+                        shell: Some(shell.to_string()).filter(|s| !s.is_empty()),
+                    });
+                }
+            }
+        }
+
+        users
+    }
+
+    #[cfg(windows)]
+    fn collect_users() -> Vec<UserInfo> {
+        let mut users = Vec::new();
+
+        if let Ok(output) = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-LocalUser | Where-Object { $_.Enabled } | Select-Object Name, SID | ForEach-Object { \"$($_.Name)|$($_.SID.Value)\" }",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split('|').collect();
+                    if !parts.is_empty() && !parts[0].is_empty() {
+                        users.push(UserInfo {
+                            name: parts[0].trim().to_string(),
+                            uid: 0,
+                            gid: 0,
+                            home: None,
+                            shell: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        users
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn collect_users() -> Vec<UserInfo> {
+        vec![]
     }
 }

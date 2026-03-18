@@ -28,8 +28,8 @@ impl FilePermissions for UnixPermissions {
     }
 
     fn is_secure(&self, path: &PathBuf) -> Result<bool> {
-        let metadata = fs::metadata(path)
-            .with_context(|| format!("Failed to get metadata for {:?}", path))?;
+        let metadata =
+            fs::metadata(path).with_context(|| format!("Failed to get metadata for {:?}", path))?;
         let mode = metadata.permissions().mode();
 
         // Check if file is only accessible by owner (mode & 0o077 should be 0)

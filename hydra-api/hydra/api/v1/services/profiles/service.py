@@ -2,6 +2,7 @@
 
 import secrets
 from datetime import datetime, timezone
+from typing import Any
 
 import structlog
 from pymongo import DESCENDING
@@ -147,9 +148,12 @@ class ProfileService:
         }
         await self.db.profile_meta.insert_one(meta_doc)
 
+        node_update_fields: dict[str, Any] = {"lastProfileAt": now, "lastUpdated": now}
+        if submission.agent_tier:
+            node_update_fields["agentTier"] = submission.agent_tier
         await self.db.nodes.update_one(
             {"nodeId": submission.node_id},
-            {"$set": {"lastProfileAt": now, "lastUpdated": now}},
+            {"$set": node_update_fields},
         )
 
         logger.info(

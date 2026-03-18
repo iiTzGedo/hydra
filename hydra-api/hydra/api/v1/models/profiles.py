@@ -282,6 +282,7 @@ class ProfileSubmission(BaseModel):
     version: str | None = Field(default=None, alias="version")
     collected_at: datetime = Field(alias="collectedAt")
     agent_version: str = Field(alias="agentVersion")
+    agent_tier: str | None = Field(default=None, alias="agentTier")
     collection_level: CollectionLevel = Field(default=CollectionLevel.NEUTRAL, alias="collectionLevel")
     hardware: HardwareProfile | None = None
     network: NetworkProfile | None = None
@@ -300,6 +301,14 @@ class ProfileSubmission(BaseModel):
             raise ValueError(
                 f"Invalid profile version format. Must match pattern: {PROFILE_VERSION_PATTERN}"
             )
+        return v
+
+    @field_validator("agent_tier")
+    @classmethod
+    def validate_agent_tier(cls, v: str | None) -> str | None:
+        """Validate agent tier is one of the allowed values."""
+        if v is not None and v not in ("lite", "normal", "max"):
+            raise ValueError("Agent tier must be one of: lite, normal, max")
         return v
 
 

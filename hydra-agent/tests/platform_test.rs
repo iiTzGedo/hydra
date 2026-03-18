@@ -52,8 +52,14 @@ fn test_platform_is_unix() {
     #[cfg(unix)]
     {
         let platform = Platform::current();
-        assert!(platform.is_unix(), "Unix platform should report is_unix() = true");
-        assert!(!platform.is_windows(), "Unix platform should report is_windows() = false");
+        assert!(
+            platform.is_unix(),
+            "Unix platform should report is_unix() = true"
+        );
+        assert!(
+            !platform.is_windows(),
+            "Unix platform should report is_windows() = false"
+        );
     }
 }
 
@@ -62,8 +68,14 @@ fn test_platform_is_windows_check() {
     #[cfg(windows)]
     {
         let platform = Platform::current();
-        assert!(platform.is_windows(), "Windows platform should report is_windows() = true");
-        assert!(!platform.is_unix(), "Windows platform should report is_unix() = false");
+        assert!(
+            platform.is_windows(),
+            "Windows platform should report is_windows() = true"
+        );
+        assert!(
+            !platform.is_unix(),
+            "Windows platform should report is_unix() = false"
+        );
     }
 }
 
@@ -203,7 +215,10 @@ fn test_custom_base_dir_nested() {
     let base = PathBuf::from("/opt/custom/hydra/config");
     let paths = paths::Paths::with_base_dir(&base);
 
-    assert_eq!(paths.config_file, PathBuf::from("/opt/custom/hydra/config/agent.toml"));
+    assert_eq!(
+        paths.config_file,
+        PathBuf::from("/opt/custom/hydra/config/agent.toml")
+    );
 }
 
 #[test]
@@ -379,7 +394,10 @@ fn test_resolve_path_home_expansion() {
     {
         std::env::set_var("USERPROFILE", "C:\\Users\\testuser");
         let resolved = paths::resolve_path("~/hydra/agent.toml");
-        assert_eq!(resolved, PathBuf::from("C:\\Users\\testuser/hydra/agent.toml"));
+        assert_eq!(
+            resolved,
+            PathBuf::from("C:\\Users\\testuser/hydra/agent.toml")
+        );
     }
 
     // Restore original HOME
@@ -522,9 +540,15 @@ fn test_paths_consistency() {
     let paths = paths::Paths::system_defaults();
 
     // Config file should be in config dir
-    assert!(paths.config_file.starts_with(&paths.config_dir) ||
-            paths.config_file.parent().map(|p| p == paths.config_dir).unwrap_or(false) ||
-            paths.config_file.parent() == Some(paths.config_dir.as_path()));
+    assert!(
+        paths.config_file.starts_with(&paths.config_dir)
+            || paths
+                .config_file
+                .parent()
+                .map(|p| p == paths.config_dir)
+                .unwrap_or(false)
+            || paths.config_file.parent() == Some(paths.config_dir.as_path())
+    );
 
     // Vault files should be in vault dir
     let creds = paths.vault_file(".creds");

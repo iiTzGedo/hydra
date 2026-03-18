@@ -59,6 +59,8 @@ class NodeService:
             filter_query["kind"] = params.kind.value
         if params.status:
             filter_query["status"] = params.status.value
+        if params.agent_tier:
+            filter_query["agentTier"] = params.agent_tier.value
         if params.tags:
             filter_query["tags"] = {"$all": params.tags}
         if params.parent_node_id:
@@ -377,6 +379,7 @@ class NodeService:
                 "profileCount": profile_count,
                 "lastProfileVersion": last_profile_version,
                 "isHealthy": is_healthy,
+                "agentTier": node.get("agentTier"),
             })
 
         if healthy_only:
@@ -417,6 +420,14 @@ class NodeService:
             "lastUpdated": doc["lastUpdated"],
             "lastProfileAt": doc.get("lastProfileAt"),
             "status": doc["status"],
+            "agentTier": doc.get("agentTier"),
+            "serverAddress": doc.get("serverAddress"),
+            "serverPort": doc.get("serverPort"),
+            "serverTlsEnabled": doc.get("serverTlsEnabled"),
+            "serverReachable": doc.get("serverReachable"),
+            "failedDirectAttempts": doc.get("failedDirectAttempts"),
+            "lastDirectContact": doc.get("lastDirectContact"),
+            "lastPollContact": doc.get("lastPollContact"),
         }
 
     def _format_node_summary(self, doc: dict) -> dict:
@@ -431,4 +442,5 @@ class NodeService:
             "registeredBy": doc.get("registeredBy"),
             "status": doc["status"],
             "lastProfileAt": doc.get("lastProfileAt"),
+            "agentTier": doc.get("agentTier"),
         }

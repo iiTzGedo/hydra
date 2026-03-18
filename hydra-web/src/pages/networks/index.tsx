@@ -7,7 +7,6 @@ import {
   Plus,
   Server,
   Globe,
-  Layers,
   GitBranch,
   Eye,
   Edit,
@@ -17,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useNetworks, useCreateNetwork } from '@/api/networks';
 import { NetworkSummary, NetworkType, CreateNetworkRequest } from '@/types/network';
-import { ROUTES, NETWORK_TYPE_LABELS } from '@/lib/constants';
+import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getErrorMessage } from '@/lib/api-client';
 import { staggerItemVariants } from '@/lib/animations';
@@ -64,86 +63,24 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { EntityListPage, type TableDensity } from '@/components/common/entity-list-page';
-import { FilterBar, type FilterConfig } from '@/components/common/filter-bar';
+import { FilterBar } from '@/components/common/filter-bar';
 import { type ViewMode } from '@/components/common/view-mode-toggle';
+import {
+  NETWORK_COLUMNS,
+  NETWORK_FILTER_CONFIG,
+  NETWORK_TYPE_CONFIG,
+} from './list-config';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type NetworkColumnKey = 'network' | 'type' | 'cidr' | 'gateway' | 'nodes' | 'actions';
 type NetworkListItem = NetworkSummary & { id: string };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const TYPE_CONFIG: Record<NetworkType, {
-  icon: typeof Network;
-  color: string;
-  bgColor: string;
-  label: string;
-}> = {
-  physical: {
-    icon: Server,
-    color: 'text-network',
-    bgColor: 'bg-network/10',
-    label: 'Physical'
-  },
-  virtual: {
-    icon: Globe,
-    color: 'text-compute',
-    bgColor: 'bg-compute/10',
-    label: 'Virtual'
-  },
-  overlay: {
-    icon: Layers,
-    color: 'text-primary',
-    bgColor: 'bg-primary/10',
-    label: 'Overlay'
-  },
-  vlan: {
-    icon: GitBranch,
-    color: 'text-warning',
-    bgColor: 'bg-warning/10',
-    label: 'VLAN'
-  },
-  vxlan: {
-    icon: GitBranch,
-    color: 'text-info',
-    bgColor: 'bg-info/10',
-    label: 'VXLAN'
-  },
-  bridge: {
-    icon: Network,
-    color: 'text-iot',
-    bgColor: 'bg-iot/10',
-    label: 'Bridge'
-  },
-  tunnel: {
-    icon: Network,
-    color: 'text-muted-foreground',
-    bgColor: 'bg-muted',
-    label: 'Tunnel'
-  },
-};
-
 interface FilterState {
   search: string;
   type: string;
   [key: string]: string;
 }
-
-const NETWORK_FILTER_CONFIG: FilterConfig[] = [
-  {
-    type: 'search',
-    key: 'search',
-    placeholder: 'Search networks by name or CIDR...',
-    className: 'flex-1',
-  },
-  {
-    type: 'select',
-    key: 'type',
-    label: 'Types',
-    options: Object.entries(NETWORK_TYPE_LABELS).map(([value, label]) => ({ value, label })),
-  },
-];
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -234,14 +171,7 @@ export default function NetworksPage() {
         onViewModeChange={setViewMode}
         tableDensity={tableDensity}
         onTableDensityChange={setTableDensity}
-        columns={[
-          { key: 'network', label: 'Network' },
-          { key: 'type', label: 'Type' },
-          { key: 'cidr', label: 'CIDR' },
-          { key: 'gateway', label: 'Gateway' },
-          { key: 'nodes', label: 'Nodes' },
-          { key: 'actions', label: 'Actions' },
-        ]}
+        columns={NETWORK_COLUMNS}
         visibleColumns={visibleColumns}
         onVisibleColumnsChange={(cols) => setVisibleColumns(cols as Record<NetworkColumnKey, boolean>)}
         pagination={{
@@ -371,7 +301,7 @@ export default function NetworksPage() {
 // ─── Grid Card ────────────────────────────────────────────────────────────────
 
 function NetworkGridCard({ network }: { network: NetworkListItem }) {
-  const typeConfig = TYPE_CONFIG[network.type] || TYPE_CONFIG.physical;
+  const typeConfig = NETWORK_TYPE_CONFIG[network.type] || NETWORK_TYPE_CONFIG.physical;
   const TypeIcon = typeConfig.icon;
 
   return (
@@ -473,7 +403,7 @@ function NetworkRow({
   network: NetworkListItem;
   visibleColumns: Record<NetworkColumnKey, boolean>;
 }) {
-  const typeConfig = TYPE_CONFIG[network.type] || TYPE_CONFIG.physical;
+  const typeConfig = NETWORK_TYPE_CONFIG[network.type] || NETWORK_TYPE_CONFIG.physical;
   const TypeIcon = typeConfig.icon;
 
   return (

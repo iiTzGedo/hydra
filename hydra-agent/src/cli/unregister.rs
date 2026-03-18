@@ -134,8 +134,7 @@ async fn prompt_admin_login(config: &AgentConfig, vault: &Vault) -> Result<Strin
         return Err(anyhow!("Username is required"));
     }
 
-    let password = rpassword::prompt_password("Password: ")
-        .context("Failed to read password")?;
+    let password = rpassword::prompt_password("Password: ").context("Failed to read password")?;
 
     if password.is_empty() {
         return Err(anyhow!("Password is required"));
@@ -175,7 +174,10 @@ async fn prompt_admin_login(config: &AgentConfig, vault: &Vault) -> Result<Strin
         role: String,
     }
 
-    let request = LoginRequest { username: username.clone(), password };
+    let request = LoginRequest {
+        username: username.clone(),
+        password,
+    };
 
     let response = client
         .post(&login_url)

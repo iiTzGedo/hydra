@@ -53,6 +53,11 @@ _format_list_response = format_list_response
                 "items": {"type": "string"},
                 "description": "Filter by tags (AND logic)",
             },
+            "agentTier": {
+                "type": "string",
+                "enum": ["lite", "normal", "max"],
+                "description": "Filter by agent tier",
+            },
             "limit": {
                 "type": "integer",
                 "default": 50,
@@ -69,6 +74,7 @@ async def list_nodes(args: dict[str, Any]) -> str:
         node_type=args.get("type"),
         status=args.get("status"),
         tags=args.get("tags"),
+        agent_tier=args.get("agentTier"),
         limit=args.get("limit", 50),
     )
     return _format_list_response("nodes", nodes)

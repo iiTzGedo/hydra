@@ -4,7 +4,6 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { useUiStore } from '@/stores/ui-store';
-import type { ViewPreferences } from '@/stores/ui-store';
 
 describe('ui-store', () => {
   beforeEach(() => {

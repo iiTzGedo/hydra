@@ -20,7 +20,7 @@ use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::config::AgentConfig;
-use crate::utils::{API_KEY_DEFAULT_EXPIRY_DAYS, generate_agent_username, generate_agent_password};
+use crate::utils::{generate_agent_password, generate_agent_username, API_KEY_DEFAULT_EXPIRY_DAYS};
 use crate::vault::{AgentCredentials, ApiKeyData, Vault};
 
 /// Register command arguments
@@ -148,8 +148,9 @@ pub async fn execute(args: &RegisterArgs, config: &AgentConfig, vault: &Vault) -
     }
 
     if vault.has_agent_credentials() {
-        let creds = vault.load_agent_credentials()?
-            .ok_or_else(|| anyhow!("Agent credentials file exists but could not be loaded. Check vault integrity."))?;
+        let creds = vault.load_agent_credentials()?.ok_or_else(|| {
+            anyhow!("Agent credentials file exists but could not be loaded. Check vault integrity.")
+        })?;
         let has_valid_api_key = vault.has_api_key() && !vault.is_api_key_expired()?;
 
         println!();
@@ -187,7 +188,11 @@ pub async fn execute(args: &RegisterArgs, config: &AgentConfig, vault: &Vault) -
 
 /// Override existing registration (unregister from API and re-register)
 /// Requires admin/operator login
-async fn override_registration(config: &AgentConfig, vault: &Vault, args: &RegisterArgs) -> Result<()> {
+async fn override_registration(
+    config: &AgentConfig,
+    vault: &Vault,
+    args: &RegisterArgs,
+) -> Result<()> {
     use std::io::{self, Write};
 
     println!();
@@ -230,8 +235,9 @@ async fn override_registration(config: &AgentConfig, vault: &Vault, args: &Regis
         println!();
         prompt_admin_login(config, vault).await?
     } else {
-        vault.load_session()?
-            .ok_or_else(|| anyhow!("No active session found. Login first with 'hydra-agent login'."))?
+        vault.load_session()?.ok_or_else(|| {
+            anyhow!("No active session found. Login first with 'hydra-agent login'.")
+        })?
     };
 
     // Confirm action
@@ -246,8 +252,9 @@ async fn override_registration(config: &AgentConfig, vault: &Vault, args: &Regis
 
     // Step 1: Delete agent account from API if it exists
     if vault.has_agent_credentials() {
-        let creds = vault.load_agent_credentials()?
-            .ok_or_else(|| anyhow!("Agent credentials file exists but could not be loaded. Check vault integrity."))?;
+        let creds = vault.load_agent_credentials()?.ok_or_else(|| {
+            anyhow!("Agent credentials file exists but could not be loaded. Check vault integrity.")
+        })?;
         info!("Deleting agent account '{}' from API...", creds.username);
 
         let client = Client::builder()
@@ -268,7 +275,10 @@ async fn override_registration(config: &AgentConfig, vault: &Vault, args: &Regis
             }
             Ok(resp) => {
                 // Log but don't fail - account might already be deleted
-                debug!("Failed to delete agent account (status {}), continuing...", resp.status());
+                debug!(
+                    "Failed to delete agent account (status {}), continuing...",
+                    resp.status()
+                );
             }
             Err(e) => {
                 debug!("Failed to contact API for deletion: {}, continuing...", e);
@@ -299,7 +309,10 @@ async fn override_registration(config: &AgentConfig, vault: &Vault, args: &Regis
 }
 
 /// Prompt for admin/operator login
-async fn prompt_admin_login(config: &AgentConfig, vault: &Vault) -> Result<crate::vault::SessionData> {
+async fn prompt_admin_login(
+    config: &AgentConfig,
+    vault: &Vault,
+) -> Result<crate::vault::SessionData> {
     use std::io::{self, Write};
 
     print!("Admin/Operator Username: ");
@@ -312,8 +325,7 @@ async fn prompt_admin_login(config: &AgentConfig, vault: &Vault) -> Result<crate
         return Err(anyhow!("Username is required"));
     }
 
-    let password = rpassword::prompt_password("Password: ")
-        .context("Failed to read password")?;
+    let password = rpassword::prompt_password("Password: ").context("Failed to read password")?;
 
     if password.is_empty() {
         return Err(anyhow!("Password is required"));
@@ -371,7 +383,9 @@ async fn prompt_admin_login(config: &AgentConfig, vault: &Vault) -> Result<crate
         role: String,
     }
 
-    let login_response: FullLoginResponse = response.json().await
+    let login_response: FullLoginResponse = response
+        .json()
+        .await
         .context("Failed to parse login response")?;
 
     if login_response.user.role != "admin" && login_response.user.role != "operator" {
@@ -406,7 +420,10 @@ async fn register_with_existing_session(
     vault: &Vault,
     args: &RegisterArgs,
 ) -> Result<()> {
-    info!("Registering agent using session for {}...", session.username);
+    info!(
+        "Registering agent using session for {}...",
+        session.username
+    );
 
     let username = args.username.clone().unwrap_or_else(|| {
         let generated = generate_agent_username();
@@ -578,7 +595,10 @@ async fn register_with_session(
     }
 
     let session_username = session.username.clone();
-    info!("Registering agent using session for {}...", session_username);
+    info!(
+        "Registering agent using session for {}...",
+        session_username
+    );
 
     let username = args.username.clone().unwrap_or_else(|| {
         let generated = generate_agent_username();
@@ -704,8 +724,8 @@ async fn create_api_key(
 ) -> Result<CreateApiKeyResponse> {
     let api_key_url = format!("{}/auth/apikeys", config.api.url);
 
-    let expires_at = (chrono::Utc::now() + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS))
-        .to_rfc3339();
+    let expires_at =
+        (chrono::Utc::now() + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS)).to_rfc3339();
 
     let request = CreateApiKeyRequest {
         name: format!("{}-api-key", username),
@@ -763,7 +783,11 @@ fn save_credentials(vault: &Vault, response: &RegisterResponse, password: &str) 
 }
 
 /// Save API key from CreateApiKeyResponse (agent creates its own key)
-fn save_api_key_from_response(vault: &Vault, config: &AgentConfig, response: &CreateApiKeyResponse) -> Result<()> {
+fn save_api_key_from_response(
+    vault: &Vault,
+    config: &AgentConfig,
+    response: &CreateApiKeyResponse,
+) -> Result<()> {
     let api_key_data = ApiKeyData {
         api_key: response.key.clone(),
         api_key_id: response.key_id.clone(),
@@ -817,7 +841,8 @@ fn show_status(vault: &Vault) -> Result<()> {
             // Check API key status
             if let Some(api_key) = vault.load_api_key()? {
                 let expired = vault.is_api_key_expired()?;
-                println!("  API Key: {} ({})",
+                println!(
+                    "  API Key: {} ({})",
                     api_key.api_key_id,
                     if expired { "expired" } else { "valid" }
                 );

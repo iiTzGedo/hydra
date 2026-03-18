@@ -1,0 +1,49 @@
+import { expect, type Page } from '@playwright/test';
+
+export const TEST_USER = {
+  username: 'system_admin',
+  password: 'system12345',
+} as const;
+
+export const SEEDED_NODE = {
+  id: 'my-server-01',
+  name: 'hydra-dev-machine',
+} as const;
+
+export const SEEDED_NOTIFICATION = {
+  title: /Node offline: hydra-dev-machine/i,
+} as const;
+
+export async function login(page: Page) {
+  await page.goto('/login');
+  await page.getByLabel(/username/i).fill(TEST_USER.username);
+  await page.getByLabel(/password/i).fill(TEST_USER.password);
+  await page.getByRole('button', { name: /sign in|log in|login/i }).click();
+  await expect(page).toHaveURL(/dashboard/, { timeout: 10_000 });
+}
+
+export async function gotoPage(
+  page: Page,
+  path: string,
+  heading?: string | RegExp,
+) {
+  await page.goto(path);
+  await page.waitForLoadState('networkidle');
+
+  if (heading) {
+    await expect(
+      page.locator('#main-content').getByRole('heading', { name: heading }).first(),
+    ).toBeVisible();
+  }
+}
+
+export async function openSeededNode(page: Page) {
+  await gotoPage(page, '/nodes');
+  const nodeLink = page.locator(`#main-content a[href="/nodes/${SEEDED_NODE.id}"]`).first();
+  await expect(nodeLink).toBeVisible();
+  await nodeLink.click();
+  await expect(page).toHaveURL(new RegExp(`/nodes/${SEEDED_NODE.id}(\\?|$)`));
+  await expect(
+    page.locator('#main-content').getByRole('heading', { name: new RegExp(SEEDED_NODE.name, 'i') }).first(),
+  ).toBeVisible();
+}

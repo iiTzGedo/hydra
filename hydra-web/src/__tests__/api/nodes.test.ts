@@ -103,9 +103,13 @@ describe('Nodes API Hooks', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      expect(result.current.data).toBeDefined();
-      expect(result.current.data?.status).toBe('archived');
-      expect(result.current.data?.archivedAt).toBeDefined();
+      const archivedNode = result.current.data as
+        | { status?: string; archivedAt?: string }
+        | undefined;
+
+      expect(archivedNode).toBeDefined();
+      expect(archivedNode?.status).toBe('archived');
+      expect(archivedNode?.archivedAt).toBeDefined();
     });
   });
 });

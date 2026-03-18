@@ -118,6 +118,42 @@ export interface HydraMCPHealthResponse {
   endpoint?: string | null;
 }
 
+function upsertServer(
+  current: MCPServerListResponse | undefined,
+  server: MCPServerResponse
+): MCPServerListResponse {
+  const existingServers = current?.servers ?? [];
+  const existingIndex = existingServers.findIndex(
+    (existingServer) => existingServer.serverId === server.serverId
+  );
+
+  if (existingIndex === -1) {
+    return {
+      servers: [...existingServers, server],
+      total: (current?.total ?? existingServers.length) + 1,
+    };
+  }
+
+  const servers = [...existingServers];
+  servers[existingIndex] = server;
+  return {
+    servers,
+    total: current?.total ?? servers.length,
+  };
+}
+
+function removeServer(
+  current: MCPServerListResponse | undefined,
+  serverId: string
+): MCPServerListResponse {
+  const existingServers = current?.servers ?? [];
+  const servers = existingServers.filter((server) => server.serverId !== serverId);
+  return {
+    servers,
+    total: servers.length,
+  };
+}
+
 export function useMCPServers(params?: { category?: MCPServerCategory; enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.mcp.servers(),
@@ -152,7 +188,15 @@ export function useCreateMCPServer() {
       const response = await apiClient.post<MCPServerResponse>('/mcp/servers', data);
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (server) => {
+      queryClient.setQueryData<MCPServerListResponse>(
+        queryKeys.mcp.servers(),
+        (current) => upsertServer(current, server)
+      );
+      queryClient.setQueryData<MCPServerResponse>(
+        queryKeys.mcp.serverStatus(server.serverId),
+        server
+      );
       queryClient.invalidateQueries({ queryKey: queryKeys.mcp.servers() });
     },
   });
@@ -169,8 +213,16 @@ export function useUpdateMCPServer() {
       );
       return response.data;
     },
-    onSuccess: (_data, { serverId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.mcp.serverStatus(serverId) });
+    onSuccess: (server) => {
+      queryClient.setQueryData<MCPServerResponse>(
+        queryKeys.mcp.serverStatus(server.serverId),
+        server
+      );
+      queryClient.setQueryData<MCPServerListResponse>(
+        queryKeys.mcp.servers(),
+        (current) => upsertServer(current, server)
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcp.serverStatus(server.serverId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.mcp.servers() });
     },
   });
@@ -181,10 +233,15 @@ export function useDeleteMCPServer() {
 
   return useMutation({
     mutationFn: async (serverId: string) => {
-      const response = await apiClient.delete(`/mcp/servers/${serverId}`);
-      return response.data;
+      await apiClient.delete(`/mcp/servers/${serverId}`);
+      return { serverId };
     },
-    onSuccess: () => {
+    onSuccess: ({ serverId }) => {
+      queryClient.setQueryData<MCPServerListResponse>(
+        queryKeys.mcp.servers(),
+        (current) => removeServer(current, serverId)
+      );
+      queryClient.removeQueries({ queryKey: queryKeys.mcp.serverStatus(serverId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.mcp.servers() });
     },
   });
@@ -214,7 +271,34 @@ export function useCheckMCPServerHealth() {
       );
       return response.data;
     },
-    onSuccess: (_data, serverId) => {
+    onSuccess: (health, serverId) => {
+      queryClient.setQueryData<MCPServerResponse | undefined>(
+        queryKeys.mcp.serverStatus(serverId),
+        (current) =>
+          current
+            ? {
+                ...current,
+                status: health.status,
+                lastHealthCheck: health.checkedAt,
+              }
+            : current
+      );
+      queryClient.setQueryData<MCPServerListResponse>(
+        queryKeys.mcp.servers(),
+        (current) => ({
+          servers:
+            current?.servers.map((server) =>
+              server.serverId === serverId
+                ? {
+                    ...server,
+                    status: health.status,
+                    lastHealthCheck: health.checkedAt,
+                  }
+                : server
+            ) ?? [],
+          total: current?.total ?? 0,
+        })
+      );
       queryClient.invalidateQueries({ queryKey: queryKeys.mcp.serverStatus(serverId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.mcp.servers() });
     },

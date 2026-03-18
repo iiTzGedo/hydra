@@ -5,14 +5,17 @@ from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 
 from hydra.api.v1.core.deps import CurrentUser, MongoDBDep, require_permission
 from hydra.api.v1.models.commands import (
     CommandCancelledResponse,
+    CommandExecutionMethod,
     CommandListParams,
     CommandPollResponse,
     CommandQueuedResponse,
     CommandResponse,
+    CommandResult,
     CommandResultSubmittedResponse,
     CommandSource,
     CommandStatus,
@@ -40,17 +43,24 @@ CommandsServiceDep = Annotated[CommandsService, Depends(get_commands_service)]
     "",
     response_model=SuccessResponse[CommandQueuedResponse],
     response_model_by_alias=True,
-    status_code=202,
-    summary="Queue Command",
-    description="Queue a command for execution on a target node.",
+    summary="Execute Command",
+    description="""Submit a command for execution on a target node.
+
+Dispatch is tier-aware:
+- **Lite tier**: Rejected (400) — does not support command execution.
+- **Normal tier**: Queued for poll-based execution (202 Accepted).
+- **Max tier**: Attempted via direct HTTP call; falls back to queue on failure.
+
+Returns 200 for synchronous direct execution, 202 for queued execution.
+""",
     dependencies=[Depends(require_permission("commands:execute"))],
 )
 async def create_command(
     request: CreateCommandRequest,
     commands_service: CommandsServiceDep,
     current_user: CurrentUser,
-) -> SuccessResponse[CommandQueuedResponse]:
-    """Queue a new command for execution on an agent.
+) -> JSONResponse:
+    """Submit a command for tier-aware execution on an agent.
 
     Args:
         request: Command specification including type, target, and parameters.
@@ -58,10 +68,10 @@ async def create_command(
         current_user: User initiating the command.
 
     Returns:
-        Queued command details with tracking ID.
+        200 with result for direct execution, or 202 for queued execution.
 
     Raises:
-        HTTPException 400: Invalid command specification.
+        HTTPException 400: Invalid command or lite-tier agent.
         HTTPException 403: Insufficient permissions.
         HTTPException 404: Target node not found.
     """
@@ -77,15 +87,27 @@ async def create_command(
         source=source,
     )
 
-    return SuccessResponse(
-        data=CommandQueuedResponse(
-            command_id=command["commandId"],
-            type=CommandType(command["type"]),
-            target=command["target"],
-            action=command["action"],
-            status=CommandStatus(command["status"]),
-            queued_at=command["queuedAt"],
-        )
+    execution_method = command.get("executionMethod", "poll")
+    result_data = command.get("result")
+
+    response_data = CommandQueuedResponse(
+        command_id=command["commandId"],
+        type=CommandType(command["type"]),
+        target=command["target"],
+        action=command["action"],
+        status=CommandStatus(command["status"]),
+        execution_method=CommandExecutionMethod(execution_method),
+        result=CommandResult(**result_data) if result_data else None,
+        queued_at=command.get("queuedAt"),
+        completed_at=command.get("completedAt"),
+    )
+
+    wrapped = SuccessResponse(data=response_data)
+    status_code = 200 if execution_method == "direct" else 202
+
+    return JSONResponse(
+        content=wrapped.model_dump(by_alias=True, mode="json"),
+        status_code=status_code,
     )
 
 

@@ -7,6 +7,7 @@ use anyhow::Result;
 use serde::Serialize;
 use std::process::Command;
 use sysinfo::System;
+use tracing::debug;
 
 /// Hardware profile containing system identification, CPU, memory, and GPU information.
 #[derive(Debug, Serialize, Clone)]
@@ -121,19 +122,35 @@ impl HardwareCollector {
         sys.refresh_all();
 
         let cpus = sys.cpus();
+
+        // Determine core counts with container-awareness:
+        // 1. Try cgroup limits (containers/LXC/Docker)
+        // 2. Fall back to sysinfo
+        // 3. Fall back to /proc/cpuinfo processor count
+        let sysinfo_physical = sys.physical_core_count().unwrap_or(0);
+        let sysinfo_logical = cpus.len();
+
+        let (cores_physical, cores_logical) =
+            Self::detect_cpu_cores(sysinfo_physical, sysinfo_logical);
+
         let cpu_info = CpuInfo {
             model: cpus.first().map(|c| c.brand().to_string()),
             vendor: cpus.first().map(|c| c.vendor_id().to_string()),
-            cores_physical: sys.physical_core_count().unwrap_or(0),
-            cores_logical: cpus.len(),
+            cores_physical,
+            cores_logical,
             frequency_mhz: cpus.first().map(|c| c.frequency()),
             architecture: Some(std::env::consts::ARCH.to_string()),
             features: Self::detect_cpu_features(),
         };
 
         let (memory_type, speed_mhz, slots_used, slots_total) = Self::get_memory_details();
+
+        // Use cgroup memory limit when available and more restrictive than host memory
+        let sysinfo_total = sys.total_memory();
+        let total_bytes = Self::detect_memory_limit(sysinfo_total);
+
         let memory_info = MemoryInfo {
-            total_bytes: sys.total_memory(),
+            total_bytes,
             used_bytes: Some(sys.used_memory()),
             memory_type,
             speed_mhz,
@@ -158,6 +175,176 @@ impl HardwareCollector {
         })
     }
 
+    /// Determines CPU core counts with container awareness.
+    ///
+    /// Priority: cgroup limits > sysinfo values > /proc/cpuinfo count.
+    /// In containers (LXC, Docker, K8s), cgroup limits reflect the actual
+    /// allocated cores rather than the host's physical count.
+    fn detect_cpu_cores(sysinfo_physical: usize, sysinfo_logical: usize) -> (usize, usize) {
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(cgroup_cores) = Self::detect_cpu_cores_cgroup() {
+                debug!(
+                    cgroup_cores,
+                    sysinfo_physical, sysinfo_logical, "cgroup CPU limit detected"
+                );
+                // Use cgroup limit when it's more restrictive than sysinfo
+                let logical = if cgroup_cores > 0 && cgroup_cores < sysinfo_logical {
+                    cgroup_cores
+                } else {
+                    sysinfo_logical
+                };
+                let physical = if cgroup_cores > 0 && cgroup_cores < sysinfo_physical {
+                    cgroup_cores
+                } else if sysinfo_physical > 0 {
+                    sysinfo_physical
+                } else {
+                    // sysinfo returned 0 — use cgroup or cpuinfo count
+                    cgroup_cores.max(1)
+                };
+                return (physical, logical);
+            }
+        }
+
+        // No cgroup limits — use sysinfo with /proc/cpuinfo fallback
+        let physical = if sysinfo_physical > 0 {
+            sysinfo_physical
+        } else {
+            #[cfg(target_os = "linux")]
+            {
+                let count = Self::count_cpuinfo_processors();
+                if count > 0 {
+                    debug!(
+                        count,
+                        "physical_core_count unavailable, using /proc/cpuinfo processor count"
+                    );
+                    count
+                } else {
+                    0
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                0
+            }
+        };
+
+        let logical = if sysinfo_logical > 0 {
+            sysinfo_logical
+        } else {
+            physical
+        };
+
+        (physical, logical)
+    }
+
+    /// Reads CPU core limit from cgroup v2 or v1.
+    ///
+    /// Returns the effective number of CPU cores allocated to this cgroup,
+    /// or None if no cgroup CPU limit is set.
+    #[cfg(target_os = "linux")]
+    fn detect_cpu_cores_cgroup() -> Option<usize> {
+        // cgroup v2: /sys/fs/cgroup/cpu.max contains "quota period" or "max period"
+        if let Ok(contents) = std::fs::read_to_string("/sys/fs/cgroup/cpu.max") {
+            let parts: Vec<&str> = contents.trim().split_whitespace().collect();
+            if parts.len() == 2 && parts[0] != "max" {
+                if let (Ok(quota), Ok(period)) = (parts[0].parse::<u64>(), parts[1].parse::<u64>())
+                {
+                    if period > 0 {
+                        let cores = ((quota as f64) / (period as f64)).ceil() as usize;
+                        if cores > 0 {
+                            return Some(cores);
+                        }
+                    }
+                }
+            }
+        }
+
+        // cgroup v1: quota and period in separate files
+        if let (Ok(quota_str), Ok(period_str)) = (
+            std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"),
+            std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.cfs_period_us"),
+        ) {
+            if let (Ok(quota), Ok(period)) = (
+                quota_str.trim().parse::<i64>(),
+                period_str.trim().parse::<u64>(),
+            ) {
+                // quota of -1 means unlimited
+                if quota > 0 && period > 0 {
+                    let cores = ((quota as f64) / (period as f64)).ceil() as usize;
+                    if cores > 0 {
+                        return Some(cores);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Counts the number of "processor" entries in /proc/cpuinfo.
+    /// This reflects the CPUs visible to the kernel/container.
+    #[cfg(target_os = "linux")]
+    fn count_cpuinfo_processors() -> usize {
+        if let Ok(contents) = std::fs::read_to_string("/proc/cpuinfo") {
+            return contents
+                .lines()
+                .filter(|line| line.starts_with("processor"))
+                .count();
+        }
+        0
+    }
+
+    /// Returns the effective memory limit, preferring cgroup limits over sysinfo
+    /// when available and more restrictive. In containers, sysinfo reports
+    /// host memory which doesn't reflect the container's actual allocation.
+    fn detect_memory_limit(sysinfo_total: u64) -> u64 {
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(cgroup_limit) = Self::detect_memory_cgroup() {
+                if cgroup_limit > 0 && cgroup_limit < sysinfo_total {
+                    debug!(
+                        cgroup_limit_bytes = cgroup_limit,
+                        sysinfo_total_bytes = sysinfo_total,
+                        "cgroup memory limit detected, using cgroup value"
+                    );
+                    return cgroup_limit;
+                }
+            }
+        }
+        sysinfo_total
+    }
+
+    /// Reads memory limit from cgroup v2 or v1.
+    ///
+    /// Returns the memory limit in bytes, or None if no limit is set.
+    #[cfg(target_os = "linux")]
+    fn detect_memory_cgroup() -> Option<u64> {
+        // cgroup v2: /sys/fs/cgroup/memory.max contains bytes or "max"
+        if let Ok(contents) = std::fs::read_to_string("/sys/fs/cgroup/memory.max") {
+            let trimmed = contents.trim();
+            if trimmed != "max" {
+                if let Ok(limit) = trimmed.parse::<u64>() {
+                    return Some(limit);
+                }
+            }
+        }
+
+        // cgroup v1: /sys/fs/cgroup/memory/memory.limit_in_bytes
+        if let Ok(contents) = std::fs::read_to_string("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        {
+            if let Ok(limit) = contents.trim().parse::<u64>() {
+                // cgroup v1 uses a very large value (near u64::MAX) to mean unlimited
+                // Treat anything above 2^62 as "unlimited"
+                if limit < (1u64 << 62) {
+                    return Some(limit);
+                }
+            }
+        }
+
+        None
+    }
+
     #[cfg(target_os = "linux")]
     fn detect_cpu_features() -> Vec<String> {
         if let Ok(contents) = std::fs::read_to_string("/proc/cpuinfo") {
@@ -179,7 +366,10 @@ impl HardwareCollector {
 
     #[cfg(target_os = "macos")]
     fn detect_cpu_features() -> Vec<String> {
-        if let Ok(output) = Command::new("sysctl").args(["-n", "machdep.cpu.features"]).output() {
+        if let Ok(output) = Command::new("sysctl")
+            .args(["-n", "machdep.cpu.features"])
+            .output()
+        {
             if output.status.success() {
                 return String::from_utf8_lossy(&output.stdout)
                     .split_whitespace()
@@ -211,7 +401,10 @@ impl HardwareCollector {
                         mem_type = trimmed.split(':').nth(1).map(|s| s.trim().to_string());
                     } else if trimmed.starts_with("Speed:") && trimmed.contains("MT/s") {
                         if let Some(s) = trimmed.split(':').nth(1) {
-                            speed = s.trim().split_whitespace().next()
+                            speed = s
+                                .trim()
+                                .split_whitespace()
+                                .next()
                                 .and_then(|n| n.parse().ok());
                         }
                     } else if trimmed.starts_with("Memory Device") {
@@ -262,22 +455,46 @@ impl HardwareCollector {
     }
 
     #[cfg(target_os = "linux")]
-    fn get_system_info() -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
-        let manufacturer = std::fs::read_to_string("/sys/class/dmi/id/sys_vendor")
-            .ok().map(|s| s.trim().to_string());
-        let model = std::fs::read_to_string("/sys/class/dmi/id/product_name")
-            .ok().map(|s| s.trim().to_string());
-        let serial = std::fs::read_to_string("/sys/class/dmi/id/product_serial")
-            .ok().map(|s| s.trim().to_string());
-        let bios_vendor = std::fs::read_to_string("/sys/class/dmi/id/bios_vendor")
-            .ok().map(|s| s.trim().to_string());
-        let bios_version = std::fs::read_to_string("/sys/class/dmi/id/bios_version")
-            .ok().map(|s| s.trim().to_string());
+    fn get_system_info() -> (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
+        let read_dmi = |path: &str| -> Option<String> {
+            match std::fs::read_to_string(path) {
+                Ok(s) => {
+                    let trimmed = s.trim().to_string();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed)
+                    }
+                }
+                Err(e) => {
+                    debug!(path, error = %e, "DMI file not accessible (expected in containers)");
+                    None
+                }
+            }
+        };
+
+        let manufacturer = read_dmi("/sys/class/dmi/id/sys_vendor");
+        let model = read_dmi("/sys/class/dmi/id/product_name");
+        let serial = read_dmi("/sys/class/dmi/id/product_serial");
+        let bios_vendor = read_dmi("/sys/class/dmi/id/bios_vendor");
+        let bios_version = read_dmi("/sys/class/dmi/id/bios_version");
         (manufacturer, model, serial, bios_vendor, bios_version)
     }
 
     #[cfg(target_os = "windows")]
-    fn get_system_info() -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
+    fn get_system_info() -> (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
         let mut manufacturer = None;
         let mut model = None;
         let mut serial = None;
@@ -319,12 +536,21 @@ impl HardwareCollector {
     }
 
     #[cfg(target_os = "macos")]
-    fn get_system_info() -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
+    fn get_system_info() -> (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
         let manufacturer = Some("Apple".to_string());
         let mut model = None;
         let mut serial = None;
 
-        if let Ok(output) = Command::new("system_profiler").args(["SPHardwareDataType"]).output() {
+        if let Ok(output) = Command::new("system_profiler")
+            .args(["SPHardwareDataType"])
+            .output()
+        {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
@@ -341,21 +567,43 @@ impl HardwareCollector {
     }
 
     #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
-    fn get_system_info() -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
-        let manufacturer = Command::new("sysctl").args(["-n", "hw.vendor"]).output()
-            .ok().filter(|o| o.status.success())
+    fn get_system_info() -> (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
+        let manufacturer = Command::new("sysctl")
+            .args(["-n", "hw.vendor"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-        let model = Command::new("sysctl").args(["-n", "hw.product"]).output()
-            .ok().filter(|o| o.status.success())
+        let model = Command::new("sysctl")
+            .args(["-n", "hw.product"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
         (manufacturer, model, None, None, None)
     }
 
     #[cfg(not(any(
-        target_os = "linux", target_os = "windows", target_os = "macos",
-        target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd"
     )))]
-    fn get_system_info() -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
+    fn get_system_info() -> (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
         (System::name(), System::host_name(), None, None, None)
     }
 
@@ -374,7 +622,12 @@ impl HardwareCollector {
                         if let Some(colon_pos) = line.find(": ") {
                             let device_info = &line[colon_pos + 2..];
                             let (vendor, model) = Self::parse_gpu_info(device_info);
-                            gpus.push(GpuInfo { model, vendor, memory_bytes: None, driver_version: None });
+                            gpus.push(GpuInfo {
+                                model,
+                                vendor,
+                                memory_bytes: None,
+                                driver_version: None,
+                            });
                         }
                     }
                 }
@@ -416,7 +669,8 @@ impl HardwareCollector {
         {
             if output.status.success() {
                 if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                    if let Some(displays) = json.get("SPDisplaysDataType").and_then(|d| d.as_array())
+                    if let Some(displays) =
+                        json.get("SPDisplaysDataType").and_then(|d| d.as_array())
                     {
                         for display in displays {
                             if let Some(model) = display.get("sppci_model").and_then(|m| m.as_str())
@@ -517,11 +771,7 @@ impl HardwareCollector {
         gpus
     }
 
-    #[cfg(any(
-        target_os = "freebsd",
-        target_os = "openbsd",
-        target_os = "netbsd"
-    ))]
+    #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
     fn detect_gpus() -> Vec<GpuInfo> {
         let mut gpus = Vec::new();
 
@@ -536,7 +786,10 @@ impl HardwareCollector {
                     {
                         is_display = true;
                     } else if line.contains("vendor") && is_display {
-                        current_vendor = line.split('=').nth(1).map(|s| s.trim().trim_matches('\'').to_string());
+                        current_vendor = line
+                            .split('=')
+                            .nth(1)
+                            .map(|s| s.trim().trim_matches('\'').to_string());
                     } else if line.contains("device") && is_display {
                         if let Some(model) = line.split('=').nth(1) {
                             gpus.push(GpuInfo {

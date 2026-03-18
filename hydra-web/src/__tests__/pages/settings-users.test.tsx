@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import SettingsPage from '@/pages/settings';
@@ -74,11 +74,15 @@ describe('Settings Users Integration', () => {
 
     expect(await screen.findByText('Showing 10 of 12 users')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Go to next page' }));
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Go to next page' }));
+    });
     expect(await screen.findByText('Page 2 of 2')).toBeInTheDocument();
 
-    await user.clear(screen.getByPlaceholderText('Search users...'));
-    await user.type(screen.getByPlaceholderText('Search users...'), 'search');
+    await act(async () => {
+      await user.clear(screen.getByPlaceholderText('Search users...'));
+      await user.type(screen.getByPlaceholderText('Search users...'), 'search');
+    });
 
     await waitFor(() => {
       expect(screen.getByText('Showing 1 of 1 users')).toBeInTheDocument();
@@ -103,6 +107,12 @@ describe('Settings Users Integration', () => {
       const row = screen.getByText('viewer_one').closest('div');
       expect(row).not.toBeNull();
       expect(screen.getAllByText('Operator').length).toBeGreaterThan(0);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Actions for viewer_one' })
+      ).toHaveAttribute('aria-expanded', 'false');
     });
 
     await user.click(screen.getByRole('button', { name: 'Actions for viewer_one' }));

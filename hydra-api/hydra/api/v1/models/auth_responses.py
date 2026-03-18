@@ -91,6 +91,11 @@ class NodeRegistrationResponse(BaseModel):
     registered_by: str = Field(alias="registeredBy")
     registered_at: datetime = Field(alias="registeredAt")
     status: str = "active"
+    agent_server_secret: str | None = Field(
+        default=None,
+        alias="agentServerSecret",
+        description="Control server secret for max-tier agents (shown once)",
+    )
 
     model_config = {"populate_by_name": True}
 

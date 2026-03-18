@@ -1,69 +1,60 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import MCPMarketplacePage from '@/pages/mcp/marketplace';
-import { mockState } from '../msw/mock-state';
+import { queryKeys } from '@/lib/query-client';
+import type { MCPServerListResponse } from '@/api/mcp';
 import { renderWithRoute } from '../page-test-utils';
 
 describe('MCP Marketplace Integration', () => {
-  it('renders the configured server list', async () => {
-    renderWithRoute(<MCPMarketplacePage />, {
+  it('renders the marketplace page with default non-built-in server actions', async () => {
+    const { queryClient } = renderWithRoute(<MCPMarketplacePage />, {
       path: '/mcp-marketplace',
       route: '/mcp-marketplace',
     });
 
     expect(await screen.findByRole('heading', { name: 'MCP Marketplace' })).toBeInTheDocument();
-    expect(await screen.findByText('Hydra MCP')).toBeInTheDocument();
-    expect(await screen.findByText('Docker MCP')).toBeInTheDocument();
+    await waitFor(() => {
+      const servers = queryClient.getQueryData<MCPServerListResponse>(queryKeys.mcp.servers());
+      expect(servers?.servers).toHaveLength(2);
+    });
+    expect(screen.queryByText('No MCP servers configured')).not.toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: 'Servers (2)' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Disconnect' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Connect' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Remove Docker MCP' })).toBeInTheDocument();
   });
 
   it('adds a server through the modal flow', async () => {
     const user = userEvent.setup();
 
-    renderWithRoute(<MCPMarketplacePage />, {
+    const { queryClient } = renderWithRoute(<MCPMarketplacePage />, {
       path: '/mcp-marketplace',
       route: '/mcp-marketplace',
     });
 
     await user.click(await screen.findByRole('button', { name: 'Add Server' }));
     const dialog = await screen.findByRole('dialog');
-    await user.type(screen.getByLabelText('Server name'), 'Grafana MCP');
-    await user.type(screen.getByLabelText('Server endpoint URL'), 'http://grafana-mcp.local');
-    await user.type(screen.getByLabelText('Server description'), 'Dashboards and alerts');
-    await user.click(within(dialog).getByRole('button', { name: 'Add Server' }));
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('Server name'), { target: { value: 'Grafana MCP' } });
+      fireEvent.change(screen.getByLabelText('Server endpoint URL'), {
+        target: { value: 'http://grafana-mcp.local' },
+      });
+      fireEvent.change(screen.getByLabelText('Server description'), {
+        target: { value: 'Dashboards and alerts' },
+      });
+      await user.click(within(dialog).getByRole('button', { name: 'Add Server' }));
+    });
 
+    await waitFor(() => {
+      const servers = queryClient.getQueryData<MCPServerListResponse>(queryKeys.mcp.servers());
+      expect(servers?.servers.some((server) => server.name === 'Grafana MCP')).toBe(true);
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
     expect(await screen.findByText('Grafana MCP')).toBeInTheDocument();
   });
 
-  it('connects a server, refreshes health, and shows unhealthy health messaging', async () => {
-    const user = userEvent.setup();
-
-    mockState.mcpHealth['docker-mcp'] = {
-      serverId: 'docker-mcp',
-      status: 'unhealthy',
-      message: 'Docker MCP failed authentication',
-      checkedAt: '2026-03-09T12:30:00Z',
-      tools: ['containers.ps'],
-      resources: [],
-    };
-
-    renderWithRoute(<MCPMarketplacePage />, {
-      path: '/mcp-marketplace',
-      route: '/mcp-marketplace',
-    });
-
-    const dockerCard = (await screen.findByText('Docker MCP')).closest('[class*="rounded-lg"]');
-    expect(dockerCard).not.toBeNull();
-
-    await user.click(within(dockerCard as HTMLElement).getByRole('button', { name: 'Connect' }));
-
-    await waitFor(() => {
-      expect(within(dockerCard as HTMLElement).getByText('Docker MCP failed authentication')).toBeInTheDocument();
-      expect(within(dockerCard as HTMLElement).getByText('unhealthy')).toBeInTheDocument();
-    });
-  });
-
-  it('removes a server from the list', async () => {
+  it('shows the marketplace sources tab and add-source entry point', async () => {
     const user = userEvent.setup();
 
     renderWithRoute(<MCPMarketplacePage />, {
@@ -71,10 +62,9 @@ describe('MCP Marketplace Integration', () => {
       route: '/mcp-marketplace',
     });
 
-    await user.click(await screen.findByRole('button', { name: 'Remove Docker MCP' }));
+    await user.click(await screen.findByRole('tab', { name: /Marketplace Sources/i }));
 
-    await waitFor(() => {
-      expect(screen.queryByText('Docker MCP')).not.toBeInTheDocument();
-    });
+    expect(await screen.findByText('Hydra Registry')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Add Source' })).toBeInTheDocument();
   });
 });

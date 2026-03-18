@@ -46,6 +46,13 @@ class CommandSource(str, Enum):
     AUTOMATION = "automation"
 
 
+class CommandExecutionMethod(str, Enum):
+    """How a command was or will be executed."""
+
+    DIRECT = "direct"
+    POLL = "poll"
+
+
 class ServiceAction(str, Enum):
     """Actions that can be performed on services."""
 
@@ -169,14 +176,20 @@ class CommandResponse(BaseModel):
 
 
 class CommandQueuedResponse(BaseModel):
-    """Response when a command is queued."""
+    """Response when a command is queued or executed directly."""
 
     command_id: Annotated[str, Field(alias="commandId")]
     type: CommandType
     target: CommandTarget
     action: str
     status: CommandStatus = CommandStatus.QUEUED
-    queued_at: Annotated[datetime, Field(alias="queuedAt")]
+    execution_method: Annotated[
+        CommandExecutionMethod,
+        Field(default=CommandExecutionMethod.POLL, alias="executionMethod"),
+    ]
+    result: CommandResult | None = None
+    queued_at: Annotated[datetime | None, Field(default=None, alias="queuedAt")]
+    completed_at: Annotated[datetime | None, Field(default=None, alias="completedAt")]
 
     model_config = {"populate_by_name": True}
 
@@ -191,10 +204,26 @@ class CommandCancelledResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class PolledCommand(BaseModel):
+    """Typed command payload returned to polling agents."""
+
+    command_id: Annotated[str, Field(alias="commandId")]
+    type: CommandType
+    action: str
+    target: CommandTarget
+    parameters: dict | None = None
+    timeout_seconds: Annotated[int, Field(alias="timeoutSeconds")]
+
+    model_config = {"populate_by_name": True}
+
+
 class CommandPollResponse(BaseModel):
     """Response for agent command polling."""
 
-    commands: list[dict] = Field(default_factory=list, description="Pending commands for the node")
+    commands: list[PolledCommand] = Field(
+        default_factory=list,
+        description="Pending commands for the node",
+    )
 
 
 class CommandResultSubmittedResponse(BaseModel):

@@ -144,7 +144,7 @@ export default function MCPMarketplacePage() {
     [servers, toolsByServerId]
   );
 
-  const handleAddServer = () => {
+  const handleAddServer = async () => {
     if (!name.trim() || !endpoint.trim()) {
       toast({
         title: 'Missing required fields',
@@ -154,41 +154,35 @@ export default function MCPMarketplacePage() {
       return;
     }
 
-    createServerMutation.mutate(
-      {
+    try {
+      const server = await createServerMutation.mutateAsync({
         name: name.trim(),
         endpoint: endpoint.trim(),
         description: description.trim() || 'Custom MCP server',
         category,
         docsUrl: docsUrl.trim() || undefined,
         enabled: true,
-      },
-      {
-        onSuccess: (server) => {
-          setName('');
-          setEndpoint('');
-          setDescription('');
-          setDocsUrl('');
-          setCategory('other');
-          setShowAddServerModal(false);
-          checkHealthMutation.mutate(server.serverId, {
-            onSuccess: (result) => {
-              setHealthMessages((prev) => ({
-                ...prev,
-                [server.serverId]: result.message,
-              }));
-            },
-          });
-        },
-        onError: () => {
-          toast({
-            title: 'Failed to add server',
-            description: 'Please check the configuration and try again.',
-            variant: 'destructive',
-          });
-        },
-      }
-    );
+      });
+
+      setName('');
+      setEndpoint('');
+      setDescription('');
+      setDocsUrl('');
+      setCategory('other');
+      setShowAddServerModal(false);
+
+      const result = await checkHealthMutation.mutateAsync(server.serverId);
+      setHealthMessages((prev) => ({
+        ...prev,
+        [server.serverId]: result.message,
+      }));
+    } catch {
+      toast({
+        title: 'Failed to add server',
+        description: 'Please check the configuration and try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleAddSource = () => {
@@ -205,57 +199,53 @@ export default function MCPMarketplacePage() {
     setShowAddSourceModal(false);
   };
 
-  const handleToggleServer = (server: MCPServerResponse) => {
+  const handleToggleServer = async (server: MCPServerResponse) => {
     const nextEnabled = !server.enabled;
-    updateServerMutation.mutate(
-      { serverId: server.serverId, data: { enabled: nextEnabled } },
-      {
-        onSuccess: () => {
-          if (nextEnabled) {
-            checkHealthMutation.mutate(server.serverId, {
-              onSuccess: (result) => {
-                setHealthMessages((prev) => ({
-                  ...prev,
-                  [server.serverId]: result.message,
-                }));
-              },
-            });
-          } else {
-            setHealthMessages((prev) => {
-              const next = { ...prev };
-              delete next[server.serverId];
-              return next;
-            });
-          }
-        },
-        onError: () => {
-          toast({
-            title: 'Failed to update server',
-            description: 'Please try again.',
-            variant: 'destructive',
-          });
-        },
+
+    try {
+      await updateServerMutation.mutateAsync({
+        serverId: server.serverId,
+        data: { enabled: nextEnabled },
+      });
+
+      if (nextEnabled) {
+        const result = await checkHealthMutation.mutateAsync(server.serverId);
+        setHealthMessages((prev) => ({
+          ...prev,
+          [server.serverId]: result.message,
+        }));
+        return;
       }
-    );
+
+      setHealthMessages((prev) => {
+        const next = { ...prev };
+        delete next[server.serverId];
+        return next;
+      });
+    } catch {
+      toast({
+        title: 'Failed to update server',
+        description: 'Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
-  const handleRemoveServer = (serverId: string) => {
-    deleteServerMutation.mutate(serverId, {
-      onSuccess: () => {
-        setHealthMessages((prev) => {
-          const next = { ...prev };
-          delete next[serverId];
-          return next;
-        });
-      },
-      onError: () => {
-        toast({
-          title: 'Failed to remove server',
-          description: 'Please try again.',
-          variant: 'destructive',
-        });
-      },
-    });
+  const handleRemoveServer = async (serverId: string) => {
+    try {
+      await deleteServerMutation.mutateAsync(serverId);
+      setHealthMessages((prev) => {
+        const next = { ...prev };
+        delete next[serverId];
+        return next;
+      });
+    } catch {
+      toast({
+        title: 'Failed to remove server',
+        description: 'Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleSyncSource = async (sourceId: string) => {

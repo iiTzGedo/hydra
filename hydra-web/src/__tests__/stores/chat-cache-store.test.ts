@@ -17,7 +17,7 @@ describe('chat-cache-store', () => {
     createdAt: new Date().toISOString(),
   });
 
-  const createMockContext = (sessionId: string): SessionContext => ({
+  const createMockContext = (): SessionContext => ({
     totalTokens: 1000,
     inputTokens: 600,
     outputTokens: 400,
@@ -238,7 +238,7 @@ describe('chat-cache-store', () => {
   describe('setCachedContext', () => {
     it('should cache context for a session', () => {
       const { setCachedContext } = useChatCacheStore.getState();
-      const context = createMockContext('session-1');
+      const context = createMockContext();
 
       setCachedContext('session-1', context);
 
@@ -252,7 +252,7 @@ describe('chat-cache-store', () => {
       const now = Date.now();
       vi.setSystemTime(now);
 
-      const context = createMockContext('session-1');
+      const context = createMockContext();
       setCachedContext('session-1', context);
 
       const state = useChatCacheStore.getState();
@@ -269,7 +269,7 @@ describe('chat-cache-store', () => {
 
     it('should return cached context when fresh', () => {
       const { setCachedContext, getCachedContext } = useChatCacheStore.getState();
-      const context = createMockContext('session-1');
+      const context = createMockContext();
 
       setCachedContext('session-1', context);
       const result = getCachedContext('session-1');
@@ -279,7 +279,7 @@ describe('chat-cache-store', () => {
 
     it('should return null when cache is stale (>1 minute)', () => {
       const { setCachedContext, getCachedContext } = useChatCacheStore.getState();
-      const context = createMockContext('session-1');
+      const context = createMockContext();
 
       const now = Date.now();
       vi.setSystemTime(now);
@@ -296,7 +296,7 @@ describe('chat-cache-store', () => {
   describe('invalidateContext', () => {
     it('should remove context cache for session', () => {
       const { setCachedContext, invalidateContext } = useChatCacheStore.getState();
-      const context = createMockContext('session-1');
+      const context = createMockContext();
 
       setCachedContext('session-1', context);
       invalidateContext('session-1');
@@ -343,7 +343,7 @@ describe('chat-cache-store', () => {
 
     it('should return false when cache is fresh', () => {
       const { setCachedContext, isContextCacheStale } = useChatCacheStore.getState();
-      const context = createMockContext('session-1');
+      const context = createMockContext();
 
       setCachedContext('session-1', context);
       expect(isContextCacheStale('session-1')).toBe(false);
@@ -354,7 +354,7 @@ describe('chat-cache-store', () => {
       const now = Date.now();
       vi.setSystemTime(now);
 
-      const context = createMockContext('session-1');
+      const context = createMockContext();
       setCachedContext('session-1', context);
 
       // Advance time beyond TTL
@@ -370,7 +370,7 @@ describe('chat-cache-store', () => {
         useChatCacheStore.getState();
 
       setCachedMessages('session-1', [createMockMessage('msg-1', 'session-1')]);
-      setCachedContext('session-1', createMockContext('session-1'));
+      setCachedContext('session-1', createMockContext());
 
       clearSessionCache('session-1');
 
@@ -399,8 +399,8 @@ describe('chat-cache-store', () => {
 
       setCachedMessages('session-1', [createMockMessage('msg-1', 'session-1')]);
       setCachedMessages('session-2', [createMockMessage('msg-2', 'session-2')]);
-      setCachedContext('session-1', createMockContext('session-1'));
-      setCachedContext('session-2', createMockContext('session-2'));
+      setCachedContext('session-1', createMockContext());
+      setCachedContext('session-2', createMockContext());
 
       clearAllCache();
 
@@ -424,7 +424,7 @@ describe('chat-cache-store', () => {
 
       setCachedMessages('session-1', [createMockMessage('msg-1', 'session-1')]);
       setCachedMessages('session-2', [createMockMessage('msg-2', 'session-2')]);
-      setCachedContext('session-1', createMockContext('session-1'));
+      setCachedContext('session-1', createMockContext());
 
       const stats = getCacheStats();
       expect(stats.messageCacheSize).toBe(2);

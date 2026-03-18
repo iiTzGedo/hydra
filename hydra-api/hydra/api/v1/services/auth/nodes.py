@@ -60,12 +60,26 @@ class NodeRegistrationMixin:
             "parentNodeId": request.parent_node_id,
             "networkIds": [],
             "location": request.location,
+            "agentTier": request.agent_tier or "normal",
+            "serverAddress": request.server_address,
+            "serverPort": request.server_port,
+            "serverTlsEnabled": request.server_tls_enabled,
             "registeredAt": now,
             "registeredBy": registered_by,
             "lastUpdated": now,
             "lastProfileAt": None,
             "status": "active",
         }
+
+        # Generate server secret for max-tier agents
+        agent_server_secret = None
+        if request.agent_tier == "max" and request.server_address:
+            agent_server_secret = f"hsk_api_{secrets.token_urlsafe(32)}"
+            node_doc["agentServerSecret"] = agent_server_secret
+            node_doc["serverReachable"] = True
+            node_doc["failedDirectAttempts"] = 0
+            node_doc["lastDirectContact"] = None
+            node_doc["lastPollContact"] = None
 
         await self.db.nodes.insert_one(node_doc)
 
@@ -125,7 +139,7 @@ class NodeRegistrationMixin:
             audit_entry_id=audit_id,
         ))
 
-        return {
+        result = {
             "node_id": request.node_id,
             "api_key": api_key,
             "api_key_id": key_id,
@@ -133,6 +147,9 @@ class NodeRegistrationMixin:
             "registered_at": now,
             "status": "active",
         }
+        if agent_server_secret:
+            result["agent_server_secret"] = agent_server_secret
+        return result
 
     async def refresh_node_api_key(
         self, node_id: str, refreshed_by: str | None = None

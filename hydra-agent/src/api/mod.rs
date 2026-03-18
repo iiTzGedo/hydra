@@ -12,8 +12,11 @@ use tracing::{debug, info, warn};
 
 use crate::collectors::Profile;
 use crate::config::AgentConfig;
-use crate::utils::{API_KEY_DEFAULT_EXPIRY_DAYS, API_KEY_RENEWAL_THRESHOLD_DAYS, generate_agent_username, generate_agent_password};
-use crate::vault::{ApiKeyData, AgentCredentials, Vault};
+use crate::utils::{
+    generate_agent_password, generate_agent_username, API_KEY_DEFAULT_EXPIRY_DAYS,
+    API_KEY_RENEWAL_THRESHOLD_DAYS,
+};
+use crate::vault::{AgentCredentials, ApiKeyData, Vault};
 
 /// API client for Hydra API communication.
 pub struct ApiClient {
@@ -31,6 +34,8 @@ struct NodeRegistrationRequest {
     node_class: String,
     #[serde(rename = "type")]
     node_type: String,
+    #[serde(rename = "agentTier")]
+    tier: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     kind: Option<String>,
     display_name: String,
@@ -39,6 +44,12 @@ struct NodeRegistrationRequest {
     tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     parent_node_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server_tls_enabled: Option<bool>,
 }
 
 /// Login request for /auth/login
@@ -111,6 +122,9 @@ struct DirectNodeRegistrationResponse {
     registered_at: String,
     #[allow(dead_code)]
     status: String,
+    /// Server secret for max-tier agents (returned once by the API)
+    #[serde(default)]
+    agent_server_secret: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -126,6 +140,43 @@ struct ProfileMeta {
 pub struct ProfileSubmitResponse {
     pub profile_id: String,
     pub version: String,
+}
+
+/// A command received from polling the API.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PollCommand {
+    pub command_id: String,
+    #[serde(rename = "type")]
+    pub command_type: String,
+    pub action: String,
+    pub target: PollCommandTarget,
+    pub parameters: Option<serde_json::Value>,
+    pub timeout_seconds: u64,
+}
+
+/// Target of a polled command.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PollCommandTarget {
+    pub node_id: String,
+    pub service_id: Option<String>,
+}
+
+/// Payload for submitting a command result back to the API.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandResultPayload {
+    pub success: bool,
+    pub output: Option<String>,
+    pub exit_code: Option<i32>,
+    pub error: Option<String>,
+}
+
+/// Poll response wrapper from the API.
+#[derive(Debug, Deserialize)]
+struct PollResponseData {
+    commands: Vec<PollCommand>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -373,10 +424,24 @@ impl ApiClient {
 
     /// Build the node registration request from config.
     fn build_registration_request(&self) -> NodeRegistrationRequest {
+        use crate::config::AgentTier;
+
+        let (server_address, server_port, server_tls_enabled) =
+            if self.config.node.tier == AgentTier::Max && self.config.server.enabled {
+                (
+                    self.config.server.advertise_address.clone(),
+                    Some(self.config.server.port),
+                    Some(self.config.server.tls_enabled),
+                )
+            } else {
+                (None, None, None)
+            };
+
         NodeRegistrationRequest {
             node_id: self.config.node.node_id.clone(),
             node_class: self.config.node.class.clone(),
             node_type: self.config.node.node_type.clone(),
+            tier: self.config.node.tier.to_string(),
             kind: self.config.node.kind.clone(),
             display_name: self
                 .config
@@ -387,12 +452,18 @@ impl ApiClient {
             description: self.config.node.description.clone(),
             tags: self.config.node.tags.clone(),
             parent_node_id: self.config.node.parent_node_id.clone(),
+            server_address,
+            server_port,
+            server_tls_enabled,
         }
     }
 
     /// Save registration response as credentials (from direct response).
     #[allow(dead_code)]
-    fn save_credentials_from_direct(&self, response: &DirectNodeRegistrationResponse) -> Result<()> {
+    fn save_credentials_from_direct(
+        &self,
+        response: &DirectNodeRegistrationResponse,
+    ) -> Result<()> {
         let api_key = ApiKeyData {
             api_key: response.api_key.clone(),
             api_key_id: response.api_key_id.clone(),
@@ -408,7 +479,11 @@ impl ApiClient {
 
     /// Save agent registration response as credentials (password from local generation).
     /// Per Some Updates.md: API no longer returns api_key or password.
-    fn save_credentials_from_agent(&self, response: &AgentRegistrationResponse, password: &str) -> Result<()> {
+    fn save_credentials_from_agent(
+        &self,
+        response: &AgentRegistrationResponse,
+        password: &str,
+    ) -> Result<()> {
         let creds = AgentCredentials {
             user_id: response.user_id.clone(),
             username: response.username.clone(),
@@ -440,11 +515,15 @@ impl ApiClient {
     }
 
     /// Create API key for agent using its JWT.
-    async fn create_agent_api_key(&self, username: &str, access_token: &str) -> Result<CreateApiKeyResponse> {
+    async fn create_agent_api_key(
+        &self,
+        username: &str,
+        access_token: &str,
+    ) -> Result<CreateApiKeyResponse> {
         let api_key_url = format!("{}/auth/apikeys", self.config.api.url);
 
-        let expires_at = (chrono::Utc::now() + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS))
-            .to_rfc3339();
+        let expires_at =
+            (chrono::Utc::now() + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS)).to_rfc3339();
 
         let request = CreateApiKeyRequest {
             name: format!("{}-api-key", username),
@@ -507,9 +586,8 @@ impl ApiClient {
 
         let access_token = self.login_as_agent(&creds.username, &password).await?;
 
-        let expires_at = (chrono::Utc::now()
-            + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS))
-        .to_rfc3339();
+        let expires_at =
+            (chrono::Utc::now() + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS)).to_rfc3339();
 
         let request = CreateApiKeyRequest {
             name: format!("hydra-agent-{}", self.config.node.node_id),
@@ -603,8 +681,7 @@ impl ApiClient {
             let error: ApiError = agent_response.json().await?;
             let err_msg = format!(
                 "Agent registration failed: {} - {}",
-                error.error.code,
-                error.error.message
+                error.error.code, error.error.message
             );
 
             let _ = self
@@ -626,9 +703,13 @@ impl ApiClient {
         let agent_result: AgentRegistrationResponse = agent_response.json().await?;
         info!("Agent registered successfully, logging in...");
 
-        let access_token = self.login_as_agent(&agent_username, &agent_password).await?;
+        let access_token = self
+            .login_as_agent(&agent_username, &agent_password)
+            .await?;
 
-        let api_key_response = self.create_agent_api_key(&agent_username, &access_token).await?;
+        let api_key_response = self
+            .create_agent_api_key(&agent_username, &access_token)
+            .await?;
 
         self.save_credentials_from_agent(&agent_result, &agent_password)?;
         self.save_api_key_from_response(&api_key_response)?;
@@ -672,6 +753,17 @@ impl ApiClient {
         }
 
         let result: DirectNodeRegistrationResponse = response.json().await?;
+
+        // Save server secret for max-tier agents
+        if let Some(secret) = &result.agent_server_secret {
+            use crate::vault::ServerSecretData;
+            self.vault.save_server_secret(&ServerSecretData {
+                secret: secret.clone(),
+                stored_at: chrono::Utc::now().to_rfc3339(),
+            })?;
+            info!("Server secret saved to vault");
+        }
+
         info!(node_id = %result.node_id, "Registration with token successful");
         Ok(())
     }
@@ -729,8 +821,7 @@ impl ApiClient {
             let error: ApiError = agent_response.json().await?;
             let err_msg = format!(
                 "Agent registration failed: {} - {}",
-                error.error.code,
-                error.error.message
+                error.error.code, error.error.message
             );
 
             let _ = self
@@ -752,9 +843,13 @@ impl ApiClient {
         let agent_result: AgentRegistrationResponse = agent_response.json().await?;
         info!("Agent registered successfully, logging in as agent...");
 
-        let access_token = self.login_as_agent(&agent_username, &agent_password).await?;
+        let access_token = self
+            .login_as_agent(&agent_username, &agent_password)
+            .await?;
 
-        let api_key_response = self.create_agent_api_key(&agent_username, &access_token).await?;
+        let api_key_response = self
+            .create_agent_api_key(&agent_username, &access_token)
+            .await?;
 
         self.save_credentials_from_agent(&agent_result, &agent_password)?;
         self.save_api_key_from_response(&api_key_response)?;
@@ -798,6 +893,17 @@ impl ApiClient {
         }
 
         let result: DirectNodeRegistrationResponse = response.json().await?;
+
+        // Save server secret for max-tier agents
+        if let Some(secret) = &result.agent_server_secret {
+            use crate::vault::ServerSecretData;
+            self.vault.save_server_secret(&ServerSecretData {
+                secret: secret.clone(),
+                stored_at: chrono::Utc::now().to_rfc3339(),
+            })?;
+            info!("Server secret saved to vault");
+        }
+
         info!(
             node_id = %result.node_id,
             registered_by = %result.registered_by,
@@ -884,7 +990,8 @@ impl ApiClient {
         let previous_meta = load_profile_meta(&meta_path)?;
         let fingerprints = compute_section_fingerprints(profile)?;
         let profile_hash = compute_profile_hash(&fingerprints);
-        let version = compute_profile_version(previous_meta.as_ref(), &fingerprints, &profile_hash)?;
+        let version =
+            compute_profile_version(previous_meta.as_ref(), &fingerprints, &profile_hash)?;
 
         let mut payload = profile.clone();
         payload.version = version.clone();
@@ -968,5 +1075,78 @@ impl ApiClient {
         }
 
         Err(last_error.unwrap_or_else(|| anyhow!("Unknown error")))
+    }
+
+    /// Poll the API for pending commands assigned to this node.
+    ///
+    /// Returns a list of commands that have been atomically claimed (transitioned
+    /// from QUEUED to EXECUTING). The agent is responsible for executing them
+    /// and reporting results via `submit_command_result()`.
+    pub async fn poll_commands(&self, node_id: &str) -> Result<Vec<PollCommand>> {
+        let url = format!("{}/nodes/{}/commands/poll", self.config.api.url, node_id);
+        let api_key = self.ensure_api_key().await?;
+
+        let response = self
+            .client
+            .get(&url)
+            .header("X-API-Key", &api_key)
+            .send()
+            .await
+            .context("Failed to poll for commands")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            if status == StatusCode::FORBIDDEN || status == StatusCode::UNAUTHORIZED {
+                debug!(
+                    "Command poll returned {}: agent may lack commands:poll permission",
+                    status
+                );
+                return Ok(vec![]);
+            }
+            let error: ApiError = response.json().await?;
+            return Err(anyhow!(
+                "Command poll failed: {} - {}",
+                error.error.code,
+                error.error.message
+            ));
+        }
+
+        let result: ApiResponse<PollResponseData> = response.json().await?;
+        Ok(result.data.commands)
+    }
+
+    /// Submit the result of a command execution back to the API.
+    pub async fn submit_command_result(
+        &self,
+        node_id: &str,
+        command_id: &str,
+        result: &CommandResultPayload,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/nodes/{}/commands/{}/result",
+            self.config.api.url, node_id, command_id
+        );
+        let api_key = self.ensure_api_key().await?;
+
+        let response = self
+            .client
+            .post(&url)
+            .header("X-API-Key", &api_key)
+            .json(result)
+            .send()
+            .await
+            .context("Failed to submit command result")?;
+
+        if !response.status().is_success() {
+            let error: ApiError = response.json().await?;
+            return Err(anyhow!(
+                "Command result submission failed: {} - {}",
+                error.error.code,
+                error.error.message
+            ));
+        }
+
+        debug!(command_id = command_id, "Command result submitted");
+        Ok(())
     }
 }

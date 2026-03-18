@@ -84,8 +84,9 @@ impl StorageCollector {
     /// using the sysinfo library and platform-specific commands.
     ///
     /// The `node_kind` parameter controls how total capacity is calculated:
-    /// - For container-based nodes (`docker`, `kubernetes-pod`), all filesystems
-    ///   count toward capacity since overlay IS the node's storage.
+    /// - For container-based nodes (`docker`, `kubernetes-pod`, `lxc`), all
+    ///   filesystems count toward capacity since overlay/bind mounts ARE the
+    ///   node's storage.
     /// - For all other nodes, virtual/overlay filesystems are excluded to avoid
     ///   double-counting storage that references the same underlying block device.
     ///
@@ -97,7 +98,7 @@ impl StorageCollector {
     ///
     /// Returns an error if storage information cannot be retrieved.
     pub fn collect(node_kind: Option<&str>) -> Result<StorageProfile> {
-        let is_container_node = matches!(node_kind, Some("docker" | "kubernetes-pod"));
+        let is_container_node = matches!(node_kind, Some("docker" | "kubernetes-pod" | "lxc"));
         let disks = Disks::new_with_refreshed_list();
 
         let mut block_devices = Vec::new();
@@ -180,34 +181,104 @@ impl StorageCollector {
         use std::process::Command;
         let mut info = std::collections::HashMap::new();
 
+        // Use JSON output to handle multi-word model names correctly
         if let Ok(output) = Command::new("lsblk")
-            .args(["-o", "NAME,MODEL,SERIAL,ROTA,TRAN", "-n", "-d"])
+            .args(["-o", "NAME,MODEL,SERIAL,ROTA,TRAN", "-n", "-d", "-J"])
             .output()
         {
             if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                for line in stdout.lines() {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.is_empty() {
-                        continue;
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    if let Some(devices) = json.get("blockdevices").and_then(|d| d.as_array()) {
+                        for device in devices {
+                            let name_raw = device
+                                .get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or_default();
+                            if name_raw.is_empty() {
+                                continue;
+                            }
+                            let name = format!("/dev/{}", name_raw);
+
+                            let model = device
+                                .get("model")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty());
+                            let serial = device
+                                .get("serial")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty());
+                            let rotational = device.get("rota").and_then(|v| v.as_bool());
+                            let transport = device
+                                .get("tran")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty());
+
+                            info.insert(
+                                name,
+                                ExtendedBlockInfo {
+                                    model,
+                                    serial,
+                                    rotational,
+                                    transport,
+                                },
+                            );
+                        }
                     }
+                }
+            }
+        }
 
-                    let name = format!("/dev/{}", parts[0]);
-                    let model = parts.get(1).filter(|s| !s.is_empty()).map(|s| s.to_string());
-                    let serial = parts.get(2).filter(|s| !s.is_empty()).map(|s| s.to_string());
-                    let rotational = parts.get(3).and_then(|s| match *s {
-                        "0" => Some(false),
-                        "1" => Some(true),
-                        _ => None,
-                    });
-                    let transport = parts.get(4).filter(|s| !s.is_empty()).map(|s| s.to_string());
+        // Fallback to key-value pairs if JSON is not supported (older lsblk)
+        if info.is_empty() {
+            if let Ok(output) = Command::new("lsblk")
+                .args(["-o", "NAME,MODEL,SERIAL,ROTA,TRAN", "-n", "-d", "-P"])
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        let mut name = String::new();
+                        let mut model = None;
+                        let mut serial = None;
+                        let mut rotational = None;
+                        let mut transport = None;
 
-                    info.insert(name, ExtendedBlockInfo {
-                        model,
-                        serial,
-                        rotational,
-                        transport,
-                    });
+                        // Parse KEY="VALUE" pairs
+                        for pair in line.split_whitespace() {
+                            if let Some((key, val)) = pair.split_once('=') {
+                                let val = val.trim_matches('"');
+                                match key {
+                                    "NAME" => name = format!("/dev/{}", val),
+                                    "MODEL" if !val.is_empty() => model = Some(val.to_string()),
+                                    "SERIAL" if !val.is_empty() => serial = Some(val.to_string()),
+                                    "ROTA" => {
+                                        rotational = match val {
+                                            "0" => Some(false),
+                                            "1" => Some(true),
+                                            _ => None,
+                                        }
+                                    }
+                                    "TRAN" if !val.is_empty() => transport = Some(val.to_string()),
+                                    _ => {}
+                                }
+                            }
+                        }
+
+                        if !name.is_empty() {
+                            info.insert(
+                                name,
+                                ExtendedBlockInfo {
+                                    model,
+                                    serial,
+                                    rotational,
+                                    transport,
+                                },
+                            );
+                        }
+                    }
                 }
             }
         }

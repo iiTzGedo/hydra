@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import TopologyPage from '@/pages/topology';
@@ -54,12 +54,16 @@ describe('Topology Page Integration', () => {
     expect(await screen.findByText('Network Topology')).toBeInTheDocument();
 
     await user.click(screen.getByLabelText('Filter node types'));
-    await user.click(await screen.findByRole('option', { name: 'Networking' }));
-    expect(screen.getByLabelText('Filter node types')).toHaveTextContent('Networking');
+    await user.click(await screen.findByText('Networking'));
+    await waitFor(() => {
+      expect(screen.getByLabelText('Filter node types')).toHaveTextContent('Networking');
+    });
 
     await user.click(screen.getByLabelText('Highlight group'));
-    await user.click(await screen.findByRole('option', { name: 'Production Servers' }));
-    expect(screen.getByLabelText('Highlight group')).toHaveTextContent('Production Servers');
+    await user.click(await screen.findByText('Production Servers'));
+    await waitFor(() => {
+      expect(screen.getByLabelText('Highlight group')).toHaveTextContent('Production Servers');
+    });
 
     await user.type(screen.getByLabelText('Search nodes'), 'gateway');
     expect(screen.getByDisplayValue('gateway')).toBeInTheDocument();

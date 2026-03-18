@@ -17,12 +17,14 @@ pub mod api;
 pub mod cli;
 pub mod collectors;
 pub mod config;
+pub mod instance_lock;
 pub mod platform;
+pub mod server;
 pub mod utils;
 pub mod vault;
 
 // Re-export commonly used types
 pub use collectors::{collect_profile, Profile};
-pub use config::AgentConfig;
+pub use config::{AgentConfig, AgentTier};
 pub use platform::{paths::Paths, Platform};
 pub use vault::Vault;

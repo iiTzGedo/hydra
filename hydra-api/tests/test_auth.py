@@ -41,6 +41,47 @@ async def test_register_node_success(
 
 
 @pytest.mark.asyncio
+async def test_register_node_max_tier_persists_server_metadata_and_returns_secret(
+    client: AsyncClient,
+    mock_mongodb,
+    sample_registration_token,
+):
+    """Test max-tier registration stores server metadata and returns a control secret."""
+    mock_mongodb.tokens.find_one = AsyncMock(return_value=sample_registration_token)
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=None)
+    mock_mongodb.nodes.insert_one = AsyncMock()
+    mock_mongodb.tokens.update_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/nodes/register",
+        json={
+            "nodeId": "max-test-node",
+            "class": "compute",
+            "type": "physical",
+            "displayName": "Max Test Node",
+            "agentTier": "max",
+            "serverAddress": "agent.internal.example",
+            "serverPort": 9443,
+            "serverTlsEnabled": True,
+        },
+        headers={"X-Registration-Token": sample_registration_token["token"]},
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["nodeId"] == "max-test-node"
+    assert data["agentServerSecret"].startswith("hsk_api_")
+
+    inserted_node = mock_mongodb.nodes.insert_one.await_args.args[0]
+    assert inserted_node["agentTier"] == "max"
+    assert inserted_node["serverAddress"] == "agent.internal.example"
+    assert inserted_node["serverPort"] == 9443
+    assert inserted_node["serverTlsEnabled"] is True
+    assert inserted_node["serverReachable"] is True
+    assert inserted_node["failedDirectAttempts"] == 0
+
+
+@pytest.mark.asyncio
 async def test_register_node_duplicate(
     client: AsyncClient,
     mock_mongodb,
@@ -191,9 +232,7 @@ async def test_register_agent_success(
         "createdAt": datetime.now(timezone.utc),
         "updatedAt": datetime.now(timezone.utc),
     }
-    mock_mongodb.users.find_one = AsyncMock(
-        side_effect=[admin_user, admin_user, None]
-    )
+    mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, None])
     mock_mongodb.users.insert_one = AsyncMock()
     mock_mongodb.users.update_one = AsyncMock()
     mock_mongodb.api_keys.insert_one = AsyncMock()
@@ -230,9 +269,7 @@ async def test_register_agent_custom_username(
         "createdAt": datetime.now(timezone.utc),
         "updatedAt": datetime.now(timezone.utc),
     }
-    mock_mongodb.users.find_one = AsyncMock(
-        side_effect=[admin_user, admin_user, None]
-    )
+    mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, None])
     mock_mongodb.users.insert_one = AsyncMock()
     mock_mongodb.users.update_one = AsyncMock()
     mock_mongodb.api_keys.insert_one = AsyncMock()
@@ -309,9 +346,7 @@ async def test_list_sub_accounts(
         "lastLogin": None,
         "createdAt": datetime.now(timezone.utc),
     }
-    mock_mongodb.users.find_one = AsyncMock(
-        side_effect=[admin_user, admin_user, agent_user]
-    )
+    mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, agent_user])
 
     response = await client.get(
         "/api/v1/users/user_admin123/subs",
@@ -355,9 +390,7 @@ async def test_link_sub_account_success(
         "createdAt": datetime.now(timezone.utc),
         "updatedAt": datetime.now(timezone.utc),
     }
-    mock_mongodb.users.find_one = AsyncMock(
-        side_effect=[admin_user, admin_user, family_user]
-    )
+    mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, family_user])
     mock_mongodb.users.update_one = AsyncMock()
 
     response = await client.post(
@@ -402,9 +435,7 @@ async def test_link_sub_account_invalid_role(
         "createdAt": datetime.now(timezone.utc),
         "updatedAt": datetime.now(timezone.utc),
     }
-    mock_mongodb.users.find_one = AsyncMock(
-        side_effect=[admin_user, admin_user, operator_user]
-    )
+    mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, operator_user])
 
     response = await client.post(
         "/api/v1/auth/register/sub/user_operator123",
@@ -444,9 +475,7 @@ async def test_unlink_sub_account_success(
         "createdAt": datetime.now(timezone.utc),
         "updatedAt": datetime.now(timezone.utc),
     }
-    mock_mongodb.users.find_one = AsyncMock(
-        side_effect=[admin_user, admin_user, family_user]
-    )
+    mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, family_user])
     mock_mongodb.users.update_one = AsyncMock()
 
     response = await client.delete(

@@ -280,6 +280,7 @@ class TestExecuteTool:
             node_type=None,
             status=None,
             tags=None,
+            agent_tier=None,
             limit=10,
         )
 
@@ -300,6 +301,7 @@ class TestExecuteTool:
             node_type="physical",
             status="active",
             tags=["production"],
+            agent_tier=None,
             limit=25,
         )
 

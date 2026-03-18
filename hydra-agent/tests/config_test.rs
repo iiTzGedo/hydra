@@ -11,7 +11,7 @@
 //! - Parent node ID validation
 //! - Error cases and edge cases
 
-use hydra_agent::config::AgentConfig;
+use hydra_agent::config::{AgentConfig, AgentTier};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -532,7 +532,7 @@ url = "http://localhost:8080/api/v1"
 node_id = "testnode"
 
 [collection]
-collectors = ["hardware", "network", "storage", "software", "services"]
+collectors = ["hardware", "network", "storage", "software"]
 "#;
 
     let temp_file = write_config(config_content);
@@ -540,7 +540,7 @@ collectors = ["hardware", "network", "storage", "software", "services"]
     assert!(result.is_ok(), "All valid collectors should work");
 
     let config = result.unwrap();
-    assert_eq!(config.collection.collectors.len(), 5);
+    assert_eq!(config.collection.collectors.len(), 4);
 }
 
 #[test]
@@ -562,6 +562,28 @@ collectors = ["hardware", "invalid_collector"]
 
     let err = result.unwrap_err().to_string();
     assert!(err.contains("Invalid collector"));
+}
+
+#[test]
+fn test_services_collector_is_rejected() {
+    let config_content = r#"
+[api]
+url = "http://localhost:8080/api/v1"
+
+[node]
+node_id = "testnode"
+
+[collection]
+collectors = ["hardware", "services"]
+"#;
+
+    let temp_file = write_config(config_content);
+    let result = AgentConfig::load(temp_file.path());
+    assert!(result.is_err(), "services collector should be rejected");
+
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("Invalid collector"));
+    assert!(err.contains("hardware, network, storage, software"));
 }
 
 #[test]
@@ -832,12 +854,24 @@ node_id = "testnode"
     let temp_file = write_config(config_content);
     let config = AgentConfig::load(temp_file.path()).unwrap();
 
-    // Default collectors should include all 5
-    assert!(config.collection.collectors.contains(&"hardware".to_string()));
-    assert!(config.collection.collectors.contains(&"network".to_string()));
-    assert!(config.collection.collectors.contains(&"storage".to_string()));
-    assert!(config.collection.collectors.contains(&"software".to_string()));
-    assert!(config.collection.collectors.contains(&"services".to_string()));
+    // Default collectors should include 4 (services not yet implemented)
+    assert_eq!(config.collection.collectors.len(), 4);
+    assert!(config
+        .collection
+        .collectors
+        .contains(&"hardware".to_string()));
+    assert!(config
+        .collection
+        .collectors
+        .contains(&"network".to_string()));
+    assert!(config
+        .collection
+        .collectors
+        .contains(&"storage".to_string()));
+    assert!(config
+        .collection
+        .collectors
+        .contains(&"software".to_string()));
 }
 
 #[test]
@@ -979,7 +1013,10 @@ config_files = [
     let temp_file = write_config(config_content);
     let config = AgentConfig::load(temp_file.path()).unwrap();
     assert_eq!(config.collection.config_files.len(), 3);
-    assert!(config.collection.config_files.contains(&"/etc/nginx/nginx.conf".to_string()));
+    assert!(config
+        .collection
+        .config_files
+        .contains(&"/etc/nginx/nginx.conf".to_string()));
 }
 
 #[test]
@@ -1106,4 +1143,224 @@ node_id = "testnode"
     let temp_file = write_config(config_content);
     let config = AgentConfig::load(temp_file.path()).unwrap();
     assert_eq!(config.api.url, "http://192.168.1.100:3000/api/v1");
+}
+
+// =============================================================================
+// Agent Tier Validation Tests
+// =============================================================================
+
+#[test]
+fn test_default_tier() {
+    let config_content = r#"
+[api]
+url = "http://localhost:8080/api/v1"
+
+[node]
+node_id = "testnode"
+"#;
+
+    let temp_file = write_config(config_content);
+    let config = AgentConfig::load(temp_file.path()).unwrap();
+    assert_eq!(config.node.tier, AgentTier::Normal);
+    assert_eq!(config.node.tier.to_string(), "normal");
+}
+
+#[test]
+fn test_valid_tiers() {
+    let tiers = vec![
+        ("lite", AgentTier::Lite),
+        ("normal", AgentTier::Normal),
+        ("max", AgentTier::Max),
+    ];
+
+    for (tier_str, expected) in tiers {
+        let config_content = format!(
+            r#"
+[api]
+url = "http://localhost:8080/api/v1"
+
+[node]
+node_id = "testnode"
+tier = "{}"
+"#,
+            tier_str
+        );
+
+        let temp_file = write_config(&config_content);
+        let result = AgentConfig::load(temp_file.path());
+        assert!(
+            result.is_ok(),
+            "Tier '{}' should be valid, but got: {:?}",
+            tier_str,
+            result.err()
+        );
+        assert_eq!(result.unwrap().node.tier, expected);
+    }
+}
+
+#[test]
+fn test_invalid_tier() {
+    let config_content = r#"
+[api]
+url = "http://localhost:8080/api/v1"
+
+[node]
+node_id = "testnode"
+tier = "ultra"
+"#;
+
+    let temp_file = write_config(config_content);
+    let result = AgentConfig::load(temp_file.path());
+    assert!(
+        result.is_err(),
+        "Invalid tier 'ultra' should fail TOML parsing"
+    );
+}
+
+#[test]
+fn test_tier_in_full_config() {
+    let config_content = r#"
+[api]
+url = "http://localhost:8080/api/v1"
+timeout_seconds = 60
+
+[node]
+node_id = "hypervisor-01"
+class = "compute"
+tier = "max"
+node_type = "physical"
+kind = "bare-metal"
+display_name = "Hypervisor 01"
+tags = ["infra", "hypervisor"]
+
+[collection]
+level = "deep"
+collectors = ["hardware", "network", "storage", "software"]
+
+[schedule]
+enabled = true
+interval_seconds = 3600
+"#;
+
+    let temp_file = write_config(config_content);
+    let config = AgentConfig::load(temp_file.path()).unwrap();
+    assert_eq!(config.node.tier, AgentTier::Max);
+    assert_eq!(config.node.tier.to_string(), "max");
+    assert_eq!(config.node.node_id, "hypervisor-01");
+    assert_eq!(config.node.class, "compute");
+}
+
+#[test]
+fn test_tier_display_trait() {
+    assert_eq!(AgentTier::Lite.to_string(), "lite");
+    assert_eq!(AgentTier::Normal.to_string(), "normal");
+    assert_eq!(AgentTier::Max.to_string(), "max");
+}
+
+#[test]
+fn test_server_enabled_requires_max_tier() {
+    let config_content = r#"
+[api]
+url = "http://localhost:8080/api/v1"
+
+[node]
+node_id = "testnode"
+tier = "normal"
+
+[server]
+enabled = true
+bind_address = "0.0.0.0"
+advertise_address = "192.168.1.10"
+tls_enabled = false
+"#;
+
+    let temp_file = write_config(config_content);
+    let result = AgentConfig::load(temp_file.path());
+    assert!(result.is_err(), "server.enabled should require max tier");
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("requires node.tier = \"max\""));
+}
+
+#[test]
+fn test_server_enabled_requires_advertise_address() {
+    let config_content = r#"
+[api]
+url = "http://localhost:8080/api/v1"
+
+[node]
+node_id = "testnode"
+tier = "max"
+
+[server]
+enabled = true
+bind_address = "0.0.0.0"
+tls_enabled = false
+"#;
+
+    let temp_file = write_config(config_content);
+    let result = AgentConfig::load(temp_file.path());
+    assert!(
+        result.is_err(),
+        "server.enabled should require advertise_address"
+    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("server.advertise_address is required"));
+}
+
+#[test]
+fn test_server_enabled_rejects_wildcard_advertise_address() {
+    let config_content = r#"
+[api]
+url = "http://localhost:8080/api/v1"
+
+[node]
+node_id = "testnode"
+tier = "max"
+
+[server]
+enabled = true
+bind_address = "0.0.0.0"
+advertise_address = "0.0.0.0"
+tls_enabled = false
+"#;
+
+    let temp_file = write_config(config_content);
+    let result = AgentConfig::load(temp_file.path());
+    assert!(
+        result.is_err(),
+        "Wildcard advertise_address should be rejected"
+    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Wildcard or unspecified addresses are not allowed"));
+}
+
+#[test]
+fn test_server_enabled_accepts_hostname_advertise_address() {
+    let config_content = r#"
+[api]
+url = "http://localhost:8080/api/v1"
+
+[node]
+node_id = "testnode"
+tier = "max"
+
+[server]
+enabled = true
+bind_address = "0.0.0.0"
+advertise_address = "agent.internal.example"
+tls_enabled = false
+"#;
+
+    let temp_file = write_config(config_content);
+    let result = AgentConfig::load(temp_file.path());
+    assert!(
+        result.is_ok(),
+        "Hostname advertise_address should be accepted for reachable control endpoints"
+    );
 }

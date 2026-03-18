@@ -1,4 +1,4 @@
-import { lazy } from 'react';
+import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import { ROUTES } from '@/lib/constants';
 import type { Role } from '@/types/auth';
 
@@ -38,8 +38,7 @@ const NotFoundPage = lazy(() => import('@/pages/error/404'));
 
 export interface RouteConfig {
   path: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  element: React.LazyExoticComponent<React.ComponentType<any>>;
+  element: LazyExoticComponent<ComponentType>;
   title: string;
   requiresAuth: boolean;
   roles?: Role[];

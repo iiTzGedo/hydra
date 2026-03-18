@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useDashboardStore } from '@/stores/dashboard-store';
-import type { TimeRangePreset, WidgetConfig } from '@/stores/dashboard-store';
+import type { WidgetConfig } from '@/stores/dashboard-store';
 
 describe('dashboard-store', () => {
   beforeEach(() => {
@@ -265,7 +265,7 @@ describe('dashboard-store', () => {
     });
 
     it('should return "Custom Range" for custom without customTimeRange set', () => {
-      const { setTimeRange, getTimeRangeLabel } = useDashboardStore.getState();
+      const { getTimeRangeLabel } = useDashboardStore.getState();
       useDashboardStore.setState({ timeRange: 'custom', customTimeRange: null });
       expect(getTimeRangeLabel()).toBe('Custom Range');
     });

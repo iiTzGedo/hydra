@@ -200,6 +200,7 @@ def sample_node():
         "description": "A test server",
         "tags": ["test", "development"],
         "parentNodeId": None,
+        "agentTier": "normal",
         "networkIds": ["net-192-168-1"],
         "location": {"site": "home", "room": "server-room"},
         "registeredAt": now,
@@ -248,9 +249,7 @@ def sample_profile():
             "dnsServers": ["8.8.8.8", "8.8.4.4"],
         },
         "storage": {
-            "blockDevices": [
-                {"name": "sda", "sizeBytes": 500107862016, "type": "disk"}
-            ],
+            "blockDevices": [{"name": "sda", "sizeBytes": 500107862016, "type": "disk"}],
             "filesystems": [
                 {
                     "mountPoint": "/",

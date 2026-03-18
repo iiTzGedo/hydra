@@ -128,8 +128,9 @@ pub async fn execute(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> R
 
 /// Prompt user to choose between user login and agent login
 async fn prompt_login_choice(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Result<()> {
-    let creds = vault.load_agent_credentials()?
-        .ok_or_else(|| anyhow!("Agent credentials missing from vault. Re-register with 'hydra-agent register'."))?;
+    let creds = vault.load_agent_credentials()?.ok_or_else(|| {
+        anyhow!("Agent credentials missing from vault. Re-register with 'hydra-agent register'.")
+    })?;
 
     println!();
     println!("Agent '{}' is registered with Hydra.", creds.username);
@@ -146,27 +147,29 @@ async fn prompt_login_choice(args: &LoginArgs, config: &AgentConfig, vault: &Vau
     let choice = input.trim().to_lowercase();
 
     match choice.as_str() {
-        "a" | "agent" => {
-            login_with_agent_credentials(config, vault, args.force).await
-        }
-        "u" | "user" | "" => {
-            login_user(args, config, vault).await
-        }
-        _ => {
-            Err(anyhow!("Invalid choice. Use 'u' for user login or 'a' for agent login."))
-        }
+        "a" | "agent" => login_with_agent_credentials(config, vault, args.force).await,
+        "u" | "user" | "" => login_user(args, config, vault).await,
+        _ => Err(anyhow!(
+            "Invalid choice. Use 'u' for user login or 'a' for agent login."
+        )),
     }
 }
 
 /// Login using agent credentials stored in vault (recovery mode)
-async fn login_with_agent_credentials(config: &AgentConfig, vault: &Vault, force: bool) -> Result<()> {
-    let creds = vault.load_agent_credentials()?
-        .ok_or_else(|| anyhow!("No agent credentials found in vault. Register first with 'hydra-agent register'."))?;
+async fn login_with_agent_credentials(
+    config: &AgentConfig,
+    vault: &Vault,
+    force: bool,
+) -> Result<()> {
+    let creds = vault.load_agent_credentials()?.ok_or_else(|| {
+        anyhow!("No agent credentials found in vault. Register first with 'hydra-agent register'.")
+    })?;
 
     let has_valid_api_key = vault.has_api_key() && !vault.is_api_key_expired()?;
 
     if has_valid_api_key && !force {
-        let api_key_data = vault.load_api_key()?
+        let api_key_data = vault
+            .load_api_key()?
             .ok_or_else(|| anyhow!("API key data missing from vault despite key check passing."))?;
         println!();
         println!("Agent '{}' already has a valid API key.", creds.username);
@@ -186,8 +189,9 @@ async fn login_with_agent_credentials(config: &AgentConfig, vault: &Vault, force
         info!("Force flag set - recreating API key");
     }
 
-    let password = creds.password.as_ref()
-        .ok_or_else(|| anyhow!("Agent password not stored in vault. Cannot perform recovery login."))?;
+    let password = creds.password.as_ref().ok_or_else(|| {
+        anyhow!("Agent password not stored in vault. Cannot perform recovery login.")
+    })?;
 
     info!("Logging in as agent '{}'...", creds.username);
 
@@ -213,13 +217,12 @@ async fn login_with_agent_credentials(config: &AgentConfig, vault: &Vault, force
         .context("Failed to send login request")?;
 
     if !response.status().is_success() {
-        let error: ApiError = response.json().await
-            .unwrap_or_else(|_| ApiError {
-                error: ApiErrorDetail {
-                    code: "UNKNOWN".to_string(),
-                    message: "Agent login failed".to_string(),
-                }
-            });
+        let error: ApiError = response.json().await.unwrap_or_else(|_| ApiError {
+            error: ApiErrorDetail {
+                code: "UNKNOWN".to_string(),
+                message: "Agent login failed".to_string(),
+            },
+        });
         return Err(anyhow!(
             "Agent login failed: {} - {}",
             error.error.code,
@@ -227,12 +230,20 @@ async fn login_with_agent_credentials(config: &AgentConfig, vault: &Vault, force
         ));
     }
 
-    let login_response: LoginResponse = response.json().await
+    let login_response: LoginResponse = response
+        .json()
+        .await
         .context("Failed to parse login response")?;
 
     info!("Agent logged in successfully, creating API key...");
 
-    let api_key = create_agent_api_key(&client, config, &creds.username, &login_response.access_token).await?;
+    let api_key = create_agent_api_key(
+        &client,
+        config,
+        &creds.username,
+        &login_response.access_token,
+    )
+    .await?;
 
     let api_key_data = ApiKeyData {
         api_key: api_key.key,
@@ -285,8 +296,8 @@ async fn create_agent_api_key(
 ) -> Result<CreateApiKeyResponse> {
     let api_key_url = format!("{}/auth/apikeys", config.api.url);
 
-    let expires_at = (chrono::Utc::now() + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS))
-        .to_rfc3339();
+    let expires_at =
+        (chrono::Utc::now() + chrono::Duration::days(API_KEY_DEFAULT_EXPIRY_DAYS)).to_rfc3339();
 
     let request = CreateApiKeyRequest {
         name: format!("{}-api-key", username),
@@ -347,10 +358,7 @@ async fn login_user(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Re
 
     let password = match &args.password {
         Some(p) => p.clone(),
-        None => {
-            rpassword::prompt_password("Password: ")
-                .context("Failed to read password")?
-        }
+        None => rpassword::prompt_password("Password: ").context("Failed to read password")?,
     };
 
     if password.is_empty() {
@@ -380,13 +388,12 @@ async fn login_user(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Re
         .context("Failed to send login request")?;
 
     if !response.status().is_success() {
-        let error: ApiError = response.json().await
-            .unwrap_or_else(|_| ApiError {
-                error: ApiErrorDetail {
-                    code: "UNKNOWN".to_string(),
-                    message: "Login failed".to_string(),
-                }
-            });
+        let error: ApiError = response.json().await.unwrap_or_else(|_| ApiError {
+            error: ApiErrorDetail {
+                code: "UNKNOWN".to_string(),
+                message: "Login failed".to_string(),
+            },
+        });
         return Err(anyhow!(
             "Login failed: {} - {}",
             error.error.code,
@@ -394,7 +401,9 @@ async fn login_user(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Re
         ));
     }
 
-    let login_response: LoginResponse = response.json().await
+    let login_response: LoginResponse = response
+        .json()
+        .await
         .context("Failed to parse login response")?;
 
     let expires_at = chrono::Utc::now().timestamp() + login_response.expires_in as i64;
@@ -414,7 +423,8 @@ async fn login_user(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Re
     println!();
     println!("✓ Login successful!");
     println!("  User: {} ({})", session.username, session.role);
-    println!("  Session expires: {}",
+    println!(
+        "  Session expires: {}",
         chrono::DateTime::from_timestamp(expires_at, 0)
             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
             .unwrap_or_else(|| "unknown".to_string())
@@ -427,7 +437,8 @@ async fn login_user(args: &LoginArgs, config: &AgentConfig, vault: &Vault) -> Re
 
 /// Refresh an existing session
 async fn refresh_session(config: &AgentConfig, vault: &Vault) -> Result<()> {
-    let session = vault.load_session()?
+    let session = vault
+        .load_session()?
         .ok_or_else(|| anyhow!("No existing session found. Please login first."))?;
 
     info!("Refreshing session for {}...", session.username);
@@ -456,7 +467,9 @@ async fn refresh_session(config: &AgentConfig, vault: &Vault) -> Result<()> {
         ));
     }
 
-    let refresh_response: RefreshResponse = response.json().await
+    let refresh_response: RefreshResponse = response
+        .json()
+        .await
         .context("Failed to parse refresh response")?;
 
     let expires_at = chrono::Utc::now().timestamp() + refresh_response.expires_in as i64;
@@ -476,7 +489,8 @@ async fn refresh_session(config: &AgentConfig, vault: &Vault) -> Result<()> {
     println!();
     println!("✓ Session refreshed!");
     println!("  User: {}", updated_session.username);
-    println!("  New expiration: {}",
+    println!(
+        "  New expiration: {}",
         chrono::DateTime::from_timestamp(expires_at, 0)
             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
             .unwrap_or_else(|| "unknown".to_string())

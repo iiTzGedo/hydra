@@ -17,7 +17,9 @@ async def test_list_nodes_success(
     sample_user,
 ):
     """Test listing nodes."""
-    mock_mongodb.users.find_one = AsyncMock(return_value={**sample_user, "userId": "user_admin123", "role": "admin"})
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
     mock_mongodb.nodes.count_documents = AsyncMock(return_value=1)
     mock_mongodb.nodes.find.return_value = create_mock_cursor([sample_node])
 
@@ -43,7 +45,9 @@ async def test_list_nodes_with_filters(
     sample_user,
 ):
     """Test listing nodes with filters."""
-    mock_mongodb.users.find_one = AsyncMock(return_value={**sample_user, "userId": "user_admin123", "role": "admin"})
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
     mock_mongodb.nodes.count_documents = AsyncMock(return_value=1)
     mock_mongodb.nodes.find.return_value = create_mock_cursor([sample_node])
 
@@ -66,7 +70,9 @@ async def test_get_node_success(
     sample_user,
 ):
     """Test getting a single node."""
-    mock_mongodb.users.find_one = AsyncMock(return_value={**sample_user, "userId": "user_admin123", "role": "admin"})
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     response = await client.get(
@@ -82,6 +88,44 @@ async def test_get_node_success(
 
 
 @pytest.mark.asyncio
+async def test_get_node_includes_server_tls_metadata(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_node,
+    sample_user,
+):
+    """Test node detail responses expose direct-control server metadata."""
+    max_tier_node = {
+        **sample_node,
+        "agentTier": "max",
+        "serverAddress": "agent.internal.example",
+        "serverPort": 9443,
+        "serverTlsEnabled": True,
+        "serverReachable": True,
+        "failedDirectAttempts": 0,
+        "lastDirectContact": None,
+        "lastPollContact": None,
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=max_tier_node)
+
+    response = await client.get(
+        f"/api/v1/nodes/{sample_node['nodeId']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["agentTier"] == "max"
+    assert data["data"]["serverAddress"] == "agent.internal.example"
+    assert data["data"]["serverPort"] == 9443
+    assert data["data"]["serverTlsEnabled"] is True
+
+
+@pytest.mark.asyncio
 async def test_get_node_not_found(
     client: AsyncClient,
     mock_mongodb,
@@ -89,7 +133,9 @@ async def test_get_node_not_found(
     sample_user,
 ):
     """Test getting a non-existent node."""
-    mock_mongodb.users.find_one = AsyncMock(return_value={**sample_user, "userId": "user_admin123", "role": "admin"})
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
     mock_mongodb.nodes.find_one = AsyncMock(return_value=None)
 
     response = await client.get(
@@ -111,7 +157,9 @@ async def test_update_node_success(
     sample_user,
 ):
     """Test updating a node."""
-    mock_mongodb.users.find_one = AsyncMock(return_value={**sample_user, "userId": "user_admin123", "role": "admin"})
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
     mock_mongodb.nodes.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
 
@@ -143,7 +191,9 @@ async def test_archive_node_success(
     sample_user,
 ):
     """Test archiving a node."""
-    mock_mongodb.users.find_one = AsyncMock(return_value={**sample_user, "userId": "user_admin123", "role": "admin"})
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
 
     archived_node = sample_node.copy()
     archived_node["status"] = "archived"
@@ -169,7 +219,9 @@ async def test_get_node_children(
     sample_user,
 ):
     """Test getting child nodes."""
-    mock_mongodb.users.find_one = AsyncMock(return_value={**sample_user, "userId": "user_admin123", "role": "admin"})
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
     mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
 
     child_node = sample_node.copy()

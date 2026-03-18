@@ -1,10 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ChatPage from '@/pages/chat';
 import { renderWithRoute } from '../page-test-utils';
 
 const mockUseChatOrchestration = vi.fn();
+
+const ANTHROPIC_PROVIDER = {
+  configId: 'llm-anthropic',
+  name: 'Anthropic Primary',
+  type: 'anthropic',
+  apiKeySet: true,
+  model: 'claude-3-5-sonnet',
+  isDefault: true,
+  createdBy: 'user-001',
+  createdAt: '2026-03-09T12:00:00Z',
+  updatedAt: '2026-03-09T12:00:00Z',
+} as const;
+
+const OLLAMA_PROVIDER = {
+  configId: 'llm-ollama',
+  name: 'Local Ollama',
+  type: 'ollama',
+  apiKeySet: false,
+  model: 'llama3.1',
+  isDefault: false,
+  createdBy: 'user-001',
+  createdAt: '2026-03-09T12:00:00Z',
+  updatedAt: '2026-03-09T12:00:00Z',
+} as const;
 
 vi.mock('@/pages/chat/hooks/use-chat-orchestration', () => ({
   useChatOrchestration: () => mockUseChatOrchestration(),
@@ -17,7 +41,7 @@ function createChatState(overrides: Record<string, unknown> = {}) {
     sessions: [],
     currentSessionId: null,
     currentSession: null,
-    modelConfig: null,
+    modelConfig: {},
     setModelConfig: vi.fn(),
     reasoningLevel: 'medium',
     setReasoningLevel: vi.fn(),
@@ -28,31 +52,9 @@ function createChatState(overrides: Record<string, unknown> = {}) {
     isStreaming: false,
     sessionUsage: null,
     sessionContext: null,
-    activeLLMProvider: {
-      configId: 'llm-anthropic',
-      name: 'Anthropic Primary',
-      type: 'anthropic',
-      apiKeySet: true,
-      model: 'claude-3-5-sonnet',
-      isDefault: true,
-      createdBy: 'user-001',
-      createdAt: '2026-03-09T12:00:00Z',
-      updatedAt: '2026-03-09T12:00:00Z',
-    },
+    activeLLMProvider: ANTHROPIC_PROVIDER,
     activeLLMProviderId: 'llm-anthropic',
-    llmProviders: [
-      {
-        configId: 'llm-anthropic',
-        name: 'Anthropic Primary',
-        type: 'anthropic',
-        apiKeySet: true,
-        model: 'claude-3-5-sonnet',
-        isDefault: true,
-        createdBy: 'user-001',
-        createdAt: '2026-03-09T12:00:00Z',
-        updatedAt: '2026-03-09T12:00:00Z',
-      },
-    ],
+    llmProviders: [ANTHROPIC_PROVIDER],
     activeTools: [],
     activePrompts: [],
     hydraMcpHealth: null,
@@ -117,7 +119,9 @@ describe('Chat Page Integration', () => {
     ).toBeInTheDocument();
 
     const toggle = screen.getByRole('button', { name: 'Open sidebar' });
-    await user.click(toggle);
+    await act(async () => {
+      await user.click(toggle);
+    });
     expect(screen.getByRole('button', { name: 'Close sidebar' })).toBeInTheDocument();
   });
 
@@ -154,8 +158,70 @@ describe('Chat Page Integration', () => {
       route: '/chat',
     });
 
-    await user.click(await screen.findByRole('button', { name: 'Send message' }));
+    await act(async () => {
+      await user.click(await screen.findByRole('button', { name: 'Send message' }));
+    });
 
     expect(await screen.findByText('LLM Configurations')).toBeInTheDocument();
+  });
+
+  it('surfaces provider capability limits in config mode and switches providers from the header', async () => {
+    const user = userEvent.setup();
+    const handleSetActiveProvider = vi.fn();
+
+    mockUseChatOrchestration.mockReturnValue(
+      createChatState({
+        supportsReasoning: false,
+        supportsWebSearch: false,
+        llmProviders: [ANTHROPIC_PROVIDER, OLLAMA_PROVIDER],
+        handleSetActiveProvider,
+      })
+    );
+
+    renderWithRoute(<ChatPage />, {
+      path: '/chat',
+      route: '/chat',
+    });
+
+    await act(async () => {
+      await user.click(await screen.findByRole('tab', { name: 'Config' }));
+    });
+    expect(await screen.findByText('Reasoning not available for this model')).toBeInTheDocument();
+    expect(screen.getByText('Not available for this model')).toBeInTheDocument();
+
+    await act(async () => {
+      await user.click(screen.getByRole('combobox'));
+    });
+    await user.click(await screen.findByRole('option', { name: 'Local Ollama' }));
+
+    expect(handleSetActiveProvider).toHaveBeenCalledWith('llm-ollama');
+  });
+
+  it('shows the empty configured-provider state when only API-key-backed providers are unavailable', async () => {
+    const user = userEvent.setup();
+
+    mockUseChatOrchestration.mockReturnValue(
+      createChatState({
+        activeLLMProvider: null,
+        activeLLMProviderId: null,
+        llmProviders: [
+          {
+            ...ANTHROPIC_PROVIDER,
+            apiKeySet: false,
+          },
+        ],
+      })
+    );
+
+    renderWithRoute(<ChatPage />, {
+      path: '/chat',
+      route: '/chat',
+    });
+
+    await act(async () => {
+      await user.click(screen.getByRole('combobox'));
+    });
+
+    expect(await screen.findByText('No LLMs configured')).toBeInTheDocument();
   });
 });

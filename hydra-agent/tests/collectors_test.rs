@@ -36,7 +36,10 @@ fn test_hardware_collector() {
     );
 
     // Validate memory info
-    assert!(profile.memory.total_bytes > 0, "Should have non-zero memory");
+    assert!(
+        profile.memory.total_bytes > 0,
+        "Should have non-zero memory"
+    );
 }
 
 #[test]
@@ -67,14 +70,14 @@ fn test_hardware_profile_serialization() {
 
     // Memory fields
     let memory = json.get("memory").unwrap();
-    assert!(
-        memory.get("totalBytes").is_some(),
-        "Should have totalBytes"
-    );
+    assert!(memory.get("totalBytes").is_some(), "Should have totalBytes");
 
     // Validate camelCase naming convention
     assert!(json.get("systemManufacturer").is_some() || json.get("systemManufacturer").is_none());
-    assert!(json.get("system_manufacturer").is_none(), "Should not use snake_case");
+    assert!(
+        json.get("system_manufacturer").is_none(),
+        "Should not use snake_case"
+    );
 }
 
 #[test]
@@ -292,10 +295,7 @@ fn test_storage_profile_serialization() {
         json.get("blockDevices").is_some(),
         "Should have blockDevices"
     );
-    assert!(
-        json.get("filesystems").is_some(),
-        "Should have filesystems"
-    );
+    assert!(json.get("filesystems").is_some(), "Should have filesystems");
 
     // Verify camelCase
     assert!(
@@ -356,10 +356,7 @@ fn test_storage_filesystem_fields() {
             fs.get("mount_point").is_none(),
             "Should use camelCase mountPoint"
         );
-        assert!(
-            fs.get("fs_type").is_none(),
-            "Should use camelCase fsType"
-        );
+        assert!(fs.get("fs_type").is_none(), "Should use camelCase fsType");
         assert!(
             fs.get("size_bytes").is_none(),
             "Should use camelCase sizeBytes"
@@ -404,7 +401,10 @@ fn test_storage_extended_device_info() {
 
 #[test]
 fn test_software_collector() {
-    use hydra_agent::config::{AgentConfig, ApiConfig, CollectionConfig, NodeConfig, ScheduleConfig};
+    use hydra_agent::config::{
+        AgentConfig, AgentTier, ApiConfig, CollectionConfig, NodeConfig, ScheduleConfig,
+        ServerConfig,
+    };
 
     let config = AgentConfig {
         api: ApiConfig {
@@ -415,6 +415,7 @@ fn test_software_collector() {
         node: NodeConfig {
             node_id: "test-node".to_string(),
             class: "compute".to_string(),
+            tier: AgentTier::Normal,
             node_type: "physical".to_string(),
             kind: None,
             display_name: None,
@@ -430,6 +431,7 @@ fn test_software_collector() {
             config_files: vec![],
         },
         schedule: ScheduleConfig::default(),
+        server: ServerConfig::default(),
     };
 
     let result = SoftwareCollector::collect(&config);
@@ -447,7 +449,10 @@ fn test_software_collector() {
 
 #[test]
 fn test_software_profile_serialization() {
-    use hydra_agent::config::{AgentConfig, ApiConfig, CollectionConfig, NodeConfig, ScheduleConfig};
+    use hydra_agent::config::{
+        AgentConfig, AgentTier, ApiConfig, CollectionConfig, NodeConfig, ScheduleConfig,
+        ServerConfig,
+    };
 
     let config = AgentConfig {
         api: ApiConfig {
@@ -458,6 +463,7 @@ fn test_software_profile_serialization() {
         node: NodeConfig {
             node_id: "test-node".to_string(),
             class: "compute".to_string(),
+            tier: AgentTier::Normal,
             node_type: "physical".to_string(),
             kind: None,
             display_name: None,
@@ -473,6 +479,7 @@ fn test_software_profile_serialization() {
             config_files: vec![],
         },
         schedule: ScheduleConfig::default(),
+        server: ServerConfig::default(),
     };
 
     let result = SoftwareCollector::collect(&config);
@@ -492,7 +499,10 @@ fn test_software_profile_serialization() {
 
 #[test]
 fn test_software_with_packages() {
-    use hydra_agent::config::{AgentConfig, ApiConfig, CollectionConfig, NodeConfig, ScheduleConfig};
+    use hydra_agent::config::{
+        AgentConfig, AgentTier, ApiConfig, CollectionConfig, NodeConfig, ScheduleConfig,
+        ServerConfig,
+    };
 
     let config = AgentConfig {
         api: ApiConfig {
@@ -503,6 +513,7 @@ fn test_software_with_packages() {
         node: NodeConfig {
             node_id: "test-node".to_string(),
             class: "compute".to_string(),
+            tier: AgentTier::Normal,
             node_type: "physical".to_string(),
             kind: None,
             display_name: None,
@@ -518,10 +529,14 @@ fn test_software_with_packages() {
             config_files: vec![],
         },
         schedule: ScheduleConfig::default(),
+        server: ServerConfig::default(),
     };
 
     let result = SoftwareCollector::collect(&config);
-    assert!(result.is_ok(), "Software collection with packages should succeed");
+    assert!(
+        result.is_ok(),
+        "Software collection with packages should succeed"
+    );
 
     let profile = result.unwrap();
     let json = serde_json::to_value(&profile).expect("Should serialize to JSON");
@@ -548,6 +563,7 @@ fn test_profile_sections() {
         version: "1".to_string(),
         collected_at: Utc::now(),
         agent_version: "0.1.0".to_string(),
+        agent_tier: "normal".to_string(),
         collection_level: "neutral".to_string(),
         hardware: Some(hydra_agent::collectors::hardware::HardwareProfile {
             system_manufacturer: None,
@@ -602,6 +618,7 @@ fn test_full_profile_serialization() {
         version: "E0-0.0.0.1".to_string(),
         collected_at: Utc::now(),
         agent_version: "0.1.0".to_string(),
+        agent_tier: "normal".to_string(),
         collection_level: "neutral".to_string(),
         hardware: Some(hydra_agent::collectors::hardware::HardwareProfile {
             system_manufacturer: Some("Dell Inc.".to_string()),
@@ -689,14 +706,23 @@ fn test_full_profile_serialization() {
     assert!(json.get("nodeId").is_some(), "Should have nodeId");
     assert!(json.get("version").is_some(), "Should have version");
     assert!(json.get("collectedAt").is_some(), "Should have collectedAt");
-    assert!(json.get("agentVersion").is_some(), "Should have agentVersion");
-    assert!(json.get("collectionLevel").is_some(), "Should have collectionLevel");
+    assert!(
+        json.get("agentVersion").is_some(),
+        "Should have agentVersion"
+    );
+    assert!(
+        json.get("collectionLevel").is_some(),
+        "Should have collectionLevel"
+    );
 
     // Verify snake_case is NOT used
     assert!(json.get("node_id").is_none(), "Should use camelCase");
     assert!(json.get("collected_at").is_none(), "Should use camelCase");
     assert!(json.get("agent_version").is_none(), "Should use camelCase");
-    assert!(json.get("collection_level").is_none(), "Should use camelCase");
+    assert!(
+        json.get("collection_level").is_none(),
+        "Should use camelCase"
+    );
 
     // Verify nested structures
     let hardware = json.get("hardware").unwrap();
@@ -717,8 +743,14 @@ fn test_full_profile_serialization() {
     // Verify block device has "type" not "deviceType"
     let block_devices = storage.get("blockDevices").unwrap().as_array().unwrap();
     let device = &block_devices[0];
-    assert!(device.get("type").is_some(), "Should use 'type' for device type");
-    assert!(device.get("deviceType").is_none(), "Should not use deviceType");
+    assert!(
+        device.get("type").is_some(),
+        "Should use 'type' for device type"
+    );
+    assert!(
+        device.get("deviceType").is_none(),
+        "Should not use deviceType"
+    );
 }
 
 #[test]
@@ -732,6 +764,7 @@ fn test_profile_json_roundtrip() {
         version: "E0-0.0.0.1".to_string(),
         collected_at: Utc::now(),
         agent_version: "0.1.0".to_string(),
+        agent_tier: "normal".to_string(),
         collection_level: "neutral".to_string(),
         hardware: None,
         network: None,

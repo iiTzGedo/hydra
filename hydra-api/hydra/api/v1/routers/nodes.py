@@ -15,6 +15,7 @@ from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.nodes import (
     AgentInfo,
     AgentListResponse,
+    AgentTier,
     NodeClass,
     NodeKind,
     NodeListParams,
@@ -62,6 +63,7 @@ async def list_nodes(
     node_type: NodeType | None = Query(default=None, alias="type"),
     kind: NodeKind | None = None,
     status: NodeStatus | None = None,
+    agent_tier: AgentTier | None = Query(default=None, alias="agentTier"),
     tags: list[str] | None = Query(default=None),
     parent_node_id: str | None = Query(default=None, alias="parentNodeId"),
     network_id: str | None = Query(default=None, alias="networkId"),
@@ -101,6 +103,7 @@ async def list_nodes(
         node_type=node_type,
         kind=kind,
         status=status,
+        agent_tier=agent_tier,
         tags=tags,
         parent_node_id=parent_node_id,
         network_id=network_id,
@@ -380,6 +383,7 @@ async def register_node(
         registered_by=result["registered_by"],
         registered_at=result["registered_at"],
         status=result["status"],
+        agent_server_secret=result.get("agent_server_secret"),
     )
 
 

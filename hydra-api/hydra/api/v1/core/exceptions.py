@@ -440,6 +440,17 @@ class CommandAlreadyExecutingError(HydraError):
         )
 
 
+class CommandNotSupportedError(HydraError):
+    """Command execution not supported for this agent tier."""
+
+    def __init__(self, message: str):
+        super().__init__(
+            "COMMAND_NOT_SUPPORTED",
+            message,
+            status_code=400,
+        )
+
+
 class CommandNodeMismatchError(HydraError):
     """Command target node does not match."""
 

@@ -1,4 +1,6 @@
 import { http, HttpResponse } from 'msw';
+import type { ChatMessageResponse, ChatToolCall } from '@/api/chat';
+import type { MCPServerResponse, MCPServerStatus } from '@/api/mcp';
 import { mockState } from './mock-state';
 
 const BASE_URL = 'http://localhost:8080/api/v1';
@@ -11,6 +13,10 @@ const mockNodes = [
     type: 'bare-metal',
     kind: 'host',
     status: 'active',
+    agentTier: 'max',
+    serverAddress: '192.168.1.10',
+    serverPort: 9100,
+    serverTlsEnabled: true,
     tags: ['production', 'hypervisor'],
     ipAddresses: ['192.168.1.10'],
     macAddresses: ['00:11:22:33:44:55'],
@@ -30,6 +36,7 @@ const mockNodes = [
     type: 'router',
     kind: 'appliance',
     status: 'active',
+    agentTier: 'normal',
     tags: ['gateway', 'firewall'],
     ipAddresses: ['192.168.1.1'],
     macAddresses: ['AA:BB:CC:DD:EE:FF'],
@@ -890,10 +897,10 @@ export const handlers = [
     const body = (await request.json()) as {
       role: ChatMessage['role'];
       content: string;
-      toolCalls?: unknown[];
+      toolCalls?: ChatToolCall[];
     };
     const messages = mockState.chatMessages[sessionId] || [];
-    const message = {
+    const message: ChatMessageResponse = {
       messageId: nextId('msg', messages.length),
       sessionId,
       role: body.role,
@@ -986,7 +993,8 @@ export const handlers = [
       docsUrl?: string;
     };
     const serverId = sanitizeId(body.name);
-    const server = {
+    const status: MCPServerStatus = body.enabled === false ? 'unknown' : 'healthy';
+    const server: MCPServerResponse = {
       serverId,
       name: body.name,
       endpoint: body.endpoint,
@@ -995,7 +1003,7 @@ export const handlers = [
       authType: (body.authType || 'none') as MCPServer['authType'],
       authConfigured: Boolean(body.authType && body.authType !== 'none'),
       enabled: body.enabled ?? true,
-      status: body.enabled === false ? 'unknown' : 'healthy',
+      status,
       lastHealthCheck: body.enabled === false ? null : new Date().toISOString(),
       docsUrl: body.docsUrl || null,
       ownerId: 'user-001',
@@ -1022,10 +1030,12 @@ export const handlers = [
     if (!server) {
       return errorResponse('MCP_SERVER_NOT_FOUND', 'MCP server not found', 404);
     }
-    const body = (await request.json()) as Partial<typeof server>;
+    const body = (await request.json()) as Partial<MCPServerResponse>;
     Object.assign(server, body, {
       updatedAt: new Date().toISOString(),
-      status: body.enabled === false ? 'unknown' : body.enabled === true ? 'healthy' : server.status,
+      status: (
+        body.enabled === false ? 'unknown' : body.enabled === true ? 'healthy' : server.status
+      ) as MCPServerStatus,
     });
     return HttpResponse.json(server);
   }),

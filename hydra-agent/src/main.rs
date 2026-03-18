@@ -11,14 +11,20 @@ use tracing_subscriber::FmtSubscriber;
 use hydra_agent::api;
 use hydra_agent::cli::{self, Cli, Commands, OperatingMode};
 use hydra_agent::collectors;
-use hydra_agent::config::AgentConfig;
+use hydra_agent::config::{AgentConfig, AgentTier};
+use hydra_agent::instance_lock;
+use hydra_agent::server;
 use hydra_agent::vault::Vault;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let level = if cli.verbose { Level::DEBUG } else { Level::INFO };
+    let level = if cli.verbose {
+        Level::DEBUG
+    } else {
+        Level::INFO
+    };
     let subscriber = FmtSubscriber::builder()
         .with_max_level(level)
         .json()
@@ -142,10 +148,15 @@ fn load_config(config_path: &PathBuf) -> Result<AgentConfig> {
 async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<()> {
     info!("Starting hydra-agent v{}", env!("CARGO_PKG_VERSION"));
 
+    // Enforce single instance — abort if another agent is running
+    let pid_path = instance_lock::default_pid_path();
+    instance_lock::enforce_single_instance(&pid_path)?;
+
     let config = load_config(config_path)?;
     info!(node_id = %config.node.node_id, "Configuration loaded");
 
     if !vault.has_agent_credentials() && !vault.has_api_key() {
+        instance_lock::release_instance_lock(&pid_path);
         return Err(anyhow::anyhow!(
             "No authentication available. Run 'hydra-agent register' first."
         ));
@@ -161,7 +172,10 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
             p
         }
         Err(e) => {
-            let err_msg = format!("Profile collection failed on {}: {}", config.node.node_id, e);
+            let err_msg = format!(
+                "Profile collection failed on {}: {}",
+                config.node.node_id, e
+            );
             warn!("{}", err_msg);
 
             // Report collection failure (best-effort)
@@ -233,10 +247,156 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
     }
 
     if !once {
-        info!("Scheduling not yet implemented. Use --once for single collection.");
+        // Start the embedded control server for max-tier agents
+        let server_handle = if config.node.tier == AgentTier::Max && config.server.enabled {
+            let app_state = server::build_app_state(config.clone(), config_path.clone(), vault)?;
+
+            let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+            let shutdown_signal = async move {
+                let mut rx = shutdown_rx;
+                let _ = rx.changed().await;
+            };
+
+            let handle = tokio::spawn(async move {
+                if let Err(e) = server::start_server(app_state, shutdown_signal).await {
+                    tracing::error!("Control server error: {}", e);
+                }
+            });
+
+            Some((handle, shutdown_tx))
+        } else {
+            None
+        };
+
+        // Set up command polling for normal/max tier agents
+        let should_poll = config.node.tier != AgentTier::Lite;
+        let poll_secs = config.schedule.poll_interval_seconds;
+        if should_poll {
+            info!(poll_interval_seconds = poll_secs, "Command polling enabled");
+        }
+
+        // Scheduled collection + command poll loop
+        if config.schedule.enabled || should_poll {
+            let mut collection_interval = tokio::time::interval(std::time::Duration::from_secs(
+                config.schedule.interval_seconds,
+            ));
+            // Skip the first immediate tick (we already collected above)
+            collection_interval.tick().await;
+
+            let mut poll_interval =
+                tokio::time::interval(std::time::Duration::from_secs(poll_secs));
+            // Skip the first immediate tick
+            poll_interval.tick().await;
+
+            if config.schedule.enabled {
+                info!(
+                    interval_seconds = config.schedule.interval_seconds,
+                    "Starting scheduled collection loop"
+                );
+            }
+
+            loop {
+                tokio::select! {
+                    _ = collection_interval.tick(), if config.schedule.enabled => {
+                        info!("Scheduled collection triggered");
+                        match collectors::collect_profile(&config).await {
+                            Ok(profile) => {
+                                info!(sections = ?profile.sections(), "Profile collected (scheduled)");
+                                match client.submit_profile(&profile).await {
+                                    Ok(result) => {
+                                        info!(
+                                            profile_id = %result.profile_id,
+                                            version = %result.version,
+                                            "Scheduled profile submitted"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        warn!("Scheduled profile submission failed: {}", e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Scheduled profile collection failed: {}", e);
+                            }
+                        }
+                    }
+                    _ = poll_interval.tick(), if should_poll => {
+                        poll_and_execute_commands(&client, &config).await;
+                    }
+                    _ = tokio::signal::ctrl_c() => {
+                        info!("Shutdown signal received");
+                        break;
+                    }
+                }
+            }
+        } else {
+            // No scheduling and no polling — just keep the server running until interrupted
+            info!("Scheduling and polling disabled. Waiting for shutdown signal...");
+            let _ = tokio::signal::ctrl_c().await;
+            info!("Shutdown signal received");
+        }
+
+        // Signal the server to shut down and wait for it
+        if let Some((handle, shutdown_tx)) = server_handle {
+            let _ = shutdown_tx.send(true);
+            let _ = handle.await;
+            info!("Control server stopped");
+        }
     }
 
+    // Release the instance lock on clean exit
+    instance_lock::release_instance_lock(&pid_path);
+
     Ok(())
+}
+
+/// Poll the API for pending commands and execute them.
+///
+/// Commands are polled from `GET /nodes/{nodeId}/commands/poll`. Each received
+/// command is executed (or reported as failed if the execution engine is not
+/// yet available), and the result is submitted back via the API.
+async fn poll_and_execute_commands(client: &api::ApiClient, config: &AgentConfig) {
+    match client.poll_commands(&config.node.node_id).await {
+        Ok(commands) if commands.is_empty() => {
+            // Nothing to do — normal case
+        }
+        Ok(commands) => {
+            info!(count = commands.len(), "Received commands from poll");
+            for cmd in commands {
+                info!(
+                    command_id = %cmd.command_id,
+                    command_type = %cmd.command_type,
+                    action = %cmd.action,
+                    "Processing command"
+                );
+
+                // P2B will implement actual command execution. For now, report
+                // that the execution engine is not yet available.
+                let result = api::CommandResultPayload {
+                    success: false,
+                    output: None,
+                    exit_code: None,
+                    error: Some(
+                        "Command execution engine not yet available (requires P2B)".to_string(),
+                    ),
+                };
+
+                if let Err(e) = client
+                    .submit_command_result(&config.node.node_id, &cmd.command_id, &result)
+                    .await
+                {
+                    warn!(
+                        command_id = %cmd.command_id,
+                        error = %e,
+                        "Failed to submit command result"
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            warn!("Command poll failed: {}", e);
+        }
+    }
 }
 
 /// Displays the agent status including service state and vault contents.
@@ -329,7 +489,6 @@ fn show_status(config_path: &PathBuf, vault: &Vault) -> Result<()> {
 }
 
 fn dev_mode_login(args: &cli::login::LoginArgs) -> Result<()> {
-
     if args.status {
         println!();
         println!("[DEV MODE] Login Session Status");
@@ -350,7 +509,10 @@ fn dev_mode_login(args: &cli::login::LoginArgs) -> Result<()> {
         return Ok(());
     }
 
-    let username = args.username.clone().unwrap_or_else(|| "dev-admin".to_string());
+    let username = args
+        .username
+        .clone()
+        .unwrap_or_else(|| "dev-admin".to_string());
 
     println!();
     println!("[DEV MODE] Login simulated (no API call)");
@@ -471,7 +633,10 @@ async fn dev_mode_run(config_path: &PathBuf, once: bool) -> Result<()> {
     println!("╚═══════════════════════════════════════════════════════════╝");
     println!();
 
-    info!("[DEV MODE] Starting hydra-agent v{}", env!("CARGO_PKG_VERSION"));
+    info!(
+        "[DEV MODE] Starting hydra-agent v{}",
+        env!("CARGO_PKG_VERSION")
+    );
 
     let config = load_config(config_path)?;
     info!(node_id = %config.node.node_id, "[DEV MODE] Configuration loaded");
@@ -710,9 +875,7 @@ fn uninstall_service(purge: bool) -> Result<()> {
             info!("Removed {}", service_path.display());
         }
 
-        let _ = Command::new("systemctl")
-            .args(["daemon-reload"])
-            .status();
+        let _ = Command::new("systemctl").args(["daemon-reload"]).status();
     }
 
     let binary_path = PathBuf::from("/usr/local/bin/hydra-agent");

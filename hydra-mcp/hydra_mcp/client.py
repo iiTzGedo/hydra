@@ -109,6 +109,7 @@ class HydraClient:
         node_type: str | None = None,
         status: str | None = None,
         tags: list[str] | None = None,
+        agent_tier: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
@@ -119,6 +120,7 @@ class HydraClient:
             node_type: Filter by node type (physical, logical).
             status: Filter by status (active, inactive, archived).
             tags: Filter by tags using AND logic.
+            agent_tier: Filter by agent tier (lite, normal, max).
             limit: Maximum number of results to return.
             offset: Number of results to skip for pagination.
 
@@ -134,6 +136,8 @@ class HydraClient:
             params["status"] = status
         if tags:
             params["tags"] = tags  # httpx sends as tags=tag1&tags=tag2
+        if agent_tier:
+            params["agentTier"] = agent_tier
         result = await self._request("GET", "/nodes", params=params)
         return result if isinstance(result, list) else result, 0
 

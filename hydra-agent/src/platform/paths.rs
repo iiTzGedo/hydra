@@ -27,6 +27,9 @@ pub mod defaults {
 
     /// Default binary directory
     pub const BIN_DIR: &str = "/usr/local/bin";
+
+    /// Default PID file path for single-instance enforcement
+    pub const PID_FILE: &str = "/var/run/hydra-agent.pid";
 }
 
 /// Default paths for Windows systems
@@ -46,6 +49,9 @@ pub mod defaults {
 
     /// Default binary directory
     pub const BIN_DIR: &str = r"C:\Program Files\Hydra Agent";
+
+    /// Default PID file path for single-instance enforcement
+    pub const PID_FILE: &str = r"C:\ProgramData\Hydra\run\agent.pid";
 }
 
 /// Paths structure for runtime path resolution

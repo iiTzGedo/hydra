@@ -33,6 +33,9 @@ export type NodeKind =
 // Node status
 export type NodeStatus = 'active' | 'inactive' | 'pending' | 'archived';
 
+// Agent tier
+export type AgentTier = 'lite' | 'normal' | 'max';
+
 // Node location
 export interface NodeLocation {
   site?: string;
@@ -56,6 +59,7 @@ export interface NodeSummary {
   lastProfileAt?: string;
   lastSeenAt?: string;
   registeredBy?: string;
+  agentTier?: AgentTier;
 }
 
 // Full node details
@@ -66,6 +70,13 @@ export interface Node extends NodeSummary {
   registeredBy?: string;
   registeredAt: string;
   lastUpdated: string;
+  serverAddress?: string;
+  serverPort?: number;
+  serverTlsEnabled?: boolean;
+  serverReachable?: boolean;
+  failedDirectAttempts?: number;
+  lastDirectContact?: string;
+  lastPollContact?: string;
 }
 
 // Node list params
@@ -74,6 +85,7 @@ export interface NodeListParams extends ListParams {
   type?: NodeType;
   kind?: NodeKind;
   status?: NodeStatus;
+  agentTier?: AgentTier;
   tags?: string[];
   parentNodeId?: string;
   networkId?: string;
@@ -100,6 +112,7 @@ export interface NodeRegistrationRequest {
   tags?: string[];
   parentNodeId?: string;
   location?: NodeLocation;
+  agentTier?: AgentTier;
 }
 
 export interface NodeRegistrationResponse {
@@ -109,4 +122,5 @@ export interface NodeRegistrationResponse {
   registeredBy: string;
   registeredAt: string;
   status: NodeStatus;
+  agentServerSecret?: string;
 }

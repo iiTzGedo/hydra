@@ -28,6 +28,7 @@ import { cn, formatDate, formatRelativeTime, formatBytes } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import type { ProfileDiffChangeSummary } from '@/types/profile';
 import type {
   HardwareProfile,
   NetworkProfile,
@@ -85,6 +86,16 @@ export default function ProfileComparePage() {
       </div>
     );
   }
+
+  const changeSummary = diff?.changeSummary ?? {};
+  const totalAdded = Object.values(changeSummary).reduce(
+    (acc, summary) => acc + (summary.added ?? 0),
+    0,
+  );
+  const totalRemoved = Object.values(changeSummary).reduce(
+    (acc, summary) => acc + (summary.removed ?? 0),
+    0,
+  );
 
   return (
     <div className="p-6">
@@ -153,12 +164,12 @@ export default function ProfileComparePage() {
                 variant={diff.changedSections?.length > 0 ? 'info' : 'default'}
               />
               <StatCard
-                value={Object.values(diff.changeSummary || {}).reduce<number>((acc, s: any) => acc + (s.added || 0), 0)}
+                value={totalAdded}
                 label="Items Added"
                 variant="success"
               />
               <StatCard
-                value={Object.values(diff.changeSummary || {}).reduce<number>((acc, s: any) => acc + (s.removed || 0), 0)}
+                value={totalRemoved}
                 label="Items Removed"
                 variant="error"
               />
@@ -167,7 +178,7 @@ export default function ProfileComparePage() {
             {diff.changedSections && diff.changedSections.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {diff.changedSections.map((section) => {
-                  const summary = (diff.changeSummary as Record<string, any>)?.[section];
+                  const summary: ProfileDiffChangeSummary | undefined = changeSummary[section];
                   return (
                     <Badge key={section} variant="secondary" className="gap-2 py-1.5">
                       <span className="capitalize font-medium">{section}</span>

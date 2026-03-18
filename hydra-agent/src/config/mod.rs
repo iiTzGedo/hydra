@@ -22,6 +22,9 @@ pub struct AgentConfig {
     /// Schedule settings
     #[serde(default)]
     pub schedule: ScheduleConfig,
+    /// Embedded control server settings (max-tier only)
+    #[serde(default)]
+    pub server: ServerConfig,
 }
 
 /// API connection configuration.
@@ -37,6 +40,35 @@ pub struct ApiConfig {
     pub retries: u32,
 }
 
+/// Agent tier determining communication capabilities.
+///
+/// - `Lite`: Profile collection only (SBCs, low-resource nodes)
+/// - `Normal`: Profile + poll-based command execution (general compute)
+/// - `Max`: Profile + embedded HTTP server for sync execution + delegated scanning
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentTier {
+    Lite,
+    Normal,
+    Max,
+}
+
+impl Default for AgentTier {
+    fn default() -> Self {
+        AgentTier::Normal
+    }
+}
+
+impl std::fmt::Display for AgentTier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AgentTier::Lite => write!(f, "lite"),
+            AgentTier::Normal => write!(f, "normal"),
+            AgentTier::Max => write!(f, "max"),
+        }
+    }
+}
+
 /// Node identification and classification configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConfig {
@@ -45,6 +77,9 @@ pub struct NodeConfig {
     /// Node class: "compute", "networking", or "iot"
     #[serde(default = "default_class")]
     pub class: String,
+    /// Agent tier: lite, normal, or max
+    #[serde(default)]
+    pub tier: AgentTier,
     /// Node type: "physical" or "logical"
     #[serde(default = "default_type")]
     pub node_type: String,
@@ -67,7 +102,7 @@ pub struct CollectionConfig {
     /// Collection depth: "shallow", "neutral", or "deep"
     #[serde(default = "default_level")]
     pub level: String,
-    /// Enabled collectors (hardware, network, storage, software, services)
+    /// Enabled collectors (hardware, network, storage, software)
     #[serde(default = "default_collectors")]
     pub collectors: Vec<String>,
     /// Whether to include package list in profiles
@@ -79,6 +114,33 @@ pub struct CollectionConfig {
     /// Configuration file paths to track changes
     #[serde(default)]
     pub config_files: Vec<String>,
+}
+
+/// Embedded HTTP control server configuration (max-tier only).
+///
+/// When enabled on a max-tier agent, the server accepts authenticated
+/// requests from the Hydra API for synchronous command execution,
+/// health checks, network probing, and remote configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerConfig {
+    /// Whether the control server is enabled
+    #[serde(default)]
+    pub enabled: bool,
+    /// Bind address for the server
+    #[serde(default = "default_bind_address")]
+    pub bind_address: String,
+    /// Reachable address advertised to the API for direct control requests
+    pub advertise_address: Option<String>,
+    /// Port for the control server
+    #[serde(default = "default_server_port")]
+    pub port: u16,
+    /// Enable TLS encryption (recommended for production)
+    #[serde(default = "default_true")]
+    pub tls_enabled: bool,
+    /// Path to TLS certificate file (PEM format)
+    pub tls_cert_file: Option<String>,
+    /// Path to TLS private key file (PEM format)
+    pub tls_key_file: Option<String>,
 }
 
 /// Scheduled collection configuration.
@@ -93,6 +155,9 @@ pub struct ScheduleConfig {
     /// Collect immediately on agent startup
     #[serde(default = "default_true")]
     pub on_startup: bool,
+    /// Interval between command poll requests in seconds (normal/max tier only)
+    #[serde(default = "default_poll_interval")]
+    pub poll_interval_seconds: u64,
 }
 
 fn default_timeout() -> u64 {
@@ -121,7 +186,6 @@ fn default_collectors() -> Vec<String> {
         "network".to_string(),
         "storage".to_string(),
         "software".to_string(),
-        "services".to_string(),
     ]
 }
 
@@ -131,6 +195,18 @@ fn default_true() -> bool {
 
 fn default_interval() -> u64 {
     86400
+}
+
+fn default_poll_interval() -> u64 {
+    30
+}
+
+fn default_bind_address() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_server_port() -> u16 {
+    9100
 }
 
 impl Default for CollectionConfig {
@@ -145,12 +221,27 @@ impl Default for CollectionConfig {
     }
 }
 
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind_address: default_bind_address(),
+            advertise_address: None,
+            port: default_server_port(),
+            tls_enabled: true,
+            tls_cert_file: None,
+            tls_key_file: None,
+        }
+    }
+}
+
 impl Default for ScheduleConfig {
     fn default() -> Self {
         Self {
             enabled: true,
             interval_seconds: default_interval(),
             on_startup: true,
+            poll_interval_seconds: default_poll_interval(),
         }
     }
 }
@@ -184,8 +275,7 @@ impl AgentConfig {
     fn validate(&self) -> Result<()> {
         let node_id_re = Regex::new(r"^[a-z]+([._-][a-z0-9]+){0,2}$")
             .context("Invalid node ID regex pattern")?;
-        let tag_re = Regex::new(r"^[a-z]+[-_:]?[a-z]+$")
-            .context("Invalid tag regex pattern")?;
+        let tag_re = Regex::new(r"^[a-z]+[-_:]?[a-z]+$").context("Invalid tag regex pattern")?;
 
         if !node_id_re.is_match(&self.node.node_id) {
             return Err(anyhow!(
@@ -236,13 +326,68 @@ impl AgentConfig {
             ));
         }
 
-        const VALID_COLLECTORS: &[&str] = &["hardware", "network", "storage", "software", "services"];
+        const VALID_COLLECTORS: &[&str] = &["hardware", "network", "storage", "software"];
         for collector in &self.collection.collectors {
             if !VALID_COLLECTORS.contains(&collector.as_str()) {
                 return Err(anyhow!(
-                    "Invalid collector '{}'. Must be one of: hardware, network, storage, software, services",
+                    "Invalid collector '{}'. Must be one of: hardware, network, storage, software",
                     collector
                 ));
+            }
+        }
+
+        // Server config validation
+        if self.server.enabled {
+            if self.node.tier != AgentTier::Max {
+                return Err(anyhow!(
+                    "server.enabled requires node.tier = \"max\". Current tier is '{}'.",
+                    self.node.tier
+                ));
+            }
+
+            let bind_address = self
+                .server
+                .bind_address
+                .parse::<std::net::IpAddr>()
+                .map_err(|_| {
+                    anyhow!(
+                        "Invalid server bind_address '{}'. Must be a valid IP address.",
+                        self.server.bind_address
+                    )
+                })?;
+            let _ = bind_address;
+
+            let advertise_address = self.server.advertise_address.as_deref().ok_or_else(|| {
+                anyhow!("server.advertise_address is required when the control server is enabled")
+            })?;
+            if advertise_address.trim().is_empty() {
+                return Err(anyhow!(
+                    "server.advertise_address must not be empty when the control server is enabled"
+                ));
+            }
+            if let Ok(advertise_ip) = advertise_address.parse::<std::net::IpAddr>() {
+                if advertise_ip.is_unspecified() {
+                    return Err(anyhow!(
+                        "Invalid server advertise_address '{}'. Wildcard or unspecified addresses are not allowed.",
+                        advertise_address
+                    ));
+                }
+            }
+
+            if self.server.tls_enabled {
+                let cert_file = self.server.tls_cert_file.as_deref().ok_or_else(|| {
+                    anyhow!("server.tls_cert_file is required when TLS is enabled")
+                })?;
+                let key_file = self.server.tls_key_file.as_deref().ok_or_else(|| {
+                    anyhow!("server.tls_key_file is required when TLS is enabled")
+                })?;
+
+                if !Path::new(cert_file).exists() {
+                    return Err(anyhow!("TLS certificate file not found: {}", cert_file));
+                }
+                if !Path::new(key_file).exists() {
+                    return Err(anyhow!("TLS key file not found: {}", key_file));
+                }
             }
         }
 
