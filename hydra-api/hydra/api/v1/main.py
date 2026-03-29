@@ -14,7 +14,7 @@ from hydra.api.v1 import __version__
 from hydra.core.config import get_settings
 from hydra.api.v1.core.context import get_request_id, set_request_id
 from hydra.api.v1.core.exceptions import HydraError
-from hydra.api.v1.routers import ai, auth, chat, commands, docs, groups, ha, health, install, mcp, networks, nodes, notifications, profiles, query, search, services, settings as settings_router, timemachine, topologies, users
+from hydra.api.v1.routers import ai, auth, chat, commands, docs, groups, ha, health, install, mcp, networks, nodes, notifications, profiles, query, search, services, settings as settings_router, timemachine, topologies, users, workflows
 
 # Static files directory (shared with root app)
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
@@ -185,7 +185,9 @@ def create_app() -> FastAPI:
     app.include_router(topologies.router)
     app.include_router(timemachine.router)
     app.include_router(commands.router)
+    app.include_router(commands.catalog_router)
     app.include_router(commands.nodes_commands_router)
+    app.include_router(workflows.router)
     app.include_router(docs.router)
     app.include_router(query.router)
     app.include_router(ha.router)

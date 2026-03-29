@@ -1,5 +1,7 @@
 """Tests for MCP authorization module."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from hydra_mcp.auth import (
@@ -123,10 +125,24 @@ class TestCheckPermission:
         check_permission("any_tool", "")  # Should not raise
         set_auth_context(None)
 
-    def test_no_context_permissive_mode(self):
-        """Test that no auth context allows everything (permissive mode)."""
+    def test_no_context_allowed_for_stdio(self, monkeypatch):
+        """Test that stdio transport still allows missing auth context."""
+        monkeypatch.setattr(
+            "hydra_mcp.auth.get_settings",
+            lambda: SimpleNamespace(transport="stdio", allow_unauthenticated=False),
+        )
         set_auth_context(None)
         check_permission("list_nodes", "nodes:read")  # Should not raise
+
+    def test_no_context_network_mode_denied(self, monkeypatch):
+        """Test that network transports reject missing auth context."""
+        monkeypatch.setattr(
+            "hydra_mcp.auth.get_settings",
+            lambda: SimpleNamespace(transport="http", allow_unauthenticated=False),
+        )
+        set_auth_context(None)
+        with pytest.raises(AuthorizationError):
+            check_permission("list_nodes", "nodes:read")
 
     def test_permission_granted(self):
         """Test that granted permission passes check."""
@@ -179,6 +195,8 @@ class TestCreateContextFromApiKey:
         assert ctx.user_id == "user_123"
         assert ctx.permissions == ["nodes:read", "services:read"]
         assert ctx.role == "operator"
+        assert ctx.source_type == "external"
+        assert ctx.client_id == "key_abc"
         assert ctx.metadata["source"] == "api_key"
         assert ctx.metadata["keyId"] == "key_abc"
 

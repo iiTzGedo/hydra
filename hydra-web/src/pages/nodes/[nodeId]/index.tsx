@@ -11,17 +11,23 @@ import {
   Globe,
   FolderTree,
   FileText,
+  Power,
+  RotateCcw,
+  Download,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useArchiveNode, useNode, useUpdateNode } from '@/api/nodes';
+import { useCreateCommand } from '@/api/commands';
 import type { NodeKind } from '@/types/node';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { PageHeaderLayout } from '@/components/layout/page-header-layout';
+import { PermissionGate } from '@/components/auth/permission-gate';
 import { ROUTES, NODE_KIND_LABELS } from '@/lib/constants';
 import { getErrorMessage } from '@/lib/api-client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -68,6 +74,7 @@ export default function NodeDetailPage() {
   const { data: node, isLoading, error } = useNode(nodeId!);
   const updateNode = useUpdateNode();
   const archiveNode = useArchiveNode();
+  const createCommand = useCreateCommand();
 
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
@@ -161,6 +168,32 @@ export default function NodeDetailPage() {
     }
   };
 
+  const handleNodeCommand = async (action: 'reboot' | 'shutdown' | 'update-system') => {
+    if (!node) return;
+
+    const labels: Record<string, string> = {
+      reboot: 'Reboot',
+      shutdown: 'Shutdown',
+      'update-system': 'System Update',
+    };
+    const label = labels[action];
+
+    const confirmed = window.confirm(
+      `Are you sure you want to ${label.toLowerCase()} node "${node.displayName || node.id}"?`
+    );
+    if (!confirmed) return;
+
+    try {
+      await createCommand.mutateAsync({
+        registryId: `reg::node::${action}`,
+        target: { nodeId: node.nodeId },
+      });
+      toast.success(`Command queued: ${label}`);
+    } catch (err) {
+      toast.error(getErrorMessage(err, `Failed to queue ${label.toLowerCase()}`));
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="p-6">
@@ -207,18 +240,50 @@ export default function NodeDetailPage() {
         showBackButton
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" asChild>
+            <PermissionGate permissions={['commands:execute']}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleNodeCommand('reboot')}
+                disabled={createCommand.isPending}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Reboot
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => handleNodeCommand('shutdown')}
+                disabled={createCommand.isPending}
+              >
+                <Power className="mr-2 h-4 w-4" />
+                Shutdown
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleNodeCommand('update-system')}
+                disabled={createCommand.isPending}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                System Update
+              </Button>
+              <Separator orientation="vertical" className="h-6" />
+            </PermissionGate>
+            <Button variant="outline" size="sm" asChild>
               <Link to={ROUTES.NODES + '/' + node.id + '/profiles'}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Profiles
               </Link>
             </Button>
-            <Button variant="outline" onClick={() => setSearchParam('edit', '1')}>
+            <Button variant="outline" size="sm" onClick={() => setSearchParam('edit', '1')}>
               <Edit className="mr-2 h-4 w-4" />
               Edit
             </Button>
             <Button
               variant="outline"
+              size="sm"
               className="text-destructive hover:text-destructive"
               onClick={() => setSearchParam('archive', '1')}
             >

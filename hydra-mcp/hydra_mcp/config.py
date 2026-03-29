@@ -56,6 +56,10 @@ class Settings(BaseSettings):
         default=30,
         description="API request timeout in seconds",
     )
+    allow_unauthenticated: bool = Field(
+        default=False,
+        description="Explicitly allow unauthenticated access on non-stdio transports for local development only",
+    )
 
     # Server settings
     server_name: str = Field(

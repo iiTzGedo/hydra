@@ -152,12 +152,11 @@ export default function ServicesPage() {
     if (!actionService) return;
     try {
       await createCommandMutation.mutateAsync({
-        type: 'service',
+        registryId: `reg::service::${actionService.action}`,
         target: {
           nodeId: actionService.nodeId,
           serviceId: actionService.serviceId,
         },
-        action: actionService.action,
       });
       toast.success(`Command queued: ${actionService.action} ${actionService.name}`);
       setActionService(null);

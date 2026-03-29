@@ -86,6 +86,138 @@ test.describe('Critical Journeys', () => {
     await expect(page.locator('#main-content').getByRole('heading').first()).toBeVisible();
   });
 
+  test('command center launches a command and shows its result detail', async ({ page }) => {
+    await page.route('**/api/v1/command-catalog**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [
+            {
+              registryId: 'reg::service::restart',
+              category: 'service',
+              action: 'restart',
+              displayName: 'Restart Service',
+              description: 'Restart a service',
+              minimumRole: 'operator',
+              requiresConfirmation: false,
+              timeout: 60,
+              deliveryMode: 'poll_only',
+              builtIn: true,
+              deprecated: false,
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.route('**/api/v1/commands/queue**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            queue: [],
+            stats: {
+              totalQueued: 0,
+              totalExecuting: 0,
+              oldestQueuedAt: null,
+            },
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/v1/commands', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ data: [] }),
+        });
+        return;
+      }
+
+      if (route.request().method() !== 'POST') {
+        await route.fallback();
+        return;
+      }
+
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            commandId: 'cmd-playwright-001',
+            registryId: 'reg::service::restart',
+            type: 'service',
+            target: {
+              nodeId: 'server-01',
+              serviceId: 'svc-nginx-a1b2',
+            },
+            action: 'restart',
+            status: 'queued',
+            executionMethod: 'agent-poll',
+            result: null,
+            queuePosition: 1,
+            queuedAt: '2026-03-23T10:00:00Z',
+            completedAt: null,
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/v1/commands/cmd-playwright-001', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            commandId: 'cmd-playwright-001',
+            registryId: 'reg::service::restart',
+            type: 'service',
+            target: {
+              nodeId: 'server-01',
+              serviceId: 'svc-nginx-a1b2',
+            },
+            action: 'restart',
+            parameters: null,
+            status: 'completed',
+            executionMethod: 'agent-poll',
+            result: {
+              success: true,
+              output: 'Service restarted successfully',
+              exitCode: 0,
+              error: null,
+            },
+            error: null,
+            timeoutSeconds: 60,
+            retryCount: 0,
+            queuePosition: null,
+            createdAt: '2026-03-23T10:00:00Z',
+            queuedAt: '2026-03-23T10:00:00Z',
+            startedAt: '2026-03-23T10:00:02Z',
+            completedAt: '2026-03-23T10:00:05Z',
+            cancelledAt: null,
+            cancelledBy: null,
+          },
+        }),
+      });
+    });
+
+    await gotoPage(page, '/commands', /Command Center/i);
+
+    await page.getByText('Restart Service').click();
+    await page.getByLabel('Node ID *').fill('server-01');
+    await page.getByLabel('Service ID').fill('svc-nginx-a1b2');
+    await page.getByRole('button', { name: 'Execute' }).click();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+
+    await page.goto('/commands/cmd-playwright-001');
+    await expect(page.locator('#main-content')).toContainText('Command cmd-playwright-001');
+    await expect(page.locator('#main-content')).toContainText('Service restarted successfully');
+  });
+
   test('networks page loads the explorer controls', async ({ page }) => {
     await gotoPage(page, '/networks', /^Networks$/);
 

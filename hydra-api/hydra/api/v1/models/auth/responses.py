@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from hydra.api.v1.models.auth_enums import Role, TokenScope, UserStatus
+from .enums import Role, TokenScope, UserStatus
 
 
 class TemporaryRole(BaseModel):

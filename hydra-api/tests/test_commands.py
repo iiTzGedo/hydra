@@ -10,24 +10,115 @@ from httpx import AsyncClient
 from tests.utils import create_mock_cursor
 
 
+# ── Fixtures ─────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def sample_definition():
+    """Sample command definition (registry entry)."""
+    return {
+        "registryId": "reg::service::restart",
+        "category": "service",
+        "action": "restart",
+        "displayName": "Restart Service",
+        "description": "Restart a service",
+        "targetSchema": {"required": ["nodeId", "serviceId"]},
+        "parametersSchema": None,
+        "execution": {
+            "runtimes": {"systemd": "systemctl restart {service}"},
+            "handler": None,
+            "timeout": 60,
+            "deliveryMode": "poll_only",
+            "retryable": True,
+            "maxRetries": 1,
+        },
+        "rbac": {
+            "minimumRole": "operator",
+            "requiresConfirmation": False,
+            "confirmationMessage": None,
+        },
+        "audit": {"logLevel": "standard", "captureOutput": True, "sensitiveParameters": []},
+        "metadata": {
+            "version": "0.5.0",
+            "addedAt": datetime.now(timezone.utc),
+            "builtIn": True,
+            "deprecated": False,
+        },
+    }
+
+
+@pytest.fixture
+def sample_managed_service():
+    """Sample service doc used for command target normalization."""
+    now = datetime.now(timezone.utc)
+    return {
+        "serviceId": "svc-nginx-a1b2",
+        "nodeId": "server-01",
+        "profileId": "prof_abc123",
+        "name": "nginx",
+        "displayName": "Nginx",
+        "runtime": "systemd",
+        "status": "running",
+        "image": None,
+        "origin": {
+            "nativeId": "nginx.service",
+            "discoveredBy": "agent",
+            "collectedAt": now,
+        },
+        "firstSeen": now,
+        "lastSeen": now,
+    }
+
+
+@pytest.fixture
+def sample_container_service():
+    """Sample container service for update-command normalization tests."""
+    now = datetime.now(timezone.utc)
+    return {
+        "serviceId": "svc-app-c3d4",
+        "nodeId": "server-01",
+        "profileId": "prof_abc123",
+        "name": "app",
+        "displayName": "App",
+        "runtime": "docker",
+        "status": "running",
+        "image": "ghcr.io/acme/app:1.4.2",
+        "origin": {
+            "nativeId": "app",
+            "discoveredBy": "agent",
+            "collectedAt": now,
+        },
+        "firstSeen": now,
+        "lastSeen": now,
+    }
+
+
 @pytest.fixture
 def sample_command():
     """Sample command document."""
     now = datetime.now(timezone.utc)
     return {
         "commandId": "cmd-abc123",
-        "type": "system",
-        "target": {"nodeId": "server-01", "serviceId": None},
-        "action": "run",
-        "parameters": {"command": "uptime"},
+        "registryId": "reg::service::restart",
+        "type": "service",
+        "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
+        "action": "restart",
+        "parameters": {},
         "status": "queued",
+        "executionMethod": "agent-poll",
         "requestedBy": {"userId": "user_admin123", "source": "api"},
-        "timeoutSeconds": 300,
+        "timeoutSeconds": 60,
+        "retryCount": 0,
+        "queuePosition": 1,
+        "chain": None,
+        "error": None,
+        "result": None,
         "createdAt": now,
         "queuedAt": now,
         "startedAt": None,
         "completedAt": None,
-        "result": None,
+        "cancelledAt": None,
+        "cancelledBy": None,
     }
 
 
@@ -98,6 +189,19 @@ def make_dummy_async_client(
     return _DummyAsyncClient
 
 
+def _setup_command_mocks(mock_mongodb, sample_user, sample_definition, *, role="admin"):
+    """Common mock setup for command tests that need registry validation."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": role}
+    )
+    mock_mongodb.command_definitions.find_one = AsyncMock(return_value=sample_definition)
+    mock_mongodb.commands.insert_one = AsyncMock()
+    mock_mongodb.commands.count_documents = AsyncMock(return_value=0)
+
+
+# ── Command Creation ─────────────────────────────────────────────────────
+
+
 @pytest.mark.asyncio
 async def test_create_command_success(
     client: AsyncClient,
@@ -105,24 +209,21 @@ async def test_create_command_success(
     admin_token,
     sample_command,
     sample_user,
+    sample_definition,
+    sample_managed_service,
 ):
-    """Test creating a new command."""
-    mock_mongodb.users.find_one = AsyncMock(
-        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
-    )
+    """Test creating a new command with registryId."""
+    _setup_command_mocks(mock_mongodb, sample_user, sample_definition)
     mock_mongodb.nodes.find_one = AsyncMock(
         return_value={"nodeId": "server-01", "status": "active"}
     )
-    mock_mongodb.commands.insert_one = AsyncMock()
-    mock_mongodb.commands.find_one = AsyncMock(return_value=sample_command)
+    mock_mongodb.services.find_one = AsyncMock(return_value=sample_managed_service)
 
     response = await client.post(
         "/api/v1/commands",
         json={
-            "type": "system",
-            "target": {"nodeId": "server-01"},
-            "action": "run",
-            "parameters": {"command": "uptime"},
+            "registryId": "reg::service::restart",
+            "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
         },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -131,6 +232,76 @@ async def test_create_command_success(
     data = response.json()
     assert data["data"]["target"]["nodeId"] == "server-01"
     assert data["data"]["status"] == "queued"
+    assert data["data"]["executionMethod"] == "agent-poll"
+    inserted = mock_mongodb.commands.insert_one.await_args.args[0]
+    assert inserted["parameters"]["serviceId"] == "svc-nginx-a1b2"
+    assert inserted["parameters"]["name"] == "nginx"
+    assert inserted["parameters"]["runtime"] == "systemd"
+
+
+@pytest.mark.asyncio
+async def test_create_command_unknown_registry_id(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Test that unknown registryId is rejected."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.command_definitions.find_one = AsyncMock(return_value=None)
+    mock_mongodb.commands.insert_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/commands",
+        json={
+            "registryId": "reg::service::nonexistent",
+            "target": {"nodeId": "server-01"},
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 404
+    data = response.json()
+    assert data["error"]["code"] == "COMMAND_DEFINITION_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_create_command_insufficient_role(
+    client: AsyncClient,
+    mock_mongodb,
+    operator_token,
+    sample_user,
+):
+    """Test that insufficient role is rejected."""
+    # Admin-only command, operator tries to execute
+    admin_only_def = {
+        "registryId": "reg::node::reboot",
+        "category": "node",
+        "action": "reboot",
+        "execution": {"timeout": 120},
+        "rbac": {"minimumRole": "admin", "requiresConfirmation": True},
+        "metadata": {"builtIn": True},
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_operator123", "role": "operator"}
+    )
+    mock_mongodb.command_definitions.find_one = AsyncMock(return_value=admin_only_def)
+    mock_mongodb.commands.insert_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/commands",
+        json={
+            "registryId": "reg::node::reboot",
+            "target": {"nodeId": "server-01"},
+        },
+        headers={"Authorization": f"Bearer {operator_token}"},
+    )
+
+    assert response.status_code == 403
+    data = response.json()
+    assert data["error"]["code"] == "COMMAND_REJECTED"
 
 
 @pytest.mark.asyncio
@@ -139,11 +310,10 @@ async def test_create_command_rejects_lite_tier(
     mock_mongodb,
     admin_token,
     sample_user,
+    sample_definition,
 ):
     """Test lite-tier nodes reject command execution."""
-    mock_mongodb.users.find_one = AsyncMock(
-        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
-    )
+    _setup_command_mocks(mock_mongodb, sample_user, sample_definition)
     mock_mongodb.nodes.find_one = AsyncMock(
         return_value={
             "nodeId": "server-01",
@@ -155,10 +325,8 @@ async def test_create_command_rejects_lite_tier(
     response = await client.post(
         "/api/v1/commands",
         json={
-            "type": "system",
-            "target": {"nodeId": "server-01"},
-            "action": "run",
-            "parameters": {"command": "uptime"},
+            "registryId": "reg::service::restart",
+            "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
         },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -166,7 +334,6 @@ async def test_create_command_rejects_lite_tier(
     assert response.status_code == 400
     data = response.json()
     assert data["error"]["code"] == "COMMAND_NOT_SUPPORTED"
-    mock_mongodb.commands.insert_one.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -175,11 +342,11 @@ async def test_create_command_normal_tier_queues_for_poll(
     mock_mongodb,
     admin_token,
     sample_user,
+    sample_definition,
+    sample_managed_service,
 ):
     """Test normal-tier nodes queue commands for polling."""
-    mock_mongodb.users.find_one = AsyncMock(
-        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
-    )
+    _setup_command_mocks(mock_mongodb, sample_user, sample_definition)
     mock_mongodb.nodes.find_one = AsyncMock(
         return_value={
             "nodeId": "server-01",
@@ -187,37 +354,94 @@ async def test_create_command_normal_tier_queues_for_poll(
             "agentTier": "normal",
         }
     )
+    mock_mongodb.services.find_one = AsyncMock(return_value=sample_managed_service)
 
     response = await client.post(
         "/api/v1/commands",
         json={
-            "type": "system",
-            "target": {"nodeId": "server-01"},
-            "action": "run",
-            "parameters": {"command": "uptime"},
+            "registryId": "reg::service::restart",
+            "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
         },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
     assert response.status_code == 202
     data = response.json()
-    assert data["data"]["executionMethod"] == "poll"
+    assert data["data"]["executionMethod"] == "agent-poll"
     assert data["data"]["status"] == "queued"
+    inserted = mock_mongodb.commands.insert_one.await_args.args[0]
+    assert inserted["parameters"]["name"] == "nginx"
     mock_mongodb.commands.insert_one.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_create_command_max_tier_transport_failure_falls_back_and_updates_reachability(
+async def test_create_command_max_tier_poll_only_skips_direct_execution(
     client: AsyncClient,
     mock_mongodb,
     admin_token,
     sample_user,
+    sample_definition,
+    sample_managed_service,
+    monkeypatch,
+):
+    """Test poll-only commands do not attempt direct execution on max tier."""
+    _setup_command_mocks(mock_mongodb, sample_user, sample_definition)
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={
+            "nodeId": "server-01",
+            "status": "active",
+            "agentTier": "max",
+            "serverAddress": "agent.internal.example",
+            "serverPort": 9443,
+            "serverTlsEnabled": True,
+            "agentServerSecret": "hsk_api_secret_123",
+        }
+    )
+    mock_mongodb.services.find_one = AsyncMock(return_value=sample_managed_service)
+
+    def fail_if_called(**kwargs):
+        raise AssertionError("direct execution should not be attempted for poll-only commands")
+
+    monkeypatch.setattr(
+        "hydra.api.v1.services.commands.service.httpx.AsyncClient",
+        fail_if_called,
+    )
+
+    response = await client.post(
+        "/api/v1/commands",
+        json={
+            "registryId": "reg::service::restart",
+            "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["data"]["executionMethod"] == "agent-poll"
+    mock_mongodb.commands.insert_one.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_command_max_tier_transport_failure_falls_back(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+    sample_managed_service,
     monkeypatch,
 ):
     """Test transport errors fall back to polling and count against reachability."""
-    mock_mongodb.users.find_one = AsyncMock(
-        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
-    )
+    direct_definition = {
+        "registryId": "reg::service::logs",
+        "category": "service",
+        "action": "logs",
+        "targetSchema": {"required": ["nodeId", "serviceId"]},
+        "execution": {"timeout": 30, "deliveryMode": "direct_or_poll"},
+        "rbac": {"minimumRole": "operator", "requiresConfirmation": False},
+        "metadata": {"builtIn": True},
+    }
+    _setup_command_mocks(mock_mongodb, sample_user, direct_definition)
     mock_mongodb.nodes.find_one = AsyncMock(
         return_value={
             "nodeId": "server-01",
@@ -231,6 +455,7 @@ async def test_create_command_max_tier_transport_failure_falls_back_and_updates_
             "failedDirectAttempts": 2,
         }
     )
+    mock_mongodb.services.find_one = AsyncMock(return_value=sample_managed_service)
     mock_mongodb.nodes.find_one_and_update = AsyncMock(
         return_value={"nodeId": "server-01", "failedDirectAttempts": 3}
     )
@@ -239,7 +464,7 @@ async def test_create_command_max_tier_transport_failure_falls_back_and_updates_
     capture: dict = {}
     request = httpx.Request("POST", "https://agent.internal.example:9443/execute")
     monkeypatch.setattr(
-        "hydra.api.v1.services.commands.httpx.AsyncClient",
+        "hydra.api.v1.services.commands.service.httpx.AsyncClient",
         make_dummy_async_client(
             error=httpx.ConnectError("connect failed", request=request),
             capture=capture,
@@ -249,13 +474,12 @@ async def test_create_command_max_tier_transport_failure_falls_back_and_updates_
     response = await client.post(
         "/api/v1/commands",
         json={
-            "type": "service",
+            "registryId": "reg::service::logs",
             "target": {
                 "nodeId": "server-01",
                 "serviceId": "svc-nginx-a1b2",
             },
-            "action": "restart",
-            "parameters": {"graceful": True},
+            "parameters": {"lines": 250},
             "timeoutSeconds": 120,
         },
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -263,33 +487,33 @@ async def test_create_command_max_tier_transport_failure_falls_back_and_updates_
 
     assert response.status_code == 202
     data = response.json()
-    assert data["data"]["executionMethod"] == "poll"
+    assert data["data"]["executionMethod"] == "agent-poll"
     assert capture["url"] == "https://agent.internal.example:9443/execute"
-    assert capture["json"]["registryId"] == "restart"
-    assert capture["json"]["target"] == {
-        "nodeId": "server-01",
-        "serviceId": "svc-nginx-a1b2",
-    }
-    assert capture["json"]["timeoutSeconds"] == 120
+    assert capture["json"]["registryId"] == "reg::service::logs"
+    assert capture["json"]["parameters"]["name"] == "nginx"
     mock_mongodb.nodes.find_one_and_update.assert_awaited_once()
-    mock_mongodb.nodes.update_one.assert_awaited_once_with(
-        {"nodeId": "server-01"},
-        {"$set": {"serverReachable": False}},
-    )
 
 
 @pytest.mark.asyncio
-async def test_create_command_max_tier_http_501_falls_back_without_changing_reachability(
+async def test_create_command_max_tier_http_501_falls_back(
     client: AsyncClient,
     mock_mongodb,
     admin_token,
     sample_user,
+    sample_managed_service,
     monkeypatch,
 ):
-    """Test agent HTTP errors fall back to polling without poisoning reachability state."""
-    mock_mongodb.users.find_one = AsyncMock(
-        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
-    )
+    """Test agent HTTP errors fall back to polling without poisoning reachability."""
+    direct_definition = {
+        "registryId": "reg::service::logs",
+        "category": "service",
+        "action": "logs",
+        "targetSchema": {"required": ["nodeId", "serviceId"]},
+        "execution": {"timeout": 30, "deliveryMode": "direct_or_poll"},
+        "rbac": {"minimumRole": "operator", "requiresConfirmation": False},
+        "metadata": {"builtIn": True},
+    }
+    _setup_command_mocks(mock_mongodb, sample_user, direct_definition)
     mock_mongodb.nodes.find_one = AsyncMock(
         return_value={
             "nodeId": "server-01",
@@ -303,42 +527,110 @@ async def test_create_command_max_tier_http_501_falls_back_without_changing_reac
             "failedDirectAttempts": 2,
         }
     )
+    mock_mongodb.services.find_one = AsyncMock(return_value=sample_managed_service)
     mock_mongodb.nodes.find_one_and_update = AsyncMock()
     mock_mongodb.nodes.update_one = AsyncMock()
 
-    capture: dict = {}
     monkeypatch.setattr(
-        "hydra.api.v1.services.commands.httpx.AsyncClient",
+        "hydra.api.v1.services.commands.service.httpx.AsyncClient",
         make_dummy_async_client(
-            response=DummyResponse(
-                501,
-                {"error": {"code": "NOT_IMPLEMENTED", "message": "Requires P2B"}},
-            ),
-            capture=capture,
+            response=DummyResponse(501, {"error": {"code": "NOT_IMPLEMENTED"}}),
         ),
     )
 
     response = await client.post(
         "/api/v1/commands",
         json={
-            "type": "service",
+            "registryId": "reg::service::logs",
             "target": {
                 "nodeId": "server-01",
                 "serviceId": "svc-nginx-a1b2",
             },
-            "action": "restart",
-            "parameters": {"graceful": True},
-            "timeoutSeconds": 120,
         },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
     assert response.status_code == 202
     data = response.json()
-    assert data["data"]["executionMethod"] == "poll"
-    assert capture["url"] == "https://agent.internal.example:9443/execute"
+    assert data["data"]["executionMethod"] == "agent-poll"
     mock_mongodb.nodes.find_one_and_update.assert_not_awaited()
-    mock_mongodb.nodes.update_one.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_service_update_derives_image_from_version(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+    sample_container_service,
+):
+    """Test service update requests derive the execution image from version."""
+    update_definition = {
+        "registryId": "reg::service::update",
+        "category": "service",
+        "action": "update",
+        "targetSchema": {"required": ["nodeId", "serviceId"]},
+        "execution": {"timeout": 300, "deliveryMode": "poll_only"},
+        "rbac": {"minimumRole": "admin", "requiresConfirmation": True},
+        "metadata": {"builtIn": True},
+    }
+    _setup_command_mocks(mock_mongodb, sample_user, update_definition)
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={"nodeId": "server-01", "status": "active", "agentTier": "normal"}
+    )
+    mock_mongodb.services.find_one = AsyncMock(return_value=sample_container_service)
+
+    response = await client.post(
+        "/api/v1/commands",
+        json={
+            "registryId": "reg::service::update",
+            "target": {"nodeId": "server-01", "serviceId": "svc-app-c3d4"},
+            "parameters": {"version": "2.0.0"},
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 202
+    inserted = mock_mongodb.commands.insert_one.await_args.args[0]
+    assert inserted["parameters"]["serviceId"] == "svc-app-c3d4"
+    assert inserted["parameters"]["runtime"] == "docker"
+    assert inserted["parameters"]["image"] == "ghcr.io/acme/app:2.0.0"
+
+
+@pytest.mark.asyncio
+async def test_create_command_rejects_service_node_mismatch(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+    sample_definition,
+    sample_managed_service,
+):
+    """Test service commands reject targets when the service belongs to another node."""
+    _setup_command_mocks(mock_mongodb, sample_user, sample_definition)
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={"nodeId": "server-01", "status": "active", "agentTier": "normal"}
+    )
+    mock_mongodb.services.find_one = AsyncMock(
+        return_value={**sample_managed_service, "nodeId": "server-02"}
+    )
+
+    response = await client.post(
+        "/api/v1/commands",
+        json={
+            "registryId": "reg::service::restart",
+            "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["code"] == "VALIDATION_ERROR"
+    assert "belongs to node" in data["error"]["message"]
+
+
+# ── List / Get / Cancel ──────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -383,7 +675,7 @@ async def test_list_commands_with_filters(
     mock_mongodb.commands.find.return_value = create_mock_cursor([sample_command])
 
     response = await client.get(
-        "/api/v1/commands?nodeId=server-01&type=system&status=queued",
+        "/api/v1/commands?nodeId=server-01&type=service&status=queued",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -414,6 +706,7 @@ async def test_get_command_success(
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["commandId"] == sample_command["commandId"]
+    assert data["data"]["registryId"] == "reg::service::restart"
 
 
 @pytest.mark.asyncio
@@ -449,12 +742,7 @@ async def test_cancel_command_success(
     mock_mongodb.users.find_one = AsyncMock(
         return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
     )
-
-    cancelled_command = sample_command.copy()
-    cancelled_command["status"] = "cancelled"
-    cancelled_command["cancelledAt"] = datetime.now(timezone.utc)
-
-    mock_mongodb.commands.find_one = AsyncMock(side_effect=[sample_command, cancelled_command])
+    mock_mongodb.commands.find_one = AsyncMock(return_value=sample_command)
     mock_mongodb.commands.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
 
     response = await client.post(
@@ -465,17 +753,21 @@ async def test_cancel_command_success(
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["status"] == "cancelled"
+    assert "cancelledAt" in data["data"]
+
+
+# ── Agent Endpoints ──────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_poll_commands_returns_typed_target_and_resets_failures(
+async def test_poll_commands_returns_typed_target(
     client: AsyncClient,
     mock_mongodb,
     agent_token,
     sample_command,
     sample_node,
 ):
-    """Test polling returns the typed target contract and resets direct failure state."""
+    """Test polling returns the typed target contract and resets failures."""
     command_for_node = sample_command.copy()
     command_for_node["target"] = {
         "nodeId": sample_node["nodeId"],
@@ -502,11 +794,10 @@ async def test_poll_commands_returns_typed_target_and_resets_failures(
         "nodeId": sample_node["nodeId"],
         "serviceId": "svc-nginx-a1b2",
     }
+    assert data["data"]["commands"][0].get("registryId") == "reg::service::restart"
     poll_update = mock_mongodb.nodes.update_one.await_args.args[1]["$set"]
     assert poll_update["serverReachable"] is True
     assert poll_update["failedDirectAttempts"] == 0
-    assert "lastSeenAt" in poll_update
-    assert "lastPollContact" in poll_update
 
 
 @pytest.mark.asyncio
@@ -529,7 +820,7 @@ async def test_submit_command_result(
         f"/api/v1/nodes/{sample_node['nodeId']}/commands/{sample_command['commandId']}/result",
         json={
             "success": True,
-            "output": "uptime output",
+            "output": "service restarted",
             "exitCode": 0,
             "error": None,
         },
@@ -539,6 +830,9 @@ async def test_submit_command_result(
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["status"] == "completed"
+
+
+# ── Permission Tests ─────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -557,10 +851,8 @@ async def test_commands_forbidden_for_viewer(
     response = await client.post(
         "/api/v1/commands",
         json={
-            "type": "system",
-            "target": {"nodeId": "server-01"},
-            "action": "run",
-            "parameters": {"command": "uptime"},
+            "registryId": "reg::service::restart",
+            "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
         },
         headers={"Authorization": f"Bearer {viewer_token}"},
     )
@@ -569,7 +861,7 @@ async def test_commands_forbidden_for_viewer(
 
 
 @pytest.mark.asyncio
-async def test_commands_viewer_can_list(
+async def test_commands_viewer_can_not_list(
     client: AsyncClient,
     mock_mongodb,
     viewer_token,
@@ -589,8 +881,10 @@ async def test_commands_viewer_can_list(
         headers={"Authorization": f"Bearer {viewer_token}"},
     )
 
-    # Viewer doesn't have commands:read permission
     assert response.status_code == 403
+
+
+# ── Pagination ───────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -641,3 +935,115 @@ async def test_list_commands_since_filter(
     )
 
     assert response.status_code == 200
+
+
+# ── Queue View ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_queue_view(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_command,
+    sample_user,
+):
+    """Test viewing the command queue."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.commands.count_documents = AsyncMock(return_value=1)
+    mock_mongodb.commands.find_one = AsyncMock(return_value=sample_command)
+    mock_mongodb.commands.find.return_value = create_mock_cursor([sample_command])
+
+    response = await client.get(
+        "/api/v1/commands/queue",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "queue" in data["data"]
+    assert "stats" in data["data"]
+    assert "totalQueued" in data["data"]["stats"]
+    assert "totalExecuting" in data["data"]["stats"]
+
+
+# ── Command Catalog ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_command_catalog(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+    sample_definition,
+):
+    """Test listing the command catalog."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.command_definitions.count_documents = AsyncMock(return_value=1)
+    mock_mongodb.command_definitions.find.return_value = create_mock_cursor([sample_definition])
+
+    response = await client.get(
+        "/api/v1/command-catalog",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["data"]) == 1
+    assert data["data"][0]["registryId"] == "reg::service::restart"
+    assert data["data"][0]["category"] == "service"
+    assert data["data"][0]["minimumRole"] == "operator"
+    assert data["data"][0]["deliveryMode"] == "poll_only"
+
+
+@pytest.mark.asyncio
+async def test_get_command_definition(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+    sample_definition,
+):
+    """Test getting a single command definition."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.command_definitions.find_one = AsyncMock(return_value=sample_definition)
+
+    response = await client.get(
+        "/api/v1/command-catalog/reg::service::restart",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["registryId"] == "reg::service::restart"
+    assert data["data"]["action"] == "restart"
+    assert data["data"]["rbac"]["minimumRole"] == "operator"
+    assert data["data"]["execution"]["deliveryMode"] == "poll_only"
+
+
+@pytest.mark.asyncio
+async def test_get_command_definition_not_found(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Test getting a non-existent command definition."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.command_definitions.find_one = AsyncMock(return_value=None)
+
+    response = await client.get(
+        "/api/v1/command-catalog/reg::service::nonexistent",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 404

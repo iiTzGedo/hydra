@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # Import from the new tool registry module
+from hydra_mcp.auth import AuthContext, set_auth_context
 from hydra_mcp.tools import (
     execute_tool,
     get_all_tools,
@@ -216,6 +217,19 @@ class TestValidateToolArgs:
 class TestToolValidationIntegration:
     """Integration tests for tool validation in execute_tool."""
 
+    @pytest.fixture(autouse=True)
+    def auth_context(self):
+        set_auth_context(
+            AuthContext(
+                user_id="user_admin123",
+                permissions=["*:*"],
+                role="admin",
+                source_type="internal",
+            )
+        )
+        yield
+        set_auth_context(None)
+
     @pytest.fixture
     def mock_client(self):
         """Create a mock Hydra API client."""
@@ -258,6 +272,19 @@ class TestToolValidationIntegration:
 @pytest.mark.asyncio
 class TestExecuteTool:
     """Tests for _execute_tool function."""
+
+    @pytest.fixture(autouse=True)
+    def auth_context(self):
+        set_auth_context(
+            AuthContext(
+                user_id="user_admin123",
+                permissions=["*:*"],
+                role="admin",
+                source_type="internal",
+            )
+        )
+        yield
+        set_auth_context(None)
 
     @pytest.fixture
     def mock_client(self):
@@ -542,6 +569,7 @@ class TestExecuteTool:
             node_id="node-1",
             service_id="svc-nginx-a1b2",
             action="restart",
+            parameters=None,
         )
 
     async def test_control_service_not_found(self, mock_client):
@@ -553,6 +581,106 @@ class TestExecuteTool:
                 "serviceId": "svc-nonexistent",
                 "action": "restart",
             })
+
+    async def test_control_node_tool(self, mock_client):
+        """Test control_node tool execution."""
+        mock_client.control_node = AsyncMock(return_value={"status": "queued"})
+
+        result = await execute_tool("control_node", {
+            "nodeId": "server-01",
+            "action": "reboot",
+            "confirm": True,
+        })
+
+        assert isinstance(result, str)
+        mock_client.control_node.assert_called_once_with(
+            node_id="server-01",
+            action="reboot",
+            parameters={"confirm": True},
+        )
+
+    async def test_control_agent_tool(self, mock_client):
+        """Test control_agent tool execution."""
+        mock_client.control_agent = AsyncMock(return_value={"status": "queued"})
+
+        result = await execute_tool("control_agent", {
+            "nodeId": "server-01",
+            "action": "collect-now",
+        })
+
+        assert isinstance(result, str)
+        mock_client.control_agent.assert_called_once_with(
+            node_id="server-01",
+            action="collect-now",
+        )
+
+    async def test_get_command_status_tool(self, mock_client):
+        """Test get_command_status tool execution."""
+        mock_client.get_command_status = AsyncMock(return_value={
+            "commandId": "cmd-abc123",
+            "status": "completed",
+            "result": {"success": True, "output": "OK"},
+        })
+
+        result = await execute_tool("get_command_status", {
+            "commandId": "cmd-abc123",
+        })
+
+        assert isinstance(result, str)
+        mock_client.get_command_status.assert_called_once_with("cmd-abc123")
+
+    async def test_internal_only_tool_blocked_for_external_client(self, mock_client):
+        """Test that internal-only tools are blocked for external clients."""
+        from hydra_mcp.auth import AuthContext, set_auth_context, SourceRestrictionError
+
+        # Set auth context as external client
+        set_auth_context(AuthContext(
+            user_id="user_admin123",
+            permissions=["*:*"],
+            role="admin",
+            source_type="external",
+            client_id="claude-desktop-abc123",
+        ))
+
+        mock_client.get_service = AsyncMock(return_value={
+            "serviceId": "svc-nginx-a1b2",
+            "nodeId": "node-1",
+        })
+
+        try:
+            with pytest.raises(SourceRestrictionError) as exc_info:
+                await execute_tool("control_service", {
+                    "serviceId": "svc-nginx-a1b2",
+                    "action": "restart",
+                })
+            assert exc_info.value.tool == "control_service"
+            assert "Hydra web interface" in exc_info.value.message
+        finally:
+            set_auth_context(None)
+
+    async def test_read_tool_allowed_for_external_client(self, mock_client):
+        """Test that read tools (get_command_status) work for external clients."""
+        from hydra_mcp.auth import AuthContext, set_auth_context
+
+        set_auth_context(AuthContext(
+            user_id="user_admin123",
+            permissions=["commands:read"],
+            role="admin",
+            source_type="external",
+        ))
+
+        mock_client.get_command_status = AsyncMock(return_value={
+            "commandId": "cmd-abc123",
+            "status": "completed",
+        })
+
+        try:
+            result = await execute_tool("get_command_status", {
+                "commandId": "cmd-abc123",
+            })
+            assert isinstance(result, str)
+        finally:
+            set_auth_context(None)
 
     async def test_control_device_tool(self, mock_client):
         """Test control_device tool execution."""

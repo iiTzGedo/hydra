@@ -46,10 +46,19 @@ pub struct ExecuteTarget {
 pub struct ExecuteResponse {
     pub command_id: String,
     pub status: String,
+    pub result: ExecuteResultData,
+    pub duration_ms: u64,
+}
+
+/// Result data within an ExecuteResponse.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteResultData {
+    pub success: bool,
+    pub output: Option<String>,
     pub exit_code: Option<i32>,
-    pub stdout: Option<String>,
-    pub stderr: Option<String>,
-    pub duration_ms: Option<u64>,
+    pub error: Option<String>,
+    pub data: Option<serde_json::Value>,
 }
 
 // =============================================================================

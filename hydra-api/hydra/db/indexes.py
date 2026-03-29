@@ -101,9 +101,25 @@ INDEXES: dict[str, list[IndexModel]] = {
     ],
     "commands": [
         IndexModel([("commandId", ASCENDING)], unique=True),
-        IndexModel([("nodeId", ASCENDING), ("status", ASCENDING)]),
+        IndexModel([("target.nodeId", ASCENDING), ("status", ASCENDING)]),
         IndexModel([("status", ASCENDING), ("createdAt", ASCENDING)]),
         IndexModel([("createdAt", DESCENDING)]),
+        IndexModel([("registryId", ASCENDING), ("status", ASCENDING)]),
+        IndexModel([("chain.chainId", ASCENDING)], sparse=True),
+    ],
+    "command_definitions": [
+        IndexModel([("registryId", ASCENDING)], unique=True),
+        IndexModel([("category", ASCENDING)]),
+        IndexModel([("metadata.builtIn", ASCENDING)]),
+    ],
+    "workflows": [
+        IndexModel([("chainId", ASCENDING)], unique=True),
+        IndexModel([("createdBy", ASCENDING), ("createdAt", DESCENDING)]),
+    ],
+    "workflow_executions": [
+        IndexModel([("executionId", ASCENDING)], unique=True),
+        IndexModel([("chainId", ASCENDING), ("startedAt", DESCENDING)]),
+        IndexModel([("status", ASCENDING)]),
     ],
     "audit_log": [
         IndexModel([("timestamp", DESCENDING)]),

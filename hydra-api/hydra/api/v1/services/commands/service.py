@@ -1,6 +1,6 @@
 """Commands service for command queue management and execution tracking."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -20,15 +20,20 @@ from hydra.api.v1.core.exceptions import (
     CommandNodeMismatchError,
     CommandNotFoundError,
     CommandNotSupportedError,
+    CommandRejectedError,
+    CommandRegistryNotFoundError,
     NodeNotFoundError,
+    ValidationError,
 )
 from hydra.api.v1.models.commands import (
     CommandListParams,
+    CommandDeliveryMode,
     CommandSource,
     CommandStatus,
     CreateCommandRequest,
     SubmitCommandResultRequest,
 )
+from hydra.api.v1.models.auth import get_role_level
 
 # Maximum consecutive direct-call failures before marking agent unreachable
 MAX_DIRECT_FAILURES = 3
@@ -43,33 +48,73 @@ class CommandsService:
         self.mongodb = mongodb
         self.commands = mongodb.commands
         self.nodes = mongodb.nodes
+        self.services = mongodb.services
+        self.command_definitions = mongodb.command_definitions
 
     async def create_command(
         self,
         request: CreateCommandRequest,
         user_id: str | None = None,
+        user_role: str | None = None,
         source: CommandSource = CommandSource.API,
+        client_id: str | None = None,
+        chain: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create a command with tier-aware dispatch.
+        """Create a command with registry validation and tier-aware dispatch.
 
-        - Lite tier: rejected (does not support command execution)
-        - Normal tier: queued for poll-based execution
-        - Max tier: try direct HTTP call to agent, fallback to queue on failure
+        1. Validate registryId against the command catalog
+        2. Check RBAC minimumRole against user role
+        3. Tier-aware dispatch: lite rejects, normal queues, max tries direct
 
         Args:
-            request: Command creation payload with type, target, action, and parameters.
+            request: Command creation payload with registryId, target, and parameters.
             user_id: The requesting user's identifier (None for system commands).
+            user_role: The requesting user's role (for RBAC validation).
             source: The command source (API, MCP, etc.).
+            client_id: The originating client identifier (e.g., 'hydra-web', 'claude-desktop').
 
         Returns:
-            The created command document. Contains 'executionMethod' field
-            indicating how the command was dispatched ('direct' or 'poll').
+            The created command document.
 
         Raises:
+            CommandRegistryNotFoundError: If the registryId is not in the catalog.
+            CommandRejectedError: If the user lacks the required role.
             NodeNotFoundError: If the target node does not exist or is not active.
             CommandNotSupportedError: If the agent tier does not support commands.
         """
-        node = await self.nodes.find_one({"nodeId": request.target.node_id, "status": "active"})
+        # Step 1: Validate against command registry
+        definition = await self.command_definitions.find_one(
+            {"registryId": request.registry_id}
+        )
+        if not definition:
+            # Persist rejected command for audit trail
+            rejected_doc = await self._create_rejected_command(
+                request, user_id, source, client_id,
+                error_code="REGISTRY_NOT_FOUND",
+                error_message=f"Command '{request.registry_id}' is not registered in the catalog",
+            )
+            raise CommandRegistryNotFoundError(request.registry_id)
+
+        # Step 2: Check RBAC
+        minimum_role = definition.get("rbac", {}).get("minimumRole", "operator")
+        if user_role and get_role_level(user_role) < get_role_level(minimum_role):
+            rejected_doc = await self._create_rejected_command(
+                request, user_id, source, client_id,
+                error_code="INSUFFICIENT_ROLE",
+                error_message=(
+                    f"Role '{user_role}' insufficient for '{request.registry_id}' "
+                    f"(requires '{minimum_role}')"
+                ),
+            )
+            raise CommandRejectedError(
+                f"Role '{user_role}' insufficient for '{request.registry_id}' "
+                f"(requires '{minimum_role}')"
+            )
+
+        # Step 3: Validate target node
+        node = await self.nodes.find_one(
+            {"nodeId": request.target.node_id, "status": "active"}
+        )
         if not node:
             raise NodeNotFoundError(request.target.node_id)
 
@@ -82,46 +127,179 @@ class CommandsService:
                 f"command execution. Upgrade to 'normal' or 'max' tier."
             )
 
-        # Max tier: try direct execution first
-        if tier == "max":
-            direct_result = await self._try_direct_execution(node, request, user_id, source)
+        # Derive category and action from the registry definition
+        category = definition.get("category", "custom")
+        action = definition.get("action", request.registry_id.split("::")[-1])
+        dispatch_parameters = dict(request.parameters or {})
+
+        if category == "service":
+            dispatch_parameters = await self._normalize_service_parameters(
+                request, action, dispatch_parameters
+            )
+
+        # Step 4: Resolve timeout (request override > registry default)
+        timeout = request.timeout_seconds or definition.get("execution", {}).get("timeout", 60)
+        delivery_mode = definition.get("execution", {}).get(
+            "deliveryMode",
+            CommandDeliveryMode.POLL_ONLY.value,
+        )
+
+        # Max tier: only direct-execute duplicate-safe commands
+        if tier == "max" and delivery_mode == CommandDeliveryMode.DIRECT_OR_POLL.value:
+            direct_result = await self._try_direct_execution(
+                node,
+                request,
+                definition,
+                category,
+                action,
+                timeout,
+                dispatch_parameters,
+                user_id,
+                source,
+                client_id,
+                chain,
+            )
             if direct_result is not None:
                 return direct_result
 
         # Normal tier or max-tier fallback: queue for poll-based execution
-        return await self._queue_command(request, user_id, source)
+        return await self._queue_command(
+            request,
+            definition,
+            category,
+            action,
+            timeout,
+            dispatch_parameters,
+            user_id,
+            source,
+            client_id,
+            chain,
+        )
 
-    async def _queue_command(
+    async def _create_rejected_command(
         self,
         request: CreateCommandRequest,
         user_id: str | None,
         source: CommandSource,
+        client_id: str | None = None,
+        *,
+        error_code: str,
+        error_message: str,
     ) -> dict[str, Any]:
-        """Queue a command for poll-based execution by the agent."""
+        """Persist a rejected command for audit trail."""
         command_id = f"cmd-{uuid4().hex[:12]}"
         now = datetime.now(UTC)
 
         command_doc = {
             "commandId": command_id,
-            "type": request.type.value,
+            "registryId": request.registry_id,
+            "type": "unknown",
             "target": {
                 "nodeId": request.target.node_id,
                 "serviceId": request.target.service_id,
             },
-            "action": request.action,
+            "action": request.registry_id.split("::")[-1] if "::" in request.registry_id else request.registry_id,
             "parameters": request.parameters or {},
-            "status": CommandStatus.QUEUED.value,
-            "executionMethod": "poll",
+            "status": CommandStatus.REJECTED.value,
+            "executionMethod": None,
             "result": None,
+            "error": {
+                "code": error_code,
+                "message": error_message,
+            },
             "requestedBy": {
                 "userId": user_id,
                 "source": source.value,
+                "clientId": client_id,
             },
-            "timeoutSeconds": request.timeout_seconds,
+            "timeoutSeconds": request.timeout_seconds or 60,
+            "retryCount": 0,
+            "chain": None,
+            "createdAt": now,
+            "queuedAt": None,
+            "startedAt": None,
+            "completedAt": now,
+            "cancelledAt": None,
+            "cancelledBy": None,
+        }
+
+        await self.commands.insert_one(command_doc)
+
+        logger.info(
+            "command_rejected",
+            command_id=command_id,
+            registry_id=request.registry_id,
+            error_code=error_code,
+        )
+
+        # Audit log the rejection (security-relevant event)
+        safe_create_task(
+            log_audit(
+                action=AuditAction.EXECUTE,
+                resource_type="command",
+                resource_id=command_id,
+                actor_type="user",
+                actor_id=user_id or "unknown",
+                success=False,
+                details={"registryId": request.registry_id, "errorCode": error_code},
+                error=error_message,
+            )
+        )
+
+        return command_doc
+
+    async def _queue_command(
+        self,
+        request: CreateCommandRequest,
+        definition: dict,
+        category: str,
+        action: str,
+        timeout: int,
+        dispatch_parameters: dict[str, Any],
+        user_id: str | None,
+        source: CommandSource,
+        client_id: str | None = None,
+        chain: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Queue a command for poll-based execution by the agent."""
+        command_id = f"cmd-{uuid4().hex[:12]}"
+        now = datetime.now(UTC)
+
+        # Compute queue position
+        queue_count = await self.commands.count_documents({
+            "target.nodeId": request.target.node_id,
+            "status": CommandStatus.QUEUED.value,
+        })
+
+        command_doc = {
+            "commandId": command_id,
+            "registryId": request.registry_id,
+            "type": category,
+            "target": {
+                "nodeId": request.target.node_id,
+                "serviceId": request.target.service_id,
+            },
+            "action": action,
+            "parameters": dispatch_parameters,
+            "status": CommandStatus.QUEUED.value,
+            "executionMethod": "agent-poll",
+            "result": None,
+            "error": None,
+            "requestedBy": {
+                "userId": user_id,
+                "source": source.value,
+                "clientId": client_id,
+            },
+            "timeoutSeconds": timeout,
+            "retryCount": 0,
+            "queuePosition": queue_count + 1,
+            "chain": chain,
             "createdAt": now,
             "queuedAt": now,
             "startedAt": None,
             "completedAt": None,
+            "cancelledAt": None,
+            "cancelledBy": None,
         }
 
         await self.commands.insert_one(command_doc)
@@ -129,10 +307,11 @@ class CommandsService:
         logger.info(
             "command_queued",
             command_id=command_id,
-            type=request.type.value,
+            registry_id=request.registry_id,
+            type=category,
             target_node=request.target.node_id,
-            action=request.action,
-            execution_method="poll",
+            action=action,
+            execution_method="agent-poll",
         )
 
         return command_doc
@@ -141,8 +320,15 @@ class CommandsService:
         self,
         node: dict,
         request: CreateCommandRequest,
+        definition: dict,
+        category: str,
+        action: str,
+        timeout: int,
+        dispatch_parameters: dict[str, Any],
         user_id: str | None,
         source: CommandSource,
+        client_id: str | None = None,
+        chain: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """Attempt direct command execution on a max-tier agent's HTTP server.
 
@@ -180,13 +366,13 @@ class CommandsService:
         # Build the execute payload for the agent's POST /execute endpoint
         execute_payload = {
             "commandId": command_id,
-            "registryId": request.action,
+            "registryId": request.registry_id,
             "target": {
                 "nodeId": request.target.node_id,
                 "serviceId": request.target.service_id,
             },
-            "parameters": request.parameters,
-            "timeoutSeconds": request.timeout_seconds,
+            "parameters": dispatch_parameters,
+            "timeoutSeconds": timeout,
         }
 
         scheme = "https" if server_tls_enabled else "http"
@@ -194,7 +380,7 @@ class CommandsService:
 
         try:
             async with httpx.AsyncClient(
-                timeout=min(request.timeout_seconds, 30),
+                timeout=min(timeout, 30),
                 verify=False,
             ) as client:
                 response = await client.post(
@@ -219,6 +405,9 @@ class CommandsService:
                     "error": agent_result.get("result", {}).get("error")
                     if isinstance(agent_result.get("result"), dict)
                     else None,
+                    "data": agent_result.get("result", {}).get("data")
+                    if isinstance(agent_result.get("result"), dict)
+                    else None,
                 }
 
                 final_status = (
@@ -229,25 +418,33 @@ class CommandsService:
 
                 command_doc = {
                     "commandId": command_id,
-                    "type": request.type.value,
+                    "registryId": request.registry_id,
+                    "type": category,
                     "target": {
                         "nodeId": request.target.node_id,
                         "serviceId": request.target.service_id,
                     },
-                    "action": request.action,
-                    "parameters": request.parameters or {},
+                    "action": action,
+                    "parameters": dispatch_parameters,
                     "status": final_status,
-                    "executionMethod": "direct",
+                    "executionMethod": "agent-direct",
                     "result": result_doc,
+                    "error": None,
                     "requestedBy": {
                         "userId": user_id,
                         "source": source.value,
+                        "clientId": client_id,
                     },
-                    "timeoutSeconds": request.timeout_seconds,
+                    "timeoutSeconds": timeout,
+                    "retryCount": 0,
+                    "queuePosition": None,
+                    "chain": chain,
                     "createdAt": now,
                     "queuedAt": None,
                     "startedAt": now,
                     "completedAt": datetime.now(UTC),
+                    "cancelledAt": None,
+                    "cancelledBy": None,
                 }
 
                 await self.commands.insert_one(command_doc)
@@ -321,36 +518,99 @@ class CommandsService:
                     {"$set": {"serverReachable": False}},
                 )
 
+    async def _normalize_service_parameters(
+        self,
+        request: CreateCommandRequest,
+        action: str,
+        parameters: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Resolve a serviceId into the canonical execution parameters."""
+        service_id = request.target.service_id
+        if not service_id:
+            raise ValidationError("Service commands require target.serviceId")
+
+        service = await self.services.find_one({"serviceId": service_id})
+        if not service:
+            raise ValidationError(
+                f"Service '{service_id}' was not found for command execution",
+                details={"serviceId": service_id},
+            )
+
+        actual_node_id = service.get("nodeId")
+        if actual_node_id != request.target.node_id:
+            raise ValidationError(
+                (
+                    f"Service '{service_id}' belongs to node '{actual_node_id}', "
+                    f"not '{request.target.node_id}'"
+                ),
+                details={
+                    "serviceId": service_id,
+                    "expectedNodeId": actual_node_id,
+                    "targetNodeId": request.target.node_id,
+                },
+            )
+
+        normalized = dict(parameters)
+        normalized["serviceId"] = service_id
+        normalized["name"] = service["name"]
+        normalized["runtime"] = service.get("runtime", "systemd")
+
+        image = service.get("image")
+        if image:
+            normalized["image"] = image
+
+        if action == "update":
+            runtime = normalized["runtime"]
+            if runtime not in {"docker", "podman"}:
+                raise ValidationError(
+                    f"Service updates are only supported for docker or podman runtimes, not '{runtime}'",
+                    details={"runtime": runtime, "serviceId": service_id},
+                )
+            if not image:
+                raise ValidationError(
+                    "Service update requires image metadata on the target service",
+                    details={"serviceId": service_id},
+                )
+
+            version = normalized.get("version")
+            if version:
+                normalized["image"] = self._build_versioned_image(image, str(version))
+
+        return normalized
+
+    def _build_versioned_image(self, image: str, version: str) -> str:
+        """Replace the tag on a container image while preserving registry paths."""
+        if "@" in image:
+            raise ValidationError(
+                "Cannot override version for digest-pinned images",
+                details={"image": image},
+            )
+
+        last_slash = image.rfind("/")
+        last_colon = image.rfind(":")
+        if last_colon <= last_slash:
+            raise ValidationError(
+                "Cannot override version for tagless images",
+                details={"image": image},
+            )
+
+        return f"{image[:last_colon]}:{version}"
+
     async def get_command(self, command_id: str) -> dict[str, Any]:
-        """Get a command by its identifier.
-
-        Args:
-            command_id: The command identifier.
-
-        Returns:
-            The command document.
-
-        Raises:
-            CommandNotFoundError: If the command does not exist.
-        """
+        """Get a command by its identifier."""
         command = await self.commands.find_one({"commandId": command_id})
         if not command:
             raise CommandNotFoundError(command_id)
         return command
 
     async def list_commands(self, params: CommandListParams) -> tuple[list[dict[str, Any]], int]:
-        """List commands with optional filtering and pagination.
-
-        Args:
-            params: Query parameters including node_id, type, status, since, offset, limit.
-
-        Returns:
-            Tuple of (list of command documents, total count).
-        """
+        """List commands with optional filtering and pagination."""
         query: dict[str, Any] = {}
 
         if params.node_id:
             query["target.nodeId"] = params.node_id
+        if params.registry_id:
+            query["registryId"] = params.registry_id
         if params.type:
             query["type"] = params.type.value
         if params.status:
@@ -368,14 +628,17 @@ class CommandsService:
 
         return commands, total
 
-    async def cancel_command(self, command_id: str) -> dict[str, Any]:
+    async def cancel_command(
+        self, command_id: str, cancelled_by: str | None = None
+    ) -> dict[str, Any]:
         """Cancel a pending or queued command.
 
         Args:
             command_id: The command identifier.
+            cancelled_by: User ID of who cancelled the command.
 
         Returns:
-            Dict with command_id, status, and cancelled_at timestamp.
+            Dict with command_id, status, cancelled_at, and cancelled_by.
 
         Raises:
             CommandNotFoundError: If the command does not exist.
@@ -394,16 +657,19 @@ class CommandsService:
                 "$set": {
                     "status": CommandStatus.CANCELLED.value,
                     "completedAt": now,
+                    "cancelledAt": now,
+                    "cancelledBy": cancelled_by,
                 }
             },
         )
 
-        logger.info("command_cancelled", command_id=command_id)
+        logger.info("command_cancelled", command_id=command_id, cancelled_by=cancelled_by)
 
         return {
             "commandId": command_id,
             "status": CommandStatus.CANCELLED.value,
             "cancelledAt": now,
+            "cancelledBy": cancelled_by,
         }
 
     async def poll_commands(self, node_id: str) -> list[dict[str, Any]]:
@@ -411,23 +677,12 @@ class CommandsService:
 
         Atomically claims queued commands to prevent duplicate execution by
         concurrent pollers. Used by agents to fetch work.
-
-        Args:
-            node_id: The node identifier to poll commands for.
-
-        Returns:
-            List of command payloads formatted for agent consumption.
-
-        Raises:
-            NodeNotFoundError: If the node does not exist.
         """
         node = await self.nodes.find_one({"nodeId": node_id})
         if not node:
             raise NodeNotFoundError(node_id)
 
         # Update lastSeenAt and lastPollContact on every agent poll.
-        # If the agent was previously marked unreachable, reset reachability
-        # since it's clearly online (it just polled us).
         now = datetime.now(UTC)
         poll_update: dict[str, Any] = {
             "lastSeenAt": now,
@@ -471,6 +726,7 @@ class CommandsService:
             result.append(
                 {
                     "commandId": cmd["commandId"],
+                    "registryId": cmd.get("registryId"),
                     "type": cmd["type"],
                     "action": cmd["action"],
                     "target": {
@@ -485,20 +741,7 @@ class CommandsService:
         return result
 
     async def mark_command_executing(self, command_id: str) -> dict[str, Any]:
-        """Mark a command as executing.
-
-        Called by the agent when it begins processing a command.
-
-        Args:
-            command_id: The command identifier.
-
-        Returns:
-            The updated command document.
-
-        Raises:
-            CommandNotFoundError: If the command does not exist.
-            HydraError: If the command is not in queued state.
-        """
+        """Mark a command as executing."""
         command = await self.get_command(command_id)
 
         if command["status"] == CommandStatus.EXECUTING.value:
@@ -537,20 +780,7 @@ class CommandsService:
         command_id: str,
         result: SubmitCommandResultRequest,
     ) -> dict[str, Any]:
-        """Submit command execution result from an agent.
-
-        Args:
-            node_id: The node identifier submitting the result.
-            command_id: The command identifier.
-            result: Execution result with success status, output, exit code, and error.
-
-        Returns:
-            Dict with command_id, final status, and completed_at timestamp.
-
-        Raises:
-            CommandNotFoundError: If the command does not exist.
-            HydraError: If the command is not assigned to the submitting node.
-        """
+        """Submit command execution result from an agent."""
         command = await self.get_command(command_id)
 
         if command["target"]["nodeId"] != node_id:
@@ -564,17 +794,26 @@ class CommandsService:
             "output": result.output,
             "exitCode": result.exit_code,
             "error": result.error,
+            "data": result.data,
         }
+
+        update_set: dict[str, Any] = {
+            "status": final_status.value,
+            "result": result_doc,
+            "completedAt": now,
+        }
+
+        # If failed, also set structured error
+        if not result.success:
+            update_set["error"] = {
+                "code": "EXECUTION_FAILED",
+                "message": result.error or "Command execution failed",
+                "details": {"exitCode": result.exit_code},
+            }
 
         await self.commands.update_one(
             {"commandId": command_id},
-            {
-                "$set": {
-                    "status": final_status.value,
-                    "result": result_doc,
-                    "completedAt": now,
-                }
-            },
+            {"$set": update_set},
         )
 
         logger.info(
@@ -650,20 +889,107 @@ class CommandsService:
             "completedAt": now,
         }
 
-    async def timeout_stale_commands(self, timeout_minutes: int = 10) -> int:
-        """Mark stale executing commands as timed out.
-
-        Typically called by a background task to clean up commands that have
-        been executing longer than the allowed timeout.
+    async def get_queue_view(
+        self, node_id: str | None = None
+    ) -> dict[str, Any]:
+        """Get current queue state with statistics.
 
         Args:
-            timeout_minutes: Number of minutes after which executing commands are timed out.
+            node_id: Optional filter by target node.
 
         Returns:
-            The number of commands that were marked as timed out.
+            Dict with queue items and stats.
         """
-        from datetime import timedelta
+        base_query: dict[str, Any] = {}
+        if node_id:
+            base_query["target.nodeId"] = node_id
 
+        queued_query = {**base_query, "status": CommandStatus.QUEUED.value}
+        executing_query = {**base_query, "status": CommandStatus.EXECUTING.value}
+
+        total_queued = await self.commands.count_documents(queued_query)
+        total_executing = await self.commands.count_documents(executing_query)
+
+        # Get oldest queued command
+        oldest = await self.commands.find_one(
+            queued_query,
+            sort=[("queuedAt", 1)],
+        )
+        oldest_queued_at = oldest["queuedAt"] if oldest else None
+
+        # Get queue items (queued + executing)
+        active_query = {
+            **base_query,
+            "status": {"$in": [CommandStatus.QUEUED.value, CommandStatus.EXECUTING.value]},
+        }
+        cursor = self.commands.find(active_query).sort("queuedAt", 1).limit(200)
+        queue_items = await cursor.to_list(length=200)
+
+        return {
+            "queue": queue_items,
+            "stats": {
+                "totalQueued": total_queued,
+                "totalExecuting": total_executing,
+                "oldestQueuedAt": oldest_queued_at,
+            },
+        }
+
+    async def flush_queue(
+        self,
+        scope: str,
+        user_id: str | None = None,
+    ) -> int:
+        """Flush (cancel) queued commands.
+
+        Args:
+            scope: 'all', 'node:<nodeId>', or 'user:<userId>'.
+            user_id: The user performing the flush.
+
+        Returns:
+            Number of commands flushed.
+        """
+        query: dict[str, Any] = {"status": CommandStatus.QUEUED.value}
+
+        if scope.startswith("node:"):
+            query["target.nodeId"] = scope[5:]
+        elif scope.startswith("user:"):
+            query["requestedBy.userId"] = scope[5:]
+
+        now = datetime.now(UTC)
+
+        result = await self.commands.update_many(
+            query,
+            {
+                "$set": {
+                    "status": CommandStatus.CANCELLED.value,
+                    "completedAt": now,
+                    "cancelledAt": now,
+                    "cancelledBy": user_id,
+                }
+            },
+        )
+
+        if result.modified_count > 0:
+            logger.info(
+                "queue_flushed",
+                scope=scope,
+                flushed_count=result.modified_count,
+                flushed_by=user_id,
+            )
+            await log_audit(
+                action=AuditAction.DELETE,
+                resource_type="command_queue",
+                resource_id=scope,
+                actor_type="user",
+                actor_id=user_id or "unknown",
+                success=True,
+                details={"scope": scope, "flushedCount": result.modified_count},
+            )
+
+        return result.modified_count
+
+    async def timeout_stale_commands(self, timeout_minutes: int = 10) -> int:
+        """Mark stale executing commands as timed out."""
         cutoff = datetime.now(UTC) - timedelta(minutes=timeout_minutes)
 
         result = await self.commands.update_many(
@@ -680,6 +1006,11 @@ class CommandsService:
                         "output": None,
                         "exitCode": None,
                         "error": "Command execution timed out",
+                    },
+                    "error": {
+                        "code": "EXECUTION_TIMEOUT",
+                        "message": "Command execution timed out",
+                        "details": {"timeoutMinutes": timeout_minutes},
                     },
                 }
             },

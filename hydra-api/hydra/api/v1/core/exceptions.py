@@ -467,6 +467,24 @@ class CommandNodeMismatchError(HydraError):
         )
 
 
+class CommandRegistryNotFoundError(NotFoundError):
+    """Command registry entry not found."""
+
+    def __init__(self, registry_id: str):
+        super().__init__("command_definition", registry_id)
+
+
+class CommandRejectedError(HydraError):
+    """Command was rejected (validation/RBAC failure)."""
+
+    def __init__(self, message: str):
+        super().__init__(
+            "COMMAND_REJECTED",
+            message,
+            status_code=403,
+        )
+
+
 class DocNotFoundError(NotFoundError):
     """Documentation not found."""
 
@@ -562,4 +580,44 @@ class OperationNotAllowedError(HydraError):
             message,
             status_code=422,
             details={"operation": operation},
+        )
+
+
+# ── Workflow Exceptions ──────────────────────────────────────────────────
+
+
+class WorkflowNotFoundError(NotFoundError):
+    """Workflow definition not found."""
+
+    def __init__(self, chain_id: str):
+        super().__init__("workflow", chain_id)
+
+
+class WorkflowExecutionNotFoundError(NotFoundError):
+    """Workflow execution not found."""
+
+    def __init__(self, execution_id: str):
+        super().__init__("workflow_execution", execution_id)
+
+
+class WorkflowCycleError(HydraError):
+    """Workflow step dependency graph contains a cycle."""
+
+    def __init__(self, message: str):
+        super().__init__(
+            "WORKFLOW_CYCLE_DETECTED",
+            message,
+            status_code=422,
+        )
+
+
+class WorkflowNotCancellableError(HydraError):
+    """Workflow execution cannot be cancelled."""
+
+    def __init__(self, execution_id: str, status: str):
+        super().__init__(
+            "WORKFLOW_NOT_CANCELLABLE",
+            f"Workflow execution '{execution_id}' cannot be cancelled (status: {status})",
+            status_code=422,
+            details={"executionId": execution_id, "status": status},
         )

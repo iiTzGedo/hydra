@@ -1,6 +1,6 @@
 """Command execution endpoints."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
 import structlog
@@ -8,8 +8,12 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
 from hydra.api.v1.core.deps import CurrentUser, MongoDBDep, require_permission
+from hydra.api.v1.core.exceptions import AdminOnlyError
 from hydra.api.v1.models.commands import (
     CommandCancelledResponse,
+    CommandCategory,
+    CommandDefinitionResponse,
+    CommandDefinitionSummary,
     CommandExecutionMethod,
     CommandListParams,
     CommandPollResponse,
@@ -22,10 +26,22 @@ from hydra.api.v1.models.commands import (
     CommandSummary,
     CommandType,
     CreateCommandRequest,
+    QueueFlushRequest,
+    QueueFlushResponse,
+    QueueStats,
+    QueueViewResponse,
     SubmitCommandResultRequest,
+)
+from hydra.api.v1.models.commands.registry import (
+    AuditConfig,
+    CommandDeliveryMode,
+    ExecutionConfig,
+    RbacConfig,
+    RegistryMetadata,
 )
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.services.commands import CommandsService
+from hydra.api.v1.services.commands.registry import CommandRegistryService
 
 router = APIRouter(prefix="/commands", tags=["Commands"])
 logger = structlog.get_logger(__name__)
@@ -36,7 +52,98 @@ def get_commands_service(mongodb: MongoDBDep) -> CommandsService:
     return CommandsService(mongodb)
 
 
+def get_registry_service(mongodb: MongoDBDep) -> CommandRegistryService:
+    """Get command registry service dependency."""
+    return CommandRegistryService(mongodb)
+
+
 CommandsServiceDep = Annotated[CommandsService, Depends(get_commands_service)]
+RegistryServiceDep = Annotated[CommandRegistryService, Depends(get_registry_service)]
+
+
+# ── Command Catalog ──────────────────────────────────────────────────────
+
+
+catalog_router = APIRouter(prefix="/command-catalog", tags=["Command Catalog"])
+
+
+@catalog_router.get(
+    "",
+    response_model=SuccessResponse[list[CommandDefinitionSummary]],
+    response_model_by_alias=True,
+    summary="List Command Catalog",
+    description="List all registered command definitions.",
+    dependencies=[Depends(require_permission("commands:read"))],
+)
+async def list_command_catalog(
+    registry_service: RegistryServiceDep,
+    category: CommandCategory | None = None,
+    include_deprecated: bool = Query(default=False, alias="includeDeprecated"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> SuccessResponse[list[CommandDefinitionSummary]]:
+    """List command definitions from the catalog."""
+    definitions, total = await registry_service.list_definitions(
+        category=category.value if category else None,
+        include_deprecated=include_deprecated,
+        limit=limit,
+        offset=offset,
+    )
+
+    return SuccessResponse(
+        data=[
+            CommandDefinitionSummary(
+                registry_id=d["registryId"],
+                category=CommandCategory(d["category"]),
+                action=d["action"],
+                display_name=d["displayName"],
+                description=d.get("description"),
+                minimum_role=d.get("rbac", {}).get("minimumRole", "operator"),
+                requires_confirmation=d.get("rbac", {}).get("requiresConfirmation", False),
+                timeout=d.get("execution", {}).get("timeout", 60),
+                delivery_mode=d.get("execution", {}).get("deliveryMode", CommandDeliveryMode.POLL_ONLY.value),
+                built_in=d.get("metadata", {}).get("builtIn", False),
+                deprecated=d.get("metadata", {}).get("deprecated", False),
+            )
+            for d in definitions
+        ],
+        meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@catalog_router.get(
+    "/{registry_id:path}",
+    response_model=SuccessResponse[CommandDefinitionResponse],
+    response_model_by_alias=True,
+    summary="Get Command Definition",
+    description="Get a single command definition by registry ID.",
+    dependencies=[Depends(require_permission("commands:read"))],
+)
+async def get_command_definition(
+    registry_id: str,
+    registry_service: RegistryServiceDep,
+) -> SuccessResponse[CommandDefinitionResponse]:
+    """Get a command definition from the catalog."""
+    d = await registry_service.get_definition(registry_id)
+
+    return SuccessResponse(
+        data=CommandDefinitionResponse(
+            registry_id=d["registryId"],
+            category=CommandCategory(d["category"]),
+            action=d["action"],
+            display_name=d["displayName"],
+            description=d.get("description"),
+            target_schema=d.get("targetSchema"),
+            parameters_schema=d.get("parametersSchema"),
+            execution=ExecutionConfig(**d.get("execution", {})),
+            rbac=RbacConfig(**d.get("rbac", {"minimumRole": "operator"})),
+            audit=AuditConfig(**d.get("audit", {})),
+            metadata=RegistryMetadata(**d.get("metadata", {"addedAt": d.get("createdAt", datetime.now(UTC))})),
+        )
+    )
+
+
+# ── Commands ─────────────────────────────────────────────────────────────
 
 
 @router.post(
@@ -60,54 +167,117 @@ async def create_command(
     commands_service: CommandsServiceDep,
     current_user: CurrentUser,
 ) -> JSONResponse:
-    """Submit a command for tier-aware execution on an agent.
-
-    Args:
-        request: Command specification including type, target, and parameters.
-        commands_service: Commands service instance.
-        current_user: User initiating the command.
-
-    Returns:
-        200 with result for direct execution, or 202 for queued execution.
-
-    Raises:
-        HTTPException 400: Invalid command or lite-tier agent.
-        HTTPException 403: Insufficient permissions.
-        HTTPException 404: Target node not found.
-    """
+    """Submit a command for tier-aware execution on an agent."""
     source = CommandSource.API
     if hasattr(current_user, "source"):
         source = current_user.source
 
     user_id = current_user.get("userId") if isinstance(current_user, dict) else getattr(current_user, "user_id", None)
+    user_role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
 
     command = await commands_service.create_command(
         request,
         user_id=user_id,
+        user_role=user_role,
         source=source,
     )
 
-    execution_method = command.get("executionMethod", "poll")
+    execution_method = command.get("executionMethod")
     result_data = command.get("result")
 
     response_data = CommandQueuedResponse(
         command_id=command["commandId"],
+        registry_id=command.get("registryId"),
         type=CommandType(command["type"]),
         target=command["target"],
         action=command["action"],
         status=CommandStatus(command["status"]),
-        execution_method=CommandExecutionMethod(execution_method),
+        execution_method=CommandExecutionMethod(execution_method) if execution_method else CommandExecutionMethod.AGENT_POLL,
         result=CommandResult(**result_data) if result_data else None,
+        queue_position=command.get("queuePosition"),
         queued_at=command.get("queuedAt"),
         completed_at=command.get("completedAt"),
     )
 
     wrapped = SuccessResponse(data=response_data)
-    status_code = 200 if execution_method == "direct" else 202
+    status_code = 200 if execution_method == "agent-direct" else 202
 
     return JSONResponse(
         content=wrapped.model_dump(by_alias=True, mode="json"),
         status_code=status_code,
+    )
+
+
+@router.get(
+    "/queue",
+    response_model=SuccessResponse[QueueViewResponse],
+    response_model_by_alias=True,
+    summary="View Command Queue",
+    description="View the current command queue with statistics.",
+    dependencies=[Depends(require_permission("commands:read"))],
+)
+async def view_queue(
+    commands_service: CommandsServiceDep,
+    node_id: str | None = Query(default=None, alias="nodeId"),
+) -> SuccessResponse[QueueViewResponse]:
+    """View the current command queue."""
+    result = await commands_service.get_queue_view(node_id=node_id)
+
+    queue_items = [
+        CommandSummary(
+            command_id=cmd["commandId"],
+            registry_id=cmd.get("registryId"),
+            type=CommandType(cmd["type"]),
+            target=cmd["target"],
+            action=cmd["action"],
+            status=CommandStatus(cmd["status"]),
+            created_at=cmd["createdAt"],
+        )
+        for cmd in result["queue"]
+    ]
+
+    stats = QueueStats(
+        total_queued=result["stats"]["totalQueued"],
+        total_executing=result["stats"]["totalExecuting"],
+        oldest_queued_at=result["stats"]["oldestQueuedAt"],
+    )
+
+    return SuccessResponse(
+        data=QueueViewResponse(queue=queue_items, stats=stats)
+    )
+
+
+@router.post(
+    "/queue/flush",
+    response_model=SuccessResponse[QueueFlushResponse],
+    response_model_by_alias=True,
+    summary="Flush Command Queue",
+    description="Flush (cancel) all queued commands. Admin only.",
+    dependencies=[Depends(require_permission("commands:execute"))],
+)
+async def flush_queue(
+    request: QueueFlushRequest,
+    commands_service: CommandsServiceDep,
+    current_user: CurrentUser,
+) -> SuccessResponse[QueueFlushResponse]:
+    """Flush queued commands."""
+    user_role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
+    if user_role != "admin":
+        raise AdminOnlyError("flush_queue")
+
+    if not request.confirm:
+        from hydra.api.v1.core.exceptions import ValidationError
+        raise ValidationError("Set confirm=true to flush the queue")
+
+    user_id = current_user.get("userId") if isinstance(current_user, dict) else getattr(current_user, "user_id", None)
+
+    flushed = await commands_service.flush_queue(
+        scope=request.scope,
+        user_id=user_id,
+    )
+
+    return SuccessResponse(
+        data=QueueFlushResponse(flushed_count=flushed)
     )
 
 
@@ -122,31 +292,17 @@ async def create_command(
 async def list_commands(
     commands_service: CommandsServiceDep,
     node_id: str | None = Query(default=None, alias="nodeId"),
+    registry_id: str | None = Query(default=None, alias="registryId"),
     type: CommandType | None = None,
     status: CommandStatus | None = None,
     since: datetime | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> SuccessResponse[list[CommandSummary]]:
-    """Retrieve command execution history.
-
-    Args:
-        commands_service: Commands service instance.
-        node_id: Filter by target node ID.
-        type: Filter by command type.
-        status: Filter by execution status.
-        since: Only include commands created after this timestamp.
-        limit: Maximum number of results to return.
-        offset: Number of results to skip.
-
-    Returns:
-        Paginated list of command summaries.
-
-    Raises:
-        HTTPException 403: Insufficient permissions.
-    """
+    """Retrieve command execution history."""
     params = CommandListParams(
         node_id=node_id,
+        registry_id=registry_id,
         type=type,
         status=status,
         since=since,
@@ -160,6 +316,7 @@ async def list_commands(
         data=[
             CommandSummary(
                 command_id=cmd["commandId"],
+                registry_id=cmd.get("registryId"),
                 type=CommandType(cmd["type"]),
                 target=cmd["target"],
                 action=cmd["action"],
@@ -184,36 +341,34 @@ async def get_command(
     command_id: str,
     commands_service: CommandsServiceDep,
 ) -> SuccessResponse[CommandResponse]:
-    """Retrieve detailed information about a specific command.
-
-    Args:
-        command_id: Unique identifier of the command.
-        commands_service: Commands service instance.
-
-    Returns:
-        Complete command details including result if available.
-
-    Raises:
-        HTTPException 404: Command not found.
-        HTTPException 403: Insufficient permissions.
-    """
+    """Retrieve detailed information about a specific command."""
     command = await commands_service.get_command(command_id)
+
+    execution_method = command.get("executionMethod")
 
     return SuccessResponse(
         data=CommandResponse(
             command_id=command["commandId"],
+            registry_id=command.get("registryId"),
             type=CommandType(command["type"]),
             target=command["target"],
             action=command["action"],
             parameters=command.get("parameters"),
             status=CommandStatus(command["status"]),
+            execution_method=CommandExecutionMethod(execution_method) if execution_method else None,
             result=command.get("result"),
+            error=command.get("error"),
             requested_by=command.get("requestedBy"),
             timeout_seconds=command["timeoutSeconds"],
+            retry_count=command.get("retryCount", 0),
+            queue_position=command.get("queuePosition"),
+            chain=command.get("chain"),
             created_at=command["createdAt"],
             queued_at=command.get("queuedAt"),
             started_at=command.get("startedAt"),
             completed_at=command.get("completedAt"),
+            cancelled_at=command.get("cancelledAt"),
+            cancelled_by=command.get("cancelledBy"),
         )
     )
 
@@ -229,30 +384,24 @@ async def get_command(
 async def cancel_command(
     command_id: str,
     commands_service: CommandsServiceDep,
+    current_user: CurrentUser,
 ) -> SuccessResponse[CommandCancelledResponse]:
-    """Cancel a command that has not yet completed.
+    """Cancel a command that has not yet completed."""
+    user_id = current_user.get("userId") if isinstance(current_user, dict) else getattr(current_user, "user_id", None)
 
-    Args:
-        command_id: Unique identifier of the command to cancel.
-        commands_service: Commands service instance.
-
-    Returns:
-        Cancellation confirmation.
-
-    Raises:
-        HTTPException 400: Command cannot be cancelled (already completed).
-        HTTPException 404: Command not found.
-        HTTPException 403: Insufficient permissions.
-    """
-    result = await commands_service.cancel_command(command_id)
+    result = await commands_service.cancel_command(command_id, cancelled_by=user_id)
 
     return SuccessResponse(
         data=CommandCancelledResponse(
             command_id=result["commandId"],
             status=CommandStatus(result["status"]),
             cancelled_at=result["cancelledAt"],
+            cancelled_by=result.get("cancelledBy"),
         )
     )
+
+
+# ── Agent Endpoints (Node-scoped) ────────────────────────────────────────
 
 
 nodes_commands_router = APIRouter(prefix="/nodes", tags=["Nodes"])
@@ -270,18 +419,7 @@ async def poll_commands(
     node_id: str,
     commands_service: CommandsServiceDep,
 ) -> SuccessResponse[CommandPollResponse]:
-    """Poll for commands pending execution on a specific node.
-
-    Args:
-        node_id: Unique identifier of the polling node.
-        commands_service: Commands service instance.
-
-    Returns:
-        List of commands awaiting execution.
-
-    Raises:
-        HTTPException 403: Insufficient permissions (agent-only endpoint).
-    """
+    """Poll for commands pending execution on a specific node."""
     commands = await commands_service.poll_commands(node_id)
 
     return SuccessResponse(
@@ -303,22 +441,7 @@ async def submit_command_result(
     request: SubmitCommandResultRequest,
     commands_service: CommandsServiceDep,
 ) -> SuccessResponse[CommandResultSubmittedResponse]:
-    """Submit the result of command execution from an agent.
-
-    Args:
-        node_id: Unique identifier of the executing node.
-        command_id: Unique identifier of the command.
-        request: Execution result including output and status.
-        commands_service: Commands service instance.
-
-    Returns:
-        Confirmation of result submission.
-
-    Raises:
-        HTTPException 400: Invalid result or command not assigned to node.
-        HTTPException 404: Command not found.
-        HTTPException 403: Insufficient permissions (agent-only endpoint).
-    """
+    """Submit the result of command execution from an agent."""
     result = await commands_service.submit_result(node_id, command_id, request)
 
     return SuccessResponse(

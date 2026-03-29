@@ -5,7 +5,9 @@ use std::time::Instant;
 
 use tokio::sync::RwLock;
 
+use crate::api::ApiClient;
 use crate::config::AgentConfig;
+use crate::vault::Vault;
 
 /// Shared state accessible by all server handlers.
 #[derive(Clone)]
@@ -18,4 +20,8 @@ pub struct AppState {
     pub server_secret: String,
     /// Server start time (for uptime calculation)
     pub start_time: Instant,
+    /// API client for direct command execution paths that need API access.
+    pub api_client: Option<Arc<ApiClient>>,
+    /// Vault access for update execution and other credential-backed operations.
+    pub vault: Option<Vault>,
 }

@@ -28,6 +28,8 @@ const NewGroupPage = lazy(() => import('@/pages/groups/new'));
 const TopologyPage = lazy(() => import('@/pages/topology'));
 const TimeMachinePage = lazy(() => import('@/pages/timemachine'));
 const ChatPage = lazy(() => import('@/pages/chat'));
+const CommandsPage = lazy(() => import('@/pages/commands'));
+const CommandDetailPage = lazy(() => import('@/pages/commands/[commandId]'));
 const MCPMarketplacePage = lazy(() => import('@/pages/mcp/marketplace'));
 const NotificationsPage = lazy(() => import('@/pages/notifications'));
 const ProfilePage = lazy(() => import('@/pages/profile'));
@@ -201,6 +203,22 @@ export const appRoutes: RouteConfig[] = [
     requiresAuth: true,
     showInNav: true,
     navIcon: 'MessageSquare',
+  },
+  {
+    path: ROUTES.COMMANDS,
+    element: CommandsPage,
+    title: 'Commands',
+    requiresAuth: true,
+    permissions: ['commands:read'],
+    showInNav: true,
+    navIcon: 'Terminal',
+  },
+  {
+    path: ROUTES.COMMAND_DETAIL,
+    element: CommandDetailPage,
+    title: 'Command Details',
+    requiresAuth: true,
+    permissions: ['commands:read'],
   },
   {
     path: ROUTES.MCP_MARKETPLACE,

@@ -166,6 +166,21 @@ class MongoDB:
         return self.db.commands
 
     @property
+    def command_definitions(self):
+        """Command definitions (registry/catalog) collection."""
+        return self.db.command_definitions
+
+    @property
+    def workflows(self):
+        """Workflow definitions collection."""
+        return self.db.workflows
+
+    @property
+    def workflow_executions(self):
+        """Workflow execution records collection."""
+        return self.db.workflow_executions
+
+    @property
     def audit_log(self):
         """Audit log collection."""
         return self.db.audit_log

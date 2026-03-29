@@ -1,5 +1,6 @@
 """MCP Client wrapper for calling MCP servers."""
 
+import json
 from typing import Any
 
 import httpx
@@ -10,6 +11,12 @@ from hydra.core.config import get_settings
 from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
+
+INTERNAL_REQUEST_HEADER = "X-Hydra-Internal-Request"
+INTERNAL_USER_ID_HEADER = "X-Hydra-User-Id"
+INTERNAL_ROLE_HEADER = "X-Hydra-Role"
+INTERNAL_PERMISSIONS_HEADER = "X-Hydra-Permissions"
+INTERNAL_CLIENT_ID_HEADER = "X-Hydra-Client-Id"
 
 
 class MCPClientError(ValidationError):
@@ -103,11 +110,26 @@ class MCPClient:
             except httpx.RequestError as e:
                 raise MCPClientError(f"Failed to connect to MCP server: {str(e)}")
 
+    async def _build_internal_headers(self, user_id: str) -> dict[str, str]:
+        """Build explicit internal-auth headers for built-in hydra-mcp calls."""
+        user = await self.db.users.find_one({"userId": user_id})
+        if not user:
+            raise MCPClientError(f"User not found for MCP tool execution: {user_id}")
+
+        return {
+            INTERNAL_REQUEST_HEADER: "true",
+            INTERNAL_USER_ID_HEADER: user_id,
+            INTERNAL_ROLE_HEADER: user.get("role", "viewer"),
+            INTERNAL_PERMISSIONS_HEADER: json.dumps(user.get("permissions", [])),
+            INTERNAL_CLIENT_ID_HEADER: "hydra-api",
+        }
+
     async def call_tool(
         self,
         server_config: dict,
         tool_name: str,
         arguments: dict[str, Any],
+        user_id: str | None = None,
     ) -> dict:
         """Call a tool on an MCP server.
 
@@ -123,10 +145,17 @@ class MCPClient:
         if not url:
             raise MCPClientError("Server URL not configured")
 
+        headers: dict[str, str] = {}
+        if server_config.get("is_builtin"):
+            if not user_id:
+                raise MCPClientError("Built-in MCP tool calls require user context")
+            headers.update(await self._build_internal_headers(user_id))
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 response = await client.post(
                     f"{url.rstrip('/')}/tools/call",
+                    headers=headers or None,
                     json={
                         "name": tool_name,
                         "arguments": arguments,
@@ -319,7 +348,7 @@ class MCPClient:
         if server_id:
             try:
                 config = await self.get_server_config(server_id, user_id)
-                return await self.call_tool(config, tool_name, tool_input)
+                return await self.call_tool(config, tool_name, tool_input, user_id)
             except MCPClientError as e:
                 return {"content": str(e), "is_error": True}
 
@@ -329,7 +358,7 @@ class MCPClient:
                 tools = await self.get_tools(config)
 
                 if any(t.get("name") == tool_name for t in tools):
-                    return await self.call_tool(config, tool_name, tool_input)
+                    return await self.call_tool(config, tool_name, tool_input, user_id)
 
             except MCPClientError:
                 continue

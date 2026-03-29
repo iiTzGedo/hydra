@@ -4,13 +4,17 @@ This module implements the Model Context Protocol server for Hydra,
 exposing infrastructure data through tools, resources, and prompts.
 """
 
+import json
 from typing import Any
 
+import httpx
 import structlog
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import StreamableHTTPServerTransport
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 from mcp.types import (
     CallToolResult,
     GetPromptResult,
@@ -25,7 +29,18 @@ from mcp.types import (
     TextContent,
 )
 
-from hydra_mcp.auth import AuthorizationError
+from hydra_mcp.auth import (
+    AuthorizationError,
+    INTERNAL_CLIENT_ID_HEADER,
+    INTERNAL_PERMISSIONS_HEADER,
+    INTERNAL_REQUEST_HEADER,
+    INTERNAL_ROLE_HEADER,
+    INTERNAL_USER_ID_HEADER,
+    SourceRestrictionError,
+    create_context_from_user_info,
+    push_auth_context,
+    reset_auth_context,
+)
 from hydra_mcp.client import HydraAPIError
 from hydra_mcp.shared import settings, client, toon, safe_list, format_list_response
 from hydra_mcp.tools import get_all_tools, execute_tool as registry_execute_tool, ToolValidationError
@@ -42,7 +57,104 @@ _format_list_response = format_list_response
 server = Server("hydra-mcp")
 
 # Write tools that should emit notifications on failure
-_WRITE_TOOLS = {"control_service", "control_device"}
+_WRITE_TOOLS = {"control_service", "control_device", "control_node", "control_agent"}
+
+
+def _parse_internal_permissions(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, str)]
+    except json.JSONDecodeError:
+        pass
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _build_internal_context(headers) -> Any | None:
+    if headers.get(INTERNAL_REQUEST_HEADER, "").lower() not in {"1", "true", "yes"}:
+        return None
+
+    user_id = headers.get(INTERNAL_USER_ID_HEADER)
+    role = headers.get(INTERNAL_ROLE_HEADER)
+    if not user_id or not role:
+        raise PermissionError("Internal MCP requests must include user and role headers")
+
+    permissions = _parse_internal_permissions(headers.get(INTERNAL_PERMISSIONS_HEADER))
+    return create_context_from_user_info(
+        {
+            "userId": user_id,
+            "role": role,
+            "permissions": permissions,
+            "type": "internal",
+        },
+        source_type="internal",
+        client_id=headers.get(INTERNAL_CLIENT_ID_HEADER) or "hydra-api",
+        metadata={"source": "hydra_internal"},
+    )
+
+
+async def _build_external_context(headers) -> Any | None:
+    auth_headers: dict[str, str] = {}
+
+    authorization = headers.get("authorization")
+    api_key = headers.get("x-api-key")
+    if authorization:
+        auth_headers["Authorization"] = authorization
+    if api_key:
+        auth_headers["X-API-Key"] = api_key
+
+    if not auth_headers:
+        return None
+
+    async with httpx.AsyncClient(timeout=settings.api_timeout) as http_client:
+        response = await http_client.get(
+            f"{settings.api_url.rstrip('/')}/auth/me",
+            headers=auth_headers,
+        )
+
+    if response.status_code in {401, 403}:
+        raise PermissionError("Invalid MCP credentials")
+    response.raise_for_status()
+    user_info = response.json()
+    return create_context_from_user_info(
+        user_info,
+        source_type="external",
+        client_id=headers.get("x-client-id") or headers.get("user-agent"),
+        metadata={"source": "validated_network_request"},
+    )
+
+
+async def _build_request_auth_context(headers) -> Any | None:
+    internal_context = _build_internal_context(headers)
+    if internal_context is not None:
+        return internal_context
+    return await _build_external_context(headers)
+
+
+class AuthContextMiddleware(BaseHTTPMiddleware):
+    """Populate request-scoped auth context for HTTP-based MCP transports."""
+
+    async def dispatch(self, request, call_next):
+        try:
+            context = await _build_request_auth_context(request.headers)
+        except PermissionError as exc:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": {
+                        "code": "UNAUTHORIZED",
+                        "message": str(exc),
+                    }
+                },
+            )
+
+        token = push_auth_context(context)
+        try:
+            return await call_next(request)
+        finally:
+            reset_auth_context(token)
 
 
 async def _emit_mcp_notification(
@@ -149,6 +261,19 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             "AUTHORIZATION_DENIED",
             e.message,
             {"tool": e.tool, "requiredPermission": e.required_permission},
+        )
+        return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
+    except SourceRestrictionError as e:
+        logger.warning("tool_source_restricted", tool=name, source="external")
+        error_text = toon.format_error(
+            "CLIENT_NOT_AUTHORIZED",
+            e.message,
+            {
+                "tool": e.tool,
+                "requestedAction": e.action,
+                "guidance": e.context.get("guidance", ""),
+                "alternativeActions": e.context.get("alternativeActions", []),
+            },
         )
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
     except HydraAPIError as e:
@@ -625,6 +750,7 @@ def create_http_app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
+    from starlette.responses import JSONResponse
 
     http_app = FastAPI(
         title="Hydra MCP Server",
@@ -639,6 +765,27 @@ def create_http_app():
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @http_app.middleware("http")
+    async def auth_context_middleware(request, call_next):
+        try:
+            context = await _build_request_auth_context(request.headers)
+        except PermissionError as exc:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": {
+                        "code": "UNAUTHORIZED",
+                        "message": str(exc),
+                    }
+                },
+            )
+
+        token = push_auth_context(context)
+        try:
+            return await call_next(request)
+        finally:
+            reset_auth_context(token)
 
     class ToolCallRequest(BaseModel):
         name: str
@@ -780,7 +927,7 @@ async def run_http() -> None:
 async def run_sse() -> None:
     """Run the MCP server with Server-Sent Events transport."""
     from starlette.applications import Starlette
-    from starlette.routing import Mount, Route
+    from starlette.routing import Route
     import uvicorn
 
     logger.info(
@@ -799,6 +946,7 @@ async def run_sse() -> None:
             Route("/messages", endpoint=sse_transport.handle_post_message, methods=["POST"]),
         ]
     )
+    sse_app.add_middleware(AuthContextMiddleware)
 
     async with sse_transport.connect_sse() as streams:
         async def run_server():
@@ -846,6 +994,7 @@ async def run_streamable_http() -> None:
             Mount("/mcp", app=streamable_transport.handle_request),
         ]
     )
+    mcp_app.add_middleware(AuthContextMiddleware)
 
     mcp_app.add_middleware(
         CORSMiddleware,

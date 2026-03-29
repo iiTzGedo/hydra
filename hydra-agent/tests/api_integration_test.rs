@@ -704,6 +704,7 @@ async fn test_poll_commands_and_submit_result_use_typed_contract() {
                 error: Some(
                     "Command execution engine not yet available (requires P2B)".to_string(),
                 ),
+                data: None,
             },
         )
         .await

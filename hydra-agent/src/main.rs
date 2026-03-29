@@ -12,6 +12,7 @@ use hydra_agent::api;
 use hydra_agent::cli::{self, Cli, Commands, OperatingMode};
 use hydra_agent::collectors;
 use hydra_agent::config::{AgentConfig, AgentTier};
+use hydra_agent::executor::CommandExecutor;
 use hydra_agent::instance_lock;
 use hydra_agent::server;
 use hydra_agent::vault::Vault;
@@ -162,7 +163,9 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
         ));
     }
 
-    let client = api::ApiClient::new(&config, vault)?;
+    let api_client_arc = std::sync::Arc::new(api::ApiClient::new(&config, vault)?);
+    let shared_config = std::sync::Arc::new(tokio::sync::RwLock::new(config.clone()));
+    let agent_start_time = std::time::Instant::now();
 
     // Collect profile, reporting failures to notification system
     info!("Collecting system profile...");
@@ -179,7 +182,7 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
             warn!("{}", err_msg);
 
             // Report collection failure (best-effort)
-            let _ = client
+            let _ = api_client_arc
                 .report_event(
                     "agent_profile_failed",
                     &format!("Profile collection failed: {}", config.node.node_id),
@@ -197,7 +200,7 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
 
     // Submit profile, reporting failures to notification system
     info!("Submitting profile to API...");
-    match client.submit_profile(&profile).await {
+    match api_client_arc.submit_profile(&profile).await {
         Ok(result) => {
             info!(
                 profile_id = %result.profile_id,
@@ -206,7 +209,7 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
             );
 
             // Report successful submission (best-effort)
-            let _ = client
+            let _ = api_client_arc
                 .report_event(
                     "agent_profile_submitted",
                     &format!("Profile submitted: {}", config.node.node_id),
@@ -230,7 +233,7 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
             warn!("{}", err_msg);
 
             // Report submission failure (best-effort)
-            let _ = client
+            let _ = api_client_arc
                 .report_event(
                     "agent_profile_failed",
                     &format!("Profile submission failed: {}", config.node.node_id),
@@ -249,7 +252,13 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
     if !once {
         // Start the embedded control server for max-tier agents
         let server_handle = if config.node.tier == AgentTier::Max && config.server.enabled {
-            let app_state = server::build_app_state(config.clone(), config_path.clone(), vault)?;
+            let app_state = server::build_app_state(
+                shared_config.clone(),
+                config_path.clone(),
+                vault,
+                Some(api_client_arc.clone()),
+                agent_start_time,
+            )?;
 
             let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
             let shutdown_signal = async move {
@@ -274,6 +283,18 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
         if should_poll {
             info!(poll_interval_seconds = poll_secs, "Command polling enabled");
         }
+
+        // Create the command executor for poll-based execution
+        let executor = CommandExecutor::new(
+            shared_config,
+            agent_start_time,
+            Some(api_client_arc.clone()),
+            Some(config_path.clone()),
+            Some(vault.clone()),
+        );
+        let node_id = config.node.node_id.clone();
+        // Rebind client reference for the rest of the function
+        let client = api_client_arc;
 
         // Scheduled collection + command poll loop
         if config.schedule.enabled || should_poll {
@@ -321,7 +342,7 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
                         }
                     }
                     _ = poll_interval.tick(), if should_poll => {
-                        poll_and_execute_commands(&client, &config).await;
+                        poll_and_execute_commands(&client, &executor, &node_id).await;
                     }
                     _ = tokio::signal::ctrl_c() => {
                         info!("Shutdown signal received");
@@ -353,10 +374,15 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
 /// Poll the API for pending commands and execute them.
 ///
 /// Commands are polled from `GET /nodes/{nodeId}/commands/poll`. Each received
-/// command is executed (or reported as failed if the execution engine is not
-/// yet available), and the result is submitted back via the API.
-async fn poll_and_execute_commands(client: &api::ApiClient, config: &AgentConfig) {
-    match client.poll_commands(&config.node.node_id).await {
+/// command is dispatched to the executor engine, which routes to the appropriate
+/// handler based on command category (service, node, agent). Results are
+/// submitted back to the API.
+async fn poll_and_execute_commands(
+    client: &api::ApiClient,
+    executor: &CommandExecutor,
+    node_id: &str,
+) {
+    match client.poll_commands(node_id).await {
         Ok(commands) if commands.is_empty() => {
             // Nothing to do — normal case
         }
@@ -367,22 +393,21 @@ async fn poll_and_execute_commands(client: &api::ApiClient, config: &AgentConfig
                     command_id = %cmd.command_id,
                     command_type = %cmd.command_type,
                     action = %cmd.action,
-                    "Processing command"
+                    "Executing command"
                 );
 
-                // P2B will implement actual command execution. For now, report
-                // that the execution engine is not yet available.
-                let result = api::CommandResultPayload {
-                    success: false,
-                    output: None,
-                    exit_code: None,
-                    error: Some(
-                        "Command execution engine not yet available (requires P2B)".to_string(),
-                    ),
+                let result = executor.execute(&cmd).await;
+
+                let payload = api::CommandResultPayload {
+                    success: result.success,
+                    output: result.output,
+                    exit_code: result.exit_code,
+                    error: result.error,
+                    data: result.data,
                 };
 
                 if let Err(e) = client
-                    .submit_command_result(&config.node.node_id, &cmd.command_id, &result)
+                    .submit_command_result(node_id, &cmd.command_id, &payload)
                     .await
                 {
                     warn!(

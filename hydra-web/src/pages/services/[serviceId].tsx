@@ -68,14 +68,8 @@ export default function ServiceDetailPage() {
     if (!service) return;
     try {
       await createCommand.mutateAsync({
-        type: 'service',
+        registryId: `reg::service::${action}`,
         target: { nodeId: service.nodeId, serviceId: service.serviceId },
-        action,
-        parameters: {
-          serviceId: service.serviceId,
-          name: service.name,
-          runtime: service.runtime,
-        },
       });
       toast.success(`Command queued: ${action} ${service.displayName || service.name}`);
     } catch (err) {

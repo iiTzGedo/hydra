@@ -24,6 +24,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -32,6 +33,16 @@ use crate::vault::Vault;
 
 /// Current agent version from Cargo.toml
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+static UPGRADE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// Accepted asynchronous self-upgrade request metadata.
+#[derive(Debug, Clone)]
+pub struct ScheduledUpgrade {
+    pub current_version: String,
+    pub target_version: Option<String>,
+    pub source: String,
+    pub message: String,
+}
 
 /// Upgrade command arguments
 #[derive(Args, Debug)]
@@ -111,6 +122,71 @@ pub async fn execute(args: UpgradeArgs, config: &AgentConfig, vault: &Vault) -> 
         Some(UpgradeCommand::Rollback) => rollback(),
         None => perform_upgrade(args, config, vault).await,
     }
+}
+
+/// Schedule an asynchronous self-upgrade using the same production flow as the CLI.
+pub async fn schedule_upgrade(
+    config: AgentConfig,
+    vault: Vault,
+    target_version: Option<String>,
+    source: Option<String>,
+) -> Result<ScheduledUpgrade> {
+    if UPGRADE_IN_PROGRESS
+        .compare_exchange(false, true, AtomicOrdering::SeqCst, AtomicOrdering::SeqCst)
+        .is_err()
+    {
+        return Err(anyhow!("Agent upgrade is already in progress"));
+    }
+
+    let source_value = source.unwrap_or_else(|| "binary".to_string());
+    let accepted = ScheduledUpgrade {
+        current_version: CURRENT_VERSION.to_string(),
+        target_version: target_version.clone(),
+        source: source_value.clone(),
+        message: format!(
+            "Agent upgrade scheduled from {}. Final success or failure will be reported asynchronously.",
+            source_value
+        ),
+    };
+
+    tokio::spawn(async move {
+        let args = UpgradeArgs {
+            command: None,
+            target_version: target_version.clone(),
+            target: None,
+            source: source_value.clone(),
+            no_restart: false,
+            force: false,
+        };
+
+        let result = perform_upgrade(args, &config, &vault).await;
+        if let Err(error) = result {
+            warn!(error = %error, "Asynchronous agent upgrade failed");
+            if let Ok(api_client) = crate::api::ApiClient::new(&config, &vault) {
+                let _ = api_client
+                    .report_event(
+                        "agent_upgrade_failed",
+                        &format!("Agent upgrade failed: {}", config.node.node_id),
+                        &format!(
+                            "Agent on node {} failed to upgrade: {}",
+                            config.node.node_id, error
+                        ),
+                        Some(serde_json::json!({
+                            "nodeId": config.node.node_id,
+                            "currentVersion": CURRENT_VERSION,
+                            "targetVersion": target_version,
+                            "source": source_value,
+                            "error": error.to_string(),
+                        })),
+                    )
+                    .await;
+            }
+        }
+
+        UPGRADE_IN_PROGRESS.store(false, AtomicOrdering::SeqCst);
+    });
+
+    Ok(accepted)
 }
 
 /// Perform the full upgrade flow

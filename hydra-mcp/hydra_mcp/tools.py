@@ -25,7 +25,7 @@ from typing import Any, Callable, Awaitable
 import jsonschema
 from mcp.types import Tool
 
-from hydra_mcp.auth import check_permission
+from hydra_mcp.auth import check_permission, get_auth_context, SourceRestrictionError
 
 
 class ToolValidationError(Exception):
@@ -46,6 +46,7 @@ class RegisteredTool:
     schema: dict[str, Any]
     handler: Callable[[dict[str, Any]], Awaitable[str]]
     required_permission: str | None = None
+    internal_only: bool = False
 
 
 # Global tool registry
@@ -57,6 +58,7 @@ def tool(
     description: str,
     schema: dict[str, Any],
     required_permission: str | None = None,
+    internal_only: bool = False,
 ) -> Callable[[Callable[[dict[str, Any]], Awaitable[str]]], Callable[[dict[str, Any]], Awaitable[str]]]:
     """Decorator to register an MCP tool.
 
@@ -65,6 +67,7 @@ def tool(
         description: Human-readable description of the tool.
         schema: JSON Schema for the tool's input parameters.
         required_permission: Optional permission required to execute this tool.
+        internal_only: If True, tool can only be called from internal (hydra-web) clients.
 
     Returns:
         Decorator function that registers the tool handler.
@@ -95,6 +98,7 @@ def tool(
             schema=schema,
             handler=handler,
             required_permission=required_permission,
+            internal_only=internal_only,
         )
         return handler
 
@@ -181,6 +185,29 @@ async def execute_tool(name: str, args: dict[str, Any]) -> str:
 
     # Check authorization before executing
     check_permission(name, reg_tool.required_permission)
+
+    # Check source restriction for internal-only tools
+    if reg_tool.internal_only:
+        ctx = get_auth_context()
+        if ctx is None or ctx.source_type != "internal":
+            action = args.get("action", "unknown")
+            raise SourceRestrictionError(
+                tool=name,
+                action=action,
+                context={
+                    "requestedAction": action,
+                    "guidance": (
+                        "You can perform this action from the Hydra Command Center "
+                        "or use the integrated chat in the Hydra web interface which "
+                        "has full control permissions."
+                    ),
+                    "alternativeActions": [
+                        "I can show you the current status of this resource",
+                        "I can list recent commands executed on this resource",
+                        "I can describe this resource based on its profile",
+                    ],
+                },
+            )
 
     return await reg_tool.handler(args)
 

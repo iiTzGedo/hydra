@@ -210,7 +210,7 @@ async def get_service(args: dict[str, Any]) -> str:
 
 @tool(
     name="control_service",
-    description="Control a service (start, stop, restart)",
+    description="Control a service (start, stop, restart, reload, logs, inspect)",
     schema={
         "type": "object",
         "properties": {
@@ -220,16 +220,21 @@ async def get_service(args: dict[str, Any]) -> str:
             },
             "action": {
                 "type": "string",
-                "enum": ["start", "stop", "restart"],
+                "enum": ["start", "stop", "restart", "reload", "logs", "inspect"],
                 "description": "Action to perform",
+            },
+            "parameters": {
+                "type": "object",
+                "description": "Optional parameters (e.g., {lines: 100} for logs)",
             },
         },
         "required": ["serviceId", "action"],
     },
-    required_permission="services:execute",
+    required_permission="commands:execute",
+    internal_only=True,
 )
 async def control_service(args: dict[str, Any]) -> str:
-    """Control a service (start, stop, restart)."""
+    """Control a service (start, stop, restart, reload, logs, inspect)."""
     service = await client.get_service(args["serviceId"])
     if not service:
         raise ValueError(f"Service not found: {args['serviceId']}")
@@ -238,7 +243,164 @@ async def control_service(args: dict[str, Any]) -> str:
         node_id=service.get("nodeId"),
         service_id=args["serviceId"],
         action=args["action"],
+        parameters=args.get("parameters"),
     )
+    return toon.format(result)
+
+
+@tool(
+    name="control_node",
+    description="Control a node (reboot, shutdown, update system packages)",
+    schema={
+        "type": "object",
+        "properties": {
+            "nodeId": {
+                "type": "string",
+                "description": "The node ID",
+            },
+            "action": {
+                "type": "string",
+                "enum": ["reboot", "shutdown", "update-system"],
+                "description": "Action to perform",
+            },
+            "confirm": {
+                "type": "boolean",
+                "default": False,
+                "description": "Confirm destructive action",
+            },
+        },
+        "required": ["nodeId", "action"],
+    },
+    required_permission="commands:execute",
+    internal_only=True,
+)
+async def control_node(args: dict[str, Any]) -> str:
+    """Control a node (reboot, shutdown, update-system)."""
+    result = await client.control_node(
+        node_id=args["nodeId"],
+        action=args["action"],
+        parameters={"confirm": args.get("confirm", False)},
+    )
+    return toon.format(result)
+
+
+@tool(
+    name="control_agent",
+    description="Control the Hydra agent on a node",
+    schema={
+        "type": "object",
+        "properties": {
+            "nodeId": {
+                "type": "string",
+                "description": "The node ID",
+            },
+            "action": {
+                "type": "string",
+                "enum": ["restart", "update", "config-reload", "collect-now", "probe-network", "status"],
+                "description": "Action to perform",
+            },
+        },
+        "required": ["nodeId", "action"],
+    },
+    required_permission="commands:execute",
+    internal_only=True,
+)
+async def control_agent(args: dict[str, Any]) -> str:
+    """Control the Hydra agent on a node."""
+    result = await client.control_agent(
+        node_id=args["nodeId"],
+        action=args["action"],
+    )
+    return toon.format(result)
+
+
+@tool(
+    name="get_command_status",
+    description="Get the status and result of a command",
+    schema={
+        "type": "object",
+        "properties": {
+            "commandId": {
+                "type": "string",
+                "description": "The command ID",
+            },
+        },
+        "required": ["commandId"],
+    },
+    required_permission="commands:read",
+)
+async def get_command_status(args: dict[str, Any]) -> str:
+    """Get the status and result of a command."""
+    result = await client.get_command_status(args["commandId"])
+    return toon.format(result)
+
+
+# =============================================================================
+# Command Catalog & Queue Tools
+# =============================================================================
+
+@tool(
+    name="list_command_catalog",
+    description="List available commands from the command registry/catalog",
+    schema={
+        "type": "object",
+        "properties": {
+            "category": {
+                "type": "string",
+                "enum": ["service", "node", "agent"],
+                "description": "Filter by command category",
+            },
+        },
+    },
+    required_permission="commands:read",
+)
+async def list_command_catalog(args: dict[str, Any]) -> str:
+    """List available commands from the command registry/catalog."""
+    catalog = await client.list_command_catalog(category=args.get("category"))
+    return _format_list_response("commandCatalog", _safe_list(catalog))
+
+
+@tool(
+    name="list_commands",
+    description="List command execution history with optional filters",
+    schema={
+        "type": "object",
+        "properties": {
+            "nodeId": {"type": "string", "description": "Filter by target node"},
+            "status": {
+                "type": "string",
+                "enum": ["pending", "rejected", "queued", "executing", "completed", "failed", "timeout", "cancelled"],
+                "description": "Filter by command status",
+            },
+            "limit": {"type": "integer", "default": 20, "description": "Maximum results"},
+        },
+    },
+    required_permission="commands:read",
+)
+async def list_commands_tool(args: dict[str, Any]) -> str:
+    """List command execution history with optional filters."""
+    commands = await client.list_commands(
+        node_id=args.get("nodeId"),
+        status=args.get("status"),
+        limit=args.get("limit", 20),
+    )
+    return _format_list_response("commands", _safe_list(commands))
+
+
+@tool(
+    name="get_queue_status",
+    description="View the current command queue state and statistics",
+    schema={
+        "type": "object",
+        "properties": {
+            "nodeId": {"type": "string", "description": "Filter queue by target node"},
+        },
+    },
+    required_permission="commands:read",
+)
+async def get_queue_status(args: dict[str, Any]) -> str:
+    """View the current command queue state and statistics."""
+    result = await client.get_queue_status(node_id=args.get("nodeId"))
     return toon.format(result)
 
 

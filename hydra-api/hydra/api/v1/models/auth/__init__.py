@@ -1,16 +1,16 @@
-"""Authentication models - re-export module.
+"""Authentication models package.
 
 All auth models are split into sub-modules for maintainability:
-- auth_enums.py: Enums, role constants, and role utility functions
-- auth_requests.py: All request models
-- auth_responses.py: All response models
+- enums.py: Enums, role constants, and role utility functions
+- requests.py: All request models
+- responses.py: All response models
 
-This module re-exports everything for backward compatibility so existing
-``from hydra.api.v1.models.auth import X`` imports continue to work.
+This module re-exports everything so ``from hydra.api.v1.models.auth import X``
+continues to work.
 """
 
 # Enums and role utilities
-from hydra.api.v1.models.auth_enums import (  # noqa: F401
+from .enums import (  # noqa: F401
     ApiKeyType,
     Role,
     TokenScope,
@@ -25,7 +25,7 @@ from hydra.api.v1.models.auth_enums import (  # noqa: F401
 )
 
 # Request models
-from hydra.api.v1.models.auth_requests import (  # noqa: F401
+from .requests import (  # noqa: F401
     ApproveUserRequest,
     ChangePasswordRequest,
     CreateApiKeyRequest,
@@ -43,7 +43,7 @@ from hydra.api.v1.models.auth_requests import (  # noqa: F401
 )
 
 # Response models
-from hydra.api.v1.models.auth_responses import (  # noqa: F401
+from .responses import (  # noqa: F401
     ApiKeyListItem,
     ApiKeyListResponse,
     ApiKeyResponse,

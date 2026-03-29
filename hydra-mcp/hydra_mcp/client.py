@@ -484,19 +484,134 @@ class HydraClient:
         Args:
             node_id: The node hosting the service.
             service_id: The unique service identifier.
-            action: Action to perform (start, stop, restart, reload).
+            action: Action to perform (start, stop, restart, reload, logs, inspect).
             parameters: Optional parameters for the action.
 
         Returns:
             Command execution result with status and output.
         """
         body = {
-            "type": "service",
+            "registryId": f"reg::service::{action}",
             "target": {"nodeId": node_id, "serviceId": service_id},
-            "action": action,
             "parameters": parameters or {},
         }
         return await self._request("POST", "/commands", json_data=body)
+
+    async def control_node(
+        self,
+        node_id: str,
+        action: str,
+        parameters: dict | None = None,
+    ) -> dict:
+        """Execute a control action on a node.
+
+        Args:
+            node_id: The target node identifier.
+            action: Action to perform (reboot, shutdown, update-system, set-hostname).
+            parameters: Optional parameters for the action.
+
+        Returns:
+            Command execution result with status and output.
+        """
+        body = {
+            "registryId": f"reg::node::{action}",
+            "target": {"nodeId": node_id},
+            "parameters": parameters or {},
+        }
+        return await self._request("POST", "/commands", json_data=body)
+
+    async def control_agent(
+        self,
+        node_id: str,
+        action: str,
+        parameters: dict | None = None,
+    ) -> dict:
+        """Execute a control action on the Hydra agent.
+
+        Args:
+            node_id: The target node identifier.
+            action: Action to perform (restart, update, config-reload, collect-now, probe-network, status).
+            parameters: Optional parameters for the action.
+
+        Returns:
+            Command execution result with status and output.
+        """
+        body = {
+            "registryId": f"reg::agent::{action}",
+            "target": {"nodeId": node_id},
+            "parameters": parameters or {},
+        }
+        return await self._request("POST", "/commands", json_data=body)
+
+    async def get_command_status(self, command_id: str) -> dict:
+        """Get the status and result of a command.
+
+        Args:
+            command_id: The command identifier.
+
+        Returns:
+            Command details including status and result.
+        """
+        return await self._request("GET", f"/commands/{command_id}")
+
+    async def list_command_catalog(
+        self,
+        category: str | None = None,
+    ) -> list:
+        """List available commands from the command registry/catalog.
+
+        Args:
+            category: Filter by command category (service, node, agent).
+
+        Returns:
+            List of command definitions from the catalog.
+        """
+        params: dict[str, Any] = {}
+        if category:
+            params["category"] = category
+        result = await self._request("GET", "/command-catalog", params=params)
+        return result if isinstance(result, list) else []
+
+    async def list_commands(
+        self,
+        node_id: str | None = None,
+        status: str | None = None,
+        limit: int = 20,
+    ) -> list:
+        """List command execution history with optional filters.
+
+        Args:
+            node_id: Filter by target node.
+            status: Filter by command status.
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of command summary dictionaries.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if node_id:
+            params["nodeId"] = node_id
+        if status:
+            params["status"] = status
+        result = await self._request("GET", "/commands", params=params)
+        return result if isinstance(result, list) else []
+
+    async def get_queue_status(
+        self,
+        node_id: str | None = None,
+    ) -> dict:
+        """Get the current command queue state and statistics.
+
+        Args:
+            node_id: Filter queue status by target node.
+
+        Returns:
+            Queue status with counts and statistics.
+        """
+        params: dict[str, Any] = {}
+        if node_id:
+            params["nodeId"] = node_id
+        return await self._request("GET", "/commands/queue", params=params)
 
     async def control_device(
         self,

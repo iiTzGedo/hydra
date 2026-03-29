@@ -15,6 +15,7 @@ use hydra_agent::vault::{
     ENV_AGENT_USER, ENV_API_KEY,
 };
 use std::env;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use tempfile::TempDir;
 
 // =============================================================================
@@ -75,6 +76,14 @@ fn cleanup_env() {
     env::remove_var(ENV_API_KEY);
     env::remove_var(ENV_AGENT_USER);
     env::remove_var(ENV_AGENT_PWD);
+}
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("env lock should not be poisoned")
 }
 
 // =============================================================================
@@ -393,6 +402,7 @@ fn test_node_registration_delete() {
 
 #[test]
 fn test_get_api_key_from_env() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -408,6 +418,7 @@ fn test_get_api_key_from_env() {
 
 #[test]
 fn test_get_api_key_fallback_to_vault() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -424,6 +435,7 @@ fn test_get_api_key_fallback_to_vault() {
 
 #[test]
 fn test_get_api_key_env_takes_precedence() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -442,6 +454,7 @@ fn test_get_api_key_env_takes_precedence() {
 
 #[test]
 fn test_get_agent_username_from_env() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -455,6 +468,7 @@ fn test_get_agent_username_from_env() {
 
 #[test]
 fn test_get_agent_password_from_env() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -468,6 +482,7 @@ fn test_get_agent_password_from_env() {
 
 #[test]
 fn test_export_to_env() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -536,6 +551,7 @@ fn test_export_to_env() {
 
 #[test]
 fn test_clear_env_cache() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -553,6 +569,7 @@ fn test_clear_env_cache() {
 
 #[test]
 fn test_has_env_credentials() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -570,6 +587,7 @@ fn test_has_env_credentials() {
 
 #[test]
 fn test_get_auth_header_api_key() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -588,6 +606,7 @@ fn test_get_auth_header_api_key() {
 
 #[test]
 fn test_get_auth_header_session_fallback() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -607,6 +626,7 @@ fn test_get_auth_header_session_fallback() {
 
 #[test]
 fn test_get_auth_header_api_key_preferred() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -627,6 +647,7 @@ fn test_get_auth_header_api_key_preferred() {
 
 #[test]
 fn test_get_auth_header_none_available() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -642,6 +663,7 @@ fn test_get_auth_header_none_available() {
 
 #[test]
 fn test_clear_all() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
@@ -693,6 +715,7 @@ fn test_vault_status_empty() {
 
 #[test]
 fn test_vault_status_full() {
+    let _guard = env_lock();
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 

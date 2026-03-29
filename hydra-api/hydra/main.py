@@ -46,6 +46,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Ensure indexes
     await ensure_indexes(mongodb.db)
 
+    # Seed built-in command definitions
+    from hydra.api.v1.services.commands.registry import CommandRegistryService
+    registry_service = CommandRegistryService(mongodb)
+    await registry_service.seed_builtin_commands()
+
     # Set startup time for uptime tracking
     health.set_startup_time()
 
@@ -55,11 +60,35 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     scanner = HealthScanner(mongodb, redis)
     scanner_task = asyncio.create_task(scanner.run())
 
+    # Start background command timeout checker
+    from hydra.api.v1.services.commands import CommandsService
+
+    async def command_timeout_loop():
+        """Periodically mark stale executing commands as timed out."""
+        while True:
+            try:
+                await asyncio.sleep(60)
+                svc = CommandsService(mongodb)
+                count = await svc.timeout_stale_commands(timeout_minutes=10)
+                if count > 0:
+                    logger.info("commands_timed_out_background", count=count)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("command_timeout_loop_error", error=str(e))
+
+    timeout_task = asyncio.create_task(command_timeout_loop())
+
     yield
 
     # Shutdown
     logger.info("shutting_down_hydra_api")
+    timeout_task.cancel()
     scanner_task.cancel()
+    try:
+        await timeout_task
+    except asyncio.CancelledError:
+        pass
     try:
         await scanner_task
     except asyncio.CancelledError:

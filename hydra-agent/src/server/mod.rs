@@ -49,9 +49,11 @@ fn create_router(state: AppState) -> Router {
 
 /// Build the AppState from config and vault.
 pub fn build_app_state(
-    config: AgentConfig,
+    config: Arc<RwLock<AgentConfig>>,
     config_path: PathBuf,
     vault: &Vault,
+    api_client: Option<Arc<crate::api::ApiClient>>,
+    start_time: Instant,
 ) -> Result<AppState> {
     let secret_data = vault.load_server_secret()?.ok_or_else(|| {
         anyhow!(
@@ -61,10 +63,12 @@ pub fn build_app_state(
     })?;
 
     Ok(AppState {
-        config: Arc::new(RwLock::new(config)),
+        config,
         config_path,
         server_secret: secret_data.secret,
-        start_time: Instant::now(),
+        start_time,
+        api_client,
+        vault: Some(vault.clone()),
     })
 }
 
@@ -247,6 +251,8 @@ ak58eJJ5Ro104TSDawOK1p40
             config_path,
             server_secret: "test-secret".to_string(),
             start_time: Instant::now(),
+            api_client: None,
+            vault: None,
         };
 
         let result = timeout(

@@ -2,8 +2,14 @@
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use std::io::Write;
+use std::time::Instant;
 use tempfile::NamedTempFile;
 use tracing::info;
+
+use crate::api::PollCommand;
+use crate::api::PollCommandTarget;
+use crate::executor::agent_handler;
+use crate::executor::CommandExecutor;
 
 use super::models::*;
 use super::state::AppState;
@@ -35,33 +41,113 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 }
 
 // =============================================================================
-// POST /execute — Returns 501 (requires P2B Command Registry)
+// POST /execute — Full implementation
 // =============================================================================
 
-/// Accepts a command execution request. Returns 501 until P2B (Command Registry) is implemented.
-pub async fn execute(Json(_request): Json<ExecuteRequest>) -> impl IntoResponse {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new(
-            "NOT_IMPLEMENTED",
-            "Command execution requires P2B (Command Registry). The /execute endpoint is available but the command execution engine is not yet integrated.",
-        )),
-    )
+/// Accepts a command execution request for synchronous direct execution on max-tier agents.
+///
+/// Converts the request into a PollCommand, dispatches via the executor engine,
+/// and returns the result inline.
+pub async fn execute(
+    State(state): State<AppState>,
+    Json(request): Json<ExecuteRequest>,
+) -> impl IntoResponse {
+    // Derive category and action from the registry_id (e.g., "reg::service::restart")
+    let parts: Vec<&str> = request.registry_id.split("::").collect();
+    let (category, action) = if parts.len() == 3 {
+        (parts[1].to_string(), parts[2].to_string())
+    } else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "commandId": request.command_id,
+                "status": "failed",
+                "error": format!("Invalid registryId format: '{}'", request.registry_id),
+            })),
+        );
+    };
+
+    let timeout_secs = request.timeout_seconds.unwrap_or(60);
+
+    // Build a PollCommand from the ExecuteRequest
+    let poll_cmd = PollCommand {
+        command_id: request.command_id.clone(),
+        registry_id: Some(request.registry_id.clone()),
+        command_type: category,
+        action,
+        target: PollCommandTarget {
+            node_id: request.target.node_id,
+            service_id: request.target.service_id,
+        },
+        parameters: request.parameters,
+        timeout_seconds: timeout_secs,
+    };
+
+    let start = Instant::now();
+    let executor = CommandExecutor::new(
+        state.config.clone(),
+        state.start_time,
+        state.api_client.clone(),
+        Some(state.config_path.clone()),
+        state.vault.clone(),
+    );
+    let result = executor.execute(&poll_cmd).await;
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    let status_str = if result.success { "completed" } else { "failed" };
+
+    let response = ExecuteResponse {
+        command_id: request.command_id,
+        status: status_str.to_string(),
+        result: ExecuteResultData {
+            success: result.success,
+            output: result.output,
+            exit_code: result.exit_code,
+            error: result.error,
+            data: result.data,
+        },
+        duration_ms,
+    };
+
+    (StatusCode::OK, Json(serde_json::to_value(response).unwrap()))
 }
 
 // =============================================================================
-// POST /probe — Returns 501 (requires P2D Network Discovery)
+// POST /probe — Full implementation
 // =============================================================================
 
-/// Accepts a network probe request. Returns 501 until P2D (Network Discovery) is implemented.
-pub async fn probe(Json(_request): Json<ProbeRequest>) -> impl IntoResponse {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ErrorResponse::new(
-            "NOT_IMPLEMENTED",
-            "Network probing requires P2D (Network Discovery). The /probe endpoint is available but the scan engine is not yet integrated.",
-        )),
+/// Accepts a network probe request and performs bounded subnet probing.
+pub async fn probe(Json(request): Json<ProbeRequest>) -> impl IntoResponse {
+    match agent_handler::execute_probe_request(
+        &request.probe_type,
+        request.targets,
+        request.options,
     )
+    .await
+    {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(ProbeResponse {
+                probe_type: request.probe_type,
+                status: "completed".to_string(),
+                results: result
+                    .hosts
+                    .into_iter()
+                    .map(|host| serde_json::to_value(host).unwrap_or(serde_json::Value::Null))
+                    .collect(),
+                duration_ms: result.duration_ms,
+            })
+            .unwrap()),
+        ),
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::to_value(ErrorResponse::new(
+                "PROBE_VALIDATION_ERROR",
+                &error,
+            ))
+            .unwrap()),
+        ),
+    }
 }
 
 // =============================================================================
@@ -297,30 +383,49 @@ fn json_to_toml_value(value: &serde_json::Value) -> toml_edit::Item {
 // =============================================================================
 
 /// Triggers an agent self-update. The response is sent before the binary swap begins.
-pub async fn update(Json(request): Json<UpdateRequest>) -> Json<UpdateResponse> {
-    let current_version = env!("CARGO_PKG_VERSION").to_string();
+pub async fn update(
+    State(state): State<AppState>,
+    Json(request): Json<UpdateRequest>,
+) -> impl IntoResponse {
+    let Some(vault) = state.vault.clone() else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::to_value(ErrorResponse::new(
+                "VAULT_UNAVAILABLE",
+                "Agent update requires vault access on the control server",
+            ))
+            .unwrap()),
+        );
+    };
 
-    // For now, report the request was received. The actual upgrade flow
-    // (version check, download, checksum verify, binary swap) is wired
-    // through the existing cli/upgrade.rs module. A full implementation
-    // would spawn the upgrade task after responding.
-    let target = request
-        .target_version
-        .unwrap_or_else(|| "latest".to_string());
-
-    info!(
-        current = %current_version,
-        target = %target,
-        source = ?request.source,
-        "Update request received via /update endpoint"
-    );
-
-    Json(UpdateResponse {
-        status: "accepted".to_string(),
-        current_version,
-        target_version: Some(target),
-        message: "Update request accepted. The agent will attempt to upgrade.".to_string(),
-    })
+    let config = state.config.read().await.clone();
+    match crate::cli::upgrade::schedule_upgrade(
+        config,
+        vault,
+        request.target_version.clone(),
+        request.source.clone(),
+    )
+    .await
+    {
+        Ok(accepted) => (
+            StatusCode::ACCEPTED,
+            Json(serde_json::to_value(UpdateResponse {
+                status: "accepted".to_string(),
+                current_version: accepted.current_version,
+                target_version: accepted.target_version,
+                message: accepted.message,
+            })
+            .unwrap()),
+        ),
+        Err(error) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::to_value(ErrorResponse::new(
+                "UPDATE_REJECTED",
+                &format!("Unable to schedule agent update: {}", error),
+            ))
+            .unwrap()),
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -380,6 +485,8 @@ node_id = "testnode"
             config_path,
             server_secret: "test-secret".to_string(),
             start_time: Instant::now(),
+            api_client: None,
+            vault: None,
         }
     }
 

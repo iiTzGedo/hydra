@@ -147,6 +147,7 @@ pub struct ProfileSubmitResponse {
 #[serde(rename_all = "camelCase")]
 pub struct PollCommand {
     pub command_id: String,
+    pub registry_id: Option<String>,
     #[serde(rename = "type")]
     pub command_type: String,
     pub action: String,
@@ -171,6 +172,8 @@ pub struct CommandResultPayload {
     pub output: Option<String>,
     pub exit_code: Option<i32>,
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
 }
 
 /// Poll response wrapper from the API.

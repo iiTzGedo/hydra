@@ -151,9 +151,8 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
   const handleCommand = async (action: 'start' | 'stop' | 'restart') => {
     try {
       await createCommand.mutateAsync({
-        type: 'service',
+        registryId: `reg::service::${action}`,
         target: { nodeId: service.nodeId, serviceId: service.serviceId },
-        action,
         parameters: {
           serviceId: service.serviceId,
           name: service.name,

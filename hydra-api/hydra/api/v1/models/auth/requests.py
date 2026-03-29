@@ -14,7 +14,7 @@ from hydra.api.v1.core.validators import (
     validate_node_id,
     validate_tag,
 )
-from hydra.api.v1.models.auth_enums import Role, TokenScope
+from .enums import Role, TokenScope
 
 
 class LoginRequest(BaseModel):
