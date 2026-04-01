@@ -447,30 +447,6 @@ The codebase was refactored from a monolithic 2,299-line server to a modular arc
 - **TOON Formatting**: All responses use token-efficient TOON format
 - **Multi-Transport**: Supports stdio, streamable-http, SSE, and HTTP modes
 
-## Project Structure
-
-```
-hydra-mcp/
-├── hydra_mcp/
-│   ├── __init__.py         # Package exports
-│   ├── __main__.py         # Module entry point
-│   ├── config.py           # Settings via pydantic-settings (124 lines)
-│   ├── client.py           # Async HTTP client for Hydra API (542 lines)
-│   ├── toon.py             # TOON formatter wrapper (88 lines)
-│   ├── shared.py           # Shared globals (48 lines)
-│   ├── auth.py             # Authorization and permissions (203 lines)
-│   ├── tools.py            # Tool registry infrastructure (212 lines)
-│   ├── tool_handlers.py    # 19 tool implementations (835 lines)
-│   └── server.py           # MCP server with transports (818 lines)
-├── tests/                  # Test suite (3 test files, 75+ tests)
-│   ├── conftest.py         # Test fixtures
-│   └── test_*.py           # Test modules
-├── .env.example            # Environment variable template
-├── pyproject.toml          # Project configuration
-├── Dockerfile              # Production Docker image
-└── README.md               # This file
-```
-
 ## Development
 
 ### Test Coverage

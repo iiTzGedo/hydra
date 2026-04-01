@@ -552,28 +552,21 @@ The agent stores credentials securely in a vault directory with restricted permi
 
 ## Agent Registration Flow
 
-```
-1. Login (admin/operator)
-   └── hydra-agent login -u admin
-       └── Saves JWT session to vault
-
-2. Register Agent Account
-   └── hydra-agent register
-       ├── Generates username (agent-XXXXXXXX) and password
-       ├── POST /api/v1/auth/register (role=agent)
-       ├── API auto-links as sub-account of logged-in user
-       ├── Auto-login as agent user
-       ├── Create API key (90-day expiry)
-       └── Save credentials + API key to vault
-
-3. Register Node
-   └── hydra-agent node register
-       ├── POST /api/v1/nodes/register
-       └── Save node registration to vault
-
-4. Activate Service
-   └── sudo hydra-agent service activate
-       └── Creates systemd/Windows service for scheduled profiling
+```mermaid
+flowchart TD
+    A["1. Login (admin/operator)\nhydra-agent login -u admin"] --> A1["Save JWT session to vault"]
+    A1 --> B["2. Register Agent Account\nhydra-agent register"]
+    B --> B1["Generate username (agent-XXXXXXXX)\n& password"]
+    B1 --> B2["POST /api/v1/auth/register\n(role=agent)"]
+    B2 --> B3["API auto-links as sub-account\nof logged-in user"]
+    B3 --> B4["Auto-login as agent user"]
+    B4 --> B5["Create API key\n(90-day expiry)"]
+    B5 --> B6["Save credentials + API key\nto vault"]
+    B6 --> C["3. Register Node\nhydra-agent node register"]
+    C --> C1["POST /api/v1/nodes/register"]
+    C1 --> C2["Save node registration to vault"]
+    C2 --> D["4. Activate Service\nsudo hydra-agent service activate"]
+    D --> D1["Create systemd/Windows service\nfor scheduled profiling"]
 ```
 
 ## Service Management
@@ -713,49 +706,6 @@ S3/Local Output:
 ```
 
 ## Development
-
-### Project Structure
-
-```
-hydra-agent/
-├── src/
-│   ├── main.rs              # CLI entry point, argument parsing
-│   ├── lib.rs               # Library exports
-│   ├── api/
-│   │   └── mod.rs           # API client (auth, registration, profiles)
-│   ├── cli/
-│   │   ├── mod.rs           # CLI command routing, global args
-│   │   ├── login.rs         # Login command implementation
-│   │   ├── register.rs      # Register command implementation
-│   │   ├── config.rs        # Config command implementation
-│   │   ├── node.rs          # Node command implementation
-│   │   └── service.rs       # Service command implementation
-│   ├── collectors/
-│   │   ├── mod.rs           # Collector orchestration
-│   │   ├── hardware.rs      # CPU, memory, GPU, BIOS info
-│   │   ├── network.rs       # Interfaces, routes, DNS
-│   │   ├── storage.rs       # Disks, filesystems, mounts
-│   │   └── software.rs      # Packages, users, services
-│   ├── config/
-│   │   └── mod.rs           # TOML config parsing, validation
-│   ├── platform/
-│   │   ├── mod.rs           # Platform detection, traits
-│   │   ├── paths.rs         # Platform-specific paths
-│   │   ├── unix.rs          # Unix implementations
-│   │   └── windows.rs       # Windows implementations
-│   └── vault/
-│       └── mod.rs           # Credential storage
-├── scripts/
-│   ├── deploy-agent.sh      # Build and deploy script
-│   ├── install.sh           # Unix installer
-│   └── install.ps1          # Windows installer
-├── tests/
-│   ├── collectors_test.rs   # Collector unit tests
-│   └── config_test.rs       # Config validation tests
-├── Cargo.toml               # Dependencies and build config
-├── agent.example.toml       # Example configuration
-└── README.md
-```
 
 ### Dev Mode
 

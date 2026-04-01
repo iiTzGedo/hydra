@@ -112,42 +112,35 @@ curl -sSL https://hydra.local/api/v1/install | bash -s -- \
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      USER INTERFACES                            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
-│  │  hydra-web  │  │   Mobile    │  │ Claude/LLM  │              │
-│  │   (React)   │  │  (Future)   │  │   (MCP)     │              │
-│  └─────────────┘  └─────────────┘  └─────────────┘              │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                      SERVICE LAYER                              │
-│  ┌──────────────────────────┐  ┌──────────────────────────┐     │
-│  │        hydra-api         │  │       hydra-mcp          │     │
-│  │    (Python/FastAPI)      │  │    (Python/MCP SDK)      │     │
-│  │  • 128 API Endpoints     │  │  • 19 AI Tools           │     │
-│  │  • 22 Routers            │  │  • 8 Resources           │     │
-│  │  • Topology Generation   │  │  • 6 Prompts             │     │
-│  │  • Time Machine          │  │  • TOON Formatting       │     │
-│  └──────────────────────────┘  └──────────────────────────┘     │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                        DATA LAYER                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
-│  │   MongoDB   │  │    Redis    │  │   Garage    │              │
-│  │ (documents) │  │(queue/cache)│  │    (S3)     │              │
-│  └─────────────┘  └─────────────┘  └─────────────┘              │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                    INFRASTRUCTURE LAYER                         │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                   hydra-agent (Rust)                     │   │
-│  │         Deployed on each node to collect profiles        │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph UI["USER INTERFACES"]
+        direction LR
+        Web["hydra-web\n(React/TS)"]
+        Mobile["Mobile\n(Future)"]
+        LLM["Claude/LLM\n(MCP)"]
+    end
+
+    subgraph SVC["SERVICE LAYER"]
+        direction LR
+        API["hydra-api\n(Python/FastAPI)\n128 Endpoints · 22 Routers\nTopology Generation · Time Machine"]
+        MCP["hydra-mcp\n(Python/MCP SDK)\n19 AI Tools · 8 Resources\n6 Prompts · TOON Formatting"]
+    end
+
+    subgraph DATA["DATA LAYER"]
+        direction LR
+        MongoDB["MongoDB\n(documents)"]
+        Redis["Redis\n(queue/cache)"]
+        Garage["Garage\n(S3)"]
+    end
+
+    subgraph INFRA["INFRASTRUCTURE LAYER"]
+        Agent["hydra-agent (Rust)\nDeployed on each node to collect profiles"]
+    end
+
+    UI --> SVC
+    SVC --> DATA
+    DATA --> INFRA
 ```
 
 ### Components

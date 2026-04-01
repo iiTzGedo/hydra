@@ -93,36 +93,6 @@ Edit `.env` with your configuration (see [Configuration](#configuration) below).
 |----------|-------------|---------|
 | `VITE_API_URL` | Hydra API base URL | `http://localhost:8080/api/v1` |
 
-## Project Structure
-
-```
-hydra-web/
-├── Dockerfile               # Production multi-stage build (Node build + nginx)
-├── nginx.conf               # Nginx SPA routing and caching config
-├── package.json             # Dependencies and scripts
-├── vite.config.ts           # Vite build configuration
-├── tsconfig.json            # TypeScript configuration
-├── tailwind.config.js       # Tailwind CSS configuration
-├── e2e/                     # Playwright end-to-end tests
-│   └── critical-journeys.spec.ts
-└── src/
-    ├── api/                 # TanStack Query hooks for API calls
-    ├── components/          # Reusable UI components
-    │   ├── ui/              # Primitive components (Radix UI + CVA)
-    │   ├── layout/          # App shell (sidebar, header)
-    │   ├── dashboard/       # Dashboard widgets
-    │   ├── topology/        # ReactFlow nodes and controls
-    │   ├── timemachine/     # Timeline scrubber and historical view
-    │   └── chat/            # MCP chat interface components
-    ├── hooks/               # Shared React hooks
-    ├── lib/                 # Utilities, constants, API client
-    ├── pages/               # Route page components
-    ├── router/              # React Router configuration
-    ├── stores/              # Zustand client state stores
-    ├── types/               # TypeScript type definitions
-    └── __tests__/           # Unit and integration tests
-```
-
 ## Pages & Routes
 
 | Route | Page | Description |

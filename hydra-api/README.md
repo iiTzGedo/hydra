@@ -296,38 +296,6 @@ Interactive documentation is available when the API is running:
 | POST | `/api/v1/chat/sessions/{id}/messages` | Send message |
 | WS | `/api/v1/chat/ws` | WebSocket chat |
 
-## Project Structure
-
-```
-hydra-api/
-├── hydra/
-│   ├── __init__.py              # Package metadata
-│   ├── main.py                  # Root app (mounts versioned APIs)
-│   ├── core/                    # Shared configuration and logging
-│   │   ├── config.py            # Settings via pydantic-settings
-│   │   └── logging.py           # Structured logging setup
-│   ├── db/                      # Database clients
-│   │   ├── mongodb.py           # MongoDB async client
-│   │   ├── redis.py             # Redis async client
-│   │   └── indexes.py           # Index definitions
-│   └── api/
-│       └── v1/                  # API v1 implementation
-│           ├── main.py          # v1 FastAPI app
-│           ├── core/            # Auth, deps, exceptions, validators
-│           ├── routers/         # Route handlers (21 routers)
-│           ├── models/          # Pydantic request/response models
-│           └── services/        # Business logic layer
-├── tests/                       # Test suite
-│   ├── conftest.py              # Shared fixtures
-│   ├── test_auth.py             # Auth tests
-│   ├── test_nodes.py            # Node tests
-│   ├── test_profiles.py         # Profile tests
-│   └── test_validators.py       # Validator tests
-├── Dockerfile                   # Production Docker image
-├── pyproject.toml               # Project configuration
-└── README.md                    # This file
-```
-
 ## Testing
 
 ```bash
