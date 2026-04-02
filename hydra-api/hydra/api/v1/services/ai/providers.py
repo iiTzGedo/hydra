@@ -9,9 +9,18 @@ import httpx
 import structlog
 
 from hydra.api.v1.core.exceptions import ValidationError
+from hydra.api.v1.core.url_validator import validate_external_url
 from hydra.api.v1.models.ai import LLMProviderType
+from hydra.core.config import get_settings
 
 logger = structlog.get_logger(__name__)
+
+
+def _check_base_url(base_url: str | None) -> None:
+    """Validate a user-provided base_url against SSRF restrictions."""
+    if base_url:
+        settings = get_settings()
+        validate_external_url(base_url, allow_private=settings.is_development)
 
 
 class ProviderValidationMixin:
@@ -58,6 +67,11 @@ class ProviderValidationMixin:
         if not api_key:
             return False, "API key is required for OpenAI", None
 
+        try:
+            _check_base_url(base_url)
+        except ValueError as exc:
+            return False, f"Base URL rejected: {exc}", None
+
         url = f"{base_url.rstrip('/')}/models" if base_url else "https://api.openai.com/v1/models"
 
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -86,6 +100,11 @@ class ProviderValidationMixin:
         """Validate Ollama server by checking connectivity and listing models."""
         if not base_url:
             return False, "Base URL is required for Ollama", None
+
+        try:
+            _check_base_url(base_url)
+        except ValueError as exc:
+            return False, f"Base URL rejected: {exc}", None
 
         url = f"{base_url.rstrip('/')}/api/tags"
 
@@ -221,6 +240,7 @@ class ProviderValidationMixin:
         if not api_key:
             raise ValidationError("API key is required to fetch OpenAI models")
 
+        _check_base_url(base_url)
         url = f"{base_url.rstrip('/')}/models" if base_url else "https://api.openai.com/v1/models"
 
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -330,6 +350,7 @@ class ProviderValidationMixin:
         if not base_url:
             raise ValidationError("Base URL is required to fetch Ollama models")
 
+        _check_base_url(base_url)
         url = f"{base_url.rstrip('/')}/api/tags"
 
         async with httpx.AsyncClient(timeout=15.0) as client:

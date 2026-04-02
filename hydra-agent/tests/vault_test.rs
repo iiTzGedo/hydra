@@ -80,10 +80,12 @@ fn cleanup_env() {
 
 fn env_lock() -> MutexGuard<'static, ()> {
     static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    ENV_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("env lock should not be poisoned")
+    let mutex = ENV_LOCK.get_or_init(|| Mutex::new(()));
+    // Recover from poisoned lock (a prior test may have panicked)
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 // =============================================================================
@@ -555,16 +557,23 @@ fn test_clear_env_cache() {
     cleanup_env();
     let (_temp_dir, vault) = create_test_vault();
 
-    // Set env vars
-    env::set_var(ENV_API_KEY, "test_key");
-    env::set_var(ENV_AGENT_USER, "test_user");
-    env::set_var(ENV_AGENT_PWD, "test_pwd");
+    // Populate cache via export_to_env
+    let creds = sample_agent_credentials();
+    let api_key = sample_api_key(Some(90));
+    vault.save_agent_credentials(&creds).expect("save");
+    vault.save_api_key(&api_key).expect("save");
+    vault.export_to_env().expect("export");
 
+    // Verify cache is populated
+    assert!(vault.has_env_credentials());
+
+    // Clear cache (no longer touches process env vars)
     vault.clear_env_cache();
 
-    assert!(env::var(ENV_API_KEY).is_err());
-    assert!(env::var(ENV_AGENT_USER).is_err());
-    assert!(env::var(ENV_AGENT_PWD).is_err());
+    // Cache should be empty now
+    assert!(!vault.has_env_credentials());
+
+    cleanup_env();
 }
 
 #[test]
@@ -575,7 +584,11 @@ fn test_has_env_credentials() {
 
     assert!(!vault.has_env_credentials());
 
-    env::set_var(ENV_API_KEY, "test_key");
+    // Populate via export_to_env (cache-based)
+    let api_key = sample_api_key(Some(90));
+    vault.save_api_key(&api_key).expect("save");
+    vault.export_to_env().expect("export");
+
     assert!(vault.has_env_credentials());
 
     cleanup_env();
@@ -681,7 +694,8 @@ fn test_clear_all() {
         .save_node_registration(&sample_node_registration())
         .expect("Save node reg");
 
-    env::set_var(ENV_API_KEY, "test");
+    // Populate cache
+    vault.export_to_env().expect("export");
 
     // Clear all
     vault.clear_all().expect("Should clear all");
@@ -690,7 +704,7 @@ fn test_clear_all() {
     assert!(!vault.has_api_key());
     assert!(!vault.has_session());
     assert!(!vault.has_node_registration());
-    assert!(env::var(ENV_API_KEY).is_err());
+    assert!(!vault.has_env_credentials());
 
     cleanup_env();
 }

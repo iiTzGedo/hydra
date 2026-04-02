@@ -76,6 +76,15 @@ def _build_internal_context(headers) -> Any | None:
     if headers.get(INTERNAL_REQUEST_HEADER, "").lower() not in {"1", "true", "yes"}:
         return None
 
+    # Validate shared secret if configured
+    settings = get_settings()
+    if settings.internal_secret:
+        import hmac
+
+        provided_secret = headers.get("x-hydra-internal-secret", "")
+        if not hmac.compare_digest(provided_secret, settings.internal_secret):
+            raise PermissionError("Invalid internal request secret")
+
     user_id = headers.get(INTERNAL_USER_ID_HEADER)
     role = headers.get(INTERNAL_ROLE_HEADER)
     if not user_id or not role:
@@ -308,7 +317,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             except Exception:
                 pass
 
-        error_text = toon.format_error("TOOL_ERROR", str(e))
+        error_text = toon.format_error("TOOL_ERROR", "An internal error occurred while executing the tool")
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
 
 

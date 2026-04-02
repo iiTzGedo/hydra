@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 import jwt
 from jwt.exceptions import PyJWTError
@@ -71,6 +72,7 @@ def create_access_token(
     claims = {
         "sub": subject,
         "type": token_type,
+        "jti": uuid4().hex,
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }
@@ -103,8 +105,8 @@ def decode_token(token: str, settings: Settings | None = None) -> dict[str, Any]
             algorithms=[settings.jwt_algorithm],
         )
         return payload
-    except PyJWTError as e:
-        raise InvalidTokenError(f"Token validation failed: {str(e)}")
+    except PyJWTError:
+        raise InvalidTokenError("Token validation failed")
 
 
 def create_token_pair(

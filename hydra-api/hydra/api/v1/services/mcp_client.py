@@ -116,13 +116,16 @@ class MCPClient:
         if not user:
             raise MCPClientError(f"User not found for MCP tool execution: {user_id}")
 
-        return {
+        headers = {
             INTERNAL_REQUEST_HEADER: "true",
             INTERNAL_USER_ID_HEADER: user_id,
             INTERNAL_ROLE_HEADER: user.get("role", "viewer"),
             INTERNAL_PERMISSIONS_HEADER: json.dumps(user.get("permissions", [])),
             INTERNAL_CLIENT_ID_HEADER: "hydra-api",
         }
+        if self.settings.mcp_internal_secret:
+            headers["X-Hydra-Internal-Secret"] = self.settings.mcp_internal_secret
+        return headers
 
     async def call_tool(
         self,

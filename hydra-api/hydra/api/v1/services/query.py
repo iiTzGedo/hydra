@@ -7,6 +7,7 @@ from uuid import uuid4
 import structlog
 
 from hydra.db.mongodb import MongoDB
+from hydra.api.v1.core.query_sanitizer import sanitize_mongo_filter
 from hydra.api.v1.models.query import (
     AuditAction,
     AuditListParams,
@@ -47,7 +48,7 @@ class QueryService:
             Tuple of (query results, total count).
         """
         collection = self._get_collection(request.collection)
-        query = request.filter or {}
+        query = sanitize_mongo_filter(request.filter) if request.filter else {}
         total = await collection.count_documents(query)
         cursor = collection.find(query, projection=request.projection)
 

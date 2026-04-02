@@ -1,5 +1,6 @@
 """Email utilities for sending emails via SMTP."""
 
+import html as html_lib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import TYPE_CHECKING
@@ -160,6 +161,8 @@ If you did not request this password reset, please ignore this email.
 - The Hydra Team
 """
 
+        safe_username = html_lib.escape(username)
+        safe_reset_link = html_lib.escape(reset_link)
         html = f"""
 <!DOCTYPE html>
 <html>
@@ -175,11 +178,11 @@ If you did not request this password reset, please ignore this email.
 <body>
     <div class="container">
         <h2>Password Reset Request</h2>
-        <p>Hello <strong>{username}</strong>,</p>
+        <p>Hello <strong>{safe_username}</strong>,</p>
         <p>You requested a password reset for your Hydra account.</p>
         <p>Click the button below to reset your password:</p>
-        <a href="{reset_link}" class="button">Reset Password</a>
-        <p>Or copy this link: <a href="{reset_link}">{reset_link}</a></p>
+        <a href="{safe_reset_link}" class="button">Reset Password</a>
+        <p>Or copy this link: <a href="{safe_reset_link}">{safe_reset_link}</a></p>
         <p class="footer">
             This link will expire in {expires_hours} hours.<br>
             If you did not request this password reset, please ignore this email.
@@ -205,10 +208,10 @@ If you did not request this password reset, please ignore this email.
         Returns:
             True if email was sent successfully
         """
-        title = notification.get("title", "Notification")
-        message = notification.get("message", "")
-        tier = notification.get("tier", "")
-        tier_label = notification.get("tierLabel", "")
+        title = html_lib.escape(notification.get("title", "Notification"))
+        message = html_lib.escape(notification.get("message", ""))
+        tier = html_lib.escape(notification.get("tier", ""))
+        tier_label = html_lib.escape(notification.get("tierLabel", ""))
         created_at = notification.get("createdAt", "")
         try:
             from datetime import datetime as _dt
@@ -239,11 +242,15 @@ Time: {created_at}
 
         html_links = ""
         if links:
-            items = "".join(
-                f"<li><a href=\"{l.get('href')}\">{l.get('label') or l.get('href')}</a></li>"
-                for l in links if l.get("href")
-            )
-            html_links = f"<ul>{items}</ul>"
+            safe_links = []
+            for l in links:
+                href = l.get("href", "")
+                if href and (href.startswith("/") or href.startswith("http://") or href.startswith("https://")):
+                    safe_href = html_lib.escape(href)
+                    safe_label = html_lib.escape(l.get("label") or href)
+                    safe_links.append(f"<li><a href=\"{safe_href}\">{safe_label}</a></li>")
+            if safe_links:
+                html_links = f"<ul>{''.join(safe_links)}</ul>"
 
         html = f"""
 <!DOCTYPE html>

@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import warnings
 
 from cryptography.fernet import Fernet
 
@@ -9,13 +10,25 @@ from hydra.core.config import get_settings
 
 
 def _get_fernet_key() -> bytes:
-    """Derive a Fernet key from the JWT secret.
+    """Derive a Fernet key from the dedicated encryption key or JWT secret.
+
+    Uses HYDRA_ENCRYPTION_KEY when set. Falls back to deriving from
+    jwt_secret with a deprecation warning.
 
     Returns:
         Base64-encoded 32-byte key suitable for Fernet encryption.
     """
     settings = get_settings()
-    key_bytes = hashlib.sha256(settings.jwt_secret.encode()).digest()
+    if settings.encryption_key:
+        key_bytes = hashlib.sha256(settings.encryption_key.encode()).digest()
+    else:
+        if not settings.is_development:
+            warnings.warn(
+                "HYDRA_ENCRYPTION_KEY not set; deriving from JWT secret is deprecated",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+        key_bytes = hashlib.sha256(settings.jwt_secret.encode()).digest()
     return base64.urlsafe_b64encode(key_bytes)
 
 

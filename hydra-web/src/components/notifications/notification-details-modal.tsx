@@ -196,7 +196,9 @@ export function NotificationDetailsModal({
                       size="sm"
                       className="h-7 text-xs"
                       onClick={() => {
-                        navigate(link.href);
+                        if (link.href.startsWith('/') && !link.href.startsWith('//')) {
+                          navigate(link.href);
+                        }
                         onOpenChange(false);
                       }}
                     >
@@ -280,7 +282,9 @@ export function NotificationDetailsModal({
               variant="outline"
               size="sm"
               onClick={() => {
-                navigate(primaryLink.href);
+                if (primaryLink.href.startsWith('/') && !primaryLink.href.startsWith('//')) {
+                  navigate(primaryLink.href);
+                }
                 onOpenChange(false);
               }}
             >

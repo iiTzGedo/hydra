@@ -106,15 +106,21 @@ class TokensMixin:
             allowed_roles=allowed_roles,
         )
 
+        import hashlib
+
+        token_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
+        masked_token = f"{token[:8]}...{token_hash}"
+
         audit_id = await log_audit(
             AuditAction.CREATE,
             "registration_token",
-            token,
+            masked_token,
             "user",
             created_by,
             True,
             details={
-                "token": token,
+                "tokenPrefix": token[:8],
+                "tokenHash": token_hash,
                 "userId": created_by,
                 "scope": request.scope.value,
                 "expiresAt": expires_at.isoformat(),
@@ -127,8 +133,8 @@ class TokensMixin:
             title="Registration token created",
             message=f"Registration token created for {request.scope.value} scope",
             details={
-                "token": token,
-                "entityId": token,
+                "tokenPrefix": token[:8],
+                "entityId": masked_token,
                 "userId": created_by,
                 "scope": request.scope.value,
                 "expiresAt": expires_at.isoformat(),

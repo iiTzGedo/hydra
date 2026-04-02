@@ -110,8 +110,8 @@ export const NotificationItem = forwardRef<HTMLButtonElement, NotificationItemPr
         onClick?.();
         return;
       }
-      // Navigate to the primary link if available
-      if (primaryLink) {
+      // Navigate to the primary link if available (validate relative path to prevent open redirect)
+      if (primaryLink && primaryLink.href.startsWith('/') && !primaryLink.href.startsWith('//')) {
         navigate(primaryLink.href);
       }
       onClick?.();

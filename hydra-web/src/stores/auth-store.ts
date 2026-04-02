@@ -55,6 +55,15 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        // Server-side token invalidation (best-effort)
+        const token = get().accessToken;
+        if (token) {
+          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+          fetch(`${apiUrl}/auth/logout`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {});
+        }
         storage.clearTokens();
         set({
           user: null,

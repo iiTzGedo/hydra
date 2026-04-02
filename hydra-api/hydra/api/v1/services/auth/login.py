@@ -233,6 +233,13 @@ class LoginMixin:
         """
         from hydra.api.v1.core.security import verify_password
 
+        # SEC-016: Block IPs that have exceeded the brute force threshold
+        if self.redis and ip:
+            ip_count = await self.redis.client.get(f"auth:failed:ip:{ip}")
+            if ip_count and int(ip_count) >= BRUTE_FORCE_THRESHOLD:
+                logger.warning("brute_force_blocked", ip=ip, attempts=int(ip_count))
+                raise InvalidCredentialsError()
+
         pending = await self.db.users_pending.find_one({"username": username})
         if pending:
             raise PendingApprovalError(username)

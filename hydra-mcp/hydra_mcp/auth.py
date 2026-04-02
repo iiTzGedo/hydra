@@ -149,10 +149,27 @@ def reset_auth_context(token) -> None:
     _auth_context.reset(token)
 
 
-def allow_missing_auth_context() -> bool:
-    """Return whether missing auth context is allowed for the current transport."""
+def allow_missing_auth_context() -> bool:    """Return whether missing auth context is allowed for the current transport.
+
+    On stdio transport, unauthenticated access is always allowed (local use).
+    The allow_unauthenticated flag is only honoured on stdio; on network
+    transports it is ignored and a warning is logged.
+    """
+    import structlog
+
     settings = get_settings()
-    return settings.transport == "stdio" or settings.allow_unauthenticated
+
+    if settings.transport == "stdio":
+        return True
+
+    if settings.allow_unauthenticated:
+        logger = structlog.get_logger(__name__)
+        logger.warning(
+            "allow_unauthenticated_ignored_on_network_transport",
+            transport=settings.transport,
+            message="allow_unauthenticated is only effective on stdio transport",
+        )
+    return False
 
 
 def check_permission(tool_name: str, required_permission: str | None) -> None:

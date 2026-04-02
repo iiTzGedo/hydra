@@ -268,6 +268,21 @@ class MCPService:
         endpoint = doc["endpoint"]
         auth_type = MCPAuthType(doc.get("authType", "none"))
 
+        # SSRF protection: validate the endpoint URL
+        from hydra.api.v1.core.url_validator import validate_external_url
+        from hydra.core.config import get_settings
+
+        settings = get_settings()
+        try:
+            validate_external_url(endpoint, allow_private=settings.is_development)
+        except ValueError as exc:
+            return {
+                "serverId": server_id,
+                "status": MCPServerStatus.UNHEALTHY.value,
+                "message": f"Endpoint URL rejected: {exc}",
+                "checkedAt": now.isoformat(),
+            }
+
         headers = {}
         if doc.get("authValueEncrypted"):
             auth_value = decrypt_value(doc["authValueEncrypted"])

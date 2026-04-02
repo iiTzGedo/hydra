@@ -202,7 +202,7 @@ fn default_poll_interval() -> u64 {
 }
 
 fn default_bind_address() -> String {
-    "0.0.0.0".to_string()
+    "127.0.0.1".to_string()
 }
 
 fn default_server_port() -> u16 {

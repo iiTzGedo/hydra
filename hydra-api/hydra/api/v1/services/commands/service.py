@@ -379,9 +379,12 @@ class CommandsService:
         base_url = f"{scheme}://{server_address}:{server_port}"
 
         try:
+            from hydra.core.config import get_settings
+
+            settings = get_settings()
             async with httpx.AsyncClient(
                 timeout=min(timeout, 30),
-                verify=False,
+                verify=settings.agent_tls_verify,
             ) as client:
                 response = await client.post(
                     f"{base_url}/execute",

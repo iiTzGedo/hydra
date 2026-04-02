@@ -2,10 +2,11 @@
 """Simple API endpoint test script using requests."""
 
 import json
+import os
 import urllib.request
 import urllib.error
 
-API_BASE = "http://localhost:8080/api/v1"
+API_BASE = os.environ.get("HYDRA_API_BASE", "http://localhost:8080/api/v1")
 
 def make_request(method, path, headers=None, body=None):
     """Make an HTTP request."""
@@ -43,7 +44,10 @@ def test_endpoints():
 
     # Try to login
     print("\n=== Login ===")
-    login_data = {"username": "nimi", "password": "Gedo8420."}
+    login_data = {
+        "username": os.environ.get("HYDRA_TEST_USER", "system_admin"),
+        "password": os.environ.get("HYDRA_TEST_PASSWORD", "system12345"),
+    }
     status, data = make_request("POST", "/auth/login", body=login_data)
     print(f"Status: {status}")
 

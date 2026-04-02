@@ -4,22 +4,13 @@ services:
       context: ./hydra-api
       dockerfile: Dockerfile
     network_mode: host
+    env_file: .env.docker
     environment:
       - HYDRA_ENV=development
       - HYDRA_DEBUG=true
-      - HYDRA_MONGODB_URI=mongodb://hydra_app:Gedo8420.@mongo-dev.db.nimi.labs:27017?authSource=hydra
       - HYDRA_MONGODB_DATABASE=hydra
-      - HYDRA_REDIS_URL=redis://default:Gedo8420.@redis-dev.db.nimi.labs:6379/0
-      - HYDRA_JWT_SECRET=a1b2c3d4
       - HYDRA_JWT_ALGORITHM=HS256
       - HYDRA_JWT_EXPIRE_MINUTES=60
-      # Object storage (optional - for agent binary distribution)
-      - HYDRA_OBJECT_STORAGE_ENABLED=${HYDRA_OBJECT_STORAGE_ENABLED:-true}
-      - HYDRA_OBJECT_STORAGE_ENDPOINT=${HYDRA_OBJECT_STORAGE_ENDPOINT:-http://obs-dev.db.nimi.labs:3900}
-      - HYDRA_OBJECT_STORAGE_BUCKET=${HYDRA_OBJECT_STORAGE_BUCKET:-hydra-bucket}
-      - HYDRA_OBJECT_STORAGE_ACCESS_KEY=${HYDRA_OBJECT_STORAGE_ACCESS_KEY:-GK2f644691de1c4defd67374a2}
-      - HYDRA_OBJECT_STORAGE_SECRET_KEY=${HYDRA_OBJECT_STORAGE_SECRET_KEY:-8baf9ed5b667d02d006ce89c46df79915771ea45e462195a7f07825e50455bee}
-      - HYDRA_OBJECT_STORAGE_REGION=${HYDRA_OBJECT_STORAGE_REGION:-garage}
       # SMTP (optional - for password reset emails)
       - HYDRA_SMTP_ENABLED=${HYDRA_SMTP_ENABLED:-false}
       - HYDRA_SMTP_HOST=${HYDRA_SMTP_HOST:-}

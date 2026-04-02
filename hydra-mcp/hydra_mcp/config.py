@@ -60,6 +60,10 @@ class Settings(BaseSettings):
         default=False,
         description="Explicitly allow unauthenticated access on non-stdio transports for local development only",
     )
+    internal_secret: str | None = Field(
+        default=None,
+        description="Shared secret for validating X-Hydra-Internal-Request headers (HYDRA_MCP_INTERNAL_SECRET)",
+    )
 
     # Server settings
     server_name: str = Field(
@@ -77,7 +81,7 @@ class Settings(BaseSettings):
         description="Transport mode: 'stdio', 'http', 'sse', or 'streamable-http'",
     )
     http_host: str = Field(
-        default="0.0.0.0",
+        default="127.0.0.1",
         description="HTTP server host (only used when transport=http)",
     )
     http_port: int = Field(
@@ -85,7 +89,7 @@ class Settings(BaseSettings):
         description="HTTP server port (only used when transport=http)",
     )
     cors_origins: list[str] = Field(
-        default=["*"],
+        default=["http://localhost:5173", "http://localhost:3000"],
         description="CORS allowed origins for HTTP transport",
     )
 

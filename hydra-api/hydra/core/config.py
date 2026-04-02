@@ -1,10 +1,13 @@
 """Application configuration using pydantic-settings."""
 
+import warnings
 from contextlib import contextmanager
 from typing import Literal
 
-from pydantic import Field, MongoDsn, RedisDsn
+from pydantic import Field, MongoDsn, RedisDsn, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_KNOWN_INSECURE_SECRETS = frozenset({"change-this-secret", "a1b2c3d4", "secret", "test"})
 
 
 class Settings(BaseSettings):
@@ -36,10 +39,20 @@ class Settings(BaseSettings):
     redis_url: RedisDsn = Field(default="redis://redis-dev.db.nimi.labs:6379/0")
     redis_max_connections: int = 20
 
-    jwt_secret: str = Field(default="change-this-secret")
+    jwt_secret: str = Field(description="JWT signing secret (HYDRA_JWT_SECRET)")
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
     jwt_refresh_expire_days: int = 7
+
+    encryption_key: str | None = Field(
+        default=None,
+        description="Fernet encryption key (HYDRA_ENCRYPTION_KEY). If unset, derived from jwt_secret.",
+    )
+
+    agent_tls_verify: bool = Field(
+        default=True,
+        description="Verify TLS certificates when dispatching commands to agents",
+    )
 
     registration_token_expire_days: int = 7
     registration_token_max_uses: int = 10
@@ -86,6 +99,10 @@ class Settings(BaseSettings):
     mcp_server_url: str = Field(
         default="http://hydra-mcp:8081",
         description="URL for the built-in Hydra MCP server (HTTP transport)",
+    )
+    mcp_internal_secret: str | None = Field(
+        default=None,
+        description="Shared secret for internal MCP requests (HYDRA_MCP_INTERNAL_SECRET)",
     )
 
     # Centralized defaults
@@ -136,6 +153,29 @@ class Settings(BaseSettings):
             and self.smtp_host is not None
             and self.smtp_from_address is not None
         )
+
+    @model_validator(mode="after")
+    def _validate_jwt_secret(self) -> "Settings":
+        """Reject known-insecure JWT secrets in non-development environments."""
+        if self.env != "development":
+            if len(self.jwt_secret) < 32:
+                raise ValueError(
+                    "HYDRA_JWT_SECRET must be at least 32 characters "
+                    "in non-development environments"
+                )
+            if self.jwt_secret in _KNOWN_INSECURE_SECRETS:
+                raise ValueError(
+                    "HYDRA_JWT_SECRET contains a known insecure value"
+                )
+        else:
+            if self.jwt_secret in _KNOWN_INSECURE_SECRETS:
+                warnings.warn(
+                    "HYDRA_JWT_SECRET uses a known insecure value; "
+                    "rotate before deploying to staging/production",
+                    UserWarning,
+                    stacklevel=2,
+                )
+        return self
 
 
 _settings_instance: Settings | None = None

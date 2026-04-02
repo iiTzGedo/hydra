@@ -40,8 +40,8 @@ class ApiKeysMixin:
         Returns:
             The created API key details including the key string (shown only once).
         """
-        key = f"hyk_live_{secrets.token_urlsafe(32)}"
         key_id = f"key_{secrets.token_urlsafe(8)}"
+        key = f"hyk_{key_id}_{secrets.token_urlsafe(32)}"
         now = datetime.now(timezone.utc)
 
         roles = None
@@ -191,6 +191,10 @@ class ApiKeysMixin:
     async def validate_api_key(self, api_key: str) -> dict:
         """Validate an API key and return its associated data.
 
+        New key format embeds the keyId for O(1) lookup:
+            hyk_key_<id>_<secret>
+        Legacy format (hyk_live_<secret>) falls back to O(n) scan.
+
         Args:
             api_key: The API key string (must start with 'hyk_').
 
@@ -203,20 +207,48 @@ class ApiKeysMixin:
         if not api_key.startswith("hyk_"):
             raise InvalidTokenError("Invalid API key format")
 
+        # Try O(1) lookup for new format: hyk_key_<id>_<secret>
+        key_id = self._extract_key_id(api_key)
+        if key_id:
+            key_doc = await self.db.api_keys.find_one(
+                {"keyId": key_id, "revokedAt": None}
+            )
+            if key_doc and verify_password(api_key, key_doc["keyHash"]):
+                return await self._validate_and_touch(key_doc)
+
+        # Fallback: O(n) scan for legacy keys (hyk_live_<secret>)
         async for key_doc in self.db.api_keys.find({"revokedAt": None}):
             if verify_password(api_key, key_doc["keyHash"]):
-                expires_at = self._to_utc(key_doc.get("expiresAt"))
-                if expires_at and expires_at < datetime.now(timezone.utc):
-                    raise InvalidTokenError("API key has expired")
-
-                await self.db.api_keys.update_one(
-                    {"keyId": key_doc["keyId"]},
-                    {
-                        "$set": {"lastUsedAt": datetime.now(timezone.utc)},
-                        "$inc": {"usageCount": 1},
-                    },
-                )
-
-                return key_doc
+                return await self._validate_and_touch(key_doc)
 
         raise InvalidTokenError("Invalid API key")
+
+    @staticmethod
+    def _extract_key_id(api_key: str) -> str | None:
+        """Extract the embedded keyId from the new key format.
+
+        New format: hyk_key_<id>_<secret>
+        Returns None for legacy format (hyk_live_<secret>).
+        """
+        if api_key.startswith("hyk_key_"):
+            # hyk_key_<id>_<secret> — keyId is "key_<id>"
+            rest = api_key[4:]  # "key_<id>_<secret>"
+            parts = rest.split("_", 2)  # ["key", "<id>", "<secret>"]
+            if len(parts) >= 2:
+                return f"key_{parts[1]}"
+        return None
+
+    async def _validate_and_touch(self, key_doc: dict) -> dict:
+        """Validate expiry and update usage tracking for a matched key."""
+        expires_at = self._to_utc(key_doc.get("expiresAt"))
+        if expires_at and expires_at < datetime.now(timezone.utc):
+            raise InvalidTokenError("API key has expired")
+
+        await self.db.api_keys.update_one(
+            {"keyId": key_doc["keyId"]},
+            {
+                "$set": {"lastUsedAt": datetime.now(timezone.utc)},
+                "$inc": {"usageCount": 1},
+            },
+        )
+        return key_doc

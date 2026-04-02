@@ -227,7 +227,7 @@ async def test_query_viewer_forbidden(
     viewer_token,
     sample_user,
 ):
-    """Test that viewer cannot use advanced query."""
+    """Test that viewer cannot use advanced query (requires query:read)."""
     viewer_user = sample_user.copy()
     viewer_user["userId"] = "user_viewer123"
     viewer_user["role"] = "viewer"
@@ -242,4 +242,4 @@ async def test_query_viewer_forbidden(
         headers={"Authorization": f"Bearer {viewer_token}"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 403

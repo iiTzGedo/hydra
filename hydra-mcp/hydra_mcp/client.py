@@ -76,7 +76,14 @@ class HydraClient:
         endpoint: str,
         params: dict | None = None,
         json_data: dict | None = None,
+        auth_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        """Make an API request, optionally with per-request auth headers.
+
+        When auth_headers are provided they are merged on top of the
+        client's default headers for this single request, allowing
+        user credentials to be forwarded from the MCP auth context.
+        """
         client = await self._get_client()
         try:
             response = await client.request(
@@ -84,6 +91,7 @@ class HydraClient:
                 endpoint,
                 params=params,
                 json=json_data,
+                headers=auth_headers,
             )
             data = response.json()
             if response.status_code >= 400:

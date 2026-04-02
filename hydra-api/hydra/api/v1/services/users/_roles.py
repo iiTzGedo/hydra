@@ -264,6 +264,7 @@ class RolesMixin:
                 "notifications:read",
                 "notifications:write",
                 "audit:read",
+                "query:read",
             ],
             Role.VIEWER.value: [
                 "nodes:read",

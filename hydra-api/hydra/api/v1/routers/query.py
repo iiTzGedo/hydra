@@ -47,6 +47,7 @@ AuditServiceDep = Annotated[AuditService, Depends(get_audit_service)]
     response_model_by_alias=True,
     summary="Execute Query",
     description="Execute a structured query across collections.",
+    dependencies=[Depends(require_permission("query:read"))],
 )
 async def execute_query(
     request: QueryRequest,

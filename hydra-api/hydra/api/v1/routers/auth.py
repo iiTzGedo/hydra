@@ -7,6 +7,7 @@ from hydra.api.v1.core.deps import (
     AuthServiceDep,
     CurrentUser,
     OptionalUser,
+    RedisDep,
     UsersServiceDep,
     require_permission,
 )
@@ -160,6 +161,46 @@ async def refresh_token(
         refresh_token=request.refresh_token,
         expires_in=result["expires_in"],
     )
+
+
+@router.post(
+    "/logout",
+    summary="Logout",
+    description="Invalidate the current access token.",
+)
+async def logout(
+    request: Request,
+    current_user: CurrentUser,
+    redis: RedisDep,
+) -> dict:
+    """Invalidate the current access token by blacklisting its JTI in Redis.
+
+    Args:
+        request: FastAPI request (carries the Authorization header).
+        current_user: Authenticated user.
+        redis: Redis client for token blacklist.
+
+    Returns:
+        Confirmation of logout.
+    """
+    from hydra.api.v1.core.security import decode_token
+
+    auth_header = request.headers.get("Authorization", "")
+    token_str = auth_header.removeprefix("Bearer ").strip()
+    if token_str:
+        try:
+            payload = decode_token(token_str)
+            jti = payload.get("jti")
+            exp = payload.get("exp", 0)
+            if jti:
+                import time
+
+                ttl = max(int(exp) - int(time.time()), 0)
+                if ttl > 0:
+                    await redis.client.setex(f"token:blacklist:{jti}", ttl, "1")
+        except Exception:
+            pass  # Token already invalid, no-op
+    return {"loggedOut": True}
 
 
 @router.post(

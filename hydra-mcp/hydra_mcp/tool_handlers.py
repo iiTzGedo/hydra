@@ -629,9 +629,18 @@ async def search_infrastructure(args: dict[str, Any]) -> str:
 )
 async def query_infrastructure(args: dict[str, Any]) -> str:
     """Direct query against infrastructure data (admin only)."""
+    from hydra_mcp.query_sanitizer import BlockedOperatorError, sanitize_mongo_filter
+
+    filter_query = args.get("filter")
+    if filter_query:
+        try:
+            sanitize_mongo_filter(filter_query)
+        except BlockedOperatorError as exc:
+            return toon.format_error("VALIDATION_ERROR", str(exc))
+
     result = await client.query(
         collection=args["collection"],
-        filter_query=args.get("filter"),
+        filter_query=filter_query,
         projection=args.get("projection"),
     )
     return toon.format(result)

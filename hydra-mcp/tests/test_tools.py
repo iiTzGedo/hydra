@@ -740,13 +740,15 @@ class TestCallTool:
         assert "NOT_FOUND" in result.content[0].text or "not found" in result.content[0].text.lower()
 
     async def test_generic_error_returns_error_result(self, mock_execute_tool):
-        """Test generic exception returns error result."""
+        """Test generic exception returns sanitized error result (SEC-027)."""
         mock_execute_tool.side_effect = Exception("Something went wrong")
 
         result = await call_tool("list_nodes", {})
 
         assert result.isError is True
-        assert "Something went wrong" in result.content[0].text
+        assert "TOOL_ERROR" in result.content[0].text
+        # Internal details must NOT leak to the client
+        assert "Something went wrong" not in result.content[0].text
 
     async def test_validation_error_returns_error_result(self, mock_execute_tool):
         """Test validation error returns error result with details."""
