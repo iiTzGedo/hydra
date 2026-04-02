@@ -16,7 +16,7 @@ use crate::utils::{
     generate_agent_password, generate_agent_username, API_KEY_DEFAULT_EXPIRY_DAYS,
     API_KEY_RENEWAL_THRESHOLD_DAYS,
 };
-use crate::vault::{AgentCredentials, ApiKeyData, Vault};
+use crate::vault::{AgentCredentials, ApiKeyData, NodeRegistrationData, Vault};
 
 /// API client for Hydra API communication.
 pub struct ApiClient {
@@ -517,6 +517,22 @@ impl ApiClient {
         Ok(())
     }
 
+    /// Save node registration metadata from /nodes/register.
+    fn save_node_registration_from_response(
+        &self,
+        response: &DirectNodeRegistrationResponse,
+    ) -> Result<()> {
+        let registration = NodeRegistrationData {
+            node_id: response.node_id.clone(),
+            registered_at: response.registered_at.clone(),
+            registered_by: response.registered_by.clone(),
+            status: response.status.clone(),
+        };
+        self.vault.save_node_registration(&registration)?;
+        info!(node_id = %response.node_id, "Node registration saved to vault");
+        Ok(())
+    }
+
     /// Create API key for agent using its JWT.
     async fn create_agent_api_key(
         &self,
@@ -632,7 +648,7 @@ impl ApiClient {
     }
 
     async fn login_as_agent(&self, username: &str, password: &str) -> Result<String> {
-        let login_url = format!("{}/auth/login", self.config.api.url);
+        let login_url = format!("{}/auth/login?source=agent", self.config.api.url);
         let request = LoginRequest {
             username: username.to_string(),
             password: password.to_string(),
@@ -756,6 +772,7 @@ impl ApiClient {
         }
 
         let result: DirectNodeRegistrationResponse = response.json().await?;
+        self.save_node_registration_from_response(&result)?;
 
         // Save server secret for max-tier agents
         if let Some(secret) = &result.agent_server_secret {
@@ -896,6 +913,7 @@ impl ApiClient {
         }
 
         let result: DirectNodeRegistrationResponse = response.json().await?;
+        self.save_node_registration_from_response(&result)?;
 
         // Save server secret for max-tier agents
         if let Some(secret) = &result.agent_server_secret {

@@ -35,16 +35,16 @@ pub async fn execute(action: &str, parameters: &Option<Value>, timeout_secs: u64
     let params = match parameters {
         Some(p) => p,
         None => {
-            return CommandResult::error("Service commands require parameters with at least 'name'");
+            return CommandResult::error(
+                "Service commands require parameters with at least 'name'",
+            );
         }
     };
 
     let name = match params.get("name").and_then(|v| v.as_str()) {
         Some(n) => n,
         None => {
-            return CommandResult::error(
-                "Missing required parameter 'name' (service/unit name)",
-            );
+            return CommandResult::error("Missing required parameter 'name' (service/unit name)");
         }
     };
 
@@ -147,9 +147,9 @@ async fn execute_docker(
                     }
                     run_command("docker", &["restart", container], timeout_secs).await
                 }
-                None => CommandResult::error(
-                    "'update' for docker requires 'image' parameter to pull",
-                ),
+                None => {
+                    CommandResult::error("'update' for docker requires 'image' parameter to pull")
+                }
             }
         }
         other => CommandResult::error(&format!("Unknown service action: {}", other)),
@@ -167,9 +167,7 @@ async fn execute_podman(
         "start" | "stop" | "restart" => {
             run_command("podman", &[action, container], timeout_secs).await
         }
-        "reload" => {
-            run_command("podman", &["kill", "-s", "HUP", container], timeout_secs).await
-        }
+        "reload" => run_command("podman", &["kill", "-s", "HUP", container], timeout_secs).await,
         "logs" => {
             let lines = params
                 .get("lines")
@@ -198,9 +196,9 @@ async fn execute_podman(
                     }
                     run_command("podman", &["restart", container], timeout_secs).await
                 }
-                None => CommandResult::error(
-                    "'update' for podman requires 'image' parameter to pull",
-                ),
+                None => {
+                    CommandResult::error("'update' for podman requires 'image' parameter to pull")
+                }
             }
         }
         other => CommandResult::error(&format!("Unknown service action: {}", other)),

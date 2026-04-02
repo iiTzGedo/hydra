@@ -102,9 +102,7 @@ pub async fn execute(args: &UnregisterArgs, config: &AgentConfig, vault: &Vault)
     delete_agent_user(config, &creds.user_id, &access_token).await?;
 
     if !args.keep_local {
-        vault.delete_agent_credentials()?;
-        vault.delete_api_key()?;
-        vault.delete_node_registration()?;
+        vault.clear_all()?;
         info!("Cleared local vault credentials");
     }
 
@@ -119,6 +117,140 @@ pub async fn execute(args: &UnregisterArgs, config: &AgentConfig, vault: &Vault)
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{execute, UnregisterArgs};
+    use crate::config::{
+        AgentConfig, ApiConfig, CollectionConfig, NodeConfig, ScheduleConfig, ServerConfig,
+    };
+    use crate::vault::{
+        AgentCredentials, ApiKeyData, NodeRegistrationData, ServerSecretData, SessionData, Vault,
+    };
+    use chrono::{Duration, Utc};
+    use tempfile::TempDir;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn create_test_config(api_url: &str) -> AgentConfig {
+        AgentConfig {
+            api: ApiConfig {
+                url: api_url.to_string(),
+                timeout_seconds: 5,
+                retries: 2,
+            },
+            node: NodeConfig {
+                node_id: "test-node-01".to_string(),
+                class: "compute".to_string(),
+                tier: crate::config::AgentTier::Normal,
+                node_type: "physical".to_string(),
+                kind: None,
+                display_name: None,
+                description: None,
+                tags: vec![],
+                parent_node_id: None,
+            },
+            collection: CollectionConfig {
+                level: "neutral".to_string(),
+                collectors: vec![],
+                include_packages: false,
+                include_users: false,
+                config_files: vec![],
+            },
+            schedule: ScheduleConfig {
+                enabled: false,
+                interval_seconds: 3600,
+                on_startup: false,
+                poll_interval_seconds: 30,
+            },
+            server: ServerConfig::default(),
+        }
+    }
+
+    fn seeded_vault(temp_dir: &TempDir) -> Vault {
+        let vault = Vault::new(temp_dir.path());
+        vault
+            .save_agent_credentials(&AgentCredentials {
+                user_id: "user_agent_001".to_string(),
+                username: "agent-test-node-01".to_string(),
+                password: Some("test_password".to_string()),
+                parent_user_id: "user_admin_001".to_string(),
+                created_at: Utc::now().to_rfc3339(),
+            })
+            .unwrap();
+        vault
+            .save_api_key(&ApiKeyData {
+                api_key: "hyk_test_key".to_string(),
+                api_key_id: "key_test_001".to_string(),
+                expires_at: Some((Utc::now() + Duration::days(30)).to_rfc3339()),
+                node_id: Some("test-node-01".to_string()),
+                stored_at: Utc::now().to_rfc3339(),
+            })
+            .unwrap();
+        vault
+            .save_session(&SessionData {
+                access_token: "admin_access_token".to_string(),
+                refresh_token: "refresh".to_string(),
+                token_type: "Bearer".to_string(),
+                expires_at: Utc::now().timestamp() + 3600,
+                username: "admin".to_string(),
+                user_id: "user_admin_001".to_string(),
+                role: "admin".to_string(),
+            })
+            .unwrap();
+        vault
+            .save_node_registration(&NodeRegistrationData {
+                node_id: "test-node-01".to_string(),
+                registered_at: Utc::now().to_rfc3339(),
+                registered_by: "admin".to_string(),
+                status: "active".to_string(),
+            })
+            .unwrap();
+        vault
+            .save_server_secret(&ServerSecretData {
+                secret: "hsk_test_secret".to_string(),
+                stored_at: Utc::now().to_rfc3339(),
+            })
+            .unwrap();
+        vault
+    }
+
+    #[tokio::test]
+    async fn test_unregister_force_clears_all_local_vault_state() {
+        let server = MockServer::start().await;
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config(&server.uri());
+        let vault = seeded_vault(&temp_dir);
+
+        Mock::given(method("DELETE"))
+            .and(path("/users/user_agent_001"))
+            .and(header("authorization", "Bearer admin_access_token"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        execute(
+            &UnregisterArgs {
+                force: true,
+                keep_local: false,
+            },
+            &config,
+            &vault,
+        )
+        .await
+        .unwrap();
+
+        assert!(!vault.has_agent_credentials());
+        assert!(!vault.has_api_key());
+        assert!(!vault.has_session());
+        assert!(!vault.has_node_registration());
+        assert!(!vault.has_server_secret());
+
+        #[cfg(unix)]
+        assert!(!temp_dir.path().join(".vault-key").exists());
+    }
 }
 
 /// Prompt for admin/operator login and return access token

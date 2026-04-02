@@ -37,6 +37,11 @@ export interface LoginResponse {
   user: User;
 }
 
+export interface SessionLoginResponse {
+  user: User;
+  expiresIn: number;
+}
+
 // Registration
 export interface RegisterRequest {
   username: string;
@@ -60,7 +65,6 @@ export interface RegisterResponse {
   apiKey?: string;
   apiKeyId?: string;
   apiKeyExpiresAt?: string;
-  password?: string;
 }
 
 // Password reset
@@ -85,8 +89,13 @@ export interface RefreshRequest {
 
 export interface RefreshResponse {
   accessToken: string;
+  refreshToken: string;
   expiresIn: number;
   tokenType: string;
+}
+
+export interface SessionRefreshResponse {
+  expiresIn: number;
 }
 
 // Current user/agent info

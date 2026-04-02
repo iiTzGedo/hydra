@@ -1,16 +1,32 @@
 """FastAPI dependencies for authentication and common services."""
 
+import hmac
+import json
 from typing import Annotated
 
 import structlog
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from hydra.api.v1.core.auth_session import (
+    ACCESS_COOKIE_NAME,
+    CSRF_COOKIE_NAME,
+    CSRF_HEADER_NAME,
+    INTERNAL_CLIENT_ID_HEADER,
+    INTERNAL_PERMISSIONS_HEADER,
+    INTERNAL_REQUEST_HEADER,
+    INTERNAL_ROLE_HEADER,
+    INTERNAL_SECRET_HEADER,
+    INTERNAL_USER_ID_HEADER,
+    load_json,
+    session_key,
+)
 from hydra.api.v1.core.exceptions import (
     AuthorizationError,
     InvalidTokenError,
 )
 from hydra.api.v1.core.security import decode_token
+from hydra.core.config import get_settings
 from hydra.db.mongodb import MongoDB, get_mongodb
 from hydra.db.redis import RedisClient, get_redis
 from hydra.api.v1.services.auth import AuthService
@@ -50,9 +66,114 @@ async def get_users_service(
     return UsersService(mongodb)
 
 
+def _parse_internal_permissions(raw_value: str | None) -> list[str]:
+    """Parse a serialized internal permissions header value."""
+    if not raw_value:
+        return []
+    try:
+        parsed = json.loads(raw_value)
+        if isinstance(parsed, list):
+            return [item for item in parsed if isinstance(item, str)]
+    except json.JSONDecodeError:
+        pass
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
+def _build_internal_token(request: Request) -> dict | None:
+    """Build an internal-auth token payload from forwarded Hydra headers."""
+    internal_flag = request.headers.get(INTERNAL_REQUEST_HEADER, "")
+    if internal_flag.lower() not in {"1", "true", "yes"}:
+        return None
+
+    settings = get_settings()
+    provided_secret = request.headers.get(INTERNAL_SECRET_HEADER, "")
+    if not hmac.compare_digest(provided_secret, settings.mcp_internal_secret):
+        raise InvalidTokenError("Invalid internal request secret")
+
+    user_id = request.headers.get(INTERNAL_USER_ID_HEADER)
+    role = request.headers.get(INTERNAL_ROLE_HEADER)
+    if not user_id or not role:
+        raise InvalidTokenError("Missing internal request identity headers")
+
+    return {
+        "sub": user_id,
+        "sub_type": "user",
+        "role": role,
+        "permissions": _parse_internal_permissions(request.headers.get(INTERNAL_PERMISSIONS_HEADER)),
+        "auth_source": "internal",
+        "client_id": request.headers.get(INTERNAL_CLIENT_ID_HEADER) or "hydra-mcp",
+    }
+
+
+async def _resolve_optional_token(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None,
+    x_api_key: str | None,
+    auth_service: AuthService,
+) -> dict | None:
+    """Resolve the current request's auth payload without forcing authentication."""
+    internal_token = _build_internal_token(request)
+    if internal_token is not None:
+        return internal_token
+
+    if x_api_key:
+        key_data = await auth_service.validate_api_key(x_api_key)
+        if key_data.get("type") == "node":
+            return {
+                "sub": key_data["nodeId"],
+                "sub_type": "api_key",
+                "node_id": key_data["nodeId"],
+                "permissions": key_data.get("permissions", []),
+                "auth_source": "api_key",
+            }
+        return {
+            "sub": key_data["ownerId"],
+            "sub_type": "api_key",
+            "roles": key_data.get("roles", []),
+            "permissions": key_data.get("permissions", []),
+            "node_id": key_data.get("nodeId"),
+            "auth_source": "api_key",
+        }
+
+    bearer_token = credentials.credentials if credentials else None
+    if bearer_token:
+        payload = decode_token(bearer_token)
+        payload["auth_source"] = "bearer"
+        await auth_service.ensure_access_token_active(payload)
+        return payload
+
+    cookie_token = request.cookies.get(ACCESS_COOKIE_NAME)
+    if cookie_token:
+        payload = decode_token(cookie_token)
+        payload["auth_source"] = "cookie"
+        await auth_service.ensure_access_token_active(payload)
+
+        if request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+            session_id = payload.get("sid")
+            session_record = await load_json(auth_service.redis.client, session_key(session_id)) if (
+                auth_service.redis and session_id
+            ) else None
+            csrf_header = request.headers.get(CSRF_HEADER_NAME, "")
+            csrf_cookie = request.cookies.get(CSRF_COOKIE_NAME, "")
+            if (
+                not session_record
+                or not csrf_header
+                or not csrf_cookie
+                or not hmac.compare_digest(csrf_header, csrf_cookie)
+                or not hmac.compare_digest(csrf_header, session_record.get("csrfToken", ""))
+            ):
+                raise InvalidTokenError("CSRF validation failed")
+
+        return payload
+
+    return None
+
+
 async def get_optional_token(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    auth_service: AuthService = Depends(get_auth_service),
 ) -> dict | None:
     """Get optional token payload for endpoints supporting both auth and anonymous access.
 
@@ -63,20 +184,14 @@ async def get_optional_token(
     Returns:
         Token payload dict if authenticated, None otherwise.
     """
-    if x_api_key:
-        return {"type": "api_key", "key": x_api_key}
-
-    if credentials:
-        try:
-            payload = decode_token(credentials.credentials)
-            return payload
-        except InvalidTokenError:
-            return None
-
-    return None
+    try:
+        return await _resolve_optional_token(request, credentials, x_api_key, auth_service)
+    except InvalidTokenError:
+        return None
 
 
 async def get_optional_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     auth_service: AuthService = Depends(get_auth_service),
@@ -93,41 +208,19 @@ async def get_optional_user(
     Returns:
         User dict if authenticated, None otherwise.
     """
-    if x_api_key:
-        try:
-            key_data = await auth_service.validate_api_key(x_api_key)
-        except InvalidTokenError:
-            return None
+    try:
+        token_payload = await _resolve_optional_token(request, credentials, x_api_key, auth_service)
+    except InvalidTokenError:
+        return None
 
-        if key_data.get("type") == "node":
-            token_payload = {
-                "sub": key_data["nodeId"],
-                "sub_type": "api_key",
-                "node_id": key_data["nodeId"],
-                "permissions": key_data.get("permissions", []),
-            }
-        else:
-            token_payload = {
-                "sub": key_data["ownerId"],
-                "sub_type": "api_key",
-                "permissions": key_data.get("permissions", []),
-                "roles": key_data.get("roles", []),
-                "node_id": key_data.get("nodeId"),
-            }
+    if token_payload is None:
+        return None
 
-        return await users_service.get_current_user(token_payload)
-
-    if credentials:
-        try:
-            token_payload = decode_token(credentials.credentials)
-        except InvalidTokenError:
-            return None
-        return await users_service.get_current_user(token_payload)
-
-    return None
+    return await users_service.get_current_user(token_payload)
 
 
 async def get_current_token(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     auth_service: AuthService = Depends(get_auth_service),
@@ -145,47 +238,23 @@ async def get_current_token(
     Raises:
         HTTPException: If authentication fails.
     """
-    if x_api_key:
-        try:
-            key_data = await auth_service.validate_api_key(x_api_key)
-
-            if key_data.get("type") == "node":
-                return {
-                    "sub": key_data["nodeId"],
-                    "sub_type": "api_key",
-                    "node_id": key_data["nodeId"],
-                    "permissions": key_data.get("permissions", []),
-                }
-            else:
-                return {
-                    "sub": key_data["ownerId"],
-                    "sub_type": "api_key",
-                    "roles": key_data.get("roles", []),
-                    "permissions": key_data.get("permissions", []),
-                }
-        except InvalidTokenError as e:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=str(e),
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-    if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
     try:
-        payload = decode_token(credentials.credentials)
-        return payload
+        token_payload = await _resolve_optional_token(request, credentials, x_api_key, auth_service)
     except InvalidTokenError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    if token_payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return token_payload
 
 
 async def get_current_user(

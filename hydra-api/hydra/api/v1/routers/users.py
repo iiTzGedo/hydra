@@ -32,6 +32,7 @@ logger = structlog.get_logger(__name__)
     response_model_by_alias=True,
     summary="List Users",
     description="List users. Available to all authenticated users except agents.",
+    dependencies=[Depends(require_permission("users:read"))],
 )
 async def list_users(
     users_service: UsersServiceDep,

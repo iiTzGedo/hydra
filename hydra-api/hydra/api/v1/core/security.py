@@ -48,6 +48,8 @@ def create_access_token(
     token_type: str = "access",
     additional_claims: dict[str, Any] | None = None,
     settings: Settings | None = None,
+    token_id: str | None = None,
+    expires_at: datetime | None = None,
 ) -> str:
     """Create a JWT access token.
 
@@ -56,13 +58,17 @@ def create_access_token(
         token_type: Type of token (access, refresh, registration).
         additional_claims: Additional claims to include in the token.
         settings: Application settings (optional, uses global if not provided).
+        token_id: Explicit token JTI to embed.
+        expires_at: Explicit expiry timestamp.
 
     Returns:
         Encoded JWT token string.
     """
     settings = settings or get_settings()
 
-    if token_type == "refresh":
+    if expires_at is not None:
+        expire = expires_at
+    elif token_type == "refresh":
         expire = datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_expire_days)
     elif token_type == "registration":
         expire = datetime.now(timezone.utc) + timedelta(days=settings.registration_token_expire_days)
@@ -72,7 +78,7 @@ def create_access_token(
     claims = {
         "sub": subject,
         "type": token_type,
-        "jti": uuid4().hex,
+        "jti": token_id or uuid4().hex,
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }
@@ -113,6 +119,8 @@ def create_token_pair(
     subject: str,
     additional_claims: dict[str, Any] | None = None,
     settings: Settings | None = None,
+    session_id: str | None = None,
+    refresh_token_id: str | None = None,
 ) -> tuple[str, str]:
     """Create an access/refresh token pair.
 
@@ -120,24 +128,33 @@ def create_token_pair(
         subject: The subject (user ID, node ID, etc.).
         additional_claims: Additional claims to include in the access token.
         settings: Application settings.
+        session_id: Shared session identifier embedded in both tokens.
+        refresh_token_id: Explicit refresh-token JTI.
 
     Returns:
         Tuple of (access_token, refresh_token).
     """
     settings = settings or get_settings()
 
+    current_session_id = session_id or uuid4().hex
+    access_claims = dict(additional_claims or {})
+    access_claims["sid"] = current_session_id
     access_token = create_access_token(
         subject=subject,
         token_type="access",
-        additional_claims=additional_claims,
+        additional_claims=access_claims,
         settings=settings,
     )
 
     refresh_token = create_access_token(
         subject=subject,
         token_type="refresh",
-        additional_claims={"sub_type": additional_claims.get("sub_type", "user") if additional_claims else "user"},
+        additional_claims={
+            "sub_type": additional_claims.get("sub_type", "user") if additional_claims else "user",
+            "sid": current_session_id,
+        },
         settings=settings,
+        token_id=refresh_token_id,
     )
 
     return access_token, refresh_token

@@ -157,7 +157,7 @@ async def test_query_pagination(
             "collection": "nodes",
             "filter": {},
             "limit": 10,
-            "offset": 20,
+            "skip": 20,
         },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -166,33 +166,53 @@ async def test_query_pagination(
 
 
 @pytest.mark.asyncio
-async def test_query_aggregation(
+async def test_query_rejects_disallowed_projection_field(
     client: AsyncClient,
     mock_mongodb,
     admin_token,
     sample_user,
 ):
-    """Test query with aggregation pipeline."""
+    """Test query rejects secret-looking projection fields."""
     admin_user = sample_user.copy()
     admin_user["userId"] = "user_admin123"
     admin_user["role"] = "admin"
     mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
 
-    agg_result = [{"_id": "compute", "count": 10}]
-    mock_mongodb.nodes.aggregate.return_value = create_mock_cursor(agg_result)
+    response = await client.post(
+        "/api/v1/query",
+        json={
+            "collection": "nodes",
+            "projection": {"serverSecret": 1},
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_query_rejects_disallowed_sort_field(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Test query rejects sort fields outside the public allowlist."""
+    admin_user = sample_user.copy()
+    admin_user["userId"] = "user_admin123"
+    admin_user["role"] = "admin"
+    mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
 
     response = await client.post(
         "/api/v1/query",
         json={
             "collection": "nodes",
-            "pipeline": [
-                {"$group": {"_id": "$class", "count": {"$sum": 1}}},
-            ],
+            "sort": {"passwordHash": -1},
         },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 400
 
 
 @pytest.mark.asyncio

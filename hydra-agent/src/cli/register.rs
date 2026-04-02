@@ -866,9 +866,13 @@ fn show_status(vault: &Vault) -> Result<()> {
 
 /// Clear registration data
 fn clear_registration(vault: &Vault) -> Result<()> {
-    if vault.has_agent_credentials() {
-        vault.delete_agent_credentials()?;
-        vault.delete_api_key()?;
+    if vault.has_agent_credentials()
+        || vault.has_api_key()
+        || vault.has_session()
+        || vault.has_node_registration()
+        || vault.has_server_secret()
+    {
+        vault.clear_all()?;
         println!("✓ Agent registration cleared.");
         println!();
         println!("Run 'hydra-agent register' to create a new agent account.");
@@ -876,4 +880,81 @@ fn clear_registration(vault: &Vault) -> Result<()> {
         println!("No agent registration to clear.");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clear_registration;
+    use crate::vault::{
+        AgentCredentials, ApiKeyData, NodeRegistrationData, ServerSecretData, SessionData, Vault,
+    };
+    use chrono::{Duration, Utc};
+    use tempfile::TempDir;
+
+    fn seeded_vault() -> (TempDir, Vault) {
+        let temp_dir = TempDir::new().unwrap();
+        let vault = Vault::new(temp_dir.path());
+
+        vault
+            .save_agent_credentials(&AgentCredentials {
+                user_id: "user_agent_001".to_string(),
+                username: "agent-test-node-01".to_string(),
+                password: Some("test_password".to_string()),
+                parent_user_id: "user_admin_001".to_string(),
+                created_at: Utc::now().to_rfc3339(),
+            })
+            .unwrap();
+        vault
+            .save_api_key(&ApiKeyData {
+                api_key: "hyk_test_key".to_string(),
+                api_key_id: "key_test_001".to_string(),
+                expires_at: Some((Utc::now() + Duration::days(30)).to_rfc3339()),
+                node_id: Some("test-node-01".to_string()),
+                stored_at: Utc::now().to_rfc3339(),
+            })
+            .unwrap();
+        vault
+            .save_session(&SessionData {
+                access_token: "access".to_string(),
+                refresh_token: "refresh".to_string(),
+                token_type: "Bearer".to_string(),
+                expires_at: Utc::now().timestamp() + 3600,
+                username: "admin".to_string(),
+                user_id: "user_admin_001".to_string(),
+                role: "admin".to_string(),
+            })
+            .unwrap();
+        vault
+            .save_node_registration(&NodeRegistrationData {
+                node_id: "test-node-01".to_string(),
+                registered_at: Utc::now().to_rfc3339(),
+                registered_by: "admin".to_string(),
+                status: "active".to_string(),
+            })
+            .unwrap();
+        vault
+            .save_server_secret(&ServerSecretData {
+                secret: "hsk_test_secret".to_string(),
+                stored_at: Utc::now().to_rfc3339(),
+            })
+            .unwrap();
+
+        (temp_dir, vault)
+    }
+
+    #[test]
+    fn test_clear_registration_performs_full_local_wipe() {
+        let (temp_dir, vault) = seeded_vault();
+
+        clear_registration(&vault).unwrap();
+
+        assert!(!vault.has_agent_credentials());
+        assert!(!vault.has_api_key());
+        assert!(!vault.has_session());
+        assert!(!vault.has_node_registration());
+        assert!(!vault.has_server_secret());
+
+        #[cfg(unix)]
+        assert!(!temp_dir.path().join(".vault-key").exists());
+    }
 }

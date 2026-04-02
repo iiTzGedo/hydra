@@ -4,6 +4,7 @@ import warnings
 from contextlib import contextmanager
 from typing import Literal
 
+from cryptography.fernet import Fernet
 from pydantic import Field, MongoDsn, RedisDsn, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -44,9 +45,8 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60
     jwt_refresh_expire_days: int = 7
 
-    encryption_key: str | None = Field(
-        default=None,
-        description="Fernet encryption key (HYDRA_ENCRYPTION_KEY). If unset, derived from jwt_secret.",
+    encryption_key: str = Field(
+        description="Fernet encryption key (HYDRA_ENCRYPTION_KEY).",
     )
 
     agent_tls_verify: bool = Field(
@@ -100,8 +100,7 @@ class Settings(BaseSettings):
         default="http://hydra-mcp:8081",
         description="URL for the built-in Hydra MCP server (HTTP transport)",
     )
-    mcp_internal_secret: str | None = Field(
-        default=None,
+    mcp_internal_secret: str = Field(
         description="Shared secret for internal MCP requests (HYDRA_MCP_INTERNAL_SECRET)",
     )
 
@@ -175,6 +174,19 @@ class Settings(BaseSettings):
                     UserWarning,
                     stacklevel=2,
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_encryption_and_internal_secrets(self) -> "Settings":
+        """Require explicit encryption and MCP secrets."""
+        try:
+            Fernet(self.encryption_key.encode())
+        except Exception as exc:  # pragma: no cover - exact exception type is implementation detail
+            raise ValueError("HYDRA_ENCRYPTION_KEY must be a valid Fernet key") from exc
+
+        if len(self.mcp_internal_secret) < 32:
+            raise ValueError("HYDRA_MCP_INTERNAL_SECRET must be at least 32 characters")
+
         return self
 
 

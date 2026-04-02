@@ -41,7 +41,7 @@ class ApiKeysMixin:
             The created API key details including the key string (shown only once).
         """
         key_id = f"key_{secrets.token_urlsafe(8)}"
-        key = f"hyk_{key_id}_{secrets.token_urlsafe(32)}"
+        key = f"hyk_{key_id}.{secrets.token_urlsafe(32)}"
         now = datetime.now(timezone.utc)
 
         roles = None
@@ -191,9 +191,8 @@ class ApiKeysMixin:
     async def validate_api_key(self, api_key: str) -> dict:
         """Validate an API key and return its associated data.
 
-        New key format embeds the keyId for O(1) lookup:
-            hyk_key_<id>_<secret>
-        Legacy format (hyk_live_<secret>) falls back to O(n) scan.
+        Hydra API keys embed the keyId for O(1) lookup:
+            hyk_<keyId>.<secret>
 
         Args:
             api_key: The API key string (must start with 'hyk_').
@@ -207,19 +206,15 @@ class ApiKeysMixin:
         if not api_key.startswith("hyk_"):
             raise InvalidTokenError("Invalid API key format")
 
-        # Try O(1) lookup for new format: hyk_key_<id>_<secret>
         key_id = self._extract_key_id(api_key)
-        if key_id:
-            key_doc = await self.db.api_keys.find_one(
-                {"keyId": key_id, "revokedAt": None}
-            )
-            if key_doc and verify_password(api_key, key_doc["keyHash"]):
-                return await self._validate_and_touch(key_doc)
+        if not key_id:
+            raise InvalidTokenError("Invalid API key format")
 
-        # Fallback: O(n) scan for legacy keys (hyk_live_<secret>)
-        async for key_doc in self.db.api_keys.find({"revokedAt": None}):
-            if verify_password(api_key, key_doc["keyHash"]):
-                return await self._validate_and_touch(key_doc)
+        key_doc = await self.db.api_keys.find_one(
+            {"keyId": key_id, "revokedAt": None}
+        )
+        if key_doc and verify_password(api_key, key_doc["keyHash"]):
+            return await self._validate_and_touch(key_doc)
 
         raise InvalidTokenError("Invalid API key")
 
@@ -227,15 +222,12 @@ class ApiKeysMixin:
     def _extract_key_id(api_key: str) -> str | None:
         """Extract the embedded keyId from the new key format.
 
-        New format: hyk_key_<id>_<secret>
-        Returns None for legacy format (hyk_live_<secret>).
+        New format: hyk_<keyId>.<secret>
         """
-        if api_key.startswith("hyk_key_"):
-            # hyk_key_<id>_<secret> — keyId is "key_<id>"
-            rest = api_key[4:]  # "key_<id>_<secret>"
-            parts = rest.split("_", 2)  # ["key", "<id>", "<secret>"]
-            if len(parts) >= 2:
-                return f"key_{parts[1]}"
+        if api_key.startswith("hyk_") and "." in api_key:
+            key_part = api_key[4:].split(".", 1)[0]
+            if key_part:
+                return key_part
         return None
 
     async def _validate_and_touch(self, key_doc: dict) -> dict:

@@ -1,6 +1,7 @@
 """Pytest configuration and fixtures."""
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -10,6 +11,9 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+
+os.environ.setdefault("HYDRA_ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
+os.environ.setdefault("HYDRA_MCP_INTERNAL_SECRET", "internal-secret-for-tests-0123456789")
 
 from hydra.core.config import Settings, clear_settings_cache, get_settings, override_settings
 from hydra.api.v1.core.security import create_access_token
@@ -46,7 +50,9 @@ def test_settings() -> Settings:
         mongodb_database="hydra_test",
         redis_url="redis://localhost:6379/1",
         jwt_secret="test-secret-key",
+        encryption_key="MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
         jwt_expire_minutes=60,
+        mcp_internal_secret="internal-secret-for-tests-0123456789",
     )
     with override_settings(settings):
         yield settings
@@ -111,10 +117,34 @@ def mock_mongodb():
 def mock_redis():
     """Create a mock Redis client."""
     mock = MagicMock(spec=RedisClient)
+    store: dict[str, str] = {}
+
+    async def _get(key: str):
+        return store.get(key)
+
+    async def _setex(key: str, _ttl: int, value: str):
+        store[key] = value
+
+    async def _delete(*keys: str):
+        deleted = 0
+        for key in keys:
+            if key in store:
+                del store[key]
+                deleted += 1
+        return deleted
+
     mock.health_check = AsyncMock(return_value=True)
     mock.cache_get = AsyncMock(return_value=None)
     mock.cache_set = AsyncMock()
     mock.rate_limit_check = AsyncMock(return_value=True)
+    mock.client = MagicMock()
+    mock.client.get = AsyncMock(side_effect=_get)
+    mock.client.setex = AsyncMock(side_effect=_setex)
+    mock.client.delete = AsyncMock(side_effect=_delete)
+    mock.client._store = store
+    mock_pipeline = MagicMock()
+    mock_pipeline.execute = AsyncMock(return_value=[0])
+    mock.client.pipeline = MagicMock(return_value=mock_pipeline)
     return mock
 
 

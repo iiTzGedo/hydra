@@ -1,19 +1,16 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { storage } from '@/lib/storage';
+
+import { CSRF_HEADER_NAME, getApiBaseUrl, getCsrfToken } from '@/lib/auth-session';
 import type { User, Role } from '@/types/auth';
 
 interface AuthState {
   user: User | null;
-  accessToken: string | null;
-  refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
 
   setUser: (user: User | null) => void;
-  setTokens: (accessToken: string, refreshToken: string) => void;
-  clearTokens: () => void;
-  login: (user: User, accessToken: string, refreshToken: string) => void;
+  clearAuth: () => void;
+  login: (user: User) => void;
   logout: () => void;
   setLoading: (loading: boolean) => void;
 
@@ -22,96 +19,69 @@ interface AuthState {
   hasAnyRole: (roles: Role[]) => boolean;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
+export const useAuthStore = create<AuthState>()((set, get) => ({
+  user: null,
+  isAuthenticated: false,
+  isLoading: true,
+
+  setUser: (user) => set({ user, isAuthenticated: !!user }),
+
+  clearAuth: () =>
+    set({
       user: null,
-      accessToken: null,
-      refreshToken: null,
       isAuthenticated: false,
-      isLoading: true,
-
-      setUser: (user) => set({ user, isAuthenticated: !!user }),
-
-      setTokens: (accessToken, refreshToken) => {
-        storage.setTokens(accessToken, refreshToken);
-        set({ accessToken, refreshToken });
-      },
-
-      clearTokens: () => {
-        storage.clearTokens();
-        set({ accessToken: null, refreshToken: null });
-      },
-
-      login: (user, accessToken, refreshToken) => {
-        storage.setTokens(accessToken, refreshToken);
-        set({
-          user,
-          accessToken,
-          refreshToken,
-          isAuthenticated: true,
-          isLoading: false,
-        });
-      },
-
-      logout: () => {
-        // Server-side token invalidation (best-effort)
-        const token = get().accessToken;
-        if (token) {
-          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
-          fetch(`${apiUrl}/auth/logout`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-          }).catch(() => {});
-        }
-        storage.clearTokens();
-        set({
-          user: null,
-          accessToken: null,
-          refreshToken: null,
-          isAuthenticated: false,
-          isLoading: false,
-        });
-      },
-
-      setLoading: (isLoading) => set({ isLoading }),
-
-      hasPermission: (permission) => {
-        const { user } = get();
-        if (!user) return false;
-
-        const permissions = user.permissions ?? [];
-
-        if (permissions.includes('*:*')) return true;
-        if (permissions.includes(permission)) return true;
-
-        const [resource, action] = permission.split(':');
-        if (permissions.includes(`${resource}:*`)) return true;
-        if (permissions.includes(`*:${action}`)) return true;
-
-        return false;
-      },
-
-      hasRole: (role) => {
-        const { user } = get();
-        if (!user) return false;
-        return user.role === role;
-      },
-
-      hasAnyRole: (roles) => {
-        const { user } = get();
-        if (!user) return false;
-        return roles.includes(user.role);
-      },
+      isLoading: false,
     }),
-    {
-      name: 'hydra-auth-storage',
-      partialize: (state) => ({
-        user: state.user,
-        accessToken: state.accessToken,
-        refreshToken: state.refreshToken,
-        isAuthenticated: state.isAuthenticated,
-      }),
-    }
-  )
-);
+
+  login: (user) =>
+    set({
+      user,
+      isAuthenticated: true,
+      isLoading: false,
+    }),
+
+  logout: () => {
+    const csrfToken = getCsrfToken();
+    fetch(`${getApiBaseUrl()}/auth/session/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: csrfToken ? { [CSRF_HEADER_NAME]: csrfToken } : undefined,
+    }).catch(() => {});
+
+    set({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+    });
+  },
+
+  setLoading: (isLoading) => set({ isLoading }),
+
+  hasPermission: (permission) => {
+    const { user } = get();
+    if (!user) return false;
+
+    const permissions = user.permissions ?? [];
+
+    if (permissions.includes('*:*')) return true;
+    if (permissions.includes(permission)) return true;
+
+    const [resource, action] = permission.split(':');
+    if (permissions.includes(`${resource}:*`)) return true;
+    if (permissions.includes(`*:${action}`)) return true;
+
+    return false;
+  },
+
+  hasRole: (role) => {
+    const { user } = get();
+    if (!user) return false;
+    return user.role === role;
+  },
+
+  hasAnyRole: (roles) => {
+    const { user } = get();
+    if (!user) return false;
+    return roles.includes(user.role);
+  },
+}));

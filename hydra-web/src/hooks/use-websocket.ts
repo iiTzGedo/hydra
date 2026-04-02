@@ -1,5 +1,5 @@
 /**
- * Reusable WebSocket hook with automatic reconnection, ping/pong, and token refresh.
+ * Reusable WebSocket hook with automatic reconnection, ping/pong, and session refresh.
  *
  * Manages WebSocket connection lifecycle independently of message-handling logic.
  * Consumers provide an `onMessage` callback to handle incoming messages.
@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
-import { storage } from '@/lib/storage';
+import { CSRF_HEADER_NAME, getApiBaseUrl, getCsrfToken } from '@/lib/auth-session';
 
 // Enable debug logging for WebSocket connections
 const WS_DEBUG = import.meta.env.DEV;
@@ -27,45 +27,40 @@ const RECONNECT_MAX_ATTEMPTS = 10;
 // Ping interval
 const PING_INTERVAL = 30000; // 30 seconds
 
-// API URL for token refresh
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+const API_BASE_URL = getApiBaseUrl();
 
 /**
- * Refresh the access token using the refresh token.
- * Returns the new access token or null if refresh failed.
+ * Refresh the cookie-backed browser session.
+ * Returns the CSRF bootstrap token or null if refresh failed.
  */
-export async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = storage.getRefreshToken();
-  if (!refreshToken) {
-    wsDebug.log('No refresh token available');
+export async function refreshSession(): Promise<string | null> {
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) {
+    wsDebug.log('No CSRF token available');
     return null;
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+    const response = await fetch(`${API_BASE_URL}/auth/session/refresh`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
-        'Content-Type': 'application/json',
+        [CSRF_HEADER_NAME]: csrfToken,
       },
-      body: JSON.stringify({ refreshToken }),
     });
 
     if (!response.ok) {
-      wsDebug.log('Token refresh failed:', response.status);
+      wsDebug.log('Session refresh failed:', response.status);
+      if (response.status === 401) {
+        useAuthStore.getState().clearAuth();
+      }
       return null;
     }
 
-    const data = await response.json();
-    const { accessToken, refreshToken: newRefreshToken } = data;
-
-    // Update storage and Zustand store
-    storage.setTokens(accessToken, newRefreshToken);
-    useAuthStore.getState().setTokens(accessToken, newRefreshToken);
-
-    wsDebug.log('Token refreshed successfully');
-    return accessToken;
+    wsDebug.log('Session refreshed successfully');
+    return getCsrfToken();
   } catch (error) {
-    wsDebug.error('Token refresh error:', error);
+    wsDebug.error('Session refresh error:', error);
     return null;
   }
 }
@@ -76,19 +71,29 @@ export async function refreshAccessToken(): Promise<string | null> {
  * @param path - WebSocket path relative to API base (e.g., '/chat/ws')
  */
 export function buildWsUrl(path: string): string {
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+  const apiUrl = getApiBaseUrl();
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
 
   try {
-    const url = new URL(apiUrl);
-    const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const basePath = url.pathname.replace(/\/$/, '');
-    const wsUrl = `${wsProtocol}//${url.host}${basePath}${path}`;
+    if (/^https?:\/\//.test(apiUrl)) {
+      const url = new URL(apiUrl);
+      const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      const basePath = url.pathname.replace(/\/$/, '');
+      const wsUrl = `${wsProtocol}//${url.host}${basePath}${normalizedPath}`;
+
+      wsDebug.log('Constructed URL:', wsUrl);
+      return wsUrl;
+    }
+
+    const basePath = apiUrl.startsWith('/') ? apiUrl : `/${apiUrl}`;
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}${basePath.replace(/\/$/, '')}${normalizedPath}`;
 
     wsDebug.log('Constructed URL:', wsUrl);
     return wsUrl;
   } catch {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/api/v1${path}`;
+    const wsUrl = `${wsProtocol}//${window.location.host}/api/v1${normalizedPath}`;
 
     wsDebug.warn('URL parsing failed, using fallback:', wsUrl);
     return wsUrl;
@@ -146,13 +151,13 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
   useEffect(() => { onDisconnectedRef.current = onDisconnected; }, [onDisconnected]);
 
   const [isConnected, setIsConnected] = useState(false);
-  const accessToken = useAuthStore((state) => state.accessToken);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   useEffect(() => {
-    if (accessToken) {
+    if (isAuthenticated) {
       authFailedRef.current = false;
     }
-  }, [accessToken]);
+  }, [isAuthenticated]);
 
   const connect = useCallback(async () => {
     if (reconnectTimeoutRef.current) {
@@ -175,17 +180,18 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
       return;
     }
 
-    // Proactively refresh token before connecting
-    wsDebug.log('Refreshing token before connection...');
-    let tokenToUse = await refreshAccessToken();
-
-    if (!tokenToUse) {
-      tokenToUse = useAuthStore.getState().accessToken;
-      wsDebug.log('Using existing token from store');
+    const csrfToken = getCsrfToken();
+    if (!csrfToken) {
+      wsDebug.warn('No CSRF token available');
+      onErrorRef.current?.('Not authenticated');
+      return;
     }
 
-    if (!tokenToUse) {
-      wsDebug.warn('No access token available');
+    wsDebug.log('Refreshing session before connection...');
+    const refreshedCsrfToken = await refreshSession();
+    const bootstrapToken = refreshedCsrfToken || getCsrfToken() || csrfToken;
+    if (!bootstrapToken) {
+      wsDebug.warn('No CSRF bootstrap token available');
       onErrorRef.current?.('Not authenticated');
       return;
     }
@@ -204,8 +210,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
       ws.onopen = () => {
         wsDebug.log('Connected, sending authentication message...');
 
-        // Send authentication via message instead of URL parameter
-        ws.send(JSON.stringify({ type: 'authenticate', token: tokenToUse }));
+        ws.send(JSON.stringify({ type: 'authenticate', csrfToken: bootstrapToken }));
       };
 
       ws.onclose = (event) => {
@@ -227,7 +232,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
         // Handle specific close codes
         if (event.code === 4001) {
           authFailedRef.current = true;
-          useAuthStore.getState().logout();
+          useAuthStore.getState().clearAuth();
           onErrorRef.current?.('Authentication failed - please log in again');
           return;
         }

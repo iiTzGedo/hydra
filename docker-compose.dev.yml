@@ -11,6 +11,8 @@ services:
       - HYDRA_MONGODB_DATABASE=hydra
       - HYDRA_JWT_ALGORITHM=HS256
       - HYDRA_JWT_EXPIRE_MINUTES=60
+      - HYDRA_ENCRYPTION_KEY=${HYDRA_ENCRYPTION_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
+      - HYDRA_MCP_INTERNAL_SECRET=${HYDRA_MCP_INTERNAL_SECRET:-hydra-dev-internal-secret-0123456789abcdef}
       # SMTP (optional - for password reset emails)
       - HYDRA_SMTP_ENABLED=${HYDRA_SMTP_ENABLED:-false}
       - HYDRA_SMTP_HOST=${HYDRA_SMTP_HOST:-}
@@ -31,13 +33,14 @@ services:
     network_mode: host
     environment:
       # Transport settings
-      - HYDRA_MCP_TRANSPORT=stdio
+      - HYDRA_MCP_TRANSPORT=http
       - HYDRA_MCP_HTTP_HOST=0.0.0.0
       - HYDRA_MCP_HTTP_PORT=8081
       - HYDRA_MCP_CORS_ORIGINS=["*"]
       # API connection
       - HYDRA_MCP_API_URL=http://localhost:8080/api/v1
       - HYDRA_MCP_API_TIMEOUT=60
+      - HYDRA_MCP_INTERNAL_SECRET=${HYDRA_MCP_INTERNAL_SECRET:-hydra-dev-internal-secret-0123456789abcdef}
       # TOON formatting
       - HYDRA_MCP_TOON_INDENT=2
       - HYDRA_MCP_TOON_DELIMITER=,

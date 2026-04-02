@@ -35,6 +35,7 @@ from hydra_mcp.auth import (
     INTERNAL_PERMISSIONS_HEADER,
     INTERNAL_REQUEST_HEADER,
     INTERNAL_ROLE_HEADER,
+    INTERNAL_SECRET_HEADER,
     INTERNAL_USER_ID_HEADER,
     SourceRestrictionError,
     create_context_from_user_info,
@@ -42,6 +43,7 @@ from hydra_mcp.auth import (
     reset_auth_context,
 )
 from hydra_mcp.client import HydraAPIError
+from hydra_mcp.config import get_settings
 from hydra_mcp.shared import settings, client, toon, safe_list, format_list_response
 from hydra_mcp.tools import get_all_tools, execute_tool as registry_execute_tool, ToolValidationError
 
@@ -76,14 +78,12 @@ def _build_internal_context(headers) -> Any | None:
     if headers.get(INTERNAL_REQUEST_HEADER, "").lower() not in {"1", "true", "yes"}:
         return None
 
-    # Validate shared secret if configured
-    settings = get_settings()
-    if settings.internal_secret:
-        import hmac
+    import hmac
 
-        provided_secret = headers.get("x-hydra-internal-secret", "")
-        if not hmac.compare_digest(provided_secret, settings.internal_secret):
-            raise PermissionError("Invalid internal request secret")
+    runtime_settings = get_settings()
+    provided_secret = headers.get(INTERNAL_SECRET_HEADER, "")
+    if not hmac.compare_digest(provided_secret, runtime_settings.internal_secret):
+        raise PermissionError("Invalid internal request secret")
 
     user_id = headers.get(INTERNAL_USER_ID_HEADER)
     role = headers.get(INTERNAL_ROLE_HEADER)
@@ -100,7 +100,17 @@ def _build_internal_context(headers) -> Any | None:
         },
         source_type="internal",
         client_id=headers.get(INTERNAL_CLIENT_ID_HEADER) or "hydra-api",
-        metadata={"source": "hydra_internal"},
+        metadata={
+            "source": "hydra_internal",
+            "forward_auth": {
+                INTERNAL_REQUEST_HEADER: "true",
+                INTERNAL_USER_ID_HEADER: user_id,
+                INTERNAL_ROLE_HEADER: role,
+                INTERNAL_PERMISSIONS_HEADER: json.dumps(permissions),
+                INTERNAL_CLIENT_ID_HEADER: headers.get(INTERNAL_CLIENT_ID_HEADER) or "hydra-api",
+                INTERNAL_SECRET_HEADER: runtime_settings.internal_secret,
+            },
+        },
     )
 
 
@@ -131,7 +141,10 @@ async def _build_external_context(headers) -> Any | None:
         user_info,
         source_type="external",
         client_id=headers.get("x-client-id") or headers.get("user-agent"),
-        metadata={"source": "validated_network_request"},
+        metadata={
+            "source": "validated_network_request",
+            "forward_auth": auth_headers,
+        },
     )
 
 

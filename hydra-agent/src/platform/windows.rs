@@ -5,9 +5,11 @@
 //! - Credential encryption (DPAPI)
 //! - Service management (Windows Service / Task Scheduler)
 
-use super::{CredentialEncryption, FilePermissions};
+use super::{CredentialEncryption, EncryptedPayload, FilePermissions};
 use anyhow::{anyhow, Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+const WINDOWS_VAULT_ALGORITHM: &str = "dpapi";
 
 /// Windows file permissions implementation using NTFS ACLs
 pub struct WindowsPermissions;
@@ -68,12 +70,23 @@ fn set_admin_only_acl(path: &PathBuf) -> Result<()> {
 pub struct WindowsEncryption;
 
 impl CredentialEncryption for WindowsEncryption {
-    fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
-        dpapi_encrypt(data)
+    fn encrypt(&self, _scope: &Path, data: &[u8]) -> Result<EncryptedPayload> {
+        Ok(EncryptedPayload {
+            algorithm: WINDOWS_VAULT_ALGORITHM.to_string(),
+            nonce: None,
+            ciphertext: dpapi_encrypt(data)?,
+        })
     }
 
-    fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
-        dpapi_decrypt(data)
+    fn decrypt(&self, _scope: &Path, payload: &EncryptedPayload) -> Result<Vec<u8>> {
+        if payload.algorithm != WINDOWS_VAULT_ALGORITHM {
+            return Err(anyhow!(
+                "Unsupported vault encryption algorithm: {}",
+                payload.algorithm
+            ));
+        }
+
+        dpapi_decrypt(&payload.ciphertext)
     }
 
     fn is_available(&self) -> bool {

@@ -266,6 +266,19 @@ function buildProfileDiffKey(nodeId: string, fromVersion?: string | null, toVers
 }
 
 export const handlers = [
+  http.post(`${BASE_URL}/auth/session/login`, async ({ request }) => {
+    const body = (await request.json()) as { username: string; password: string };
+
+    if (body.username === 'system_admin' && body.password === 'system12345') {
+      return HttpResponse.json({
+        user: mockUser,
+        expiresIn: 3600,
+      });
+    }
+
+    return errorResponse('INVALID_CREDENTIALS', 'Invalid username or password', 401);
+  }),
+
   http.post(`${BASE_URL}/auth/login`, async ({ request }) => {
     const body = (await request.json()) as { username: string; password: string };
 
@@ -316,6 +329,12 @@ export const handlers = [
     })
   ),
 
+  http.post(`${BASE_URL}/auth/session/refresh`, () =>
+    HttpResponse.json({
+      expiresIn: 3600,
+    })
+  ),
+
   http.post(`${BASE_URL}/auth/refresh`, async ({ request }) => {
     const body = (await request.json()) as { refreshToken: string };
 
@@ -334,6 +353,12 @@ export const handlers = [
   http.post(`${BASE_URL}/auth/logout`, () =>
     HttpResponse.json({
       message: 'Successfully logged out',
+    })
+  ),
+
+  http.post(`${BASE_URL}/auth/session/logout`, () =>
+    HttpResponse.json({
+      loggedOut: true,
     })
   ),
 

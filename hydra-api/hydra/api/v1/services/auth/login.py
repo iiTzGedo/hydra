@@ -1,10 +1,19 @@
 """User authentication mixin: login, token refresh, brute-force tracking, device tracking."""
 
 import hashlib
+import secrets
 from datetime import datetime, timezone
 
 import structlog
 
+from hydra.api.v1.core.auth_session import (
+    access_blacklist_key,
+    load_json,
+    refresh_key,
+    session_key,
+    store_json,
+    ttl_from_exp,
+)
 from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.core.exceptions import (
     InvalidCredentialsError,
@@ -41,6 +50,11 @@ logger = structlog.get_logger(__name__)
 
 class LoginMixin:
     """Mixin providing user authentication, token refresh, and login tracking."""
+
+    @property
+    def _refresh_ttl_seconds(self) -> int:
+        """Return the configured refresh-token TTL in seconds."""
+        return self.settings.jwt_refresh_expire_days * 24 * 60 * 60
 
     @staticmethod
     def _to_utc(value: datetime | None) -> datetime | None:
@@ -204,6 +218,154 @@ class LoginMixin:
         )
         return True, device_id
 
+    async def _persist_refresh_session(
+        self,
+        *,
+        subject: str,
+        sub_type: str,
+        session_id: str,
+        refresh_jti: str,
+        csrf_token: str,
+        expires_at: int,
+    ) -> None:
+        """Persist refresh-session state for rotation and revocation checks."""
+        if not self.redis:
+            raise RuntimeError("Redis is required for Hydra auth sessions")
+
+        session_record = {
+            "sessionId": session_id,
+            "familyId": session_id,
+            "subject": subject,
+            "subType": sub_type,
+            "currentRefreshJti": refresh_jti,
+            "csrfToken": csrf_token,
+            "expiresAt": expires_at,
+            "revoked": False,
+        }
+        refresh_record = {
+            "sessionId": session_id,
+            "subject": subject,
+            "subType": sub_type,
+            "jti": refresh_jti,
+            "expiresAt": expires_at,
+        }
+        ttl_seconds = ttl_from_exp(expires_at)
+        await store_json(self.redis.client, session_key(session_id), session_record, ttl_seconds)
+        await store_json(self.redis.client, refresh_key(refresh_jti), refresh_record, ttl_seconds)
+
+    async def _write_session_record(self, session_record: dict) -> None:
+        """Rewrite an existing session record with its remaining TTL."""
+        if not self.redis:
+            raise RuntimeError("Redis is required for Hydra auth sessions")
+        ttl_seconds = max(ttl_from_exp(session_record.get("expiresAt")), 1)
+        await store_json(
+            self.redis.client,
+            session_key(session_record["sessionId"]),
+            session_record,
+            ttl_seconds,
+        )
+
+    async def _issue_token_bundle(
+        self,
+        *,
+        subject: str,
+        sub_type: str,
+        additional_claims: dict | None = None,
+        session_id: str | None = None,
+        csrf_token: str | None = None,
+    ) -> dict:
+        """Issue a fresh access/refresh pair and persist rotation state."""
+        current_session_id = session_id or secrets.token_urlsafe(24)
+        current_csrf_token = csrf_token or secrets.token_urlsafe(32)
+        refresh_jti = secrets.token_urlsafe(24)
+        access_token, refresh_token = create_token_pair(
+            subject=subject,
+            additional_claims=additional_claims,
+            session_id=current_session_id,
+            refresh_token_id=refresh_jti,
+        )
+        refresh_payload = decode_token(refresh_token)
+        await self._persist_refresh_session(
+            subject=subject,
+            sub_type=sub_type,
+            session_id=current_session_id,
+            refresh_jti=refresh_jti,
+            csrf_token=current_csrf_token,
+            expires_at=int(refresh_payload["exp"]),
+        )
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "csrf_token": current_csrf_token,
+            "session_id": current_session_id,
+            "expires_in": self.settings.jwt_expire_minutes * 60,
+        }
+
+    async def _load_active_refresh_state(self, refresh_payload: dict) -> tuple[dict, dict]:
+        """Load refresh-session state and detect reuse or revocation."""
+        if not self.redis:
+            raise InvalidTokenError("Refresh tokens require Redis-backed session state")
+
+        session_id = refresh_payload.get("sid")
+        refresh_jti = refresh_payload.get("jti")
+        if not session_id or not refresh_jti:
+            raise InvalidTokenError("Refresh token is missing session metadata")
+
+        session_record = await load_json(self.redis.client, session_key(session_id))
+        refresh_record = await load_json(self.redis.client, refresh_key(refresh_jti))
+        if not session_record or not refresh_record:
+            raise InvalidTokenError("Refresh token session not found")
+
+        if session_record.get("revoked"):
+            raise InvalidTokenError("Refresh session has been revoked")
+
+        if session_record.get("currentRefreshJti") != refresh_jti:
+            await self.revoke_session(session_id)
+            raise InvalidTokenError("Refresh token reuse detected")
+
+        return session_record, refresh_record
+
+    async def revoke_session(self, session_id: str | None) -> None:
+        """Mark a session as revoked so all attached tokens are rejected."""
+        if not self.redis or not session_id:
+            return
+
+        session_record = await load_json(self.redis.client, session_key(session_id))
+        if not session_record:
+            return
+
+        session_record["revoked"] = True
+        session_record["currentRefreshJti"] = None
+        await self._write_session_record(session_record)
+
+    async def blacklist_access_token(self, token_payload: dict) -> None:
+        """Blacklist an access token until its natural expiry."""
+        if not self.redis:
+            return
+        token_jti = token_payload.get("jti")
+        if not token_jti:
+            return
+        ttl_seconds = ttl_from_exp(token_payload.get("exp"))
+        if ttl_seconds > 0:
+            await self.redis.client.setex(access_blacklist_key(token_jti), ttl_seconds, "1")
+
+    async def ensure_access_token_active(self, token_payload: dict) -> None:
+        """Reject blacklisted or session-revoked access tokens."""
+        if not self.redis:
+            return
+
+        token_jti = token_payload.get("jti")
+        if token_jti and await self.redis.client.get(access_blacklist_key(token_jti)):
+            raise InvalidTokenError("Token has been revoked")
+
+        session_id = token_payload.get("sid")
+        if not session_id:
+            return
+
+        session_record = await load_json(self.redis.client, session_key(session_id))
+        if session_record and session_record.get("revoked"):
+            raise InvalidTokenError("Session has been revoked")
+
     # ==================== User Authentication ====================
 
     async def authenticate_user(
@@ -318,8 +480,9 @@ class LoginMixin:
 
         temp_roles = get_active_temporary_roles(user.get("temporaryRoles", []))
 
-        access_token, refresh_token = create_token_pair(
+        token_bundle = await self._issue_token_bundle(
             subject=user["userId"],
+            sub_type="user",
             additional_claims={
                 "sub_type": "user",
                 "role": user["role"],
@@ -328,9 +491,7 @@ class LoginMixin:
         )
 
         return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "expires_in": self.settings.jwt_expire_minutes * 60,
+            **token_bundle,
             "user": {
                 "user_id": user["userId"],
                 "username": user["username"],
@@ -363,35 +524,50 @@ class LoginMixin:
         if payload.get("type") != "refresh":
             raise InvalidTokenError("Invalid token type")
 
+        session_record, refresh_record = await self._load_active_refresh_state(payload)
         subject = payload["sub"]
         sub_type = payload.get("sub_type", "user")
+        session_id = session_record["sessionId"]
+        csrf_token = session_record["csrfToken"]
 
         if sub_type == "user":
             user = await self.db.users.find_one({"userId": subject})
             if not user:
                 raise UserNotFoundError(subject)
 
-            access_token = create_access_token(
+            token_bundle = await self._issue_token_bundle(
                 subject=subject,
-                token_type="access",
+                sub_type="user",
                 additional_claims={
                     "sub_type": "user",
                     "role": user["role"],
                     "permissions": user.get("permissions", []),
                 },
+                session_id=session_id,
+                csrf_token=csrf_token,
             )
         else:  # agent
             node = await self.db.nodes.find_one({"nodeId": subject})
             if not node:
                 raise NodeNotFoundError(subject)
 
-            access_token = create_access_token(
+            token_bundle = await self._issue_token_bundle(
                 subject=subject,
-                token_type="access",
+                sub_type="agent",
                 additional_claims={"sub_type": "agent"},
+                session_id=session_id,
+                csrf_token=csrf_token,
             )
 
+        refresh_record["rotatedTo"] = decode_token(token_bundle["refresh_token"])["jti"]
+        ttl_seconds = max(ttl_from_exp(refresh_record.get("expiresAt")), 1)
+        await store_json(
+            self.redis.client,
+            refresh_key(refresh_record["jti"]),
+            refresh_record,
+            ttl_seconds,
+        )
+
         return {
-            "access_token": access_token,
-            "expires_in": self.settings.jwt_expire_minutes * 60,
+            **token_bundle,
         }

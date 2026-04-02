@@ -11,10 +11,11 @@
 
 use chrono::{Duration, Utc};
 use hydra_agent::vault::{
-    AgentCredentials, ApiKeyData, NodeRegistrationData, SessionData, Vault, ENV_AGENT_PWD,
-    ENV_AGENT_USER, ENV_API_KEY,
+    AgentCredentials, ApiKeyData, NodeRegistrationData, ServerSecretData, SessionData, Vault,
+    ENV_AGENT_PWD, ENV_AGENT_USER, ENV_API_KEY,
 };
 use std::env;
+use std::fs;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use tempfile::TempDir;
 
@@ -69,6 +70,22 @@ fn sample_node_registration() -> NodeRegistrationData {
         registered_by: "admin".to_string(),
         status: "active".to_string(),
     }
+}
+
+fn sample_server_secret() -> ServerSecretData {
+    ServerSecretData {
+        secret: "hsk_api_secret_123".to_string(),
+        stored_at: Utc::now().to_rfc3339(),
+    }
+}
+
+fn assert_file_is_encrypted_envelope(path: &std::path::Path) {
+    let raw = fs::read_to_string(path).expect("Should read vault file");
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("Should parse envelope");
+
+    assert_eq!(json["version"], 1);
+    assert!(json.get("algorithm").is_some());
+    assert!(json.get("ciphertext").is_some());
 }
 
 // Clean up environment variables before/after tests
@@ -693,6 +710,9 @@ fn test_clear_all() {
     vault
         .save_node_registration(&sample_node_registration())
         .expect("Save node reg");
+    vault
+        .save_server_secret(&sample_server_secret())
+        .expect("Save server secret");
 
     // Populate cache
     vault.export_to_env().expect("export");
@@ -704,6 +724,7 @@ fn test_clear_all() {
     assert!(!vault.has_api_key());
     assert!(!vault.has_session());
     assert!(!vault.has_node_registration());
+    assert!(!vault.has_server_secret());
     assert!(!vault.has_env_credentials());
 
     cleanup_env();
@@ -831,6 +852,169 @@ fn test_multiple_vault_instances() {
         .expect("Should have creds");
 
     assert_eq!(loaded.username, "agent-TESTNODE01");
+}
+
+#[test]
+fn test_vault_files_are_encrypted_envelopes() {
+    let (temp_dir, vault) = create_test_vault();
+    let creds = sample_agent_credentials();
+
+    vault
+        .save_agent_credentials(&creds)
+        .expect("Should save credentials");
+
+    let raw = fs::read_to_string(temp_dir.path().join(".creds")).expect("Should read vault file");
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("Should parse envelope");
+
+    assert_eq!(json["version"], 1);
+    assert!(json.get("algorithm").is_some());
+    assert!(json.get("ciphertext").is_some());
+    assert!(!raw.contains(&creds.username));
+    assert!(!raw.contains("super_secret_password_123"));
+
+    #[cfg(unix)]
+    {
+        let key_path = temp_dir.path().join(".vault-key");
+        assert!(key_path.exists());
+    }
+}
+
+#[test]
+fn test_plaintext_agent_credentials_auto_migrate() {
+    let (temp_dir, vault) = create_test_vault();
+    let creds = sample_agent_credentials();
+    let path = temp_dir.path().join(".creds");
+
+    fs::write(
+        &path,
+        serde_json::to_string(&creds).expect("serialize creds"),
+    )
+    .expect("write legacy vault file");
+
+    let loaded = vault
+        .load_agent_credentials()
+        .expect("legacy plaintext should load")
+        .expect("credentials should exist");
+
+    assert_eq!(loaded.username, creds.username);
+    assert_eq!(loaded.password, creds.password);
+    assert_file_is_encrypted_envelope(&path);
+}
+
+#[test]
+fn test_plaintext_api_key_auto_migrate() {
+    let (temp_dir, vault) = create_test_vault();
+    let api_key = sample_api_key(Some(90));
+    let path = temp_dir.path().join(".apikey");
+
+    fs::write(
+        &path,
+        serde_json::to_string(&api_key).expect("serialize api key"),
+    )
+    .expect("write legacy vault file");
+
+    let loaded = vault
+        .load_api_key()
+        .expect("legacy plaintext should load")
+        .expect("api key should exist");
+
+    assert_eq!(loaded.api_key, api_key.api_key);
+    assert_eq!(loaded.api_key_id, api_key.api_key_id);
+    assert_file_is_encrypted_envelope(&path);
+}
+
+#[test]
+fn test_plaintext_session_auto_migrate() {
+    let (temp_dir, vault) = create_test_vault();
+    let session = sample_session(3600);
+    let path = temp_dir.path().join(".session");
+
+    fs::write(
+        &path,
+        serde_json::to_string(&session).expect("serialize session"),
+    )
+    .expect("write legacy vault file");
+
+    let loaded = vault
+        .load_session()
+        .expect("legacy plaintext should load")
+        .expect("session should exist");
+
+    assert_eq!(loaded.access_token, session.access_token);
+    assert_eq!(loaded.username, session.username);
+    assert_file_is_encrypted_envelope(&path);
+}
+
+#[test]
+fn test_plaintext_node_registration_auto_migrate() {
+    let (temp_dir, vault) = create_test_vault();
+    let registration = sample_node_registration();
+    let path = temp_dir.path().join(".node");
+
+    fs::write(
+        &path,
+        serde_json::to_string(&registration).expect("serialize node registration"),
+    )
+    .expect("write legacy vault file");
+
+    let loaded = vault
+        .load_node_registration()
+        .expect("legacy plaintext should load")
+        .expect("registration should exist");
+
+    assert_eq!(loaded.node_id, registration.node_id);
+    assert_eq!(loaded.status, registration.status);
+    assert_file_is_encrypted_envelope(&path);
+}
+
+#[test]
+fn test_plaintext_server_secret_auto_migrate() {
+    let (temp_dir, vault) = create_test_vault();
+    let secret = sample_server_secret();
+    let path = temp_dir.path().join(".server_secret");
+
+    fs::write(
+        &path,
+        serde_json::to_string(&secret).expect("serialize server secret"),
+    )
+    .expect("write legacy vault file");
+
+    let loaded = vault
+        .load_server_secret()
+        .expect("legacy plaintext should load")
+        .expect("server secret should exist");
+
+    assert_eq!(loaded.secret, secret.secret);
+    assert_file_is_encrypted_envelope(&path);
+}
+
+#[test]
+fn test_malformed_legacy_vault_file_requires_reset() {
+    let (temp_dir, vault) = create_test_vault();
+    fs::write(temp_dir.path().join(".creds"), br#"{"broken":true}"#).expect("write bad file");
+
+    let error = vault
+        .load_agent_credentials()
+        .expect_err("malformed legacy vault should be rejected");
+
+    assert!(error
+        .to_string()
+        .contains("Vault data is corrupted or uses an unsupported legacy format"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_clear_all_removes_unix_master_key() {
+    let (temp_dir, vault) = create_test_vault();
+
+    vault
+        .save_agent_credentials(&sample_agent_credentials())
+        .expect("save creds");
+    assert!(temp_dir.path().join(".vault-key").exists());
+
+    vault.clear_all().expect("clear vault");
+
+    assert!(!temp_dir.path().join(".vault-key").exists());
 }
 
 #[test]

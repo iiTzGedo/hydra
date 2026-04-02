@@ -506,7 +506,9 @@ async fn download_binary(
         }
         info!("SHA256 checksum verified: {}", computed);
     } else {
-        anyhow::bail!("Server did not provide X-Checksum-SHA256 header; aborting upgrade for safety");
+        anyhow::bail!(
+            "Server did not provide X-Checksum-SHA256 header; aborting upgrade for safety"
+        );
     }
 
     // Write to temp file

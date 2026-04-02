@@ -1,12 +1,24 @@
 """Tests for MCP tool execution."""
 
 from datetime import datetime, timezone
+import importlib
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 # Import from the new tool registry module
-from hydra_mcp.auth import AuthContext, set_auth_context
+from hydra_mcp.auth import (
+    AuthContext,
+    INTERNAL_CLIENT_ID_HEADER,
+    INTERNAL_PERMISSIONS_HEADER,
+    INTERNAL_REQUEST_HEADER,
+    INTERNAL_ROLE_HEADER,
+    INTERNAL_SECRET_HEADER,
+    INTERNAL_USER_ID_HEADER,
+    set_auth_context,
+)
+from hydra_mcp.client import HydraAPIError, HydraClient
 from hydra_mcp.tools import (
     execute_tool,
     get_all_tools,
@@ -18,7 +30,7 @@ from hydra_mcp.tools import (
 from hydra_mcp.tool_handlers import _safe_list, _format_list_response
 
 # Import call_tool from server (it uses the registry internally)
-from hydra_mcp.server import call_tool
+from hydra_mcp.server import _build_internal_context, call_tool
 
 
 class TestSafeList:
@@ -762,3 +774,95 @@ class TestCallTool:
 
         assert result.isError is True
         assert "VALIDATION_ERROR" in result.content[0].text or "nodeId" in result.content[0].text
+
+
+@pytest.mark.asyncio
+class TestHydraClientAuthForwarding:
+    """Tests for user-auth forwarding from MCP context to hydra-api."""
+
+    @pytest.fixture(autouse=True)
+    def clear_auth_context(self):
+        set_auth_context(None)
+        yield
+        set_auth_context(None)
+
+    async def test_request_forwards_context_auth_headers(self, monkeypatch):
+        mock_http_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"data": {"ok": True}}
+        mock_http_client.request = AsyncMock(return_value=mock_response)
+
+        hydra_client = HydraClient(
+            settings=SimpleNamespace(
+                api_url="http://hydra-api",
+                api_key="service-api-key",
+                api_timeout=5,
+                transport="http",
+            )
+        )
+        monkeypatch.setattr(hydra_client, "_get_client", AsyncMock(return_value=mock_http_client))
+        set_auth_context(
+            AuthContext(
+                user_id="user_123",
+                permissions=["nodes:read"],
+                metadata={"forward_auth": {"Authorization": "Bearer user-token"}},
+            )
+        )
+
+        result = await hydra_client._request("GET", "/nodes")
+
+        assert result == {"ok": True}
+        assert mock_http_client.request.await_args.kwargs["headers"] == {
+            "Authorization": "Bearer user-token"
+        }
+
+    async def test_network_request_without_forward_headers_fails_closed(self, monkeypatch):
+        mock_http_client = AsyncMock()
+        hydra_client = HydraClient(
+            settings=SimpleNamespace(
+                api_url="http://hydra-api",
+                api_key="service-api-key",
+                api_timeout=5,
+                transport="http",
+            )
+        )
+        monkeypatch.setattr(hydra_client, "_get_client", AsyncMock(return_value=mock_http_client))
+        set_auth_context(AuthContext(user_id="user_123", permissions=["nodes:read"]))
+
+        with pytest.raises(HydraAPIError, match="missing forward auth headers"):
+            await hydra_client._request("GET", "/nodes")
+
+
+class TestInternalContextForwarding:
+    """Tests for internal API-to-MCP auth propagation."""
+
+    def test_internal_context_preserves_forward_headers(self, monkeypatch):
+        server_module = importlib.import_module("hydra_mcp.server")
+        monkeypatch.setattr(
+            server_module,
+            "get_settings",
+            lambda: SimpleNamespace(internal_secret="internal-secret-for-tests-0123456789"),
+        )
+
+        context = _build_internal_context(
+            {
+                INTERNAL_REQUEST_HEADER: "true",
+                INTERNAL_USER_ID_HEADER: "user_admin123",
+                INTERNAL_ROLE_HEADER: "admin",
+                INTERNAL_PERMISSIONS_HEADER: '["*:*"]',
+                INTERNAL_CLIENT_ID_HEADER: "hydra-api",
+                INTERNAL_SECRET_HEADER: "internal-secret-for-tests-0123456789",
+            }
+        )
+
+        assert context is not None
+        assert context.user_id == "user_admin123"
+        assert context.metadata["forward_auth"] == {
+            INTERNAL_REQUEST_HEADER: "true",
+            INTERNAL_USER_ID_HEADER: "user_admin123",
+            INTERNAL_ROLE_HEADER: "admin",
+            INTERNAL_PERMISSIONS_HEADER: '["*:*"]',
+            INTERNAL_CLIENT_ID_HEADER: "hydra-api",
+            INTERNAL_SECRET_HEADER: "internal-secret-for-tests-0123456789",
+        }

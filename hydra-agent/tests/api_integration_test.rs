@@ -12,7 +12,7 @@ use chrono::{Duration, Utc};
 use serde_json::json;
 use std::collections::HashMap;
 use tempfile::TempDir;
-use wiremock::matchers::{body_json, header, method, path};
+use wiremock::matchers::{body_json, header, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use hydra_agent::api::ApiClient;
@@ -219,6 +219,7 @@ async fn test_submit_profile_401_refreshes_api_key() {
     // Login for key refresh
     Mock::given(method("POST"))
         .and(path("/auth/login"))
+        .and(query_param("source", "agent"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "accessToken": "jwt_refreshed_token",
             "refreshToken": "refresh_token",
@@ -395,6 +396,7 @@ async fn test_register_with_token_success() {
     // Agent login
     Mock::given(method("POST"))
         .and(path("/auth/login"))
+        .and(query_param("source", "agent"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "accessToken": "jwt_agent_token",
             "refreshToken": "refresh_token",
@@ -447,6 +449,11 @@ async fn test_register_with_token_success() {
 
     let result = client.register_with_token("reg_test_token_123").await;
     assert!(result.is_ok());
+
+    let registration = _vault.load_node_registration().unwrap().unwrap();
+    assert_eq!(registration.node_id, "test-node-01");
+    assert_eq!(registration.registered_by, "user_agent_new");
+    assert_eq!(registration.status, "active");
 }
 
 #[tokio::test]
@@ -477,6 +484,7 @@ async fn test_register_with_token_max_tier_publishes_server_metadata_and_stores_
 
     Mock::given(method("POST"))
         .and(path("/auth/login"))
+        .and(query_param("source", "agent"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "accessToken": "jwt_agent_token",
             "refreshToken": "refresh_token",
@@ -532,6 +540,10 @@ async fn test_register_with_token_max_tier_publishes_server_metadata_and_stores_
     let result = client.register_with_token("reg_test_token_123").await;
     assert!(result.is_ok());
 
+    let registration = vault.load_node_registration().unwrap().unwrap();
+    assert_eq!(registration.node_id, "test-node-01");
+    assert_eq!(registration.status, "active");
+
     let server_secret = vault.load_server_secret().unwrap().unwrap();
     assert_eq!(server_secret.secret, "hsk_api_secret_123");
 }
@@ -576,12 +588,28 @@ async fn test_register_with_credentials_success() {
     // User login
     Mock::given(method("POST"))
         .and(path("/auth/login"))
+        .and(query_param_is_missing("source"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "accessToken": "jwt_user_token",
             "refreshToken": "refresh_user",
             "tokenType": "Bearer",
             "expiresIn": 3600
         })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Agent login
+    Mock::given(method("POST"))
+        .and(path("/auth/login"))
+        .and(query_param("source", "agent"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "accessToken": "jwt_agent_token",
+            "refreshToken": "refresh_token",
+            "tokenType": "Bearer",
+            "expiresIn": 3600
+        })))
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -632,6 +660,11 @@ async fn test_register_with_credentials_success() {
         .register_with_credentials("admin", "admin_password")
         .await;
     assert!(result.is_ok());
+
+    let registration = _vault.load_node_registration().unwrap().unwrap();
+    assert_eq!(registration.node_id, "test-node-01");
+    assert_eq!(registration.registered_by, "user_agent_cred");
+    assert_eq!(registration.status, "active");
 }
 
 #[tokio::test]
@@ -719,6 +752,7 @@ async fn test_register_with_credentials_login_fails() {
 
     Mock::given(method("POST"))
         .and(path("/auth/login"))
+        .and(query_param_is_missing("source"))
         .respond_with(ResponseTemplate::new(401).set_body_json(json!({
             "error": {
                 "code": "INVALID_CREDENTIALS",

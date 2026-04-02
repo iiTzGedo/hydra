@@ -13,6 +13,7 @@ logger = structlog.get_logger(__name__)
 TokenPayload = dict
 TokenDecoder = Callable[[str], TokenPayload]
 TokenVerifier = Callable[[str], TokenPayload | None]
+SessionVerifier = Callable[[WebSocket, str], TokenPayload | None]
 
 
 def verify_token(token: str, decode_token_fn: TokenDecoder) -> TokenPayload | None:
@@ -30,7 +31,7 @@ async def authenticate_from_connection(
     websocket: WebSocket,
     verify_token_fn: TokenVerifier,
 ) -> TokenPayload | None:
-    """Try to authenticate from query parameters or headers."""
+    """Try to authenticate from legacy query parameters or headers."""
     token = websocket.query_params.get("token")
     if not token:
         auth_header = websocket.headers.get("authorization")
@@ -46,6 +47,7 @@ async def authenticate_from_connection(
 async def authenticate_from_message(
     websocket: WebSocket,
     verify_token_fn: TokenVerifier,
+    verify_session_fn: SessionVerifier | None = None,
 ) -> TokenPayload | None:
     """Wait for an authenticate message from the client after connection."""
     try:
@@ -62,8 +64,12 @@ async def authenticate_from_message(
         return None
 
     token = data.get("token")
-    if not token:
-        logger.warning("ws_auth_no_token_in_message")
-        return None
+    if token:
+        return verify_token_fn(token)
 
-    return verify_token_fn(token)
+    csrf_token = data.get("csrfToken")
+    if csrf_token and verify_session_fn:
+        return await verify_session_fn(websocket, csrf_token)
+
+    logger.warning("ws_auth_no_token_in_message")
+    return None

@@ -76,11 +76,17 @@ async fn execute_system_update(timeout_secs: u64) -> CommandResult {
             run_command("dnf", &["upgrade", "-y"], timeout_secs).await
         }
         "opensuse" | "sles" | "opensuse-leap" | "opensuse-tumbleweed" => {
-            info!(distro = distro.as_str(), "Running zypper-based system update");
+            info!(
+                distro = distro.as_str(),
+                "Running zypper-based system update"
+            );
             run_command("zypper", &["update", "-y"], timeout_secs).await
         }
         "arch" | "manjaro" | "endeavouros" => {
-            info!(distro = distro.as_str(), "Running pacman-based system update");
+            info!(
+                distro = distro.as_str(),
+                "Running pacman-based system update"
+            );
             run_command("pacman", &["-Syu", "--noconfirm"], timeout_secs).await
         }
         "alpine" => {

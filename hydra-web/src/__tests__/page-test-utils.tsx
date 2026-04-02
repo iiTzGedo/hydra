@@ -24,8 +24,6 @@ export function resetTestStores() {
 
   useAuthStore.setState({
     user: null,
-    accessToken: null,
-    refreshToken: null,
     isAuthenticated: false,
     isLoading: false,
   });
@@ -64,8 +62,6 @@ export function resetTestStores() {
 export function seedAuthStore(user: User = TEST_ADMIN_USER) {
   useAuthStore.setState({
     user,
-    accessToken: 'test-access-token',
-    refreshToken: 'test-refresh-token',
     isAuthenticated: true,
     isLoading: false,
   });

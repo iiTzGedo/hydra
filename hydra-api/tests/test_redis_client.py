@@ -17,7 +17,9 @@ def make_settings() -> Settings:
         mongodb_database="hydra_test",
         redis_url="redis://localhost:6379/1",
         jwt_secret="test-secret-key",
+        encryption_key="MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
         jwt_expire_minutes=60,
+        mcp_internal_secret="internal-secret-for-tests-0123456789",
     )
 
 

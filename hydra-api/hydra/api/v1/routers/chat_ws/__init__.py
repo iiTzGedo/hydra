@@ -5,6 +5,12 @@ import asyncio
 import structlog
 from fastapi import APIRouter, Depends, WebSocket
 
+from hydra.api.v1.core.auth_session import (
+    ACCESS_COOKIE_NAME,
+    CSRF_COOKIE_NAME,
+    load_json,
+    session_key,
+)
 from hydra.api.v1.core.security import decode_token
 from hydra.db.mongodb import MongoDB, get_mongodb
 from hydra.db.redis import get_redis
@@ -31,7 +37,7 @@ def _verify_token(token: str) -> dict | None:
 
 
 async def _authenticate_from_connection(websocket: WebSocket) -> dict | None:
-    """Try to authenticate from query parameters or headers (legacy support)."""
+    """Try to authenticate from legacy query parameters or headers."""
     return await _authenticate_from_connection_impl(websocket, _verify_token)
 
 
@@ -42,7 +48,31 @@ async def get_user_from_token(websocket: WebSocket) -> dict | None:
 
 async def _authenticate_from_message(websocket: WebSocket) -> dict | None:
     """Wait for an authenticate message from the client after connection."""
-    return await _authenticate_from_message_impl(websocket, _verify_token)
+    return await _authenticate_from_message_impl(websocket, _verify_token, _verify_cookie_session)
+
+
+async def _verify_cookie_session(websocket: WebSocket, csrf_token: str) -> dict | None:
+    """Validate cookie-backed WebSocket auth with a CSRF bootstrap token."""
+    access_token = websocket.cookies.get(ACCESS_COOKIE_NAME)
+    csrf_cookie = websocket.cookies.get(CSRF_COOKIE_NAME)
+    if not access_token or not csrf_cookie or csrf_cookie != csrf_token:
+        return None
+
+    payload = _verify_token(access_token)
+    if not payload:
+        return None
+
+    session_id = payload.get("sid")
+    if not session_id:
+        return None
+
+    redis = get_redis()
+    session_record = await load_json(redis.client, session_key(session_id))
+    if not session_record or session_record.get("revoked"):
+        return None
+    if session_record.get("csrfToken") != csrf_token:
+        return None
+    return payload
 
 
 @router.websocket("/chat/ws")
@@ -53,8 +83,8 @@ async def chat_websocket(
     """WebSocket endpoint for real-time chat with streaming LLM responses.
 
     Authentication:
-        - Preferred: connect without a token, then send
-          { type: "authenticate", token: "<jwt>" }
+        - Preferred browser flow: connect with session cookies, then send
+          { type: "authenticate", csrfToken: "<csrf-cookie-value>" }
         - Legacy: ws://host/api/v1/chat/ws?token=<jwt>
         - Legacy: Authorization: Bearer <jwt>
     """

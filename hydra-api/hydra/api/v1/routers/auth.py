@@ -1,10 +1,18 @@
 """Authentication endpoints."""
 
 import structlog
-from fastapi import APIRouter, Depends, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 
+from hydra.api.v1.core.auth_session import (
+    ACCESS_COOKIE_NAME,
+    CSRF_COOKIE_NAME,
+    CSRF_HEADER_NAME,
+    REFRESH_COOKIE_NAME,
+    cookie_settings,
+)
 from hydra.api.v1.core.deps import (
     AuthServiceDep,
+    CurrentToken,
     CurrentUser,
     OptionalUser,
     RedisDep,
@@ -29,6 +37,7 @@ from hydra.api.v1.models.auth import (
     ForgotPasswordResponse,
     LoginRequest,
     LoginResponse,
+    LogoutResponse,
     PendingUsersListResponse,
     RefreshTokenRequest,
     RegistrationTokenListItem,
@@ -42,6 +51,8 @@ from hydra.api.v1.models.auth import (
     SubAccountLinkRequest,
     SubAccountLinkResponse,
     SubAccountListResponse,
+    SessionLoginResponse,
+    SessionRefreshResponse,
     TemporaryRole,
     TokenResponse,
     TokenScope,
@@ -53,6 +64,53 @@ from hydra.api.v1.models.auth import (
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 logger = structlog.get_logger(__name__)
+
+
+def _get_request_identity(http_request: Request) -> tuple[str | None, str | None]:
+    """Extract client IP and user agent from a request."""
+    ip = None
+    forwarded_for = http_request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        ip = forwarded_for.split(",")[0].strip()
+    elif http_request.client:
+        ip = http_request.client.host
+    return ip, http_request.headers.get("user-agent")
+
+
+def _set_session_cookies(
+    response: Response,
+    http_request: Request,
+    *,
+    access_token: str,
+    refresh_token: str,
+    csrf_token: str,
+) -> None:
+    """Write Hydra browser-session cookies onto a response."""
+    settings = get_settings()
+    base_cookie_kwargs = cookie_settings(http_request, settings)
+    response.set_cookie(ACCESS_COOKIE_NAME, access_token, **base_cookie_kwargs)
+    response.set_cookie(REFRESH_COOKIE_NAME, refresh_token, **base_cookie_kwargs)
+    response.set_cookie(
+        CSRF_COOKIE_NAME,
+        csrf_token,
+        httponly=False,
+        samesite=base_cookie_kwargs["samesite"],
+        path=base_cookie_kwargs["path"],
+        secure=base_cookie_kwargs["secure"],
+    )
+
+
+def _clear_session_cookies(response: Response, http_request: Request) -> None:
+    """Clear Hydra browser-session cookies."""
+    settings = get_settings()
+    cookie_kwargs = {
+        "path": "/",
+        "secure": cookie_settings(http_request, settings)["secure"],
+        "samesite": "lax",
+    }
+    response.delete_cookie(ACCESS_COOKIE_NAME, **cookie_kwargs)
+    response.delete_cookie(REFRESH_COOKIE_NAME, **cookie_kwargs)
+    response.delete_cookie(CSRF_COOKIE_NAME, **cookie_kwargs)
 
 
 @router.post(
@@ -89,14 +147,7 @@ async def login(
         HTTPException 403: Account locked or pending approval.
     """
     allow_system_accounts = source == "agent"
-    ip = None
-    forwarded_for = http_request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        ip = forwarded_for.split(",")[0].strip()
-    elif http_request.client:
-        ip = http_request.client.host
-
-    user_agent = http_request.headers.get("user-agent")
+    ip, user_agent = _get_request_identity(http_request)
 
     result = await auth_service.authenticate_user(
         request.username,
@@ -133,6 +184,61 @@ async def login(
 
 
 @router.post(
+    "/session/login",
+    response_model=SessionLoginResponse,
+    response_model_by_alias=True,
+    summary="Browser Session Login",
+    description="Authenticate a browser session and set secure Hydra cookies.",
+)
+async def session_login(
+    request: LoginRequest,
+    auth_service: AuthServiceDep,
+    http_request: Request,
+    response: Response,
+) -> SessionLoginResponse:
+    """Authenticate a browser session and set Hydra auth cookies."""
+    ip, user_agent = _get_request_identity(http_request)
+    result = await auth_service.authenticate_user(
+        request.username,
+        request.password,
+        allow_system_accounts=False,
+        ip=ip,
+        user_agent=user_agent,
+    )
+
+    _set_session_cookies(
+        response,
+        http_request,
+        access_token=result["access_token"],
+        refresh_token=result["refresh_token"],
+        csrf_token=result["csrf_token"],
+    )
+
+    temp_roles = [
+        TemporaryRole(
+            role=Role(tr["role"]),
+            expires_at=tr["expires_at"],
+            granted_by=tr["granted_by"],
+            granted_at=tr["granted_at"],
+            reason=tr.get("reason"),
+        )
+        for tr in result["user"].get("temporary_roles", [])
+    ]
+
+    return SessionLoginResponse(
+        user=UserInfo(
+            user_id=result["user"]["user_id"],
+            username=result["user"]["username"],
+            email=result["user"]["email"],
+            role=result["user"]["role"],
+            permissions=result["user"].get("permissions", []),
+            temporary_roles=temp_roles,
+        ),
+        expires_in=result["expires_in"],
+    )
+
+
+@router.post(
     "/refresh",
     response_model=TokenResponse,
     response_model_by_alias=True,
@@ -158,49 +264,81 @@ async def refresh_token(
     result = await auth_service.refresh_access_token(request.refresh_token)
     return TokenResponse(
         access_token=result["access_token"],
-        refresh_token=request.refresh_token,
+        refresh_token=result["refresh_token"],
         expires_in=result["expires_in"],
     )
 
 
 @router.post(
+    "/session/refresh",
+    response_model=SessionRefreshResponse,
+    response_model_by_alias=True,
+    summary="Browser Session Refresh",
+    description="Refresh a browser session using Hydra cookies.",
+)
+async def session_refresh(
+    http_request: Request,
+    response: Response,
+    auth_service: AuthServiceDep,
+) -> SessionRefreshResponse:
+    """Rotate the browser refresh token and rewrite Hydra cookies."""
+    refresh_token = http_request.cookies.get(REFRESH_COOKIE_NAME)
+    csrf_cookie = http_request.cookies.get(CSRF_COOKIE_NAME, "")
+    csrf_header = http_request.headers.get(CSRF_HEADER_NAME, "")
+    if not refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh cookie")
+    if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="CSRF validation failed")
+
+    result = await auth_service.refresh_access_token(refresh_token)
+    if result["csrf_token"] != csrf_header:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="CSRF validation failed")
+
+    _set_session_cookies(
+        response,
+        http_request,
+        access_token=result["access_token"],
+        refresh_token=result["refresh_token"],
+        csrf_token=result["csrf_token"],
+    )
+    return SessionRefreshResponse(expires_in=result["expires_in"])
+
+
+@router.post(
     "/logout",
+    response_model=LogoutResponse,
+    response_model_by_alias=True,
     summary="Logout",
     description="Invalidate the current access token.",
 )
 async def logout(
-    request: Request,
-    current_user: CurrentUser,
-    redis: RedisDep,
-) -> dict:
-    """Invalidate the current access token by blacklisting its JTI in Redis.
+    token: CurrentToken,
+    auth_service: AuthServiceDep,
+) -> LogoutResponse:
+    """Invalidate the current access token and its refresh session."""
+    await auth_service.blacklist_access_token(token)
+    await auth_service.revoke_session(token.get("sid"))
+    return LogoutResponse(logged_out=True)
 
-    Args:
-        request: FastAPI request (carries the Authorization header).
-        current_user: Authenticated user.
-        redis: Redis client for token blacklist.
 
-    Returns:
-        Confirmation of logout.
-    """
-    from hydra.api.v1.core.security import decode_token
-
-    auth_header = request.headers.get("Authorization", "")
-    token_str = auth_header.removeprefix("Bearer ").strip()
-    if token_str:
-        try:
-            payload = decode_token(token_str)
-            jti = payload.get("jti")
-            exp = payload.get("exp", 0)
-            if jti:
-                import time
-
-                ttl = max(int(exp) - int(time.time()), 0)
-                if ttl > 0:
-                    await redis.client.setex(f"token:blacklist:{jti}", ttl, "1")
-        except Exception:
-            pass  # Token already invalid, no-op
-    return {"loggedOut": True}
+@router.post(
+    "/session/logout",
+    response_model=LogoutResponse,
+    response_model_by_alias=True,
+    summary="Browser Session Logout",
+    description="Invalidate the current browser session and clear Hydra cookies.",
+)
+async def session_logout(
+    http_request: Request,
+    response: Response,
+    token: CurrentToken,
+    auth_service: AuthServiceDep,
+) -> LogoutResponse:
+    """Logout a browser session and clear Hydra cookies."""
+    await auth_service.blacklist_access_token(token)
+    await auth_service.revoke_session(token.get("sid"))
+    _clear_session_cookies(response, http_request)
+    return LogoutResponse(logged_out=True)
 
 
 @router.post(
@@ -366,7 +504,6 @@ async def register_user(
             api_key=result.get("api_key"),
             api_key_id=result.get("api_key_id"),
             api_key_expires_at=result.get("api_key_expires_at"),
-            password=result.get("password"),
         )
 
     result = await users_service.register_user(request)

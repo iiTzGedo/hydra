@@ -1,10 +1,24 @@
 """Tests for authentication endpoints."""
 
+import json
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
+
+from hydra.api.v1.core.auth_session import (
+    ACCESS_COOKIE_NAME,
+    INTERNAL_CLIENT_ID_HEADER,
+    INTERNAL_PERMISSIONS_HEADER,
+    INTERNAL_REQUEST_HEADER,
+    INTERNAL_ROLE_HEADER,
+    INTERNAL_SECRET_HEADER,
+    INTERNAL_USER_ID_HEADER,
+    session_key,
+)
+from hydra.api.v1.core.security import create_access_token
+from hydra.core.config import get_settings
 
 
 @pytest.mark.asyncio
@@ -37,6 +51,8 @@ async def test_register_node_success(
     assert data["nodeId"] == "new-test-node"
     assert "apiKey" in data
     assert "apiKeyId" in data
+    assert data["apiKey"].startswith("hyk_")
+    assert "." in data["apiKey"]
     assert data["status"] == "active"
 
 
@@ -210,6 +226,117 @@ async def test_access_without_token(client: AsyncClient):
     response = await client.get("/api/v1/auth/me")
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_via_session_cookie(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_redis,
+    sample_user,
+    test_settings,
+):
+    """Test cookie-backed auth for /auth/me."""
+    admin_user = sample_user.copy()
+    admin_user["userId"] = "user_admin123"
+    admin_user["role"] = "admin"
+    admin_user["permissions"] = ["*:*"]
+    mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
+
+    access_token = create_access_token(
+        subject="user_admin123",
+        token_type="access",
+        additional_claims={
+            "sub_type": "user",
+            "role": "admin",
+            "permissions": ["*:*"],
+            "sid": "session-cookie-1",
+        },
+        settings=get_settings(),
+    )
+    mock_redis.client._store[session_key("session-cookie-1")] = json.dumps(
+        {
+            "sessionId": "session-cookie-1",
+            "subject": "user_admin123",
+            "subType": "user",
+            "csrfToken": "csrf-cookie-1",
+            "currentRefreshJti": "refresh-cookie-1",
+            "revoked": False,
+        }
+    )
+
+    response = await client.get(
+        "/api/v1/auth/me",
+        cookies={ACCESS_COOKIE_NAME: access_token},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["type"] == "user"
+    assert data["userId"] == "user_admin123"
+
+
+@pytest.mark.asyncio
+async def test_blacklisted_access_token_is_rejected(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Test that logout blacklists the current access token."""
+    admin_user = sample_user.copy()
+    admin_user["userId"] = "user_admin123"
+    admin_user["role"] = "admin"
+    admin_user["permissions"] = ["*:*"]
+    mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
+
+    logout_response = await client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert logout_response.status_code == 200
+    assert logout_response.json()["loggedOut"] is True
+
+    me_response = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert me_response.status_code == 401
+    assert "revoked" in me_response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_internal_headers_authorize_as_forwarded_user(
+    client: AsyncClient,
+    mock_mongodb,
+    sample_user,
+    test_settings,
+):
+    """Test internal Hydra headers are only accepted with the shared secret."""
+    admin_user = sample_user.copy()
+    admin_user["userId"] = "user_admin123"
+    admin_user["role"] = "admin"
+    admin_user["permissions"] = ["*:*"]
+    mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
+
+    response = await client.get(
+        "/api/v1/auth/me",
+        headers={
+            INTERNAL_REQUEST_HEADER: "true",
+            INTERNAL_USER_ID_HEADER: "user_admin123",
+            INTERNAL_ROLE_HEADER: "admin",
+            INTERNAL_PERMISSIONS_HEADER: json.dumps(["*:*"]),
+            INTERNAL_CLIENT_ID_HEADER: "hydra-mcp",
+            INTERNAL_SECRET_HEADER: test_settings.mcp_internal_secret,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["type"] == "user"
+    assert data["userId"] == "user_admin123"
 
 
 # ==================== Sub-Account Tests ====================

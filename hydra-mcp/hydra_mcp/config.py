@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -116,6 +116,20 @@ class Settings(BaseSettings):
         default="json",
         description="Log format (json or text)",
     )
+
+    @model_validator(mode="after")
+    def _validate_network_internal_secret(self) -> "Settings":
+        """Require the internal secret for all network transports."""
+        if self.transport != "stdio":
+            if not self.internal_secret:
+                raise ValueError(
+                    "HYDRA_MCP_INTERNAL_SECRET is required for non-stdio MCP transports"
+                )
+            if len(self.internal_secret) < 32:
+                raise ValueError(
+                    "HYDRA_MCP_INTERNAL_SECRET must be at least 32 characters"
+                )
+        return self
 
 
 @lru_cache

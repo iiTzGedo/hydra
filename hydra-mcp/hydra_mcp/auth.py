@@ -23,6 +23,7 @@ INTERNAL_USER_ID_HEADER = "x-hydra-user-id"
 INTERNAL_ROLE_HEADER = "x-hydra-role"
 INTERNAL_PERMISSIONS_HEADER = "x-hydra-permissions"
 INTERNAL_CLIENT_ID_HEADER = "x-hydra-client-id"
+INTERNAL_SECRET_HEADER = "x-hydra-internal-secret"
 
 
 class AuthorizationError(Exception):
@@ -149,7 +150,8 @@ def reset_auth_context(token) -> None:
     _auth_context.reset(token)
 
 
-def allow_missing_auth_context() -> bool:    """Return whether missing auth context is allowed for the current transport.
+def allow_missing_auth_context() -> bool:
+    """Return whether missing auth context is allowed for the current transport.
 
     On stdio transport, unauthenticated access is always allowed (local use).
     The allow_unauthenticated flag is only honoured on stdio; on network
@@ -170,6 +172,17 @@ def allow_missing_auth_context() -> bool:    """Return whether missing auth cont
             message="allow_unauthenticated is only effective on stdio transport",
         )
     return False
+
+
+def get_forward_auth_headers(ctx: AuthContext | None = None) -> dict[str, str] | None:
+    """Return request-scoped auth headers to forward to the Hydra API."""
+    current_context = ctx or get_auth_context()
+    if current_context is None:
+        return None
+    forward_auth = current_context.metadata.get("forward_auth")
+    if isinstance(forward_auth, dict) and forward_auth:
+        return {str(key): str(value) for key, value in forward_auth.items()}
+    return None
 
 
 def check_permission(tool_name: str, required_permission: str | None) -> None:

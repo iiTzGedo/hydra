@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import AsyncClient
 
+from hydra.api.v1.core.security import create_access_token
+from hydra.core.config import get_settings
 from tests.utils import create_mock_cursor
 
 
@@ -47,6 +49,38 @@ async def test_list_users_forbidden_for_agent(
     response = await client.get(
         "/api/v1/users",
         headers={"Authorization": f"Bearer {agent_token}"},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_list_users_forbidden_for_operator(
+    client: AsyncClient,
+    mock_mongodb,
+    sample_user,
+):
+    """Test that operators cannot list users without users:read."""
+    operator_user = sample_user.copy()
+    operator_user["userId"] = "user_operator123"
+    operator_user["role"] = "operator"
+    operator_user["permissions"] = ["nodes:*", "services:*"]
+    mock_mongodb.users.find_one = AsyncMock(return_value=operator_user)
+
+    operator_token = create_access_token(
+        subject="user_operator123",
+        token_type="access",
+        additional_claims={
+            "sub_type": "user",
+            "role": "operator",
+            "permissions": ["nodes:*", "services:*"],
+        },
+        settings=get_settings(),
+    )
+
+    response = await client.get(
+        "/api/v1/users",
+        headers={"Authorization": f"Bearer {operator_token}"},
     )
 
     assert response.status_code == 403
@@ -262,13 +296,13 @@ async def test_role_management_forbidden_for_non_admin(
 
 
 @pytest.mark.asyncio
-async def test_viewer_can_list_users(
+async def test_viewer_cannot_list_users(
     client: AsyncClient,
     mock_mongodb,
     viewer_token,
     sample_user,
 ):
-    """Test that viewer can list users (directory access)."""
+    """Test that viewers cannot list users without users:read."""
     viewer_user = sample_user.copy()
     viewer_user["userId"] = "user_viewer123"
     viewer_user["role"] = "viewer"
@@ -281,5 +315,4 @@ async def test_viewer_can_list_users(
         headers={"Authorization": f"Bearer {viewer_token}"},
     )
 
-    # Viewer should be able to list users (directory)
-    assert response.status_code == 200
+    assert response.status_code == 403

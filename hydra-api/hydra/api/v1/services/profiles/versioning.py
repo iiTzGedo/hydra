@@ -2,12 +2,32 @@
 
 import hashlib
 import json
+from collections.abc import Iterator, Mapping
 
 from hydra.api.v1.models.profiles import ProfileSubmission
 from hydra.core.config import get_settings as _get_settings
 
-# Import centralized weights from config; keep module-level reference for performance
-SECTION_WEIGHTS = _get_settings().profile_section_weights
+
+class _SectionWeightsProxy(Mapping[str, float]):
+    """Lazy proxy for profile section weights.
+
+    This avoids instantiating the global settings object during module import.
+    """
+
+    def _weights(self) -> dict[str, float]:
+        return _get_settings().profile_section_weights
+
+    def __getitem__(self, key: str) -> float:
+        return self._weights()[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._weights())
+
+    def __len__(self) -> int:
+        return len(self._weights())
+
+
+SECTION_WEIGHTS: Mapping[str, float] = _SectionWeightsProxy()
 
 
 def compute_section_fingerprints(submission: ProfileSubmission) -> dict[str, list[str]]:

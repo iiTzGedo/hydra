@@ -14,7 +14,7 @@ pub mod unix;
 #[cfg(windows)]
 pub mod windows;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Current platform identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,12 +123,19 @@ pub fn permissions() -> Box<dyn FilePermissions> {
 }
 
 /// Trait for platform-specific credential encryption
-pub trait CredentialEncryption {
-    /// Encrypt data using platform-specific method (Unix: file perms, Windows: DPAPI)
-    fn encrypt(&self, data: &[u8]) -> anyhow::Result<Vec<u8>>;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EncryptedPayload {
+    pub algorithm: String,
+    pub nonce: Option<Vec<u8>>,
+    pub ciphertext: Vec<u8>,
+}
 
-    /// Decrypt data using platform-specific method
-    fn decrypt(&self, data: &[u8]) -> anyhow::Result<Vec<u8>>;
+pub trait CredentialEncryption {
+    /// Encrypt data using platform-specific method scoped to the vault directory.
+    fn encrypt(&self, scope: &Path, data: &[u8]) -> anyhow::Result<EncryptedPayload>;
+
+    /// Decrypt data using platform-specific method scoped to the vault directory.
+    fn decrypt(&self, scope: &Path, payload: &EncryptedPayload) -> anyhow::Result<Vec<u8>>;
 
     /// Check if encryption is available
     fn is_available(&self) -> bool;

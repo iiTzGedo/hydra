@@ -13,6 +13,20 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+def _stringify(value: object | None) -> str:
+    """Coerce email template values to text safely."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _escape_html(value: object | None) -> str:
+    """Escape arbitrary values for HTML output."""
+    return html_lib.escape(_stringify(value))
+
+
 class EmailError(Exception):
     """Exception raised when email sending fails."""
 
@@ -208,10 +222,10 @@ If you did not request this password reset, please ignore this email.
         Returns:
             True if email was sent successfully
         """
-        title = html_lib.escape(notification.get("title", "Notification"))
-        message = html_lib.escape(notification.get("message", ""))
-        tier = html_lib.escape(notification.get("tier", ""))
-        tier_label = html_lib.escape(notification.get("tierLabel", ""))
+        title_text = _stringify(notification.get("title") or "Notification")
+        message_text = _stringify(notification.get("message"))
+        tier_text = _stringify(notification.get("tier"))
+        tier_label_text = _stringify(notification.get("tierLabel"))
         created_at = notification.get("createdAt", "")
         try:
             from datetime import datetime as _dt
@@ -219,35 +233,49 @@ If you did not request this password reset, please ignore this email.
                 created_at = created_at.isoformat()
         except Exception:
             pass
-        notif_type = notification.get("type", "")
+        created_at_text = _stringify(created_at)
+        notif_type_text = _stringify(notification.get("type"))
         links = notification.get("links") or []
 
-        subject = f"Hydra Notification: {title}"
+        subject = f"Hydra Notification: {title_text}"
 
         link_lines = ""
         if links:
             link_lines = "\nLinks:\n" + "\n".join(
-                f"- {l.get('label')}: {l.get('href')}" for l in links if l.get("href")
+                f"- {_stringify(l.get('label') or l.get('href'))}: {_stringify(l.get('href'))}"
+                for l in links
+                if _stringify(l.get("href"))
             )
 
         body = f"""Hydra Notification
 
-Title: {title}
-Message: {message}
-Type: {notif_type}
-Tier: {tier_label or tier}
-Time: {created_at}
+Title: {title_text}
+Message: {message_text}
+Type: {notif_type_text}
+Tier: {tier_label_text or tier_text}
+Time: {created_at_text}
 {link_lines}
 """
+
+        title = _escape_html(title_text)
+        message = _escape_html(message_text)
+        tier = _escape_html(tier_text)
+        tier_label = _escape_html(tier_label_text)
+        created_at_html = _escape_html(created_at_text)
+        notif_type = _escape_html(notif_type_text)
 
         html_links = ""
         if links:
             safe_links = []
             for l in links:
-                href = l.get("href", "")
-                if href and (href.startswith("/") or href.startswith("http://") or href.startswith("https://")):
-                    safe_href = html_lib.escape(href)
-                    safe_label = html_lib.escape(l.get("label") or href)
+                href = _stringify(l.get("href"))
+                if href and (
+                    href.startswith("/")
+                    or href.startswith("http://")
+                    or href.startswith("https://")
+                ):
+                    safe_href = _escape_html(href)
+                    safe_label = _escape_html(l.get("label") or href)
                     safe_links.append(f"<li><a href=\"{safe_href}\">{safe_label}</a></li>")
             if safe_links:
                 html_links = f"<ul>{''.join(safe_links)}</ul>"
@@ -270,7 +298,7 @@ Time: {created_at}
     <p class="meta">
       <strong>Type:</strong> {notif_type}<br/>
       <strong>Tier:</strong> {tier_label or tier}<br/>
-      <strong>Time:</strong> {created_at}
+      <strong>Time:</strong> {created_at_html}
     </p>
     {html_links}
   </div>

@@ -20,6 +20,8 @@
 //! falling back to vault files. This enables faster access in service contexts.
 
 use anyhow::{Context, Result};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -29,11 +31,15 @@ use std::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::platform::paths;
+use crate::platform::{self, EncryptedPayload};
 
 /// Environment variable names for credential caching
 pub const ENV_API_KEY: &str = "HYDRA_API_KEY";
 pub const ENV_AGENT_USER: &str = "HYDRA_AGENT_USER";
 pub const ENV_AGENT_PWD: &str = "HYDRA_AGENT_PWD";
+const VAULT_FILE_VERSION: u8 = 1;
+const LEGACY_VAULT_RESET_MESSAGE: &str =
+    "Vault data is corrupted or uses an unsupported legacy format. Remove the local vault files and re-register the agent.";
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -181,6 +187,14 @@ impl std::fmt::Debug for ServerSecretData {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct VaultEnvelope {
+    version: u8,
+    algorithm: String,
+    nonce: Option<String>,
+    ciphertext: String,
+}
+
 /// Credential vault for secure storage.
 ///
 /// Uses a thread-safe in-memory cache instead of `env::set_var` for
@@ -194,11 +208,7 @@ pub struct Vault {
 
 impl Clone for Vault {
     fn clone(&self) -> Self {
-        let cache_data = self
-            .cache
-            .read()
-            .map(|g| g.clone())
-            .unwrap_or_default();
+        let cache_data = self.cache.read().map(|g| g.clone()).unwrap_or_default();
         Self {
             base_path: self.base_path.clone(),
             cache: RwLock::new(cache_data),
@@ -267,7 +277,15 @@ impl Vault {
         self.ensure_directory()?;
 
         let path = self.file_path(filename);
-        let contents = serde_json::to_string_pretty(data)?;
+        let plaintext = serde_json::to_vec(data)?;
+        let encrypted = platform::encryption().encrypt(&self.base_path, &plaintext)?;
+        let envelope = VaultEnvelope {
+            version: VAULT_FILE_VERSION,
+            algorithm: encrypted.algorithm,
+            nonce: encrypted.nonce.map(|nonce| BASE64_STANDARD.encode(nonce)),
+            ciphertext: BASE64_STANDARD.encode(encrypted.ciphertext),
+        };
+        let contents = serde_json::to_vec_pretty(&envelope)?;
 
         fs::write(&path, &contents)
             .with_context(|| format!("Failed to write vault file: {}", path.display()))?;
@@ -292,18 +310,72 @@ impl Vault {
     }
 
     /// Read data from a vault file
-    fn read_file<T: for<'de> Deserialize<'de>>(&self, filename: &str) -> Result<Option<T>> {
+    fn read_file<T: for<'de> Deserialize<'de> + Serialize>(
+        &self,
+        filename: &str,
+    ) -> Result<Option<T>> {
         let path = self.file_path(filename);
 
         if !path.exists() {
             return Ok(None);
         }
 
-        let contents = fs::read_to_string(&path)
+        let contents = fs::read(&path)
             .with_context(|| format!("Failed to read vault file: {}", path.display()))?;
+        let envelope: VaultEnvelope = match serde_json::from_slice(&contents) {
+            Ok(envelope) => envelope,
+            Err(envelope_error) => match serde_json::from_slice::<T>(&contents) {
+                Ok(legacy_data) => {
+                    info!("Migrating legacy plaintext vault file: {}", path.display());
+                    self.write_file(filename, &legacy_data).with_context(|| {
+                        format!(
+                            "Failed to migrate legacy plaintext vault file: {}",
+                            path.display()
+                        )
+                    })?;
+                    return Ok(Some(legacy_data));
+                }
+                Err(_) => {
+                    return Err(envelope_error).with_context(|| {
+                        format!(
+                            "Failed to parse encrypted vault file: {}. {}",
+                            path.display(),
+                            LEGACY_VAULT_RESET_MESSAGE
+                        )
+                    });
+                }
+            },
+        };
+        if envelope.version != VAULT_FILE_VERSION {
+            anyhow::bail!(
+                "Unsupported vault file version {} at {}",
+                envelope.version,
+                path.display()
+            );
+        }
 
-        let data: T = serde_json::from_str(&contents)
-            .with_context(|| format!("Failed to parse vault file: {}", path.display()))?;
+        let ciphertext = BASE64_STANDARD
+            .decode(&envelope.ciphertext)
+            .with_context(|| format!("Failed to decode vault ciphertext: {}", path.display()))?;
+        let nonce = envelope
+            .nonce
+            .map(|value| {
+                BASE64_STANDARD
+                    .decode(&value)
+                    .with_context(|| format!("Failed to decode vault nonce: {}", path.display()))
+            })
+            .transpose()?;
+        let payload = EncryptedPayload {
+            algorithm: envelope.algorithm,
+            nonce,
+            ciphertext,
+        };
+        let plaintext = platform::encryption()
+            .decrypt(&self.base_path, &payload)
+            .with_context(|| format!("Failed to decrypt vault file: {}", path.display()))?;
+
+        let data: T = serde_json::from_slice(&plaintext)
+            .with_context(|| format!("Failed to parse decrypted vault file: {}", path.display()))?;
 
         Ok(Some(data))
     }
@@ -610,7 +682,11 @@ impl Vault {
     /// Check if credentials are available from cache or environment variables.
     pub fn has_env_credentials(&self) -> bool {
         if let Ok(cache) = self.cache.read() {
-            if cache.get(ENV_API_KEY).map(|v| !v.is_empty()).unwrap_or(false) {
+            if cache
+                .get(ENV_API_KEY)
+                .map(|v| !v.is_empty())
+                .unwrap_or(false)
+            {
                 return true;
             }
         }
@@ -626,6 +702,15 @@ impl Vault {
         self.delete_session()?;
         self.delete_node_registration()?;
         self.delete_server_secret()?;
+        #[cfg(unix)]
+        {
+            let key_path = self.file_path(crate::platform::unix::VAULT_MASTER_KEY_FILE);
+            if key_path.exists() {
+                fs::remove_file(&key_path).with_context(|| {
+                    format!("Failed to delete vault master key: {}", key_path.display())
+                })?;
+            }
+        }
         self.clear_env_cache();
         info!("Cleared all vault data");
         Ok(())

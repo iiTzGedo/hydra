@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import structlog
 
+from hydra.api.v1.core.exceptions import ValidationError
 from hydra.db.mongodb import MongoDB
 from hydra.api.v1.core.query_sanitizer import sanitize_mongo_filter
 from hydra.api.v1.models.query import (
@@ -17,6 +18,110 @@ from hydra.api.v1.models.query import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_ALLOWED_QUERY_FIELDS: dict[QueryCollection, frozenset[str]] = {
+    QueryCollection.NODES: frozenset(
+        {
+            "nodeId",
+            "class",
+            "type",
+            "kind",
+            "displayName",
+            "description",
+            "tags",
+            "parentNodeId",
+            "networkIds",
+            "location",
+            "location.site",
+            "location.room",
+            "agentTier",
+            "serverAddress",
+            "serverPort",
+            "serverTlsEnabled",
+            "registeredAt",
+            "registeredBy",
+            "lastUpdated",
+            "lastProfileAt",
+            "status",
+        }
+    ),
+    QueryCollection.SERVICES: frozenset(
+        {
+            "serviceId",
+            "nodeId",
+            "name",
+            "displayName",
+            "runtime",
+            "status",
+            "tags",
+            "version",
+            "ports",
+            "createdAt",
+            "lastUpdated",
+        }
+    ),
+    QueryCollection.PROFILES: frozenset(
+        {
+            "profileId",
+            "nodeId",
+            "version",
+            "collectedAt",
+            "submittedAt",
+            "agentVersion",
+            "collectionLevel",
+            "serviceIds",
+            "hardware",
+            "hardware.cpu",
+            "hardware.cpu.model",
+            "hardware.cpu.cores",
+            "hardware.cpu.coresPhysical",
+            "hardware.cpu.coresLogical",
+            "hardware.memory",
+            "hardware.memory.totalBytes",
+            "network",
+            "network.hostname",
+            "network.interfaces",
+            "storage",
+            "storage.totalCapacityBytes",
+            "storage.blockDevices",
+            "storage.filesystems",
+            "software",
+            "software.os",
+            "software.os.name",
+            "software.os.version",
+            "software.packageCount",
+            "metadata",
+        }
+    ),
+    QueryCollection.GROUPS: frozenset(
+        {
+            "groupId",
+            "name",
+            "description",
+            "types",
+            "selector",
+            "tags",
+            "createdAt",
+            "updatedAt",
+        }
+    ),
+    QueryCollection.NETWORKS: frozenset(
+        {
+            "networkId",
+            "name",
+            "description",
+            "type",
+            "cidr",
+            "gateway",
+            "vlanId",
+            "tags",
+            "nodeIds",
+            "createdAt",
+            "updatedAt",
+        }
+    ),
+}
+_SECRET_FIELD_MARKERS = ("password", "secret", "token", "apikey", "keyhash", "passwordhash")
 
 
 class QueryService:
@@ -37,6 +142,49 @@ class QueryService:
         }
         return mapping[name]
 
+    def _validate_field_access(self, collection: QueryCollection, field_name: str) -> None:
+        """Validate a projected/sorted field against the public allowlist."""
+        normalized = field_name.strip()
+        if not normalized:
+            raise ValidationError("Empty query field is not allowed")
+        lowered = normalized.replace("_", "").lower()
+        if any(marker in lowered for marker in _SECRET_FIELD_MARKERS):
+            raise ValidationError(f"Field '{normalized}' is not allowed in query output")
+        if normalized not in _ALLOWED_QUERY_FIELDS[collection]:
+            raise ValidationError(
+                f"Field '{normalized}' is not allowed for collection '{collection.value}'"
+            )
+
+    def _validate_projection(
+        self, collection: QueryCollection, projection: dict[str, int] | None
+    ) -> dict[str, int] | None:
+        """Validate query projection fields and inclusion/exclusion flags."""
+        if not projection:
+            return projection
+        for field_name, direction in projection.items():
+            self._validate_field_access(collection, field_name)
+            if direction not in {0, 1}:
+                raise ValidationError(
+                    f"Projection for field '{field_name}' must be 0 or 1",
+                    details={"field": field_name, "value": direction},
+                )
+        return projection
+
+    def _validate_sort(
+        self, collection: QueryCollection, sort: dict[str, int] | None
+    ) -> dict[str, int] | None:
+        """Validate query sort fields and directions."""
+        if not sort:
+            return sort
+        for field_name, direction in sort.items():
+            self._validate_field_access(collection, field_name)
+            if direction not in {1, -1}:
+                raise ValidationError(
+                    f"Sort for field '{field_name}' must be 1 or -1",
+                    details={"field": field_name, "value": direction},
+                )
+        return sort
+
     async def execute_query(self, request: QueryRequest) -> tuple[list[dict], int]:
         """Execute a structured query against a specified collection.
 
@@ -49,11 +197,13 @@ class QueryService:
         """
         collection = self._get_collection(request.collection)
         query = sanitize_mongo_filter(request.filter) if request.filter else {}
+        projection = self._validate_projection(request.collection, request.projection)
+        sort = self._validate_sort(request.collection, request.sort)
         total = await collection.count_documents(query)
-        cursor = collection.find(query, projection=request.projection)
+        cursor = collection.find(query, projection=projection)
 
-        if request.sort:
-            sort_list = [(k, v) for k, v in request.sort.items()]
+        if sort:
+            sort_list = [(k, v) for k, v in sort.items()]
             cursor = cursor.sort(sort_list)
 
         cursor = cursor.skip(request.skip).limit(request.limit)

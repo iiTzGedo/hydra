@@ -1,53 +1,92 @@
 /// <reference types="vitest" />
 import path from 'path';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
-export default defineConfig({
-    plugins: [react()],
-    resolve: {
-        alias: {
-            '@': path.resolve(__dirname, './src'),
-        },
-    },
-    test: {
-        globals: true,
-        environment: 'jsdom',
-        setupFiles: ['./src/__tests__/setup.ts'],
-        include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
-        coverage: {
-            reporter: ['text', 'html'],
-            exclude: ['node_modules/', 'src/__tests__/setup.ts'],
-        },
-        env: {
-            VITE_API_URL: 'http://localhost:8080/api/v1',
-        },
-    },
-    optimizeDeps: {
-        include: ['elkjs/lib/elk.bundled.js'],
-    },
-    server: {
-        port: 5173,
-        proxy: {
-            '/api': {
-                target: 'http://localhost:8080',
-                changeOrigin: true,
+import { defineConfig, loadEnv } from 'vite';
+
+function buildConnectSources(apiBaseUrl) {
+    var sources = new Set(["'self'"]);
+    if (!apiBaseUrl || !/^https?:\/\//.test(apiBaseUrl)) {
+        return Array.from(sources);
+    }
+    var apiUrl = new URL(apiBaseUrl);
+    sources.add(apiUrl.origin);
+    sources.add("".concat(apiUrl.protocol === 'https:' ? 'wss:' : 'ws:', "//").concat(apiUrl.host));
+    return Array.from(sources);
+}
+
+function buildContentSecurityPolicy(apiBaseUrl) {
+    return [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "connect-src ".concat(buildConnectSources(apiBaseUrl).join(' ')),
+        "img-src 'self' data: blob:",
+        "worker-src 'self' blob:",
+    ].join('; ');
+}
+
+export default defineConfig(function (_a) {
+    var mode = _a.mode;
+    var env = loadEnv(mode, __dirname, '');
+    var apiBaseUrl = env.VITE_API_URL || '/api/v1';
+    var csp = buildContentSecurityPolicy(apiBaseUrl);
+    return {
+        plugins: [
+            react(),
+            {
+                name: 'hydra-csp',
+                transformIndexHtml: function (html) {
+                    return html.replace('__HYDRA_CSP__', csp);
+                },
+            },
+        ],
+        resolve: {
+            alias: {
+                '@': path.resolve(__dirname, './src'),
             },
         },
-    },
-    build: {
-        sourcemap: true,
-        commonjsOptions: {
-            include: [/elkjs/, /node_modules/],
+        test: {
+            globals: true,
+            environment: 'jsdom',
+            setupFiles: ['./src/__tests__/setup.ts'],
+            include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+            coverage: {
+                reporter: ['text', 'html'],
+                exclude: ['node_modules/', 'src/__tests__/setup.ts'],
+            },
+            env: {
+                VITE_API_URL: 'http://localhost:8080/api/v1',
+            },
         },
-        rollupOptions: {
-            output: {
-                manualChunks: {
-                    vendor: ['react', 'react-dom', 'react-router-dom'],
-                    ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-tabs'],
-                    query: ['@tanstack/react-query', 'axios'],
-                    charts: ['@xyflow/react'],
+        optimizeDeps: {
+            include: ['elkjs/lib/elk.bundled.js'],
+        },
+        server: {
+            port: 5173,
+            proxy: {
+                '/api': {
+                    target: 'http://localhost:8080',
+                    changeOrigin: true,
+                    ws: true,
                 },
             },
         },
-    },
+        build: {
+            sourcemap: false,
+            commonjsOptions: {
+                include: [/elkjs/, /node_modules/],
+            },
+            rollupOptions: {
+                output: {
+                    manualChunks: {
+                        vendor: ['react', 'react-dom', 'react-router-dom'],
+                        ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-tabs'],
+                        query: ['@tanstack/react-query', 'axios'],
+                        charts: ['@xyflow/react'],
+                    },
+                },
+            },
+        },
+    };
 });

@@ -61,6 +61,31 @@ class LoginResponse(TokenResponse):
     user: UserInfo
 
 
+class SessionLoginResponse(BaseModel):
+    """Browser session login response."""
+
+    user: UserInfo
+    expires_in: int = Field(alias="expiresIn", description="Access token expiry in seconds")
+
+    model_config = {"populate_by_name": True}
+
+
+class SessionRefreshResponse(BaseModel):
+    """Browser session refresh response."""
+
+    expires_in: int = Field(alias="expiresIn", description="Access token expiry in seconds")
+
+    model_config = {"populate_by_name": True}
+
+
+class LogoutResponse(BaseModel):
+    """Logout confirmation payload."""
+
+    logged_out: bool = Field(alias="loggedOut")
+
+    model_config = {"populate_by_name": True}
+
+
 class UserRegistrationResponse(BaseModel):
     """User registration response."""
 
@@ -77,7 +102,6 @@ class UserRegistrationResponse(BaseModel):
     api_key: str | None = Field(default=None, alias="apiKey")
     api_key_id: str | None = Field(default=None, alias="apiKeyId")
     api_key_expires_at: datetime | None = Field(default=None, alias="apiKeyExpiresAt")
-    password: str | None = None
 
     model_config = {"populate_by_name": True}
 

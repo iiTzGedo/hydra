@@ -5,15 +5,12 @@ import { queryKeys } from '@/lib/query-client';
 import { useAuthStore } from '@/stores/auth-store';
 import type {
   LoginRequest,
-  LoginResponse,
   RegisterRequest,
   RegisterResponse,
   MeResponse,
   ForgotPasswordRequest,
   ResetPasswordRequest,
   ChangePasswordRequest,
-  RefreshRequest,
-  RefreshResponse,
   ApprovalsResponse,
   ApproveRequest,
   CreateRegistrationTokenRequest,
@@ -21,6 +18,8 @@ import type {
   CreateApiKeyRequest,
   ApiKey,
   ApiKeyListResponse,
+  SessionLoginResponse,
+  SessionRefreshResponse,
 } from '@/types/auth';
 
 export function useLogin() {
@@ -28,11 +27,11 @@ export function useLogin() {
 
   return useMutation({
     mutationFn: async (data: LoginRequest) => {
-      const response = await apiClient.post<LoginResponse>('/auth/login', data);
+      const response = await apiClient.post<SessionLoginResponse>('/auth/session/login', data);
       return response.data;
     },
     onSuccess: (data) => {
-      login(data.user, data.accessToken, data.refreshToken);
+      login(data.user);
     },
   });
 }
@@ -63,8 +62,8 @@ export function useLogout() {
 
 export function useMe() {
   const setUser = useAuthStore((state) => state.setUser);
+  const clearAuth = useAuthStore((state) => state.clearAuth);
   const setLoading = useAuthStore((state) => state.setLoading);
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   const query = useQuery({
     queryKey: queryKeys.auth.me(),
@@ -72,17 +71,11 @@ export function useMe() {
       const response = await apiClient.get<MeResponse>('/auth/me');
       return response.data;
     },
-    enabled: isAuthenticated,
     retry: false,
     staleTime: 1000 * 60 * 5,
   });
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      setLoading(false);
-      return;
-    }
-
     if (query.data?.type === 'user') {
       setUser({
         userId: query.data.userId!,
@@ -92,14 +85,25 @@ export function useMe() {
         permissions: query.data.permissions,
         temporaryRoles: [],
       });
+      setLoading(false);
+      return;
     }
-  }, [isAuthenticated, query.data, setLoading, setUser]);
+
+    if (query.data?.type === 'agent') {
+      clearAuth();
+      return;
+    }
+
+    if (query.isError) {
+      clearAuth();
+    }
+  }, [clearAuth, query.data, query.isError, setLoading, setUser]);
 
   useEffect(() => {
-    if (!isAuthenticated || query.isFetched) {
+    if (query.isFetched) {
       setLoading(false);
     }
-  }, [isAuthenticated, query.isFetched, setLoading]);
+  }, [query.isFetched, setLoading]);
 
   return query;
 }
@@ -132,18 +136,10 @@ export function useChangePassword() {
 }
 
 export function useRefreshToken() {
-  const setTokens = useAuthStore((state) => state.setTokens);
-
   return useMutation({
-    mutationFn: async (data: RefreshRequest) => {
-      const response = await apiClient.post<RefreshResponse>('/auth/refresh', data);
+    mutationFn: async () => {
+      const response = await apiClient.post<SessionRefreshResponse>('/auth/session/refresh');
       return response.data;
-    },
-    onSuccess: (data) => {
-      const refreshToken = useAuthStore.getState().refreshToken;
-      if (refreshToken) {
-        setTokens(data.accessToken, refreshToken);
-      }
     },
   });
 }

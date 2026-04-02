@@ -164,7 +164,11 @@ async fn execute_config_reload(
             success: false,
             output: None,
             exit_code: Some(1),
-            error: Some(format!("Failed to reload config from {}: {}", path.display(), e)),
+            error: Some(format!(
+                "Failed to reload config from {}: {}",
+                path.display(),
+                e
+            )),
             data: None,
         },
     }
@@ -213,7 +217,11 @@ async fn execute_collect_now(
         }
     };
 
-    let sections: Vec<String> = profile.sections().iter().map(|section| section.to_string()).collect();
+    let sections: Vec<String> = profile
+        .sections()
+        .iter()
+        .map(|section| section.to_string())
+        .collect();
     let Some(client) = api_client else {
         return CommandResult::error(
             "Profile collection requires API access in this execution context",
@@ -462,7 +470,9 @@ fn validate_probe_type(probe_type: &str) -> Result<(), String> {
 
 fn extract_probe_targets(parameters: &Option<Value>) -> Result<Vec<String>, String> {
     let Some(params) = parameters.as_ref() else {
-        return Err("probe-network requires parameters with a 'subnet' or 'targets' field".to_string());
+        return Err(
+            "probe-network requires parameters with a 'subnet' or 'targets' field".to_string(),
+        );
     };
 
     if let Some(probe_type) = extract_string_parameter(parameters, &["probeType", "probe_type"]) {
@@ -514,7 +524,10 @@ fn expand_ipv4_cidr(input: &str) -> Result<Vec<String>, String> {
         .map_err(|_| format!("Invalid CIDR prefix '{}'", prefix_str))?;
 
     if prefix > 32 {
-        return Err(format!("Invalid CIDR prefix '{}': must be between 0 and 32", prefix));
+        return Err(format!(
+            "Invalid CIDR prefix '{}': must be between 0 and 32",
+            prefix
+        ));
     }
 
     let host_count = match prefix {

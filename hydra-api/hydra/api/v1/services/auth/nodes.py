@@ -83,8 +83,8 @@ class NodeRegistrationMixin:
 
         await self.db.nodes.insert_one(node_doc)
 
-        api_key = f"hyk_node_{secrets.token_urlsafe(32)}"
         key_id = f"key_node_{secrets.token_urlsafe(8)}"
+        api_key = f"hyk_{key_id}.{secrets.token_urlsafe(32)}"
 
         key_doc = {
             "keyId": key_id,
@@ -177,8 +177,8 @@ class NodeRegistrationMixin:
             {"$set": {"revokedAt": now}},
         )
 
-        api_key = f"hyk_node_{secrets.token_urlsafe(32)}"
         key_id = f"key_node_{secrets.token_urlsafe(8)}"
+        api_key = f"hyk_{key_id}.{secrets.token_urlsafe(32)}"
 
         key_doc = {
             "keyId": key_id,

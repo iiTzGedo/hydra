@@ -94,7 +94,11 @@ pub async fn execute(
     let result = executor.execute(&poll_cmd).await;
     let duration_ms = start.elapsed().as_millis() as u64;
 
-    let status_str = if result.success { "completed" } else { "failed" };
+    let status_str = if result.success {
+        "completed"
+    } else {
+        "failed"
+    };
 
     let response = ExecuteResponse {
         command_id: request.command_id,
@@ -109,7 +113,10 @@ pub async fn execute(
         duration_ms,
     };
 
-    (StatusCode::OK, Json(serde_json::to_value(response).unwrap()))
+    (
+        StatusCode::OK,
+        Json(serde_json::to_value(response).unwrap()),
+    )
 }
 
 // =============================================================================
@@ -127,25 +134,25 @@ pub async fn probe(Json(request): Json<ProbeRequest>) -> impl IntoResponse {
     {
         Ok(result) => (
             StatusCode::OK,
-            Json(serde_json::to_value(ProbeResponse {
-                probe_type: request.probe_type,
-                status: "completed".to_string(),
-                results: result
-                    .hosts
-                    .into_iter()
-                    .map(|host| serde_json::to_value(host).unwrap_or(serde_json::Value::Null))
-                    .collect(),
-                duration_ms: result.duration_ms,
-            })
-            .unwrap()),
+            Json(
+                serde_json::to_value(ProbeResponse {
+                    probe_type: request.probe_type,
+                    status: "completed".to_string(),
+                    results: result
+                        .hosts
+                        .into_iter()
+                        .map(|host| serde_json::to_value(host).unwrap_or(serde_json::Value::Null))
+                        .collect(),
+                    duration_ms: result.duration_ms,
+                })
+                .unwrap(),
+            ),
         ),
         Err(error) => (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::to_value(ErrorResponse::new(
-                "PROBE_VALIDATION_ERROR",
-                &error,
-            ))
-            .unwrap()),
+            Json(
+                serde_json::to_value(ErrorResponse::new("PROBE_VALIDATION_ERROR", &error)).unwrap(),
+            ),
         ),
     }
 }
@@ -390,11 +397,13 @@ pub async fn update(
     let Some(vault) = state.vault.clone() else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::to_value(ErrorResponse::new(
-                "VAULT_UNAVAILABLE",
-                "Agent update requires vault access on the control server",
-            ))
-            .unwrap()),
+            Json(
+                serde_json::to_value(ErrorResponse::new(
+                    "VAULT_UNAVAILABLE",
+                    "Agent update requires vault access on the control server",
+                ))
+                .unwrap(),
+            ),
         );
     };
 
@@ -409,21 +418,25 @@ pub async fn update(
     {
         Ok(accepted) => (
             StatusCode::ACCEPTED,
-            Json(serde_json::to_value(UpdateResponse {
-                status: "accepted".to_string(),
-                current_version: accepted.current_version,
-                target_version: accepted.target_version,
-                message: accepted.message,
-            })
-            .unwrap()),
+            Json(
+                serde_json::to_value(UpdateResponse {
+                    status: "accepted".to_string(),
+                    current_version: accepted.current_version,
+                    target_version: accepted.target_version,
+                    message: accepted.message,
+                })
+                .unwrap(),
+            ),
         ),
         Err(error) => (
             StatusCode::CONFLICT,
-            Json(serde_json::to_value(ErrorResponse::new(
-                "UPDATE_REJECTED",
-                &format!("Unable to schedule agent update: {}", error),
-            ))
-            .unwrap()),
+            Json(
+                serde_json::to_value(ErrorResponse::new(
+                    "UPDATE_REJECTED",
+                    &format!("Unable to schedule agent update: {}", error),
+                ))
+                .unwrap(),
+            ),
         ),
     }
 }

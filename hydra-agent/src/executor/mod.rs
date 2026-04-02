@@ -97,9 +97,7 @@ impl CommandExecutor {
         );
 
         let result = match cmd.command_type.as_str() {
-            "service" => {
-                service_handler::execute(&cmd.action, &cmd.parameters, timeout_secs).await
-            }
+            "service" => service_handler::execute(&cmd.action, &cmd.parameters, timeout_secs).await,
             "node" => node_handler::execute(&cmd.action, &cmd.parameters, timeout_secs).await,
             "agent" => {
                 agent_handler::execute(

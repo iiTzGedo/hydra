@@ -3,7 +3,6 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, LogIn, Loader2 } from 'lucide-react';
 import { useLogin } from '@/api/auth';
-import { useAuthStore } from '@/stores/auth-store';
 import { getErrorMessage } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import { cn } from '@/lib/utils';
@@ -12,7 +11,6 @@ import { fadeInVariants, scaleVariants } from '@/lib/animations';
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login: setAuth } = useAuthStore();
   const loginMutation = useLogin();
 
   const [username, setUsername] = useState('');
@@ -27,8 +25,7 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const response = await loginMutation.mutateAsync({ username, password });
-      setAuth(response.user, response.accessToken, response.refreshToken);
+      await loginMutation.mutateAsync({ username, password });
       navigate(from, { replace: true });
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Invalid username or password'));

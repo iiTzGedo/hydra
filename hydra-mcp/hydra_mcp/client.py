@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 import structlog
 
+from hydra_mcp.auth import get_auth_context, get_forward_auth_headers
 from hydra_mcp.config import Settings, get_settings
 
 logger = structlog.get_logger(__name__)
@@ -85,13 +86,22 @@ class HydraClient:
         user credentials to be forwarded from the MCP auth context.
         """
         client = await self._get_client()
+        merged_auth_headers = dict(auth_headers or {})
+        context_headers = get_forward_auth_headers()
+        if context_headers:
+            merged_auth_headers.update(context_headers)
+        elif get_auth_context() is not None and self.settings.transport != "stdio":
+            raise HydraAPIError(
+                "UNAUTHORIZED",
+                "MCP request context is missing forward auth headers",
+            )
         try:
             response = await client.request(
                 method,
                 endpoint,
                 params=params,
                 json=json_data,
-                headers=auth_headers,
+                headers=merged_auth_headers or None,
             )
             data = response.json()
             if response.status_code >= 400:

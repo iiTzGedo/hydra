@@ -9,6 +9,7 @@ from hydra_mcp.auth import (
     AuthorizationError,
     check_permission,
     get_auth_context,
+    get_forward_auth_headers,
     set_auth_context,
     create_context_from_api_key,
     ADMIN_PERMISSIONS,
@@ -91,6 +92,35 @@ class TestContextVar:
         """Test that default context is None."""
         set_auth_context(None)
         assert get_auth_context() is None
+
+
+class TestForwardAuthHeaders:
+    """Tests for request-scoped forwarded auth headers."""
+
+    def test_returns_none_without_context(self):
+        set_auth_context(None)
+        assert get_forward_auth_headers() is None
+
+    def test_reads_forward_headers_from_context_metadata(self):
+        set_auth_context(
+            AuthContext(
+                user_id="user_123",
+                permissions=["nodes:read"],
+                metadata={
+                    "forward_auth": {
+                        "Authorization": "Bearer user-token",
+                        "X-API-Key": "ignored-because-present",
+                    }
+                },
+            )
+        )
+
+        assert get_forward_auth_headers() == {
+            "Authorization": "Bearer user-token",
+            "X-API-Key": "ignored-because-present",
+        }
+
+        set_auth_context(None)
 
     def test_set_and_get_context(self):
         """Test setting and retrieving context."""

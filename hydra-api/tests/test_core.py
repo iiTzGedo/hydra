@@ -395,3 +395,36 @@ class TestEmail:
                 body="Test body"
             )
             assert result is False
+
+    @pytest.mark.asyncio
+    async def test_notification_email_coerces_non_string_fields(self):
+        """Notification email rendering should handle numeric metadata safely."""
+        from hydra.api.v1.core.email import EmailService
+        from hydra.core.config import get_settings
+
+        settings = get_settings()
+        service = EmailService(settings)
+        service.send_email = AsyncMock(return_value=True)
+
+        result = await service.send_notification_email(
+            to="test@example.com",
+            notification={
+                "title": "Alert",
+                "message": "Threshold exceeded",
+                "tier": 4,
+                "tierLabel": None,
+                "type": "node_profile_stale",
+                "links": [
+                    {"label": 123, "href": "/notifications/ntf-1"},
+                ],
+            },
+        )
+
+        assert result is True
+        service.send_email.assert_awaited_once()
+
+        _, subject, body, html = service.send_email.await_args.args
+        assert subject == "Hydra Notification: Alert"
+        assert "Tier: 4" in body
+        assert "/notifications/ntf-1" in body
+        assert "<strong>Tier:</strong> 4" in html

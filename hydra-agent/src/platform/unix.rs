@@ -2,14 +2,22 @@
 //!
 //! Provides Unix implementations for:
 //! - File permissions (chmod)
-//! - Credential encryption (file-based security)
+//! - Credential encryption (AES-GCM with a local vault master key)
 //! - Service management (systemd)
 
-use super::{CredentialEncryption, FilePermissions};
-use anyhow::{Context, Result};
+use super::{CredentialEncryption, EncryptedPayload, FilePermissions};
+use aes_gcm::aead::Aead;
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use anyhow::{anyhow, Context, Result};
+use rand::random;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+const AES_GCM_KEY_LEN: usize = 32;
+const AES_GCM_NONCE_LEN: usize = 12;
+const UNIX_VAULT_ALGORITHM: &str = "aes-256-gcm";
+pub const VAULT_MASTER_KEY_FILE: &str = ".vault-key";
 
 /// Unix file permissions implementation
 pub struct UnixPermissions;
@@ -37,25 +45,101 @@ impl FilePermissions for UnixPermissions {
     }
 }
 
-/// Unix credential encryption implementation.
-/// On Unix, we rely on file permissions for security rather than encryption.
-/// The vault files are stored with 0600 permissions.
+fn master_key_path(scope: &Path) -> PathBuf {
+    scope.join(VAULT_MASTER_KEY_FILE)
+}
+
+fn write_master_key(scope: &Path, key: &[u8; AES_GCM_KEY_LEN]) -> Result<()> {
+    let key_path = master_key_path(scope);
+    fs::write(&key_path, key)
+        .with_context(|| format!("Failed to write vault master key: {}", key_path.display()))?;
+    fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("Failed to secure vault master key: {}", key_path.display()))?;
+    Ok(())
+}
+
+fn read_master_key(scope: &Path) -> Result<[u8; AES_GCM_KEY_LEN]> {
+    let key_path = master_key_path(scope);
+    let key = fs::read(&key_path)
+        .with_context(|| format!("Failed to read vault master key: {}", key_path.display()))?;
+    if key.len() != AES_GCM_KEY_LEN {
+        return Err(anyhow!(
+            "Invalid vault master key at {}",
+            key_path.display()
+        ));
+    }
+
+    fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("Failed to secure vault master key: {}", key_path.display()))?;
+
+    let mut key_bytes = [0u8; AES_GCM_KEY_LEN];
+    key_bytes.copy_from_slice(&key);
+    Ok(key_bytes)
+}
+
+fn load_or_create_master_key(scope: &Path) -> Result<[u8; AES_GCM_KEY_LEN]> {
+    let key_path = master_key_path(scope);
+    if key_path.exists() {
+        return read_master_key(scope);
+    }
+
+    fs::create_dir_all(scope)
+        .with_context(|| format!("Failed to create vault directory: {}", scope.display()))?;
+    fs::set_permissions(scope, fs::Permissions::from_mode(0o700))
+        .with_context(|| format!("Failed to secure vault directory: {}", scope.display()))?;
+
+    let key_bytes: [u8; AES_GCM_KEY_LEN] = random();
+    write_master_key(scope, &key_bytes)?;
+    Ok(key_bytes)
+}
+
+/// Unix credential encryption implementation using AES-256-GCM.
 pub struct UnixEncryption;
 
 impl CredentialEncryption for UnixEncryption {
-    fn encrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
-        // On Unix, we don't encrypt - we rely on file permissions
-        // Just return the data as-is (the vault handles secure storage)
-        Ok(data.to_vec())
+    fn encrypt(&self, scope: &Path, data: &[u8]) -> Result<EncryptedPayload> {
+        let key = load_or_create_master_key(scope)?;
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|err| anyhow!("Failed to initialize vault cipher: {}", err))?;
+        let nonce_bytes: [u8; AES_GCM_NONCE_LEN] = random();
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher
+            .encrypt(nonce, data)
+            .map_err(|_| anyhow!("Failed to encrypt vault data"))?;
+
+        Ok(EncryptedPayload {
+            algorithm: UNIX_VAULT_ALGORITHM.to_string(),
+            nonce: Some(nonce_bytes.to_vec()),
+            ciphertext,
+        })
     }
 
-    fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
-        // On Unix, no decryption needed
-        Ok(data.to_vec())
+    fn decrypt(&self, scope: &Path, payload: &EncryptedPayload) -> Result<Vec<u8>> {
+        if payload.algorithm != UNIX_VAULT_ALGORITHM {
+            return Err(anyhow!(
+                "Unsupported vault encryption algorithm: {}",
+                payload.algorithm
+            ));
+        }
+
+        let nonce_bytes = payload
+            .nonce
+            .as_ref()
+            .ok_or_else(|| anyhow!("Missing AES-GCM nonce in vault payload"))?;
+        if nonce_bytes.len() != AES_GCM_NONCE_LEN {
+            return Err(anyhow!("Invalid AES-GCM nonce length in vault payload"));
+        }
+
+        let key = read_master_key(scope)?;
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|err| anyhow!("Failed to initialize vault cipher: {}", err))?;
+        let nonce = Nonce::from_slice(nonce_bytes);
+        cipher
+            .decrypt(nonce, payload.ciphertext.as_ref())
+            .map_err(|_| anyhow!("Failed to decrypt vault data"))
     }
 
     fn is_available(&self) -> bool {
-        // Unix file-based security is always available
         true
     }
 }
@@ -267,11 +351,26 @@ mod tests {
 
     #[test]
     fn test_unix_encryption() {
+        let temp_dir = TempDir::new().unwrap();
         let enc = UnixEncryption;
         let data = b"secret data";
 
-        let encrypted = enc.encrypt(data).unwrap();
-        let decrypted = enc.decrypt(&encrypted).unwrap();
+        let encrypted = enc.encrypt(temp_dir.path(), data).unwrap();
+        let key_path = temp_dir.path().join(VAULT_MASTER_KEY_FILE);
+
+        assert_eq!(encrypted.algorithm, UNIX_VAULT_ALGORITHM);
+        assert_eq!(
+            encrypted.nonce.as_ref().map(Vec::len),
+            Some(AES_GCM_NONCE_LEN)
+        );
+        assert_ne!(encrypted.ciphertext, data);
+        assert!(key_path.exists());
+
+        let metadata = std::fs::metadata(&key_path).unwrap();
+        let mode = metadata.permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+
+        let decrypted = enc.decrypt(temp_dir.path(), &encrypted).unwrap();
 
         assert_eq!(decrypted, data);
     }
