@@ -63,6 +63,7 @@ class CommandListParams(BaseModel):
     """Parameters for listing commands."""
 
     node_id: str | None = Field(default=None, alias="nodeId")
+    service_id: str | None = Field(default=None, alias="serviceId")
     registry_id: str | None = Field(default=None, alias="registryId")
     type: CommandType | None = None
     status: CommandStatus | None = None

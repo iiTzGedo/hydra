@@ -20,6 +20,7 @@ class CommandStatus(str, Enum):
     """Status of a command in the execution pipeline."""
 
     PENDING = "pending"
+    PENDING_CONFIRMATION = "pending_confirmation"
     REJECTED = "rejected"
     QUEUED = "queued"
     EXECUTING = "executing"
@@ -44,6 +45,19 @@ class CommandExecutionMethod(str, Enum):
     AGENT_DIRECT = "agent-direct"
     AGENT_POLL = "agent-poll"
     INTEGRATION = "integration"
+
+
+class DangerLevel(str, Enum):
+    """Danger level classification for command safety controls.
+
+    Determines the confirmation UX tier and rate-limiting behavior.
+    """
+
+    SAFE = "safe"          # Read-only (logs, inspect, status)
+    LOW = "low"            # Non-destructive writes (IoT toggles, probe)
+    MEDIUM = "medium"      # Service state changes (start, stop, restart)
+    HIGH = "high"          # Destructive/impactful (reboot, agent update)
+    CRITICAL = "critical"  # Potentially catastrophic (shutdown, update-system)
 
 
 class ServiceAction(str, Enum):

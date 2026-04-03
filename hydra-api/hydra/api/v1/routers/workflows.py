@@ -6,7 +6,18 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from hydra.api.v1.core.deps import CurrentUser, MongoDBDep, require_permission
+from hydra.api.v1.core.deps import (
+    CurrentUser,
+    MongoDBDep,
+    get_authenticated_client_id,
+    get_authenticated_permissions,
+    get_authenticated_role,
+    get_authenticated_user_id,
+    get_command_request_source,
+    require_permission,
+    require_trusted_write_origin,
+)
+from hydra.api.v1.models.commands import CommandSource
 from hydra.api.v1.models.commands.workflows import (
     CreateWorkflowRequest,
     ExecuteWorkflowRequest,
@@ -80,7 +91,10 @@ async def list_workflows(
     status_code=201,
     summary="Create Workflow",
     description="Create a new workflow definition.",
-    dependencies=[Depends(require_permission("commands:execute"))],
+    dependencies=[
+        Depends(require_permission("commands:execute")),
+        Depends(require_trusted_write_origin()),
+    ],
 )
 async def create_workflow(
     request: CreateWorkflowRequest,
@@ -88,11 +102,7 @@ async def create_workflow(
     current_user: CurrentUser,
 ) -> SuccessResponse[WorkflowResponse]:
     """Create a new workflow definition."""
-    user_id = (
-        current_user.get("userId")
-        if isinstance(current_user, dict)
-        else getattr(current_user, "user_id", None)
-    )
+    user_id = get_authenticated_user_id(current_user)
 
     workflow = await workflow_service.create_workflow(request, user_id=user_id)
 
@@ -122,7 +132,10 @@ async def get_workflow(
     response_model_by_alias=True,
     summary="Update Workflow",
     description="Update a workflow definition.",
-    dependencies=[Depends(require_permission("commands:execute"))],
+    dependencies=[
+        Depends(require_permission("commands:execute")),
+        Depends(require_trusted_write_origin()),
+    ],
 )
 async def update_workflow(
     chain_id: str,
@@ -131,11 +144,7 @@ async def update_workflow(
     current_user: CurrentUser,
 ) -> SuccessResponse[WorkflowResponse]:
     """Update a workflow definition."""
-    user_id = (
-        current_user.get("userId")
-        if isinstance(current_user, dict)
-        else getattr(current_user, "user_id", None)
-    )
+    user_id = get_authenticated_user_id(current_user)
 
     workflow = await workflow_service.update_workflow(
         chain_id, request, user_id=user_id
@@ -149,7 +158,10 @@ async def update_workflow(
     response_model_by_alias=True,
     summary="Delete Workflow",
     description="Delete a workflow definition.",
-    dependencies=[Depends(require_permission("commands:execute"))],
+    dependencies=[
+        Depends(require_permission("commands:execute")),
+        Depends(require_trusted_write_origin()),
+    ],
 )
 async def delete_workflow(
     chain_id: str,
@@ -169,7 +181,10 @@ async def delete_workflow(
     response_model_by_alias=True,
     summary="Execute Workflow",
     description="Execute a workflow, returning immediately with an execution ID.",
-    dependencies=[Depends(require_permission("commands:execute"))],
+    dependencies=[
+        Depends(require_permission("commands:execute")),
+        Depends(require_trusted_write_origin()),
+    ],
 )
 async def execute_workflow(
     chain_id: str,
@@ -178,19 +193,20 @@ async def execute_workflow(
     request: ExecuteWorkflowRequest | None = None,
 ) -> JSONResponse:
     """Execute a workflow."""
-    user_id = (
-        current_user.get("userId")
-        if isinstance(current_user, dict)
-        else getattr(current_user, "user_id", None)
-    )
-    user_role = (
-        current_user.get("role")
-        if isinstance(current_user, dict)
-        else getattr(current_user, "role", None)
-    )
+    user_id = get_authenticated_user_id(current_user)
+    user_role = get_authenticated_role(current_user)
+    user_permissions = get_authenticated_permissions(current_user)
+    source = CommandSource(get_command_request_source(current_user))
+    client_id = get_authenticated_client_id(current_user)
 
     execution = await workflow_service.execute_workflow(
-        chain_id, request=request, user_id=user_id, user_role=user_role
+        chain_id,
+        request=request,
+        user_id=user_id,
+        user_role=user_role,
+        user_permissions=user_permissions,
+        source=source,
+        client_id=client_id,
     )
 
     response_data = _format_execution_response(execution)
@@ -250,7 +266,10 @@ async def get_workflow_execution(
     response_model_by_alias=True,
     summary="Cancel Workflow Execution",
     description="Cancel a running workflow execution.",
-    dependencies=[Depends(require_permission("commands:execute"))],
+    dependencies=[
+        Depends(require_permission("commands:execute")),
+        Depends(require_trusted_write_origin()),
+    ],
 )
 async def cancel_workflow_execution(
     execution_id: str,
@@ -258,11 +277,7 @@ async def cancel_workflow_execution(
     current_user: CurrentUser,
 ) -> SuccessResponse[WorkflowExecutionResponse]:
     """Cancel a workflow execution."""
-    user_id = (
-        current_user.get("userId")
-        if isinstance(current_user, dict)
-        else getattr(current_user, "user_id", None)
-    )
+    user_id = get_authenticated_user_id(current_user)
 
     execution = await workflow_service.cancel_execution(
         execution_id, user_id=user_id

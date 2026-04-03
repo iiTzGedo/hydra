@@ -9,6 +9,7 @@ from uuid import uuid4
 import structlog
 
 from hydra.api.v1.core.exceptions import (
+    ValidationError,
     WorkflowCycleError,
     WorkflowExecutionNotFoundError,
     WorkflowNotCancellableError,
@@ -43,6 +44,19 @@ class WorkflowService:
         self.workflow_executions = mongodb.workflow_executions
         self.commands_service = CommandsService(mongodb)
 
+    def _validate_unsupported_step_features(self, steps: list[Any]) -> None:
+        """Reject workflow features that are still explicitly out of scope."""
+        for step in steps:
+            condition = step.condition if hasattr(step, "condition") else step.get("condition")
+            step_id = step.step_id if hasattr(step, "step_id") else step.get("stepId")
+            if condition is not None:
+                raise ValidationError(
+                    (
+                        f"Workflow step '{step_id}' uses unsupported 'condition' logic. "
+                        "Conditional workflow execution is not implemented in this phase."
+                    )
+                )
+
     # ── Workflow CRUD ────────────────────────────────────────────────────
 
     async def create_workflow(
@@ -58,6 +72,8 @@ class WorkflowService:
         step_ids = [s.step_id for s in request.steps]
         if len(step_ids) != len(set(step_ids)):
             raise WorkflowCycleError("Duplicate step IDs found")
+
+        self._validate_unsupported_step_features(request.steps)
 
         # Validate step dependency graph (no cycles, all refs valid)
         self._validate_step_graph(request.steps)
@@ -158,6 +174,7 @@ class WorkflowService:
         if request.description is not None:
             update_set["description"] = request.description
         if request.steps is not None:
+            self._validate_unsupported_step_features(request.steps)
             self._validate_step_graph(request.steps)
             update_set["steps"] = [
                 {
@@ -221,9 +238,13 @@ class WorkflowService:
         request: ExecuteWorkflowRequest | None = None,
         user_id: str | None = None,
         user_role: str | None = None,
+        user_permissions: list[str] | None = None,
+        source: CommandSource = CommandSource.API,
+        client_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute a workflow, returning immediately with an execution ID."""
         workflow = await self.get_workflow(chain_id)
+        self._validate_unsupported_step_features(workflow["steps"])
 
         execution_id = f"exec_{uuid4().hex[:12]}"
         now = datetime.now(UTC)
@@ -267,7 +288,14 @@ class WorkflowService:
         # Spawn background orchestration task
         safe_create_task(
             self._run_workflow_execution(
-                execution_id, workflow, user_id, user_role, request
+                execution_id,
+                workflow,
+                user_id,
+                user_role,
+                user_permissions,
+                source,
+                client_id,
+                request,
             )
         )
 
@@ -369,6 +397,9 @@ class WorkflowService:
         workflow: dict[str, Any],
         user_id: str | None,
         user_role: str | None,
+        user_permissions: list[str] | None,
+        source: CommandSource,
+        client_id: str | None,
         request: ExecuteWorkflowRequest | None,
     ) -> None:
         """Orchestrate workflow step execution in topological order."""
@@ -415,7 +446,15 @@ class WorkflowService:
 
             # Execute the step
             outcome = await self._execute_step(
-                execution_id, chain_id, step, step_index_map[step_id], user_id, user_role
+                execution_id,
+                chain_id,
+                step,
+                step_index_map[step_id],
+                user_id,
+                user_role,
+                user_permissions,
+                source,
+                client_id,
             )
             if outcome == "cancelled":
                 return
@@ -442,7 +481,15 @@ class WorkflowService:
                             execution_id, step_id, retry_count
                         )
                         outcome = await self._execute_step(
-                            execution_id, chain_id, step, step_index_map[step_id], user_id, user_role
+                            execution_id,
+                            chain_id,
+                            step,
+                            step_index_map[step_id],
+                            user_id,
+                            user_role,
+                            user_permissions,
+                            source,
+                            client_id,
                         )
                         if outcome == "cancelled":
                             return
@@ -489,6 +536,9 @@ class WorkflowService:
         step_index: int,
         user_id: str | None,
         user_role: str | None,
+        user_permissions: list[str] | None,
+        source: CommandSource,
+        client_id: str | None,
     ) -> str:
         """Execute a single workflow step by creating a command."""
         step_id = step["stepId"]
@@ -519,7 +569,9 @@ class WorkflowService:
                 cmd_request,
                 user_id=user_id,
                 user_role=user_role,
-                source=CommandSource.API,
+                user_permissions=user_permissions,
+                source=source,
+                client_id=client_id,
                 chain=chain_ref,
             )
 

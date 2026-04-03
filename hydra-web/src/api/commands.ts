@@ -15,6 +15,7 @@ export type CommandType =
 export type CommandCategory = 'service' | 'node' | 'agent';
 export type CommandStatus =
   | 'pending'
+  | 'pending_confirmation'
   | 'rejected'
   | 'queued'
   | 'executing'
@@ -24,6 +25,7 @@ export type CommandStatus =
   | 'cancelled';
 export type CommandExecutionMethod = 'agent-direct' | 'agent-poll' | 'integration';
 export type CommandDeliveryMode = 'direct_or_poll' | 'poll_only';
+export type DangerLevel = 'safe' | 'low' | 'medium' | 'high' | 'critical';
 
 export interface CommandTarget {
   nodeId: string;
@@ -64,11 +66,16 @@ export interface CommandQueuedResponse {
   target: CommandTarget;
   action: string;
   status: CommandStatus;
-  executionMethod: CommandExecutionMethod;
+  executionMethod?: CommandExecutionMethod | null;
   result?: CommandResult | null;
   queuePosition?: number | null;
   queuedAt?: string | null;
   completedAt?: string | null;
+  requiresConfirmation?: boolean;
+  confirmationMessage?: string | null;
+  dangerLevel?: DangerLevel | null;
+  affectedNodes?: string[];
+  confirmationExpiresAt?: string | null;
 }
 
 export interface CommandSummary {
@@ -103,6 +110,9 @@ export interface CommandResponse {
   completedAt?: string | null;
   cancelledAt?: string | null;
   cancelledBy?: string | null;
+  dangerLevel?: DangerLevel | null;
+  confirmationMessage?: string | null;
+  confirmationExpiresAt?: string | null;
 }
 
 export interface CommandDefinitionSummary {
@@ -113,6 +123,8 @@ export interface CommandDefinitionSummary {
   description?: string | null;
   minimumRole: string;
   requiresConfirmation: boolean;
+  dangerLevel: DangerLevel;
+  controlPermission?: string | null;
   timeout: number;
   deliveryMode: CommandDeliveryMode;
   builtIn: boolean;
@@ -157,6 +169,22 @@ export function useCreateCommand() {
   });
 }
 
+export function useConfirmCommand() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (commandId: string) => {
+      const response = await apiClient.post<ApiResponse<CommandQueuedResponse>>(
+        `/commands/${commandId}/confirm`
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.commands.all });
+    },
+  });
+}
+
 export function useCancelCommand() {
   const queryClient = useQueryClient();
 
@@ -192,7 +220,13 @@ export function useFlushQueue() {
 
 // ── Queries ──────────────────────────────────────────────────────────────
 
-export function useCommands(params?: { nodeId?: string; status?: CommandStatus; type?: CommandType; registryId?: string }) {
+export function useCommands(params?: {
+  nodeId?: string;
+  serviceId?: string;
+  status?: CommandStatus;
+  type?: CommandType;
+  registryId?: string;
+}) {
   return useQuery({
     queryKey: queryKeys.commands.list(params),
     queryFn: async () => {
@@ -200,6 +234,18 @@ export function useCommands(params?: { nodeId?: string; status?: CommandStatus; 
         params,
       });
       return response.data.data;
+    },
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (
+        Array.isArray(data) &&
+        data.some((command) =>
+          ['queued', 'executing', 'pending_confirmation'].includes(command.status)
+        )
+      ) {
+        return 2000;
+      }
+      return false;
     },
   });
 }
@@ -216,7 +262,7 @@ export function useCommand(commandId: string | undefined) {
     enabled: !!commandId,
     refetchInterval: (query) => {
       const data = query.state.data;
-      if (data && (data.status === 'queued' || data.status === 'executing')) {
+      if (data && ['queued', 'executing', 'pending_confirmation'].includes(data.status)) {
         return 2000; // Poll every 2s while active
       }
       return false;

@@ -6,6 +6,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .enums import DangerLevel
+
 
 class CommandCategory(str, Enum):
     """Command categories matching registry ID prefixes."""
@@ -65,6 +67,14 @@ class RbacConfig(BaseModel):
     confirmation_message: Annotated[
         str | None,
         Field(default=None, alias="confirmationMessage"),
+    ]
+    danger_level: Annotated[
+        DangerLevel,
+        Field(default=DangerLevel.MEDIUM, alias="dangerLevel"),
+    ]
+    control_permission: Annotated[
+        str | None,
+        Field(default=None, alias="controlPermission"),
     ]
 
     model_config = ConfigDict(populate_by_name=True)
@@ -129,6 +139,14 @@ class CommandDefinitionSummary(BaseModel):
     description: str | None = None
     minimum_role: Annotated[str, Field(alias="minimumRole")]
     requires_confirmation: Annotated[bool, Field(alias="requiresConfirmation")]
+    danger_level: Annotated[
+        DangerLevel,
+        Field(default=DangerLevel.MEDIUM, alias="dangerLevel"),
+    ]
+    control_permission: Annotated[
+        str | None,
+        Field(default=None, alias="controlPermission"),
+    ]
     timeout: int
     delivery_mode: Annotated[
         CommandDeliveryMode,

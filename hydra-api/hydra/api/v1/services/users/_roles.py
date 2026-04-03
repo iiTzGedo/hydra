@@ -249,14 +249,22 @@ class RolesMixin:
         role_permissions = {
             Role.ADMIN.value: ["*:*"],
             Role.OPERATOR.value: [
-                "nodes:*",
-                "profiles:*",
+                # Node CRUD (no destructive controls — reboot/shutdown/update-system are admin-only)
+                "nodes:read",
+                "nodes:write",
+                "nodes:create",
+                "nodes:update",
+                "nodes:delete",
+                "nodes:control:set-hostname",
+                # Services — all controls via wildcard
                 "services:*",
+                "profiles:*",
                 "groups:*",
                 "networks:*",
                 "topologies:read",
                 "docs:*",
                 "commands:execute",
+                "commands:read",
                 "ha:*",
                 "tokens:create",
                 "tokens:create:user",
@@ -265,6 +273,11 @@ class RolesMixin:
                 "notifications:write",
                 "audit:read",
                 "query:read",
+                # Agent controls (subset — no restart/update/uninstall)
+                "agent:control:status",
+                "agent:control:config-reload",
+                "agent:control:collect-now",
+                "agent:control:probe-network",
             ],
             Role.VIEWER.value: [
                 "nodes:read",
@@ -277,6 +290,9 @@ class RolesMixin:
                 "ha:read",
                 "notifications:read",
                 "audit:read",
+                # Viewer can see command history and check agent status
+                "commands:read",
+                "agent:control:status",
             ],
             Role.FAMILY.value: [
                 "iot:read",

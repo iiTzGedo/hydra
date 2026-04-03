@@ -93,6 +93,20 @@ class AuthorizationError(HydraError):
         )
 
 
+class ClientNotAuthorizedError(HydraError):
+    """Request origin is not authorized for this operation."""
+
+    def __init__(
+        self,
+        message: str = "This operation is only available from the Hydra web interface",
+    ):
+        super().__init__(
+            "CLIENT_NOT_AUTHORIZED",
+            message,
+            status_code=403,
+        )
+
+
 class AdminOnlyError(HydraError):
     """Operation requires admin role."""
 
@@ -482,6 +496,54 @@ class CommandRejectedError(HydraError):
             "COMMAND_REJECTED",
             message,
             status_code=403,
+        )
+
+
+class CommandConfirmationExpiredError(HydraError):
+    """Command confirmation window has expired."""
+
+    def __init__(self, command_id: str):
+        super().__init__(
+            "COMMAND_CONFIRMATION_EXPIRED",
+            f"Confirmation window for command '{command_id}' has expired",
+            status_code=410,
+            details={"commandId": command_id},
+        )
+
+
+class CommandConfirmationInvalidError(HydraError):
+    """Command is not in pending_confirmation state."""
+
+    def __init__(self, command_id: str, current_status: str):
+        super().__init__(
+            "COMMAND_CONFIRMATION_INVALID",
+            f"Command '{command_id}' is in status '{current_status}', not 'pending_confirmation'",
+            status_code=409,
+            details={"commandId": command_id, "currentStatus": current_status},
+        )
+
+
+class CommandCooldownError(HydraError):
+    """Node is in cooldown period after a destructive command."""
+
+    def __init__(self, node_id: str, remaining_seconds: int):
+        super().__init__(
+            "COMMAND_COOLDOWN_ACTIVE",
+            f"Node '{node_id}' is in cooldown period ({remaining_seconds}s remaining)",
+            status_code=429,
+            details={"nodeId": node_id, "remainingSeconds": remaining_seconds},
+        )
+
+
+class CommandRateLimitError(HydraError):
+    """Command-specific rate limit exceeded."""
+
+    def __init__(self, limit_type: str, retry_after: int):
+        super().__init__(
+            "COMMAND_RATE_LIMIT_EXCEEDED",
+            f"Command rate limit exceeded ({limit_type}). Retry after {retry_after}s.",
+            status_code=429,
+            details={"limitType": limit_type, "retryAfter": retry_after},
         )
 
 

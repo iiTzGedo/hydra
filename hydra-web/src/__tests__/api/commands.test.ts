@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import { useCommand, useCommandCatalog } from '@/api/commands';
+import { useCommand, useCommandCatalog, useCommands } from '@/api/commands';
 import { renderWithQuery } from '../msw/test-utils';
 import { server } from '../msw/server';
 
@@ -100,4 +100,72 @@ describe('Commands API Hooks', () => {
       hosts: [{ ip: '192.168.1.1', reachable: true }],
     });
   });
+
+  it('passes serviceId through to command list queries', async () => {
+    server.use(
+      http.get(`${BASE_URL}/commands`, ({ request }) => {
+        const url = new URL(request.url);
+        expect(url.searchParams.get('nodeId')).toBe('server-01');
+        expect(url.searchParams.get('serviceId')).toBe('svc-nginx-a1b2');
+        return HttpResponse.json({ data: [] });
+      })
+    );
+
+    const { result } = renderWithQuery(() =>
+      useCommands({ nodeId: 'server-01', serviceId: 'svc-nginx-a1b2' })
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual([]);
+  });
+
+  it('keeps polling command lists while commands are active', async () => {
+    let requestCount = 0;
+    server.use(
+      http.get(`${BASE_URL}/commands`, () => {
+        requestCount += 1;
+        return HttpResponse.json({
+          data:
+            requestCount === 1
+              ? [
+                  {
+                    commandId: 'cmd-abc123',
+                    registryId: 'reg::service::restart',
+                    type: 'service',
+                    target: {
+                      nodeId: 'server-01',
+                      serviceId: 'svc-nginx-a1b2',
+                    },
+                    action: 'restart',
+                    status: 'queued',
+                    createdAt: '2026-03-23T10:00:00Z',
+                  },
+                ]
+              : [
+                  {
+                    commandId: 'cmd-abc123',
+                    registryId: 'reg::service::restart',
+                    type: 'service',
+                    target: {
+                      nodeId: 'server-01',
+                      serviceId: 'svc-nginx-a1b2',
+                    },
+                    action: 'restart',
+                    status: 'completed',
+                    createdAt: '2026-03-23T10:00:00Z',
+                  },
+                ],
+        });
+      })
+    );
+
+    const { result } = renderWithQuery(() => useCommands({ nodeId: 'server-01' }));
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(requestCount).toBe(1);
+
+    await waitFor(() => expect(requestCount).toBeGreaterThanOrEqual(2), {
+      timeout: 4000,
+    });
+  }, 10000);
 });

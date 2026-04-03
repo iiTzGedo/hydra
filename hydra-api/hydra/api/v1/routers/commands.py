@@ -7,7 +7,17 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from hydra.api.v1.core.deps import CurrentUser, MongoDBDep, require_permission
+from hydra.api.v1.core.deps import (
+    CurrentUser,
+    MongoDBDep,
+    get_authenticated_client_id,
+    get_authenticated_permissions,
+    get_authenticated_role,
+    get_authenticated_user_id,
+    get_command_request_source,
+    require_permission,
+    require_trusted_write_origin,
+)
 from hydra.api.v1.core.exceptions import AdminOnlyError
 from hydra.api.v1.models.commands import (
     CommandCancelledResponse,
@@ -100,6 +110,8 @@ async def list_command_catalog(
                 description=d.get("description"),
                 minimum_role=d.get("rbac", {}).get("minimumRole", "operator"),
                 requires_confirmation=d.get("rbac", {}).get("requiresConfirmation", False),
+                danger_level=d.get("rbac", {}).get("dangerLevel", "medium"),
+                control_permission=d.get("rbac", {}).get("controlPermission"),
                 timeout=d.get("execution", {}).get("timeout", 60),
                 delivery_mode=d.get("execution", {}).get("deliveryMode", CommandDeliveryMode.POLL_ONLY.value),
                 built_in=d.get("metadata", {}).get("builtIn", False),
@@ -160,7 +172,10 @@ Dispatch is tier-aware:
 
 Returns 200 for synchronous direct execution, 202 for queued execution.
 """,
-    dependencies=[Depends(require_permission("commands:execute"))],
+    dependencies=[
+        Depends(require_permission("commands:execute")),
+        Depends(require_trusted_write_origin()),
+    ],
 )
 async def create_command(
     request: CreateCommandRequest,
@@ -168,22 +183,24 @@ async def create_command(
     current_user: CurrentUser,
 ) -> JSONResponse:
     """Submit a command for tier-aware execution on an agent."""
-    source = CommandSource.API
-    if hasattr(current_user, "source"):
-        source = current_user.source
-
-    user_id = current_user.get("userId") if isinstance(current_user, dict) else getattr(current_user, "user_id", None)
-    user_role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
+    source = CommandSource(get_command_request_source(current_user))
+    user_id = get_authenticated_user_id(current_user)
+    user_role = get_authenticated_role(current_user)
+    user_permissions = get_authenticated_permissions(current_user)
+    client_id = get_authenticated_client_id(current_user)
 
     command = await commands_service.create_command(
         request,
         user_id=user_id,
         user_role=user_role,
+        user_permissions=user_permissions,
         source=source,
+        client_id=client_id,
     )
 
     execution_method = command.get("executionMethod")
     result_data = command.get("result")
+    is_pending_confirmation = command["status"] == CommandStatus.PENDING_CONFIRMATION.value
 
     response_data = CommandQueuedResponse(
         command_id=command["commandId"],
@@ -192,15 +209,23 @@ async def create_command(
         target=command["target"],
         action=command["action"],
         status=CommandStatus(command["status"]),
-        execution_method=CommandExecutionMethod(execution_method) if execution_method else CommandExecutionMethod.AGENT_POLL,
+        execution_method=CommandExecutionMethod(execution_method) if execution_method else (None if is_pending_confirmation else CommandExecutionMethod.AGENT_POLL),
         result=CommandResult(**result_data) if result_data else None,
         queue_position=command.get("queuePosition"),
         queued_at=command.get("queuedAt"),
         completed_at=command.get("completedAt"),
+        requires_confirmation=is_pending_confirmation,
+        confirmation_message=command.get("confirmationMessage"),
+        danger_level=command.get("dangerLevel"),
+        affected_nodes=command.get("affectedNodes", []),
+        confirmation_expires_at=command.get("confirmationExpiresAt"),
     )
 
     wrapped = SuccessResponse(data=response_data)
-    status_code = 200 if execution_method == "agent-direct" else 202
+    if execution_method == "agent-direct":
+        status_code = 200
+    else:
+        status_code = 202
 
     return JSONResponse(
         content=wrapped.model_dump(by_alias=True, mode="json"),
@@ -253,7 +278,10 @@ async def view_queue(
     response_model_by_alias=True,
     summary="Flush Command Queue",
     description="Flush (cancel) all queued commands. Admin only.",
-    dependencies=[Depends(require_permission("commands:execute"))],
+    dependencies=[
+        Depends(require_permission("commands:execute")),
+        Depends(require_trusted_write_origin()),
+    ],
 )
 async def flush_queue(
     request: QueueFlushRequest,
@@ -261,7 +289,7 @@ async def flush_queue(
     current_user: CurrentUser,
 ) -> SuccessResponse[QueueFlushResponse]:
     """Flush queued commands."""
-    user_role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", None)
+    user_role = get_authenticated_role(current_user)
     if user_role != "admin":
         raise AdminOnlyError("flush_queue")
 
@@ -269,7 +297,7 @@ async def flush_queue(
         from hydra.api.v1.core.exceptions import ValidationError
         raise ValidationError("Set confirm=true to flush the queue")
 
-    user_id = current_user.get("userId") if isinstance(current_user, dict) else getattr(current_user, "user_id", None)
+    user_id = get_authenticated_user_id(current_user)
 
     flushed = await commands_service.flush_queue(
         scope=request.scope,
@@ -292,6 +320,7 @@ async def flush_queue(
 async def list_commands(
     commands_service: CommandsServiceDep,
     node_id: str | None = Query(default=None, alias="nodeId"),
+    service_id: str | None = Query(default=None, alias="serviceId"),
     registry_id: str | None = Query(default=None, alias="registryId"),
     type: CommandType | None = None,
     status: CommandStatus | None = None,
@@ -302,6 +331,7 @@ async def list_commands(
     """Retrieve command execution history."""
     params = CommandListParams(
         node_id=node_id,
+        service_id=service_id,
         registry_id=registry_id,
         type=type,
         status=status,
@@ -369,7 +399,63 @@ async def get_command(
             completed_at=command.get("completedAt"),
             cancelled_at=command.get("cancelledAt"),
             cancelled_by=command.get("cancelledBy"),
+            danger_level=command.get("dangerLevel"),
+            confirmation_message=command.get("confirmationMessage"),
+            confirmation_expires_at=command.get("confirmationExpiresAt"),
         )
+    )
+
+
+@router.post(
+    "/{command_id}/confirm",
+    response_model=SuccessResponse[CommandQueuedResponse],
+    response_model_by_alias=True,
+    summary="Confirm Command",
+    description="Confirm a pending command for execution. Required for destructive operations.",
+    dependencies=[
+        Depends(require_permission("commands:execute")),
+        Depends(require_trusted_write_origin()),
+    ],
+)
+async def confirm_command(
+    command_id: str,
+    commands_service: CommandsServiceDep,
+    current_user: CurrentUser,
+) -> JSONResponse:
+    """Confirm a command that is pending confirmation."""
+    user_id = get_authenticated_user_id(current_user)
+    user_role = get_authenticated_role(current_user)
+    user_permissions = get_authenticated_permissions(current_user)
+    source = CommandSource(get_command_request_source(current_user))
+    client_id = get_authenticated_client_id(current_user)
+
+    command = await commands_service.confirm_command(
+        command_id,
+        user_id=user_id,
+        user_role=user_role,
+        user_permissions=user_permissions,
+        source=source,
+        client_id=client_id,
+    )
+
+    execution_method = command.get("executionMethod")
+
+    response_data = CommandQueuedResponse(
+        command_id=command["commandId"],
+        registry_id=command.get("registryId"),
+        type=CommandType(command["type"]),
+        target=command["target"],
+        action=command["action"],
+        status=CommandStatus(command["status"]),
+        execution_method=CommandExecutionMethod(execution_method) if execution_method else CommandExecutionMethod.AGENT_POLL,
+        queue_position=command.get("queuePosition"),
+        queued_at=command.get("queuedAt"),
+    )
+
+    wrapped = SuccessResponse(data=response_data)
+    return JSONResponse(
+        content=wrapped.model_dump(by_alias=True, mode="json"),
+        status_code=202,
     )
 
 
@@ -379,7 +465,10 @@ async def get_command(
     response_model_by_alias=True,
     summary="Cancel Command",
     description="Cancel a pending or queued command.",
-    dependencies=[Depends(require_permission("commands:execute"))],
+    dependencies=[
+        Depends(require_permission("commands:execute")),
+        Depends(require_trusted_write_origin()),
+    ],
 )
 async def cancel_command(
     command_id: str,
@@ -387,7 +476,7 @@ async def cancel_command(
     current_user: CurrentUser,
 ) -> SuccessResponse[CommandCancelledResponse]:
     """Cancel a command that has not yet completed."""
-    user_id = current_user.get("userId") if isinstance(current_user, dict) else getattr(current_user, "user_id", None)
+    user_id = get_authenticated_user_id(current_user)
 
     result = await commands_service.cancel_command(command_id, cancelled_by=user_id)
 

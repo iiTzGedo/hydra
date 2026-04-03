@@ -72,7 +72,7 @@ describe('Command Detail Page', () => {
     expect(screen.getByText('Command cmd-abc123')).toBeInTheDocument();
     expect(screen.getByText('Probe completed')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Cancel Command' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     await waitFor(() => expect(cancelCommandMock).toHaveBeenCalledWith('cmd-abc123'));
   });

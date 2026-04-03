@@ -66,7 +66,13 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     if (permissions.includes('*:*')) return true;
     if (permissions.includes(permission)) return true;
 
-    const [resource, action] = permission.split(':');
+    // Split on first colon only to support multi-level permissions
+    // e.g. "services:control:restart" → resource="services", action="control:restart"
+    const colonIdx = permission.indexOf(':');
+    if (colonIdx === -1) return false;
+    const resource = permission.substring(0, colonIdx);
+    const action = permission.substring(colonIdx + 1);
+
     if (permissions.includes(`${resource}:*`)) return true;
     if (permissions.includes(`*:${action}`)) return true;
 

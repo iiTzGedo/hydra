@@ -199,6 +199,22 @@ def _setup_command_mocks(mock_mongodb, sample_user, sample_definition, *, role="
     mock_mongodb.commands.count_documents = AsyncMock(return_value=0)
 
 
+def trusted_write_headers(
+    *,
+    user_id: str = "user_admin123",
+    role: str = "admin",
+    client_id: str = "hydra-web",
+) -> dict[str, str]:
+    """Build trusted internal-request headers for write-path tests."""
+    return {
+        "X-Hydra-Internal-Request": "true",
+        "X-Hydra-Internal-Secret": "internal-secret-for-tests-0123456789",
+        "X-Hydra-User-Id": user_id,
+        "X-Hydra-Role": role,
+        "X-Hydra-Client-Id": client_id,
+    }
+
+
 # ── Command Creation ─────────────────────────────────────────────────────
 
 
@@ -225,7 +241,7 @@ async def test_create_command_success(
             "registryId": "reg::service::restart",
             "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 202
@@ -259,12 +275,40 @@ async def test_create_command_unknown_registry_id(
             "registryId": "reg::service::nonexistent",
             "target": {"nodeId": "server-01"},
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 404
     data = response.json()
     assert data["error"]["code"] == "COMMAND_DEFINITION_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_create_command_rejects_bearer_write_origin(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Test bearer-authenticated writes are rejected for command execution."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.commands.insert_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/commands",
+        json={
+            "registryId": "reg::service::restart",
+            "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 403
+    data = response.json()
+    assert data["error"]["code"] == "CLIENT_NOT_AUTHORIZED"
+    mock_mongodb.commands.insert_one.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -296,7 +340,7 @@ async def test_create_command_insufficient_role(
             "registryId": "reg::node::reboot",
             "target": {"nodeId": "server-01"},
         },
-        headers={"Authorization": f"Bearer {operator_token}"},
+        headers=trusted_write_headers(user_id="user_operator123", role="operator"),
     )
 
     assert response.status_code == 403
@@ -328,7 +372,7 @@ async def test_create_command_rejects_lite_tier(
             "registryId": "reg::service::restart",
             "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 400
@@ -362,7 +406,7 @@ async def test_create_command_normal_tier_queues_for_poll(
             "registryId": "reg::service::restart",
             "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 202
@@ -413,7 +457,7 @@ async def test_create_command_max_tier_poll_only_skips_direct_execution(
             "registryId": "reg::service::restart",
             "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 202
@@ -482,7 +526,7 @@ async def test_create_command_max_tier_transport_failure_falls_back(
             "parameters": {"lines": 250},
             "timeoutSeconds": 120,
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 202
@@ -547,7 +591,7 @@ async def test_create_command_max_tier_http_501_falls_back(
                 "serviceId": "svc-nginx-a1b2",
             },
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 202
@@ -587,7 +631,7 @@ async def test_create_service_update_derives_image_from_version(
             "target": {"nodeId": "server-01", "serviceId": "svc-app-c3d4"},
             "parameters": {"version": "2.0.0"},
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 202
@@ -621,7 +665,7 @@ async def test_create_command_rejects_service_node_mismatch(
             "registryId": "reg::service::restart",
             "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 400
@@ -675,13 +719,18 @@ async def test_list_commands_with_filters(
     mock_mongodb.commands.find.return_value = create_mock_cursor([sample_command])
 
     response = await client.get(
-        "/api/v1/commands?nodeId=server-01&type=service&status=queued",
+        "/api/v1/commands?nodeId=server-01&serviceId=svc-nginx-a1b2&type=service&status=queued",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
     assert response.status_code == 200
     data = response.json()
     assert len(data["data"]) == 1
+    query = mock_mongodb.commands.count_documents.await_args.args[0]
+    assert query["target.nodeId"] == "server-01"
+    assert query["target.serviceId"] == "svc-nginx-a1b2"
+    assert query["type"] == "service"
+    assert query["status"] == "queued"
 
 
 @pytest.mark.asyncio
@@ -747,13 +796,106 @@ async def test_cancel_command_success(
 
     response = await client.post(
         f"/api/v1/commands/{sample_command['commandId']}/cancel",
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["status"] == "cancelled"
     assert "cancelledAt" in data["data"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_command_rejects_cross_user(
+    client: AsyncClient,
+    mock_mongodb,
+    sample_command,
+    sample_user,
+):
+    """Test only the original requester can confirm a pending command."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_operator456", "role": "operator"}
+    )
+    pending_command = {
+        **sample_command,
+        "status": "pending_confirmation",
+        "requestedBy": {"userId": "user_admin123", "source": "web"},
+        "confirmationExpiresAt": datetime.now(timezone.utc),
+    }
+    mock_mongodb.commands.find_one = AsyncMock(return_value=pending_command)
+
+    response = await client.post(
+        f"/api/v1/commands/{sample_command['commandId']}/confirm",
+        headers=trusted_write_headers(user_id="user_operator456", role="operator"),
+    )
+
+    assert response.status_code == 403
+    data = response.json()
+    assert data["error"]["code"] == "COMMAND_REJECTED"
+    assert "Only the user who requested this command may confirm it" in data["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_command_rechecks_control_permission(
+    client: AsyncClient,
+    mock_mongodb,
+    sample_user,
+):
+    """Test confirmation re-applies command control permissions."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_operator123", "role": "operator"}
+    )
+    mock_mongodb.commands.find_one = AsyncMock(
+        return_value={
+            "commandId": "cmd-pending-001",
+            "registryId": "reg::node::reboot",
+            "type": "node",
+            "target": {"nodeId": "server-01"},
+            "action": "reboot",
+            "parameters": {},
+            "status": "pending_confirmation",
+            "executionMethod": None,
+            "requestedBy": {"userId": "user_operator123", "source": "web"},
+            "timeoutSeconds": 120,
+            "retryCount": 0,
+            "queuePosition": None,
+            "chain": None,
+            "error": None,
+            "result": None,
+            "createdAt": datetime.now(timezone.utc),
+            "queuedAt": None,
+            "startedAt": None,
+            "completedAt": None,
+            "cancelledAt": None,
+            "cancelledBy": None,
+            "confirmationExpiresAt": datetime.now(timezone.utc),
+        }
+    )
+    mock_mongodb.command_definitions.find_one = AsyncMock(
+        return_value={
+            "registryId": "reg::node::reboot",
+            "category": "node",
+            "action": "reboot",
+            "targetSchema": {"required": ["nodeId"]},
+            "execution": {"timeout": 120},
+            "rbac": {
+                "minimumRole": "operator",
+                "requiresConfirmation": True,
+                "controlPermission": "nodes:control:reboot",
+            },
+            "metadata": {"builtIn": True},
+        }
+    )
+
+    response = await client.post(
+        "/api/v1/commands/cmd-pending-001/confirm",
+        headers=trusted_write_headers(user_id="user_operator123", role="operator"),
+    )
+
+    assert response.status_code == 403
+    data = response.json()
+    assert data["error"]["code"] == "COMMAND_REJECTED"
+    assert "nodes:control:reboot" in data["error"]["message"]
 
 
 # ── Agent Endpoints ──────────────────────────────────────────────────────
@@ -861,14 +1003,14 @@ async def test_commands_forbidden_for_viewer(
 
 
 @pytest.mark.asyncio
-async def test_commands_viewer_can_not_list(
+async def test_commands_viewer_can_list(
     client: AsyncClient,
     mock_mongodb,
     viewer_token,
     sample_command,
     sample_user,
 ):
-    """Test that viewer cannot list commands (no commands:read permission)."""
+    """Test that viewer can list commands (has commands:read via P2C-001)."""
     viewer_user = sample_user.copy()
     viewer_user["userId"] = "user_viewer123"
     viewer_user["role"] = "viewer"
@@ -881,7 +1023,7 @@ async def test_commands_viewer_can_not_list(
         headers={"Authorization": f"Bearer {viewer_token}"},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 200
 
 
 # ── Pagination ───────────────────────────────────────────────────────────

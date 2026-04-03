@@ -23,6 +23,7 @@ from hydra.api.v1.core.auth_session import (
 )
 from hydra.api.v1.core.exceptions import (
     AuthorizationError,
+    ClientNotAuthorizedError,
     InvalidTokenError,
 )
 from hydra.api.v1.core.security import decode_token
@@ -35,6 +36,7 @@ from hydra.api.v1.services.users import UsersService
 logger = structlog.get_logger(__name__)
 
 bearer_scheme = HTTPBearer(auto_error=False)
+TRUSTED_WRITE_CLIENT_IDS = frozenset({"hydra-web", "hydra-api"})
 
 
 async def get_auth_service(
@@ -270,7 +272,86 @@ async def get_current_user(
     Returns:
         Current user dict with permissions.
     """
-    return await users_service.get_current_user(token)
+    current_user = await users_service.get_current_user(token)
+
+    # Preserve authentication provenance so write-origin checks can distinguish
+    # trusted web sessions from external or token-based clients.
+    auth_source = token.get("auth_source")
+    client_id = token.get("client_id")
+
+    if auth_source is not None:
+        current_user["auth_source"] = auth_source
+        current_user["authSource"] = auth_source
+
+    if client_id is not None:
+        current_user["client_id"] = client_id
+        current_user["clientId"] = client_id
+
+    if "user_id" in current_user and "userId" not in current_user:
+        current_user["userId"] = current_user["user_id"]
+    if "node_id" in current_user and "nodeId" not in current_user:
+        current_user["nodeId"] = current_user["node_id"]
+
+    return current_user
+
+
+def get_authenticated_user_id(current_user: dict) -> str | None:
+    """Return the authenticated user identifier from the current user context."""
+    return current_user.get("user_id") or current_user.get("userId")
+
+
+def get_authenticated_role(current_user: dict) -> str | None:
+    """Return the authenticated user's role."""
+    return current_user.get("role")
+
+
+def get_authenticated_permissions(current_user: dict) -> list[str]:
+    """Return the authenticated user's permissions."""
+    permissions = current_user.get("permissions", [])
+    return permissions if isinstance(permissions, list) else []
+
+
+def get_authenticated_auth_source(current_user: dict) -> str | None:
+    """Return the authentication source for the current request."""
+    return current_user.get("auth_source") or current_user.get("authSource")
+
+
+def get_authenticated_client_id(current_user: dict) -> str | None:
+    """Return the forwarded internal client identifier, if any."""
+    return current_user.get("client_id") or current_user.get("clientId")
+
+
+def get_command_request_source(current_user: dict) -> str:
+    """Map the current request provenance onto the command source enum values."""
+    auth_source = get_authenticated_auth_source(current_user)
+    client_id = get_authenticated_client_id(current_user)
+
+    if auth_source == "cookie":
+        return "web"
+    if auth_source == "internal" and client_id == "hydra-web":
+        return "web"
+    return "api"
+
+
+def require_trusted_write_origin():
+    """Require a trusted Hydra web-originated write request."""
+
+    async def check_write_origin(
+        current_user: dict = Depends(get_current_user),
+    ) -> dict:
+        check_not_agent(current_user, "commands:execute")
+
+        auth_source = get_authenticated_auth_source(current_user)
+        client_id = get_authenticated_client_id(current_user)
+
+        if auth_source == "cookie":
+            return current_user
+        if auth_source == "internal" and client_id in TRUSTED_WRITE_CLIENT_IDS:
+            return current_user
+
+        raise ClientNotAuthorizedError()
+
+    return check_write_origin
 
 
 def require_permission(permission: str):

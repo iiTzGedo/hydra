@@ -4,27 +4,22 @@ import {
   ArrowLeft,
   Boxes,
   Server,
-  Play,
-  Square,
-  RefreshCw,
   Tag,
   Globe,
   Container,
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { useCreateCommand } from '@/api/commands';
 import { useService } from '@/api/services';
 import { PageHeader } from '@/components/layout/page-header';
 import { ROUTES, STATUS_COLORS, SERVICE_RUNTIME_LABELS } from '@/lib/constants';
 import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
-import { getErrorMessage } from '@/lib/api-client';
+import { ServiceControlPanel } from '@/components/commands/service-control-panel';
+import { CommandHistoryPanel } from '@/components/commands/command-history-panel';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 
 export default function ServiceDetailPage() {
   const { serviceId } = useParams<{ serviceId: string }>();
   const decodedServiceId = decodeURIComponent(serviceId || '');
   const { data: service, isLoading, error } = useService(decodedServiceId);
-  const createCommand = useCreateCommand();
 
   if (isLoading) {
     return (
@@ -64,19 +59,6 @@ export default function ServiceDetailPage() {
   const exposurePorts = service.exposure?.ports ?? [];
   const exposureEndpoints = service.exposure?.endpoints ?? [];
 
-  const handleServiceCommand = async (action: 'start' | 'stop' | 'restart') => {
-    if (!service) return;
-    try {
-      await createCommand.mutateAsync({
-        registryId: `reg::service::${action}`,
-        target: { nodeId: service.nodeId, serviceId: service.serviceId },
-      });
-      toast.success(`Command queued: ${action} ${service.displayName || service.name}`);
-    } catch (err) {
-      toast.error(getErrorMessage(err, `Failed to ${action} service`));
-    }
-  };
-
   return (
     <div className="p-6">
       <Link
@@ -90,43 +72,6 @@ export default function ServiceDetailPage() {
       <PageHeader
         title={service.displayName || service.name}
         description={`${runtimeLabel} service on ${service.nodeId}`}
-        actions={
-          <div className="flex items-center gap-2">
-            <button
-              className={cn(
-                'inline-flex items-center gap-2 rounded-lg border border-success/50 px-4 py-2 text-sm font-medium text-success',
-                'hover:bg-success/10 transition-colors'
-              )}
-              onClick={() => handleServiceCommand('start')}
-              disabled={createCommand.isPending}
-            >
-              <Play className="h-4 w-4" />
-              Start
-            </button>
-            <button
-              className={cn(
-                'inline-flex items-center gap-2 rounded-lg border border-warning/50 px-4 py-2 text-sm font-medium text-warning',
-                'hover:bg-warning/10 transition-colors'
-              )}
-              onClick={() => handleServiceCommand('restart')}
-              disabled={createCommand.isPending}
-            >
-              <RefreshCw className="h-4 w-4" />
-              Restart
-            </button>
-            <button
-              className={cn(
-                'inline-flex items-center gap-2 rounded-lg border border-error/50 px-4 py-2 text-sm font-medium text-error',
-                'hover:bg-error/10 transition-colors'
-              )}
-              onClick={() => handleServiceCommand('stop')}
-              disabled={createCommand.isPending}
-            >
-              <Square className="h-4 w-4" />
-              Stop
-            </button>
-          </div>
-        }
       />
 
       <motion.div
@@ -135,7 +80,14 @@ export default function ServiceDetailPage() {
         animate="visible"
         className="space-y-6"
       >
-                <motion.div
+        <ServiceControlPanel
+          nodeId={service.nodeId}
+          serviceId={service.serviceId}
+          serviceName={service.displayName || service.name}
+          runtime={service.runtime}
+        />
+
+        <motion.div
           variants={staggerItemVariants}
           className="rounded-xl border bg-card p-6 shadow-sm"
         >
@@ -342,6 +294,8 @@ export default function ServiceDetailPage() {
             </div>
           </motion.div>
         )}
+
+        <CommandHistoryPanel nodeId={service.nodeId} serviceId={service.serviceId} />
       </motion.div>
     </div>
   );

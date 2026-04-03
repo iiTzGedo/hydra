@@ -50,12 +50,16 @@ class CommandResponse(BaseModel):
     completed_at: Annotated[datetime | None, Field(default=None, alias="completedAt")]
     cancelled_at: Annotated[datetime | None, Field(default=None, alias="cancelledAt")]
     cancelled_by: Annotated[str | None, Field(default=None, alias="cancelledBy")]
+    # Confirmation fields
+    danger_level: Annotated[str | None, Field(default=None, alias="dangerLevel")]
+    confirmation_message: Annotated[str | None, Field(default=None, alias="confirmationMessage")]
+    confirmation_expires_at: Annotated[datetime | None, Field(default=None, alias="confirmationExpiresAt")]
 
     model_config = {"populate_by_name": True}
 
 
 class CommandQueuedResponse(BaseModel):
-    """Response when a command is queued or executed directly."""
+    """Response when a command is queued, executed directly, or pending confirmation."""
 
     command_id: Annotated[str, Field(alias="commandId")]
     registry_id: Annotated[str | None, Field(default=None, alias="registryId")]
@@ -64,13 +68,19 @@ class CommandQueuedResponse(BaseModel):
     action: str
     status: CommandStatus = CommandStatus.QUEUED
     execution_method: Annotated[
-        CommandExecutionMethod,
+        CommandExecutionMethod | None,
         Field(default=CommandExecutionMethod.AGENT_POLL, alias="executionMethod"),
     ]
     result: CommandResult | None = None
     queue_position: Annotated[int | None, Field(default=None, alias="queuePosition")]
     queued_at: Annotated[datetime | None, Field(default=None, alias="queuedAt")]
     completed_at: Annotated[datetime | None, Field(default=None, alias="completedAt")]
+    # Confirmation fields (populated when status is pending_confirmation)
+    requires_confirmation: Annotated[bool, Field(default=False, alias="requiresConfirmation")]
+    confirmation_message: Annotated[str | None, Field(default=None, alias="confirmationMessage")]
+    danger_level: Annotated[str | None, Field(default=None, alias="dangerLevel")]
+    affected_nodes: Annotated[list[str], Field(default_factory=list, alias="affectedNodes")]
+    confirmation_expires_at: Annotated[datetime | None, Field(default=None, alias="confirmationExpiresAt")]
 
     model_config = {"populate_by_name": True}
 

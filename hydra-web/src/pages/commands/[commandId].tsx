@@ -12,8 +12,10 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { useCommand, useCancelCommand } from '@/api/commands';
+import { useCommand, useCancelCommand, useConfirmCommand } from '@/api/commands';
+import type { DangerLevel } from '@/api/commands';
 import { getErrorMessage } from '@/lib/api-client';
+import { ControlConfirmationDialog } from '@/components/commands/control-confirmation-dialog';
 import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import { CommandStatusBadge } from '@/components/commands/command-status-badge';
 import { CommandOutput } from '@/components/commands/command-output';
@@ -26,7 +28,9 @@ export default function CommandDetailPage() {
   const { commandId } = useParams<{ commandId: string }>();
   const { data: command, isLoading, error } = useCommand(commandId);
   const cancelCommand = useCancelCommand();
+  const confirmCommand = useConfirmCommand();
   const [paramsExpanded, setParamsExpanded] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   useDocumentTitle(command ? `Command: ${command.action}` : 'Command Details');
 
@@ -72,10 +76,22 @@ export default function CommandDetailPage() {
     );
   }
 
-  const canCancel = command.status === 'queued' || command.status === 'pending';
+  const canCancel = ['queued', 'pending', 'pending_confirmation'].includes(command.status);
+  const isPendingConfirmation = command.status === 'pending_confirmation';
   const hasParams = command.parameters && Object.keys(command.parameters).length > 0;
   const hasResult = command.result?.output || command.result?.error;
   const hasError = command.error;
+
+  const handleConfirm = async () => {
+    if (!commandId) return;
+    try {
+      await confirmCommand.mutateAsync(commandId);
+      toast.success('Command confirmed and queued');
+      setShowConfirmDialog(false);
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, 'Failed to confirm command'));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -83,16 +99,29 @@ export default function CommandDetailPage() {
         title={command.action}
         subtitle={`Command ${command.commandId}`}
         actions={
-          canCancel ? (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleCancel}
-              disabled={cancelCommand.isPending}
-            >
-              <XCircle className="h-4 w-4 mr-1.5" />
-              {cancelCommand.isPending ? 'Cancelling...' : 'Cancel Command'}
-            </Button>
+          (canCancel || isPendingConfirmation) ? (
+            <div className="flex items-center gap-2">
+              {isPendingConfirmation && (
+                <Button
+                  size="sm"
+                  onClick={() => setShowConfirmDialog(true)}
+                  disabled={confirmCommand.isPending}
+                >
+                  {confirmCommand.isPending ? 'Confirming...' : 'Confirm'}
+                </Button>
+              )}
+              {canCancel && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleCancel}
+                  disabled={cancelCommand.isPending}
+                >
+                  <XCircle className="h-4 w-4 mr-1.5" />
+                  {cancelCommand.isPending ? 'Cancelling...' : 'Cancel'}
+                </Button>
+              )}
+            </div>
           ) : undefined
         }
       />
@@ -100,10 +129,49 @@ export default function CommandDetailPage() {
       {/* Status badge - large */}
       <div className="flex items-center gap-3">
         <CommandStatusBadge status={command.status} className="text-sm px-3 py-1" />
-        {(command.status === 'queued' || command.status === 'executing') && (
+        {['queued', 'executing', 'pending_confirmation'].includes(command.status) && (
           <span className="text-xs text-muted-foreground animate-pulse">Auto-refreshing...</span>
         )}
       </div>
+
+      {/* Pending confirmation banner */}
+      {isPendingConfirmation && (
+        <Card className="border-warning/40 bg-warning/5">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-warning mt-0.5 shrink-0" />
+              <div className="flex-1 space-y-1">
+                <p className="text-sm font-medium">Awaiting confirmation</p>
+                {command.confirmationMessage && (
+                  <p className="text-sm text-muted-foreground">{command.confirmationMessage}</p>
+                )}
+                {command.confirmationExpiresAt && (
+                  <p className="text-xs text-muted-foreground">
+                    Expires: {new Date(command.confirmationExpiresAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+              <Button size="sm" onClick={() => setShowConfirmDialog(true)}>
+                Confirm
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Confirmation dialog */}
+      {isPendingConfirmation && (
+        <ControlConfirmationDialog
+          open={showConfirmDialog}
+          onOpenChange={setShowConfirmDialog}
+          dangerLevel={(command.dangerLevel as DangerLevel) ?? 'medium'}
+          resourceName={command.target.nodeId}
+          actionLabel={command.action}
+          confirmationMessage={command.confirmationMessage}
+          onConfirm={handleConfirm}
+          isPending={confirmCommand.isPending}
+        />
+      )}
 
       {/* Info grid */}
       <Card>

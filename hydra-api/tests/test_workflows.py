@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import AsyncClient
 
-from hydra.api.v1.models.commands import CommandStatus
+from hydra.api.v1.models.commands import CommandSource, CommandStatus
 from hydra.api.v1.models.commands.workflows import WorkflowExecutionStatus
 from hydra.api.v1.services.commands.workflows import WorkflowService
 from tests.utils import create_mock_cursor
@@ -104,6 +104,22 @@ def _setup_workflow_mocks(mock_mongodb, sample_user):
     mock_mongodb.workflow_executions.update_one = AsyncMock()
 
 
+def trusted_write_headers(
+    *,
+    user_id: str = "user_admin123",
+    role: str = "admin",
+    client_id: str = "hydra-web",
+) -> dict[str, str]:
+    """Build trusted internal-request headers for workflow write tests."""
+    return {
+        "X-Hydra-Internal-Request": "true",
+        "X-Hydra-Internal-Secret": "internal-secret-for-tests-0123456789",
+        "X-Hydra-User-Id": user_id,
+        "X-Hydra-Role": role,
+        "X-Hydra-Client-Id": client_id,
+    }
+
+
 # ── Workflow CRUD ────────────────────────────────────────────────────────
 
 
@@ -143,7 +159,7 @@ async def test_create_workflow_success(
                 },
             ],
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 201
@@ -186,7 +202,7 @@ async def test_create_workflow_detects_cycle(
                 },
             ],
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 422
@@ -220,7 +236,7 @@ async def test_create_workflow_invalid_dependency_ref(
                 },
             ],
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 422
@@ -249,10 +265,77 @@ async def test_create_workflow_unknown_registry_id(
                 },
             ],
         },
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_workflow_rejects_bearer_write_origin(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Test bearer-authenticated workflow writes are rejected."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+
+    response = await client.post(
+        "/api/v1/workflows",
+        json={
+            "name": "Restart Web Stack",
+            "steps": [
+                {
+                    "stepId": "step-1",
+                    "registryId": "reg::service::restart",
+                    "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
+                },
+            ],
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 403
+    data = response.json()
+    assert data["error"]["code"] == "CLIENT_NOT_AUTHORIZED"
+
+
+@pytest.mark.asyncio
+async def test_create_workflow_rejects_unsupported_condition(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Test workflow steps reject unsupported conditional execution."""
+    _setup_workflow_mocks(mock_mongodb, sample_user)
+    mock_mongodb.command_definitions.find_one = AsyncMock(
+        return_value={"registryId": "reg::service::restart", "category": "service"}
+    )
+
+    response = await client.post(
+        "/api/v1/workflows",
+        json={
+            "name": "Conditional Workflow",
+            "steps": [
+                {
+                    "stepId": "step-1",
+                    "registryId": "reg::service::restart",
+                    "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
+                    "condition": "status == 'healthy'",
+                },
+            ],
+        },
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["code"] == "VALIDATION_ERROR"
+    assert "condition" in data["error"]["message"].lower()
 
 
 @pytest.mark.asyncio
@@ -347,7 +430,7 @@ async def test_update_workflow(
     response = await client.patch(
         "/api/v1/workflows/chain_abc123",
         json={"name": "Updated Web Stack"},
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 200
@@ -369,7 +452,7 @@ async def test_delete_workflow(
 
     response = await client.delete(
         "/api/v1/workflows/chain_abc123",
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 200
@@ -393,7 +476,7 @@ async def test_delete_workflow_with_active_executions(
 
     response = await client.delete(
         "/api/v1/workflows/chain_abc123",
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 422
@@ -425,7 +508,7 @@ async def test_execute_workflow(
 
     response = await client.post(
         "/api/v1/workflows/chain_abc123/execute",
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 202
@@ -507,7 +590,7 @@ async def test_cancel_execution(
 
     response = await client.post(
         "/api/v1/workflows/executions/exec_xyz789/cancel",
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 200
@@ -530,7 +613,7 @@ async def test_cancel_completed_execution_fails(
 
     response = await client.post(
         "/api/v1/workflows/executions/exec_xyz789/cancel",
-        headers={"Authorization": f"Bearer {admin_token}"},
+        headers=trusted_write_headers(),
     )
 
     assert response.status_code == 422
@@ -582,6 +665,9 @@ async def test_execute_step_preserves_cancelled_status(monkeypatch):
         step_index=0,
         user_id="user_admin123",
         user_role="admin",
+        user_permissions=["*:*"],
+        source=CommandSource.WEB,
+        client_id="hydra-web",
     )
 
     assert outcome == "cancelled"
@@ -632,10 +718,69 @@ async def test_run_workflow_execution_does_not_overwrite_cancelled_status():
         workflow=workflow,
         user_id="user_admin123",
         user_role="admin",
+        user_permissions=["*:*"],
+        source=CommandSource.WEB,
+        client_id="hydra-web",
         request=None,
     )
 
     service._finish_execution.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_step_forwards_permissions_and_origin(monkeypatch):
+    """Test workflow step execution uses the direct command RBAC/source context."""
+    mongodb = MagicMock()
+    service = WorkflowService(mongodb)
+
+    service.commands_service = MagicMock()
+    service.commands_service.create_command = AsyncMock(
+        return_value={"commandId": "cmd-step-1"}
+    )
+    service.commands_service.get_command = AsyncMock(
+        return_value={
+            "status": CommandStatus.COMPLETED.value,
+            "result": {"success": True},
+            "error": None,
+        }
+    )
+    service.workflow_executions.find_one = AsyncMock(
+        return_value={"executionId": "exec_xyz789", "status": WorkflowExecutionStatus.RUNNING.value}
+    )
+    service._update_step_status = AsyncMock()
+    service._update_step_command_id = AsyncMock()
+    service._finish_execution = AsyncMock()
+
+    async def _no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(
+        "hydra.api.v1.services.commands.workflows.asyncio.sleep",
+        _no_sleep,
+    )
+
+    outcome = await service._execute_step(
+        execution_id="exec_xyz789",
+        chain_id="chain_abc123",
+        step={
+            "stepId": "step-1",
+            "registryId": "reg::service::restart",
+            "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
+            "dependsOn": [],
+        },
+        step_index=0,
+        user_id="user_operator123",
+        user_role="operator",
+        user_permissions=["commands:execute", "services:*"],
+        source=CommandSource.WEB,
+        client_id="hydra-web",
+    )
+
+    assert outcome == "completed"
+    create_kwargs = service.commands_service.create_command.await_args.kwargs
+    assert create_kwargs["user_permissions"] == ["commands:execute", "services:*"]
+    assert create_kwargs["source"] == CommandSource.WEB
+    assert create_kwargs["client_id"] == "hydra-web"
 
 
 # ── Permission Tests ─────────────────────────────────────────────────────

@@ -66,6 +66,16 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 100
     rate_limit_window_seconds: int = 60
 
+    # Command safety controls
+    command_confirmation_window_seconds: int = 300  # 5 minutes
+    command_rate_limit_per_user: int = 60
+    command_rate_limit_per_user_window: int = 60
+    command_rate_limit_per_node: int = 30
+    command_rate_limit_per_node_window: int = 60
+    command_rate_limit_destructive_per_user: int = 5
+    command_rate_limit_destructive_window: int = 300  # 5 minutes
+    command_cooldown_destructive_seconds: int = 60
+
     object_storage_enabled: bool = False
     object_storage_endpoint: str | None = Field(default=None)
     object_storage_bucket: str = "hydra-bucket"

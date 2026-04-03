@@ -12,6 +12,7 @@ const COMMAND_STATUS_CONFIG: Record<
   executing: { variant: 'warning', label: 'Executing' },
   queued: { variant: 'info', label: 'Queued' },
   pending: { variant: 'secondary', label: 'Pending' },
+  pending_confirmation: { variant: 'warning', label: 'Awaiting Confirmation' },
   cancelled: { variant: 'secondary', label: 'Cancelled' },
   rejected: { variant: 'destructive', label: 'Rejected' },
 };

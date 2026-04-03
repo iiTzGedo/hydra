@@ -16,10 +16,14 @@ from hydra.api.v1.services.query import log_audit
 from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.core.exceptions import (
     CommandAlreadyExecutingError,
+    CommandConfirmationExpiredError,
+    CommandConfirmationInvalidError,
+    CommandCooldownError,
     CommandNotCancellableError,
     CommandNodeMismatchError,
     CommandNotFoundError,
     CommandNotSupportedError,
+    CommandRateLimitError,
     CommandRejectedError,
     CommandRegistryNotFoundError,
     NodeNotFoundError,
@@ -51,11 +55,100 @@ class CommandsService:
         self.services = mongodb.services
         self.command_definitions = mongodb.command_definitions
 
+    @staticmethod
+    def _has_permission(user_permissions: list[str], required: str) -> bool:
+        """Check if user permissions satisfy the required permission.
+
+        Replicates the wildcard logic from deps.require_permission.
+        """
+        if "*:*" in user_permissions:
+            return True
+        if required in user_permissions:
+            return True
+        resource, action = required.split(":", 1) if ":" in required else (required, "*")
+        if f"{resource}:*" in user_permissions:
+            return True
+        return False
+
+    @staticmethod
+    def _write_origin_allowed(source: CommandSource, client_id: str | None) -> bool:
+        """Allow command writes only from trusted Hydra web origins."""
+        if source == CommandSource.WEB:
+            return True
+        return source == CommandSource.API and client_id == "hydra-api"
+
+    async def _enforce_submission_policy(
+        self,
+        *,
+        request: CreateCommandRequest | None,
+        definition: dict[str, Any],
+        user_id: str | None,
+        user_role: str | None,
+        user_permissions: list[str] | None,
+        source: CommandSource,
+        client_id: str | None,
+        persist_rejection: bool,
+    ) -> None:
+        """Apply source restriction and RBAC checks for command submission."""
+        if not self._write_origin_allowed(source, client_id):
+            error_message = (
+                "Command execution is only available from the Hydra web interface"
+            )
+            if persist_rejection and request is not None:
+                await self._create_rejected_command(
+                    request,
+                    user_id,
+                    source,
+                    client_id,
+                    error_code="CLIENT_NOT_AUTHORIZED",
+                    error_message=error_message,
+                )
+            raise CommandRejectedError(error_message)
+
+        minimum_role = definition.get("rbac", {}).get("minimumRole", "operator")
+        if get_role_level(user_role or "") < get_role_level(minimum_role):
+            error_message = (
+                f"Role '{user_role or 'unknown'}' insufficient for "
+                f"'{definition.get('registryId')}' (requires '{minimum_role}')"
+            )
+            if persist_rejection and request is not None:
+                await self._create_rejected_command(
+                    request,
+                    user_id,
+                    source,
+                    client_id,
+                    error_code="INSUFFICIENT_ROLE",
+                    error_message=error_message,
+                )
+            raise CommandRejectedError(error_message)
+
+        control_permission = definition.get("rbac", {}).get("controlPermission")
+        if control_permission:
+            if not user_permissions or not self._has_permission(
+                user_permissions,
+                control_permission,
+            ):
+                error_message = (
+                    f"Missing permission '{control_permission}' for "
+                    f"'{definition.get('registryId')}'"
+                )
+                if persist_rejection and request is not None:
+                    await self._create_rejected_command(
+                        request,
+                        user_id,
+                        source,
+                        client_id,
+                        error_code="MISSING_CONTROL_PERMISSION",
+                        error_message=error_message,
+                    )
+                raise CommandRejectedError(error_message)
+
     async def create_command(
         self,
         request: CreateCommandRequest,
         user_id: str | None = None,
         user_role: str | None = None,
+        user_permissions: list[str] | None = None,
         source: CommandSource = CommandSource.API,
         client_id: str | None = None,
         chain: dict[str, Any] | None = None,
@@ -63,13 +156,14 @@ class CommandsService:
         """Create a command with registry validation and tier-aware dispatch.
 
         1. Validate registryId against the command catalog
-        2. Check RBAC minimumRole against user role
+        2. Check RBAC minimumRole and controlPermission against user role/permissions
         3. Tier-aware dispatch: lite rejects, normal queues, max tries direct
 
         Args:
             request: Command creation payload with registryId, target, and parameters.
             user_id: The requesting user's identifier (None for system commands).
             user_role: The requesting user's role (for RBAC validation).
+            user_permissions: The requesting user's permission list.
             source: The command source (API, MCP, etc.).
             client_id: The originating client identifier (e.g., 'hydra-web', 'claude-desktop').
 
@@ -78,7 +172,7 @@ class CommandsService:
 
         Raises:
             CommandRegistryNotFoundError: If the registryId is not in the catalog.
-            CommandRejectedError: If the user lacks the required role.
+            CommandRejectedError: If the user lacks the required role or permission.
             NodeNotFoundError: If the target node does not exist or is not active.
             CommandNotSupportedError: If the agent tier does not support commands.
         """
@@ -95,21 +189,17 @@ class CommandsService:
             )
             raise CommandRegistryNotFoundError(request.registry_id)
 
-        # Step 2: Check RBAC
-        minimum_role = definition.get("rbac", {}).get("minimumRole", "operator")
-        if user_role and get_role_level(user_role) < get_role_level(minimum_role):
-            rejected_doc = await self._create_rejected_command(
-                request, user_id, source, client_id,
-                error_code="INSUFFICIENT_ROLE",
-                error_message=(
-                    f"Role '{user_role}' insufficient for '{request.registry_id}' "
-                    f"(requires '{minimum_role}')"
-                ),
-            )
-            raise CommandRejectedError(
-                f"Role '{user_role}' insufficient for '{request.registry_id}' "
-                f"(requires '{minimum_role}')"
-            )
+        # Step 2: Enforce origin restriction and RBAC
+        await self._enforce_submission_policy(
+            request=request,
+            definition=definition,
+            user_id=user_id,
+            user_role=user_role,
+            user_permissions=user_permissions,
+            source=source,
+            client_id=client_id,
+            persist_rejection=True,
+        )
 
         # Step 3: Validate target node
         node = await self.nodes.find_one(
@@ -127,6 +217,9 @@ class CommandsService:
                 f"command execution. Upgrade to 'normal' or 'max' tier."
             )
 
+        # Step 3b: Rate limiting
+        await self._check_rate_limits(user_id, request.target.node_id, definition)
+
         # Derive category and action from the registry definition
         category = definition.get("category", "custom")
         action = definition.get("action", request.registry_id.split("::")[-1])
@@ -143,6 +236,16 @@ class CommandsService:
             "deliveryMode",
             CommandDeliveryMode.POLL_ONLY.value,
         )
+
+        # Step 5: Two-phase confirmation for dangerous commands
+        requires_confirmation = definition.get("rbac", {}).get("requiresConfirmation", False)
+        if requires_confirmation:
+            danger_level = definition.get("rbac", {}).get("dangerLevel", "medium")
+            return await self._create_pending_confirmation(
+                request, definition, category, action, timeout,
+                dispatch_parameters, user_id, source, client_id, chain,
+                danger_level,
+            )
 
         # Max tier: only direct-execute duplicate-safe commands
         if tier == "max" and delivery_mode == CommandDeliveryMode.DIRECT_OR_POLL.value:
@@ -612,6 +715,8 @@ class CommandsService:
 
         if params.node_id:
             query["target.nodeId"] = params.node_id
+        if params.service_id:
+            query["target.serviceId"] = params.service_id
         if params.registry_id:
             query["registryId"] = params.registry_id
         if params.type:
@@ -649,7 +754,12 @@ class CommandsService:
         """
         command = await self.get_command(command_id)
 
-        if command["status"] not in [CommandStatus.PENDING.value, CommandStatus.QUEUED.value]:
+        cancellable_statuses = [
+            CommandStatus.PENDING.value,
+            CommandStatus.PENDING_CONFIRMATION.value,
+            CommandStatus.QUEUED.value,
+        ]
+        if command["status"] not in cancellable_statuses:
             raise CommandNotCancellableError(command_id, command["status"])
 
         now = datetime.now(UTC)
@@ -992,7 +1102,26 @@ class CommandsService:
         return result.modified_count
 
     async def timeout_stale_commands(self, timeout_minutes: int = 10) -> int:
-        """Mark stale executing commands as timed out."""
+        """Mark stale executing commands as timed out and expire pending confirmations."""
+        # Expire unconfirmed commands
+        now = datetime.now(UTC)
+        expired = await self.commands.update_many(
+            {
+                "status": CommandStatus.PENDING_CONFIRMATION.value,
+                "confirmationExpiresAt": {"$lt": now},
+            },
+            {
+                "$set": {
+                    "status": CommandStatus.CANCELLED.value,
+                    "completedAt": now,
+                    "cancelledAt": now,
+                    "cancelledBy": "system:confirmation_expired",
+                }
+            },
+        )
+        if expired.modified_count > 0:
+            logger.info("confirmations_expired", count=expired.modified_count)
+
         cutoff = datetime.now(UTC) - timedelta(minutes=timeout_minutes)
 
         result = await self.commands.update_many(
@@ -1043,3 +1172,302 @@ class CommandsService:
             )
 
         return result.modified_count
+
+    # ── Safety controls (P2C-002) ───────────────────────────────────────
+
+    async def _check_rate_limits(
+        self, user_id: str | None, node_id: str, definition: dict
+    ) -> None:
+        """Check command rate limits using Redis counters.
+
+        Raises CommandRateLimitError if any limit is exceeded.
+        Silently skips if Redis is unavailable (fail-open for availability).
+        """
+        try:
+            from hydra.db.redis import get_redis
+            from hydra.core.config import get_settings
+
+            redis = get_redis()
+            settings = get_settings()
+            danger_level = definition.get("rbac", {}).get("dangerLevel", "medium")
+
+            # Per-user rate limit
+            if user_id:
+                allowed = await redis.rate_limit_check(
+                    f"cmd:user:{user_id}",
+                    settings.command_rate_limit_per_user,
+                    settings.command_rate_limit_per_user_window,
+                )
+                if not allowed:
+                    raise CommandRateLimitError(
+                        "per_user", settings.command_rate_limit_per_user_window
+                    )
+
+            # Per-node rate limit
+            allowed = await redis.rate_limit_check(
+                f"cmd:node:{node_id}",
+                settings.command_rate_limit_per_node,
+                settings.command_rate_limit_per_node_window,
+            )
+            if not allowed:
+                raise CommandRateLimitError(
+                    "per_node", settings.command_rate_limit_per_node_window
+                )
+
+            # Destructive command rate limit (high/critical danger)
+            if danger_level in ("high", "critical") and user_id:
+                allowed = await redis.rate_limit_check(
+                    f"cmd:destructive:user:{user_id}",
+                    settings.command_rate_limit_destructive_per_user,
+                    settings.command_rate_limit_destructive_window,
+                )
+                if not allowed:
+                    raise CommandRateLimitError(
+                        "destructive_per_user",
+                        settings.command_rate_limit_destructive_window,
+                    )
+        except CommandRateLimitError:
+            raise
+        except Exception:
+            logger.warning("rate_limit_check_skipped", reason="redis unavailable")
+
+    async def _check_cooldown(self, node_id: str, danger_level: str) -> None:
+        """Check if node is in cooldown from a previous destructive command."""
+        if danger_level not in ("high", "critical"):
+            return
+
+        try:
+            from hydra.db.redis import get_redis
+            redis = get_redis()
+            cooldown_key = f"cmd:cooldown:{node_id}"
+            ttl = await redis.client.ttl(cooldown_key)
+            if ttl > 0:
+                raise CommandCooldownError(node_id, ttl)
+        except CommandCooldownError:
+            raise
+        except Exception:
+            logger.warning("cooldown_check_skipped", reason="redis unavailable")
+
+    async def _set_cooldown(self, node_id: str, danger_level: str) -> None:
+        """Set cooldown after a destructive command is dispatched."""
+        if danger_level not in ("high", "critical"):
+            return
+
+        try:
+            from hydra.db.redis import get_redis
+            from hydra.core.config import get_settings
+            redis = get_redis()
+            settings = get_settings()
+            cooldown_key = f"cmd:cooldown:{node_id}"
+            await redis.client.setex(
+                cooldown_key,
+                settings.command_cooldown_destructive_seconds,
+                "1",
+            )
+        except Exception:
+            logger.warning("cooldown_set_failed", node_id=node_id)
+
+    async def _create_pending_confirmation(
+        self,
+        request: CreateCommandRequest,
+        definition: dict,
+        category: str,
+        action: str,
+        timeout: int,
+        dispatch_parameters: dict[str, Any],
+        user_id: str | None,
+        source: CommandSource,
+        client_id: str | None,
+        chain: dict[str, Any] | None,
+        danger_level: str,
+    ) -> dict[str, Any]:
+        """Create a command in pending_confirmation state for two-phase execution."""
+        from hydra.core.config import get_settings
+        settings = get_settings()
+
+        command_id = f"cmd-{uuid4().hex[:12]}"
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(seconds=settings.command_confirmation_window_seconds)
+        confirmation_message = definition.get("rbac", {}).get(
+            "confirmationMessage",
+            f"Please confirm execution of '{action}' on '{request.target.node_id}'.",
+        )
+
+        command_doc = {
+            "commandId": command_id,
+            "registryId": request.registry_id,
+            "type": category,
+            "target": {
+                "nodeId": request.target.node_id,
+                "serviceId": request.target.service_id,
+            },
+            "action": action,
+            "parameters": dispatch_parameters,
+            "status": CommandStatus.PENDING_CONFIRMATION.value,
+            "executionMethod": None,
+            "result": None,
+            "error": None,
+            "requestedBy": {
+                "userId": user_id,
+                "source": source.value,
+                "clientId": client_id,
+            },
+            "timeoutSeconds": timeout,
+            "retryCount": 0,
+            "chain": chain,
+            "dangerLevel": danger_level,
+            "confirmationExpiresAt": expires_at,
+            "confirmationMessage": confirmation_message,
+            "affectedNodes": [request.target.node_id],
+            "createdAt": now,
+            "queuedAt": None,
+            "startedAt": None,
+            "completedAt": None,
+            "cancelledAt": None,
+            "cancelledBy": None,
+        }
+
+        await self.commands.insert_one(command_doc)
+
+        logger.info(
+            "command_pending_confirmation",
+            command_id=command_id,
+            registry_id=request.registry_id,
+            danger_level=danger_level,
+            expires_at=expires_at.isoformat(),
+        )
+
+        return command_doc
+
+    async def confirm_command(
+        self,
+        command_id: str,
+        user_id: str | None = None,
+        user_role: str | None = None,
+        user_permissions: list[str] | None = None,
+        source: CommandSource = CommandSource.API,
+        client_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Confirm a pending command and dispatch it for execution.
+
+        Validates the command is in pending_confirmation state, checks expiration
+        and cooldown, then transitions to queued.
+        """
+        command = await self.get_command(command_id)
+
+        if command["status"] != CommandStatus.PENDING_CONFIRMATION.value:
+            raise CommandConfirmationInvalidError(command_id, command["status"])
+
+        if command.get("requestedBy", {}).get("userId") != user_id:
+            raise CommandRejectedError(
+                "Only the user who requested this command may confirm it"
+            )
+
+        definition = await self.command_definitions.find_one(
+            {"registryId": command.get("registryId")}
+        )
+        if not definition:
+            raise CommandRegistryNotFoundError(command.get("registryId", "unknown"))
+
+        confirmation_request = CreateCommandRequest(
+            registry_id=command["registryId"],
+            target={
+                "nodeId": command["target"]["nodeId"],
+                "serviceId": command["target"].get("serviceId"),
+            },
+            parameters=command.get("parameters"),
+            timeout_seconds=command.get("timeoutSeconds"),
+        )
+
+        await self._enforce_submission_policy(
+            request=confirmation_request,
+            definition=definition,
+            user_id=user_id,
+            user_role=user_role,
+            user_permissions=user_permissions,
+            source=source,
+            client_id=client_id,
+            persist_rejection=False,
+        )
+
+        # Check expiration
+        expires_at = command.get("confirmationExpiresAt")
+        if expires_at and datetime.now(UTC) > expires_at:
+            now = datetime.now(UTC)
+            await self.commands.update_one(
+                {"commandId": command_id},
+                {
+                    "$set": {
+                        "status": CommandStatus.CANCELLED.value,
+                        "completedAt": now,
+                        "cancelledAt": now,
+                        "cancelledBy": "system:confirmation_expired",
+                    }
+                },
+            )
+            raise CommandConfirmationExpiredError(command_id)
+
+        # Check cooldown at confirmation time
+        danger_level = command.get("dangerLevel", "medium")
+        node_id = command["target"]["nodeId"]
+        await self._check_cooldown(node_id, danger_level)
+
+        # Validate target node is still active
+        node = await self.nodes.find_one({"nodeId": node_id, "status": "active"})
+        if not node:
+            raise NodeNotFoundError(node_id)
+
+        tier = node.get("agentTier", "normal")
+        if tier == "lite":
+            raise CommandNotSupportedError(
+                f"Agent tier 'lite' on node '{node_id}' does not support "
+                f"command execution."
+            )
+
+        # Set cooldown for destructive commands
+        await self._set_cooldown(node_id, danger_level)
+
+        # Transition to queued
+        now = datetime.now(UTC)
+        queue_count = await self.commands.count_documents({
+            "target.nodeId": node_id,
+            "status": CommandStatus.QUEUED.value,
+        })
+
+        await self.commands.update_one(
+            {"commandId": command_id},
+            {
+                "$set": {
+                    "status": CommandStatus.QUEUED.value,
+                    "queuedAt": now,
+                    "executionMethod": "agent-poll",
+                    "queuePosition": queue_count + 1,
+                }
+            },
+        )
+
+        logger.info(
+            "command_confirmed",
+            command_id=command_id,
+            confirmed_by=user_id,
+            danger_level=danger_level,
+        )
+
+        # Audit the confirmation
+        safe_create_task(
+            log_audit(
+                action=AuditAction.EXECUTE,
+                resource_type="command",
+                resource_id=command_id,
+                actor_type="user",
+                actor_id=user_id or "unknown",
+                success=True,
+                details={
+                    "registryId": command.get("registryId"),
+                    "action": "confirm",
+                    "dangerLevel": danger_level,
+                },
+            )
+        )
+
+        return await self.get_command(command_id)
