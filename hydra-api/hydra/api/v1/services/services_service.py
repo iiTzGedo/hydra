@@ -1,15 +1,15 @@
 """Service management service."""
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 from pymongo import ASCENDING, DESCENDING
 
 from hydra.api.v1.core.exceptions import NodeNotFoundError, ServiceNotFoundError, ValidationError
+from hydra.api.v1.models.services import ServiceListParams, UpdateServiceRequest
 from hydra.db.mongodb import MongoDB
-from hydra.api.v1.models.services import ServiceListParams, ServiceStatus, UpdateServiceRequest
 
 logger = structlog.get_logger(__name__)
 
@@ -20,7 +20,7 @@ class ServicesService:
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
 
-    async def get_service(self, service_id: str) -> dict:
+    async def get_service(self, service_id: str) -> dict[str, Any]:
         """Retrieve a single service by its identifier.
 
         Args:
@@ -37,7 +37,7 @@ class ServicesService:
             raise ServiceNotFoundError(service_id)
         return self._format_service(service)
 
-    async def list_services(self, params: ServiceListParams) -> tuple[list[dict], int]:
+    async def list_services(self, params: ServiceListParams) -> tuple[list[dict[str, Any]], int]:
         """List services with optional filtering, sorting, and pagination.
 
         Args:
@@ -102,7 +102,7 @@ class ServicesService:
 
         return services, total
 
-    async def update_service(self, service_id: str, request: UpdateServiceRequest) -> dict:
+    async def update_service(self, service_id: str, request: UpdateServiceRequest) -> dict[str, Any]:
         """Update mutable service metadata.
 
         Args:
@@ -119,7 +119,7 @@ class ServicesService:
         if not existing:
             raise ServiceNotFoundError(service_id)
 
-        update_fields: dict[str, Any] = {"lastUpdated": datetime.now(timezone.utc)}
+        update_fields: dict[str, Any] = {"lastUpdated": datetime.now(UTC)}
 
         if request.display_name is not None:
             update_fields["displayName"] = request.display_name
@@ -140,7 +140,7 @@ class ServicesService:
 
         return await self.get_service(service_id)
 
-    async def archive_service(self, service_id: str) -> dict:
+    async def archive_service(self, service_id: str) -> dict[str, Any]:
         """Archive a service by setting its status to archived.
 
         Args:
@@ -165,7 +165,7 @@ class ServicesService:
             {
                 "$set": {
                     "status": "archived",
-                    "lastUpdated": datetime.now(timezone.utc),
+                    "lastUpdated": datetime.now(UTC),
                 }
             },
         )
@@ -180,7 +180,7 @@ class ServicesService:
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List services running on a specific node.
 
         Args:
@@ -221,7 +221,7 @@ class ServicesService:
 
         return services, total
 
-    def _format_service(self, doc: dict) -> dict:
+    def _format_service(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a service document for API response."""
         exposure = doc.get("exposure", {})
 
@@ -249,7 +249,7 @@ class ServicesService:
             "lastSeen": doc.get("lastSeen"),
         }
 
-    def _format_service_summary(self, doc: dict) -> dict:
+    def _format_service_summary(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a service document for list response."""
         return {
             "serviceId": doc["serviceId"],

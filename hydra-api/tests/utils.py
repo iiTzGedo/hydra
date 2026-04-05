@@ -33,6 +33,6 @@ def create_mock_cursor(items: list[Any]) -> MagicMock:
     def make_aiter():
         return AsyncIterator(items)
 
-    mock_cursor.__aiter__ = lambda self: make_aiter()
+    mock_cursor.__aiter__ = lambda _self: make_aiter()
 
     return mock_cursor

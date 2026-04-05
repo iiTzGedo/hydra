@@ -341,8 +341,8 @@ fn increment_version(previous: &str, position: usize) -> Result<String> {
         }
     }
 
-    for i in (position + 1)..values.len() {
-        values[i] = 0;
+    for value in values.iter_mut().skip(position + 1) {
+        *value = 0;
     }
 
     let hex_components: Vec<String> = values.iter().map(|v| format!("{:X}", v)).collect();

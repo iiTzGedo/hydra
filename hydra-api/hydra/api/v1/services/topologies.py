@@ -1,7 +1,7 @@
 """Topology generation and management service."""
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -11,9 +11,6 @@ from hydra.api.v1.core.exceptions import TopologyNotFoundError, ValidationError
 from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
 from hydra.api.v1.models.query import AuditAction
-from hydra.api.v1.services.notifications import emit_notification
-from hydra.api.v1.services.query import log_audit
-from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.topologies import (
     GenerateTopologyRequest,
     GraphEdge,
@@ -25,6 +22,9 @@ from hydra.api.v1.models.topologies import (
     TopologyMode,
     TopologyScope,
 )
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -35,7 +35,7 @@ class TopologiesService:
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
 
-    async def get_topology(self, topology_id: str, include_graph: bool = True) -> dict:
+    async def get_topology(self, topology_id: str, include_graph: bool = True) -> dict[str, Any]:
         """Retrieve a topology by its identifier.
 
         Args:
@@ -53,7 +53,7 @@ class TopologiesService:
             raise TopologyNotFoundError(topology_id)
         return self._format_topology(topology, include_graph=include_graph)
 
-    async def get_latest_topology(self, mode: TopologyMode, include_graph: bool = True) -> dict:
+    async def get_latest_topology(self, mode: TopologyMode, include_graph: bool = True) -> dict[str, Any]:
         """Get the most recent topology for a given mode.
 
         Args:
@@ -79,7 +79,7 @@ class TopologiesService:
             raise ValidationError(f"No topology found for mode '{mode.value}'")
         return self._format_topology(topology, include_graph=include_graph)
 
-    async def list_topologies(self, params: TopologyListParams) -> tuple[list[dict], int]:
+    async def list_topologies(self, params: TopologyListParams) -> tuple[list[dict[str, Any]], int]:
         """List topologies with filtering and pagination.
 
         Args:
@@ -115,7 +115,7 @@ class TopologiesService:
 
         return topologies, total
 
-    async def generate_topology(self, request: GenerateTopologyRequest) -> dict:
+    async def generate_topology(self, request: GenerateTopologyRequest) -> dict[str, Any]:
         """Generate a new topology graph.
 
         Args:
@@ -183,7 +183,7 @@ class TopologiesService:
         compute_time = int((time.time() - start_time) * 1000)
         version = await self._get_next_version(request.mode)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         topology_id = f"topo-{request.mode.value}-{now.strftime('%Y%m%dT%H%M%SZ')}"
 
         network_count = sum(1 for n in graph_nodes if n.type == "network")
@@ -264,7 +264,7 @@ class TopologiesService:
         from_id: str | None,
         to_id: str | None,
         mode: TopologyMode | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Compare two topologies and compute their differences.
 
         Args:
@@ -333,7 +333,7 @@ class TopologiesService:
         depth: int = 1,
         include_services: bool = True,
         include_networks: bool = True,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get a subgraph centered on a specific node.
 
         Args:
@@ -508,9 +508,9 @@ class TopologiesService:
         if previous:
             await self.db.topologies.update_one(
                 {"topologyId": previous["topologyId"]},
-                {"$set": {"validUntil": datetime.now(timezone.utc)}},
+                {"$set": {"validUntil": datetime.now(UTC)}},
             )
-            return previous["topologyId"]
+            return previous["topologyId"]  # type: ignore[no-any-return]
         return None
 
     async def _get_next_version(self, mode: TopologyMode) -> int:
@@ -741,10 +741,10 @@ class TopologiesService:
 
     async def _discover_service_dependencies(
         self,
-        services: list[dict],
-    ) -> list[dict]:
+        services: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         """Discover service-to-service dependencies based on configuration."""
-        dependencies: list[dict] = []
+        dependencies: list[dict[str, Any]] = []
 
         port_to_service: dict[int, str] = {}
         name_to_service: dict[str, str] = {}
@@ -775,7 +775,7 @@ class TopologiesService:
 
         return dependencies
 
-    def _get_graph_node_type(self, node: dict) -> str:
+    def _get_graph_node_type(self, node: dict[str, Any]) -> str:
         """Determine the graph node type based on node class and type."""
         node_class = node.get("class", "")
         node_type = node.get("type", "")
@@ -806,7 +806,7 @@ class TopologiesService:
     def _circular_layout(
         self,
         nodes: list[GraphNode],
-        edges: list[GraphEdge],
+        _edges: list[GraphEdge],
     ) -> dict[str, GraphNodePosition]:
         """Circular layout with networks in center and devices in outer ring."""
         import math
@@ -835,7 +835,7 @@ class TopologiesService:
     def _hierarchical_layout(
         self,
         nodes: list[GraphNode],
-        edges: list[GraphEdge],
+        _edges: list[GraphEdge],
     ) -> dict[str, GraphNodePosition]:
         """Hierarchical layout with physical nodes at top, logical in middle, services at bottom."""
         positions: dict[str, GraphNodePosition] = {}
@@ -867,7 +867,7 @@ class TopologiesService:
     def _service_layout(
         self,
         nodes: list[GraphNode],
-        edges: list[GraphEdge],
+        _edges: list[GraphEdge],
     ) -> dict[str, GraphNodePosition]:
         """Service-centric layout with hosts at top and services fanned below."""
         import math
@@ -944,7 +944,7 @@ class TopologiesService:
             edges_removed=list(prev_edge_ids - curr_edge_ids),
         )
 
-    def _format_topology(self, doc: dict, include_graph: bool = True) -> dict:
+    def _format_topology(self, doc: dict[str, Any], include_graph: bool = True) -> dict[str, Any]:
         """Format a topology document for API response."""
         result = {
             "topologyId": doc["topologyId"],
@@ -964,7 +964,7 @@ class TopologiesService:
 
         return result
 
-    def _format_topology_summary(self, doc: dict) -> dict:
+    def _format_topology_summary(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a topology document for list response."""
         return {
             "topologyId": doc["topologyId"],

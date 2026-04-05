@@ -676,7 +676,7 @@ fn restart_service_impl() -> Result<()> {
         }
 
         info!("Service started");
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "linux"))]

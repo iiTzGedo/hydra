@@ -1,16 +1,16 @@
 """Security utilities for JWT and password handling."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 import jwt
-from jwt.exceptions import PyJWTError
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
+from jwt.exceptions import PyJWTError
 
-from hydra.core.config import Settings, get_settings
 from hydra.api.v1.core.exceptions import InvalidTokenError
+from hydra.core.config import Settings, get_settings
 
 pwd_hasher = PasswordHasher()
 
@@ -69,18 +69,18 @@ def create_access_token(
     if expires_at is not None:
         expire = expires_at
     elif token_type == "refresh":
-        expire = datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_expire_days)
+        expire = datetime.now(UTC) + timedelta(days=settings.jwt_refresh_expire_days)
     elif token_type == "registration":
-        expire = datetime.now(timezone.utc) + timedelta(days=settings.registration_token_expire_days)
+        expire = datetime.now(UTC) + timedelta(days=settings.registration_token_expire_days)
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
+        expire = datetime.now(UTC) + timedelta(minutes=settings.jwt_expire_minutes)
 
     claims = {
         "sub": subject,
         "type": token_type,
         "jti": token_id or uuid4().hex,
         "exp": expire,
-        "iat": datetime.now(timezone.utc),
+        "iat": datetime.now(UTC),
     }
 
     if additional_claims:

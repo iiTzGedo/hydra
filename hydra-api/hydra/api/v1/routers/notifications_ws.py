@@ -6,18 +6,20 @@ issues (same pattern as chat_ws.py).
 """
 
 import asyncio
+import contextlib
 import json
+from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
+from hydra.api.v1.core.role_utils import get_active_temporary_roles
 from hydra.api.v1.models.notifications import NOTIFICATION_CHANNEL
 from hydra.api.v1.models.settings import NotificationSettings
+from hydra.api.v1.routers.chat_ws import _authenticate_from_message, get_user_from_token
 from hydra.api.v1.services.notifications import should_deliver
-from hydra.api.v1.routers.chat_ws import get_user_from_token, _authenticate_from_message
-from hydra.api.v1.core.role_utils import get_active_temporary_roles
-from hydra.db.mongodb import get_mongodb, MongoDB
-from hydra.db.redis import get_redis, RedisClient
+from hydra.db.mongodb import MongoDB, get_mongodb
+from hydra.db.redis import RedisClient, get_redis
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 logger = structlog.get_logger(__name__)
@@ -25,7 +27,7 @@ logger = structlog.get_logger(__name__)
 
 async def _load_user_context(
     mongodb: MongoDB,
-    user_payload: dict,
+    user_payload: dict[str, Any],
 ) -> tuple[str, list[str], NotificationSettings]:
     """Load user roles and notification settings from MongoDB."""
     user_id = user_payload["sub"]
@@ -129,7 +131,7 @@ async def _notifications_ws_receiver(websocket: WebSocket) -> None:
 async def notifications_ws(
     websocket: WebSocket,
     mongodb: MongoDB = Depends(get_mongodb),
-):
+) -> None:
     """WebSocket endpoint for real-time notifications.
 
     Authentication:
@@ -160,7 +162,7 @@ async def notifications_ws(
     # Confirm authentication to the client
     await websocket.send_json({"type": "authenticated"})
 
-    user_id, user_roles, settings = await _load_user_context(mongodb, user)
+    user_id, user_roles, settings = await _load_user_context(mongodb, user)  # type: ignore[arg-type]
     redis_client = get_redis()
 
     listener_task = asyncio.create_task(
@@ -175,7 +177,5 @@ async def notifications_ws(
 
     for task in pending:
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass

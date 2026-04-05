@@ -3,12 +3,12 @@
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
 
-from hydra.api.v1.core.exceptions import AdminOnlyError, AuthorizationError
 from hydra.api.v1.core.deps import (
     CurrentUser,
     UsersServiceDep,
     require_permission,
 )
+from hydra.api.v1.core.exceptions import AdminOnlyError, AuthorizationError
 from hydra.api.v1.models.auth import (
     ElevateRoleRequest,
     GrantTemporaryRoleRequest,
@@ -59,7 +59,7 @@ async def list_users(
 
     users, total = await users_service.list_users(limit=limit, offset=offset)
     return UserListResponse(
-        users=users,
+        users=users,  # type: ignore[arg-type]
         total=total,
         limit=limit,
         offset=offset,
@@ -93,11 +93,11 @@ async def list_my_sub_accounts(
         raise AuthorizationError()
 
     user_id = current_user.get("user_id")
-    sub_accounts, total = await users_service.list_sub_accounts(user_id)
+    sub_accounts, total = await users_service.list_sub_accounts(user_id)  # type: ignore[arg-type]
     return SubAccountListResponse(
-        parent_user_id=user_id,
+        parent_user_id=user_id,  # type: ignore[arg-type]
         sub_accounts=[
-            {
+            {  # type: ignore[misc]
                 "user_id": sub["user_id"],
                 "username": sub["username"],
                 "role": Role(sub["role"]),
@@ -144,7 +144,7 @@ async def list_sub_accounts(
     return SubAccountListResponse(
         parent_user_id=user_id,
         sub_accounts=[
-            {
+            {  # type: ignore[misc]
                 "user_id": sub["user_id"],
                 "username": sub["username"],
                 "role": Role(sub["role"]),

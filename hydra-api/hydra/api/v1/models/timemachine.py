@@ -1,13 +1,13 @@
 """Time Machine models for historical state queries."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class TimelineEventType(str, Enum):
+class TimelineEventType(StrEnum):
     """Types of events in the timeline."""
 
     PROFILE_SUBMITTED = "profile_submitted"
@@ -53,10 +53,10 @@ class ProfileStateSnapshot(BaseModel):
     profile_id: str = Field(alias="profileId")
     version: str
     submitted_at: datetime = Field(alias="submittedAt")
-    hardware: dict | None = None
-    network: dict | None = None
-    storage: dict | None = None
-    software: dict | None = None
+    hardware: dict[str, Any] | None = None
+    network: dict[str, Any] | None = None
+    storage: dict[str, Any] | None = None
+    software: dict[str, Any] | None = None
 
 
 class ServiceStateSnapshot(BaseModel):
@@ -103,8 +103,8 @@ class TopologyTimeMachineResponse(BaseModel):
     mode: str
     version: int
     generated_at: datetime = Field(alias="generatedAt")
-    graph: dict | None = None
-    stats: dict
+    graph: dict[str, Any] | None = None
+    stats: dict[str, Any]
     note: str | None = None
 
 

@@ -1,36 +1,42 @@
 """Node registration mixin: register nodes and refresh node API keys."""
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
-from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.core.exceptions import (
     NodeAlreadyRegisteredError,
     NodeNotFoundError,
 )
 from hydra.api.v1.core.security import hash_password
-from hydra.api.v1.services.notifications import emit_notification
-from hydra.api.v1.models.notifications import (
-    NotificationType,
-    NotificationSource,
-    NotificationActor,
-    ActorType,
-)
-from hydra.api.v1.services.query import log_audit
-from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.models.auth import NodeRegistrationRequest
+from hydra.api.v1.models.notifications import (
+    ActorType,
+    NotificationActor,
+    NotificationSource,
+    NotificationType,
+)
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
+from hydra.db.mongodb import MongoDB
+from hydra.db.redis import RedisClient
 
 logger = structlog.get_logger(__name__)
 
 
 class NodeRegistrationMixin:
     """Mixin providing node registration and API key refresh."""
+    db: MongoDB
+    redis: RedisClient | None
+
 
     async def register_node(
         self, request: NodeRegistrationRequest, registered_by: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Register a new node and return API key credentials.
 
         Args:
@@ -47,7 +53,7 @@ class NodeRegistrationMixin:
         if existing:
             raise NodeAlreadyRegisteredError(request.node_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         node_doc = {
             "nodeId": request.node_id,
@@ -131,12 +137,15 @@ class NodeRegistrationMixin:
 
         safe_create_task(emit_notification(
             notification_type=NotificationType.NODE_REGISTERED,
-            source=NotificationSource(component="hydra-api", service="auth"),
+            source=NotificationSource(component="hydra-api", service="auth"),  # type: ignore[arg-type]
             title="Node registered",
             message=f"Node {request.node_id} registered successfully",
             details={"nodeId": request.node_id, "nodeClass": request.node_class},
             actor=NotificationActor(type=ActorType.USER, id=registered_by),
             audit_entry_id=audit_id,
+            mongodb=self.db,
+            redis=self.redis,
+            resolve_dependencies=False,
         ))
 
         result = {
@@ -153,7 +162,7 @@ class NodeRegistrationMixin:
 
     async def refresh_node_api_key(
         self, node_id: str, refreshed_by: str | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Refresh the API key for a node, revoking the previous key.
 
         Args:
@@ -170,7 +179,7 @@ class NodeRegistrationMixin:
         if not node:
             raise NodeNotFoundError(node_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         await self.db.api_keys.update_many(
             {"nodeId": node_id, "revokedAt": None},

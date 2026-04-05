@@ -15,15 +15,15 @@ const WINDOWS_VAULT_ALGORITHM: &str = "dpapi";
 pub struct WindowsPermissions;
 
 impl FilePermissions for WindowsPermissions {
-    fn set_owner_only(&self, path: &PathBuf) -> Result<()> {
+    fn set_owner_only(&self, path: &Path) -> Result<()> {
         set_admin_only_acl(path)
     }
 
-    fn set_dir_owner_only(&self, path: &PathBuf) -> Result<()> {
+    fn set_dir_owner_only(&self, path: &Path) -> Result<()> {
         set_admin_only_acl(path)
     }
 
-    fn is_secure(&self, path: &PathBuf) -> Result<bool> {
+    fn is_secure(&self, path: &Path) -> Result<bool> {
         // On Windows, we check if the file exists and is not world-readable
         // Full ACL verification would require more complex Windows API calls
         if !path.exists() {

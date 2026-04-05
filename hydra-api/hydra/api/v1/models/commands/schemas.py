@@ -1,6 +1,6 @@
 """Shared embedded schemas for command models."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -10,6 +10,7 @@ from hydra.api.v1.core.validators import (
     validate_node_id_strict,
     validate_service_id,
 )
+
 from .enums import CommandSource
 
 
@@ -48,7 +49,7 @@ class CommandResult(BaseModel):
     output: str | None = Field(default=None, description="Command output")
     exit_code: Annotated[int | None, Field(default=None, alias="exitCode", description="Exit code")]
     error: str | None = Field(default=None, description="Error message if failed")
-    data: dict | None = Field(default=None, description="Structured result data")
+    data: dict[str, Any] | None = Field(default=None, description="Structured result data")
 
     model_config = {"populate_by_name": True}
 
@@ -58,7 +59,7 @@ class CommandError(BaseModel):
 
     code: str = Field(description="Error code")
     message: str = Field(description="Human-readable error message")
-    details: dict | None = Field(default=None, description="Additional error details")
+    details: dict[str, Any] | None = Field(default=None, description="Additional error details")
 
     model_config = {"populate_by_name": True}
 

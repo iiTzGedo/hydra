@@ -1,6 +1,6 @@
 """Tests for MCP (Model Context Protocol) endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,7 +13,7 @@ from tests.utils import create_mock_cursor
 @pytest.fixture
 def sample_mcp_server():
     """Sample MCP server configuration."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "serverId": "mcp-server-test123",
         "name": "Test MCP Server",

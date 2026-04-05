@@ -4,8 +4,9 @@ from typing import Any
 
 import structlog
 
-from hydra.db.mongodb import MongoDB
 from hydra.api.v1.core.exceptions import CommandRegistryNotFoundError
+from hydra.db.mongodb import MongoDB
+
 from .builtin_commands import BUILTIN_COMMANDS
 
 logger = structlog.get_logger(__name__)
@@ -60,7 +61,7 @@ class CommandRegistryService:
         )
         if not definition:
             raise CommandRegistryNotFoundError(registry_id)
-        return definition
+        return definition  # type: ignore[no-any-return]
 
     async def list_definitions(
         self,

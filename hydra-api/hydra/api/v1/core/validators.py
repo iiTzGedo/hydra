@@ -5,7 +5,7 @@ These patterns are aligned with the agent-side validation for consistency.
 """
 
 import re
-from typing import Callable
+from collections.abc import Callable
 
 import structlog
 
@@ -210,7 +210,7 @@ def validate_agent_username(value: str) -> bool:
     return bool(_AGENT_USERNAME_RE.match(value))
 
 
-def node_id_validator(strict: bool = True) -> Callable:
+def node_id_validator(strict: bool = True) -> Callable:  # type: ignore[type-arg]
     """Create a Pydantic field validator for node IDs.
 
     Args:
@@ -242,7 +242,7 @@ def node_id_validator(strict: bool = True) -> Callable:
     return validator
 
 
-def tags_validator() -> Callable:
+def tags_validator() -> Callable:  # type: ignore[type-arg]
     """Create a Pydantic field validator for tags.
 
     Returns:
@@ -262,7 +262,7 @@ def tags_validator() -> Callable:
     return validator
 
 
-def network_id_validator() -> Callable:
+def network_id_validator() -> Callable:  # type: ignore[type-arg]
     """Create a Pydantic field validator for network IDs.
 
     Returns:
@@ -278,7 +278,7 @@ def network_id_validator() -> Callable:
     return validator
 
 
-def profile_version_validator() -> Callable:
+def profile_version_validator() -> Callable:  # type: ignore[type-arg]
     """Create a Pydantic field validator for profile versions.
 
     Returns:

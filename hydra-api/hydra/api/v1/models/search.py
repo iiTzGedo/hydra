@@ -1,11 +1,11 @@
 """Search models."""
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class SearchEntityType(str, Enum):
+class SearchEntityType(StrEnum):
     """Searchable entity types."""
 
     NODES = "nodes"

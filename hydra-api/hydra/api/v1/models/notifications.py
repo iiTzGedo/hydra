@@ -1,17 +1,18 @@
 """Notification system models, enums, and classification rules."""
 
+
 from datetime import datetime, timedelta
-from enum import Enum
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
 
 
-class NotificationType(str, Enum):
+class NotificationType(StrEnum):
     """All notification event types, grouped by tier."""
 
     # RED (Tier 5) - Critical
@@ -76,7 +77,7 @@ class NotificationType(str, Enum):
     PASSWORD_CHANGED = "password_changed"
 
 
-class TierLabel(str, Enum):
+class TierLabel(StrEnum):
     """Human-readable tier labels."""
 
     LOW_USER = "low_user"
@@ -86,7 +87,7 @@ class TierLabel(str, Enum):
     CRITICAL = "critical"
 
 
-class NotificationStatus(str, Enum):
+class NotificationStatus(StrEnum):
     """Notification lifecycle status."""
 
     ACTIVE = "active"
@@ -94,7 +95,7 @@ class NotificationStatus(str, Enum):
     EXPIRED = "expired"
 
 
-class SourceComponent(str, Enum):
+class SourceComponent(StrEnum):
     """Source component identifiers."""
 
     HYDRA_API = "hydra-api"
@@ -104,7 +105,7 @@ class SourceComponent(str, Enum):
     SYSTEM = "system"
 
 
-class ActorType(str, Enum):
+class ActorType(StrEnum):
     """Actor type identifiers."""
 
     SYSTEM = "system"
@@ -292,7 +293,7 @@ class NotificationResponse(BaseModel):
     source: NotificationSource
     title: str
     message: str
-    details: dict | None = None
+    details: dict[str, Any] | None = None
     links: list[NotificationLink] | None = None
     actor: NotificationActor | None = None
     event: NotificationEvent | None = None
@@ -364,7 +365,7 @@ class NotificationBulkActionResponse(BaseModel):
 def build_group_key(
     notification_type: NotificationType,
     source: NotificationSource,
-    details: dict | None = None,
+    details: dict[str, Any] | None = None,
 ) -> str:
     """Build a deduplication group key for a notification.
 

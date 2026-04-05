@@ -1,43 +1,39 @@
 """Tests for core utilities (crypto, email, deps, exceptions, validators)."""
 
 import secrets
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
 
-from hydra.api.v1.core.crypto import encrypt_value, decrypt_value, mask_api_key
+from hydra.api.v1.core.crypto import decrypt_value, encrypt_value, mask_api_key
+from hydra.api.v1.core.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    ConflictError,
+    HydraError,
+    InvalidTokenError,
+    NodeAlreadyRegisteredError,
+    NodeNotFoundError,
+    ServiceUnavailableError,
+    ValidationError,
+)
 from hydra.api.v1.core.security import (
     create_access_token,
     create_token_pair,
+    decode_token,
     hash_password,
     verify_password,
-    decode_token,
 )
 from hydra.api.v1.core.validators import (
-    validate_node_id,
-    validate_node_id_strict,
-    validate_node_id_lenient,
-    validate_tag,
-    validate_network_id,
-    validate_ipv4,
+    validate_agent_username,
     validate_cidr,
+    validate_ipv4,
+    validate_network_id,
+    validate_node_id,
+    validate_node_id_lenient,
     validate_profile_version,
     validate_service_id,
-    validate_agent_username,
-)
-from hydra.api.v1.core.exceptions import (
-    HydraError,
-    NotFoundError,
-    NodeNotFoundError,
-    AuthenticationError,
-    InvalidTokenError,
-    AuthorizationError,
-    ValidationError,
-    ConflictError,
-    NodeAlreadyRegisteredError,
-    ServiceUnavailableError,
+    validate_tag,
 )
 from hydra.core.config import get_settings
 

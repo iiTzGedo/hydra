@@ -1,15 +1,15 @@
 """Topology models for request/response validation."""
 
 from datetime import datetime
-from enum import Enum
-from typing import Any, Literal
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hydra.api.v1.core.validators import NETWORK_ID_PATTERN, validate_network_id
 
 
-class TopologyMode(str, Enum):
+class TopologyMode(StrEnum):
     """Topology generation mode."""
 
     NETWORK = "network"
@@ -17,7 +17,7 @@ class TopologyMode(str, Enum):
     SERVICE = "service"
 
 
-class GraphNodeType(str, Enum):
+class GraphNodeType(StrEnum):
     """Types of nodes in the topology graph."""
 
     COMPUTE_PHYSICAL = "compute-physical"
@@ -29,7 +29,7 @@ class GraphNodeType(str, Enum):
     GROUP = "group"
 
 
-class GraphEdgeType(str, Enum):
+class GraphEdgeType(StrEnum):
     """Types of edges in the topology graph."""
 
     NETWORK_CONNECTION = "network-connection"

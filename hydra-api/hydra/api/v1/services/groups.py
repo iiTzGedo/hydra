@@ -1,7 +1,7 @@
 """Group management service with selector resolution."""
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -9,11 +9,6 @@ from pymongo import ASCENDING, DESCENDING
 
 from hydra.api.v1.core.exceptions import ConflictError, GroupNotFoundError, ValidationError
 from hydra.api.v1.core.tasks import safe_create_task
-from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
-from hydra.api.v1.models.query import AuditAction
-from hydra.api.v1.services.notifications import emit_notification
-from hydra.api.v1.services.query import log_audit
-from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.groups import (
     CreateGroupRequest,
     GroupEntityType,
@@ -21,6 +16,11 @@ from hydra.api.v1.models.groups import (
     GroupSelectors,
     UpdateGroupRequest,
 )
+from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -43,7 +43,7 @@ class GroupsService:
         group_id: str,
         resolve_members: bool = False,
         member_limit: int = 20,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Retrieve a group by its identifier.
 
         Args:
@@ -69,7 +69,7 @@ class GroupsService:
 
         return result
 
-    async def list_groups(self, params: GroupListParams) -> tuple[list[dict], int]:
+    async def list_groups(self, params: GroupListParams) -> tuple[list[dict[str, Any]], int]:
         """List groups with filtering and pagination.
 
         Args:
@@ -124,7 +124,7 @@ class GroupsService:
 
         return groups, total
 
-    async def create_group(self, request: CreateGroupRequest) -> dict:
+    async def create_group(self, request: CreateGroupRequest) -> dict[str, Any]:
         """Create a new group with selectors.
 
         Args:
@@ -151,7 +151,7 @@ class GroupsService:
                 if parent_id not in found_ids:
                     raise GroupNotFoundError(parent_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         group_doc = {
             "groupId": request.group_id,
@@ -177,7 +177,7 @@ class GroupsService:
 
         return await self.get_group(request.group_id)
 
-    async def update_group(self, group_id: str, request: UpdateGroupRequest) -> dict:
+    async def update_group(self, group_id: str, request: UpdateGroupRequest) -> dict[str, Any]:
         """Update group metadata and selectors.
 
         Args:
@@ -195,7 +195,7 @@ class GroupsService:
         if not existing:
             raise GroupNotFoundError(group_id)
 
-        update_fields: dict[str, Any] = {"updatedAt": datetime.now(timezone.utc)}
+        update_fields: dict[str, Any] = {"updatedAt": datetime.now(UTC)}
 
         if request.name is not None:
             update_fields["name"] = request.name
@@ -231,7 +231,7 @@ class GroupsService:
 
         return await self.get_group(group_id)
 
-    async def delete_group(self, group_id: str) -> dict:
+    async def delete_group(self, group_id: str) -> dict[str, Any]:
         """Delete a group and remove it from parent references.
 
         Args:
@@ -264,7 +264,7 @@ class GroupsService:
         entity_type: GroupEntityType | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[dict, dict]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Get resolved members for a group with pagination.
 
         Args:
@@ -285,7 +285,7 @@ class GroupsService:
 
         selectors = GroupSelectors(**group.get("selectors", {}))
 
-        members = {"nodes": [], "services": []}
+        members = {"nodes": [], "services": []}  # type: ignore[var-annotated]
         totals = {"nodes": 0, "services": 0}
 
         if (entity_type is None or entity_type == GroupEntityType.NODE) and GroupEntityType.NODE.value in group.get("types", []):
@@ -300,7 +300,7 @@ class GroupsService:
 
         return members, totals
 
-    async def resolve_group(self, group_id: str) -> dict:
+    async def resolve_group(self, group_id: str) -> dict[str, Any]:
         """Force re-resolution of group membership counts.
 
         Args:
@@ -320,7 +320,7 @@ class GroupsService:
         await self._update_member_count(group_id)
 
         updated_group = await self.db.groups.find_one({"groupId": group_id})
-        new_count = updated_group.get("memberCount", {})
+        new_count = updated_group.get("memberCount", {})  # type: ignore[union-attr]
 
         changes = {
             "nodesChanged": new_count.get("nodes", 0) - old_count.get("nodes", 0),
@@ -337,7 +337,7 @@ class GroupsService:
         )
 
         total_members = new_count.get("nodes", 0) + new_count.get("services", 0)
-        group_name = updated_group.get("name", group_id)
+        group_name = updated_group.get("name", group_id)  # type: ignore[union-attr]
         audit_id = await log_audit(
             action=AuditAction.UPDATE,
             resource_type="group",
@@ -380,12 +380,12 @@ class GroupsService:
             "changes": changes,
         }
 
-    async def _resolve_members(self, group: dict, limit: int = 20) -> dict:
+    async def _resolve_members(self, group: dict[str, Any], limit: int = 20) -> dict[str, Any]:
         """Resolve group members based on selectors."""
         selectors = GroupSelectors(**group.get("selectors", {}))
         types = group.get("types", [])
 
-        members = {"nodes": [], "services": []}
+        members = {"nodes": [], "services": []}  # type: ignore[var-annotated]
 
         if "node" in types:
             nodes, _ = await self._resolve_nodes(selectors, limit=limit, offset=0)
@@ -431,7 +431,7 @@ class GroupsService:
         selectors: GroupSelectors,
         limit: int,
         offset: int,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """Resolve nodes matching selectors."""
         filter_query = self._build_node_filter(selectors)
 
@@ -462,7 +462,7 @@ class GroupsService:
         selectors: GroupSelectors,
         limit: int,
         offset: int,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """Resolve services matching selectors."""
         filter_query = self._build_service_filter(selectors)
 
@@ -542,7 +542,7 @@ class GroupsService:
 
     def _get_matched_selectors(
         self,
-        entity: dict,
+        entity: dict[str, Any],
         selectors: GroupSelectors,
         entity_type: str,
     ) -> list[str]:
@@ -559,17 +559,14 @@ class GroupsService:
             if entity_networks & set(selectors.network.is_any):
                 matched.append("network.isAny")
 
-        if selectors.status and selectors.status.is_any:
-            if entity.get("status") in selectors.status.is_any:
-                matched.append("status.isAny")
+        if selectors.status and selectors.status.is_any and entity.get("status") in selectors.status.is_any:
+            matched.append("status.isAny")
 
-        if entity_type == "node" and selectors.kind and selectors.kind.is_any:
-            if entity.get("kind") in selectors.kind.is_any:
-                matched.append("kind.isAny")
+        if entity_type == "node" and selectors.kind and selectors.kind.is_any and entity.get("kind") in selectors.kind.is_any:
+            matched.append("kind.isAny")
 
-        if entity_type == "service" and selectors.runtime and selectors.runtime.is_any:
-            if entity.get("runtime") in selectors.runtime.is_any:
-                matched.append("runtime.isAny")
+        if entity_type == "service" and selectors.runtime and selectors.runtime.is_any and entity.get("runtime") in selectors.runtime.is_any:
+            matched.append("runtime.isAny")
 
         if selectors.tags and selectors.tags.is_any:
             entity_tags = set(entity.get("tags", []))
@@ -612,13 +609,13 @@ class GroupsService:
                     "memberCount": {
                         "nodes": node_count,
                         "services": service_count,
-                        "lastComputed": datetime.now(timezone.utc),
+                        "lastComputed": datetime.now(UTC),
                     }
                 }
             },
         )
 
-    async def get_node_groups(self, node_id: str) -> list[dict]:
+    async def get_node_groups(self, node_id: str) -> list[dict[str, Any]]:
         """Get all groups that a specific node belongs to.
 
         Fetches the node once and checks all group selectors in-memory,
@@ -654,7 +651,7 @@ class GroupsService:
 
         return matching_groups
 
-    def _format_group(self, doc: dict) -> dict:
+    def _format_group(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a group document for API response."""
         return {
             "groupId": doc["groupId"],
@@ -669,7 +666,7 @@ class GroupsService:
             "updatedAt": doc.get("updatedAt"),
         }
 
-    def _format_group_summary(self, doc: dict) -> dict:
+    def _format_group_summary(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a group document for list response."""
         return {
             "groupId": doc["groupId"],

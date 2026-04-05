@@ -1,6 +1,6 @@
 """Time Machine endpoints for historical state queries."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import structlog
@@ -142,7 +142,7 @@ async def get_timeline(
     Raises:
         HTTPException 403: Insufficient permissions.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if until is None:
         until = now
     if since is None:
@@ -161,7 +161,7 @@ async def get_timeline(
         data=TimelineResponse(
             since=since,
             until=until,
-            events=events,
+            events=events,  # type: ignore[arg-type]
             total=total,
         ),
         meta=PaginationMeta(total=total, limit=limit, offset=offset),

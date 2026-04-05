@@ -8,36 +8,36 @@ import httpx
 import structlog
 from pymongo import ReturnDocument
 
-from hydra.api.v1.core.tasks import safe_create_task
-from hydra.db.mongodb import MongoDB
-from hydra.api.v1.services.notifications import emit_notification
-from hydra.api.v1.models.notifications import NotificationType, NotificationSource
-from hydra.api.v1.services.query import log_audit
-from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.core.exceptions import (
     CommandAlreadyExecutingError,
     CommandConfirmationExpiredError,
     CommandConfirmationInvalidError,
     CommandCooldownError,
-    CommandNotCancellableError,
     CommandNodeMismatchError,
+    CommandNotCancellableError,
     CommandNotFoundError,
     CommandNotSupportedError,
     CommandRateLimitError,
-    CommandRejectedError,
     CommandRegistryNotFoundError,
+    CommandRejectedError,
     NodeNotFoundError,
     ValidationError,
 )
+from hydra.api.v1.core.tasks import safe_create_task
+from hydra.api.v1.models.auth import get_role_level
 from hydra.api.v1.models.commands import (
-    CommandListParams,
     CommandDeliveryMode,
+    CommandListParams,
     CommandSource,
     CommandStatus,
     CreateCommandRequest,
     SubmitCommandResultRequest,
 )
-from hydra.api.v1.models.auth import get_role_level
+from hydra.api.v1.models.notifications import NotificationSource, NotificationType
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
+from hydra.db.mongodb import MongoDB
 
 # Maximum consecutive direct-call failures before marking agent unreachable
 MAX_DIRECT_FAILURES = 3
@@ -66,9 +66,7 @@ class CommandsService:
         if required in user_permissions:
             return True
         resource, action = required.split(":", 1) if ":" in required else (required, "*")
-        if f"{resource}:*" in user_permissions:
-            return True
-        return False
+        return f"{resource}:*" in user_permissions
 
     @staticmethod
     def _write_origin_allowed(source: CommandSource, client_id: str | None) -> bool:
@@ -123,11 +121,12 @@ class CommandsService:
             raise CommandRejectedError(error_message)
 
         control_permission = definition.get("rbac", {}).get("controlPermission")
-        if control_permission:
-            if not user_permissions or not self._has_permission(
+        if control_permission and (
+            not user_permissions or not self._has_permission(
                 user_permissions,
                 control_permission,
-            ):
+            )
+        ):
                 error_message = (
                     f"Missing permission '{control_permission}' for "
                     f"'{definition.get('registryId')}'"
@@ -182,7 +181,7 @@ class CommandsService:
         )
         if not definition:
             # Persist rejected command for audit trail
-            rejected_doc = await self._create_rejected_command(
+            await self._create_rejected_command(
                 request, user_id, source, client_id,
                 error_code="REGISTRY_NOT_FOUND",
                 error_message=f"Command '{request.registry_id}' is not registered in the catalog",
@@ -354,7 +353,7 @@ class CommandsService:
     async def _queue_command(
         self,
         request: CreateCommandRequest,
-        definition: dict,
+        _definition: dict[str, Any],
         category: str,
         action: str,
         timeout: int,
@@ -421,9 +420,9 @@ class CommandsService:
 
     async def _try_direct_execution(
         self,
-        node: dict,
+        node: dict[str, Any],
         request: CreateCommandRequest,
-        definition: dict,
+        _definition: dict[str, Any],
         category: str,
         action: str,
         timeout: int,
@@ -707,7 +706,7 @@ class CommandsService:
         command = await self.commands.find_one({"commandId": command_id})
         if not command:
             raise CommandNotFoundError(command_id)
-        return command
+        return command  # type: ignore[no-any-return]
 
     async def list_commands(self, params: CommandListParams) -> tuple[list[dict[str, Any]], int]:
         """List commands with optional filtering and pagination."""
@@ -950,7 +949,7 @@ class CommandsService:
                 emit_notification(
                     notification_type=NotificationType.COMMAND_EXECUTION_SUCCEEDED,
                     source=NotificationSource(
-                        component="hydra-api", service="commands", node_id=node_id
+                        component="hydra-api", service="commands", node_id=node_id  # type: ignore[arg-type]
                     ),
                     title="Command completed",
                     message=f"Command {command_id} completed successfully on {node_id}",
@@ -982,7 +981,7 @@ class CommandsService:
                 emit_notification(
                     notification_type=NotificationType.COMMAND_EXECUTION_FAILED,
                     source=NotificationSource(
-                        component="hydra-api", service="commands", node_id=node_id
+                        component="hydra-api", service="commands", node_id=node_id  # type: ignore[arg-type]
                     ),
                     title="Command failed",
                     message=f"Command {command_id} failed on {node_id}: {result.error or 'unknown error'}",
@@ -1163,7 +1162,7 @@ class CommandsService:
             safe_create_task(
                 emit_notification(
                     notification_type=NotificationType.COMMAND_EXECUTION_TIMEOUT,
-                    source=NotificationSource(component="hydra-api", service="commands"),
+                    source=NotificationSource(component="hydra-api", service="commands"),  # type: ignore[arg-type]
                     title="Commands timed out",
                     message=f"{result.modified_count} command(s) timed out after {timeout_minutes} minutes",
                     details={"count": result.modified_count, "timeoutMinutes": timeout_minutes},
@@ -1176,7 +1175,7 @@ class CommandsService:
     # ── Safety controls (P2C-002) ───────────────────────────────────────
 
     async def _check_rate_limits(
-        self, user_id: str | None, node_id: str, definition: dict
+        self, user_id: str | None, node_id: str, definition: dict[str, Any]
     ) -> None:
         """Check command rate limits using Redis counters.
 
@@ -1184,8 +1183,8 @@ class CommandsService:
         Silently skips if Redis is unavailable (fail-open for availability).
         """
         try:
-            from hydra.db.redis import get_redis
             from hydra.core.config import get_settings
+            from hydra.db.redis import get_redis
 
             redis = get_redis()
             settings = get_settings()
@@ -1254,8 +1253,8 @@ class CommandsService:
             return
 
         try:
-            from hydra.db.redis import get_redis
             from hydra.core.config import get_settings
+            from hydra.db.redis import get_redis
             redis = get_redis()
             settings = get_settings()
             cooldown_key = f"cmd:cooldown:{node_id}"
@@ -1270,7 +1269,7 @@ class CommandsService:
     async def _create_pending_confirmation(
         self,
         request: CreateCommandRequest,
-        definition: dict,
+        definition: dict[str, Any],
         category: str,
         action: str,
         timeout: int,
@@ -1371,7 +1370,7 @@ class CommandsService:
 
         confirmation_request = CreateCommandRequest(
             registry_id=command["registryId"],
-            target={
+            target={  # type: ignore[arg-type]
                 "nodeId": command["target"]["nodeId"],
                 "serviceId": command["target"].get("serviceId"),
             },

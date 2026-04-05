@@ -1,6 +1,6 @@
 """Tests for AI/LLM endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -16,7 +16,7 @@ def sample_ai_provider():
     """Sample AI provider configuration (database document format)."""
     api_key = "sk-ant-test123"
     encrypted_key = encrypt_value(api_key)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "providerId": "llm_anthropic123",  # Database field name
         "name": "anthropic-claude",

@@ -9,6 +9,15 @@ use std::process::Command;
 use sysinfo::System;
 use tracing::debug;
 
+/// System info tuple: (manufacturer, model, serial, bios_vendor, bios_version).
+type SystemInfo = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 /// Hardware profile containing system identification, CPU, memory, and GPU information.
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -246,7 +255,7 @@ impl HardwareCollector {
     fn detect_cpu_cores_cgroup() -> Option<usize> {
         // cgroup v2: /sys/fs/cgroup/cpu.max contains "quota period" or "max period"
         if let Ok(contents) = std::fs::read_to_string("/sys/fs/cgroup/cpu.max") {
-            let parts: Vec<&str> = contents.trim().split_whitespace().collect();
+            let parts: Vec<&str> = contents.split_whitespace().collect();
             if parts.len() == 2 && parts[0] != "max" {
                 if let (Ok(quota), Ok(period)) = (parts[0].parse::<u64>(), parts[1].parse::<u64>())
                 {
@@ -402,7 +411,6 @@ impl HardwareCollector {
                     } else if trimmed.starts_with("Speed:") && trimmed.contains("MT/s") {
                         if let Some(s) = trimmed.split(':').nth(1) {
                             speed = s
-                                .trim()
                                 .split_whitespace()
                                 .next()
                                 .and_then(|n| n.parse().ok());
@@ -455,13 +463,7 @@ impl HardwareCollector {
     }
 
     #[cfg(target_os = "linux")]
-    fn get_system_info() -> (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ) {
+    fn get_system_info() -> SystemInfo {
         let read_dmi = |path: &str| -> Option<String> {
             match std::fs::read_to_string(path) {
                 Ok(s) => {
@@ -488,13 +490,7 @@ impl HardwareCollector {
     }
 
     #[cfg(target_os = "windows")]
-    fn get_system_info() -> (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ) {
+    fn get_system_info() -> SystemInfo {
         let mut manufacturer = None;
         let mut model = None;
         let mut serial = None;
@@ -536,13 +532,7 @@ impl HardwareCollector {
     }
 
     #[cfg(target_os = "macos")]
-    fn get_system_info() -> (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ) {
+    fn get_system_info() -> SystemInfo {
         let manufacturer = Some("Apple".to_string());
         let mut model = None;
         let mut serial = None;
@@ -567,13 +557,7 @@ impl HardwareCollector {
     }
 
     #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
-    fn get_system_info() -> (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ) {
+    fn get_system_info() -> SystemInfo {
         let manufacturer = Command::new("sysctl")
             .args(["-n", "hw.vendor"])
             .output()
@@ -597,13 +581,7 @@ impl HardwareCollector {
         target_os = "openbsd",
         target_os = "netbsd"
     )))]
-    fn get_system_info() -> (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ) {
+    fn get_system_info() -> SystemInfo {
         (System::name(), System::host_name(), None, None, None)
     }
 
@@ -642,15 +620,13 @@ impl HardwareCollector {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
                     let model = line.trim().to_string();
-                    if !model.is_empty() {
-                        if !gpus.iter().any(|g| g.model.contains(&model)) {
-                            gpus.push(GpuInfo {
-                                model,
-                                vendor: Some("NVIDIA".to_string()),
-                                memory_bytes: None,
-                                driver_version: None,
-                            });
-                        }
+                    if !model.is_empty() && !gpus.iter().any(|g| g.model.contains(&model)) {
+                        gpus.push(GpuInfo {
+                            model,
+                            vendor: Some("NVIDIA".to_string()),
+                            memory_bytes: None,
+                            driver_version: None,
+                        });
                     }
                 }
             }

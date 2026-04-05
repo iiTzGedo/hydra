@@ -6,6 +6,8 @@ Terminology:
 - LLMConfig: User's saved configuration (provider + model + API key) for chat sessions
 """
 
+from typing import Any
+
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
 
@@ -202,7 +204,7 @@ async def delete_config(
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
     config_id: str = Path(description="Configuration ID"),
-) -> dict:
+) -> dict[str, Any]:
     """Delete an LLM configuration.
 
     Args:
@@ -445,7 +447,7 @@ async def delete_global_key(
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
     provider_type: LLMProviderType = Path(description="Provider type"),
-) -> dict:
+) -> dict[str, Any]:
     """Delete the global API key for a provider.
 
     Args:

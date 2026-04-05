@@ -1,6 +1,5 @@
 """Tests for MCP tool execution."""
 
-from datetime import datetime, timezone
 import importlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,28 +8,25 @@ import pytest
 
 # Import from the new tool registry module
 from hydra_mcp.auth import (
-    AuthContext,
     INTERNAL_CLIENT_ID_HEADER,
     INTERNAL_PERMISSIONS_HEADER,
     INTERNAL_REQUEST_HEADER,
     INTERNAL_ROLE_HEADER,
     INTERNAL_SECRET_HEADER,
     INTERNAL_USER_ID_HEADER,
+    AuthContext,
     set_auth_context,
 )
 from hydra_mcp.client import HydraAPIError, HydraClient
-from hydra_mcp.tools import (
-    execute_tool,
-    get_all_tools,
-    get_tool,
-    clear_registry,
-    validate_tool_args,
-    ToolValidationError,
-)
-from hydra_mcp.tool_handlers import _safe_list, _format_list_response
 
 # Import call_tool from server (it uses the registry internally)
 from hydra_mcp.server import _build_internal_context, call_tool
+from hydra_mcp.tool_handlers import _format_list_response, _safe_list
+from hydra_mcp.tools import (
+    ToolValidationError,
+    execute_tool,
+    validate_tool_args,
+)
 
 
 class TestSafeList:
@@ -476,7 +472,7 @@ class TestExecuteTool:
         assert isinstance(result, str)
         mock_client.get_topology.assert_called_once_with(
             mode="infrastructure",
-            scope=None,
+            _scope=None,
         )
 
     async def test_search_infrastructure_tool(self, mock_client):
@@ -643,7 +639,7 @@ class TestExecuteTool:
 
     async def test_internal_only_tool_blocked_for_external_client(self, mock_client):
         """Test that internal-only tools are blocked for external clients."""
-        from hydra_mcp.auth import AuthContext, set_auth_context, SourceRestrictionError
+        from hydra_mcp.auth import AuthContext, SourceRestrictionError, set_auth_context
 
         # Set auth context as external client
         set_auth_context(AuthContext(
@@ -832,6 +828,51 @@ class TestHydraClientAuthForwarding:
 
         with pytest.raises(HydraAPIError, match="missing forward auth headers"):
             await hydra_client._request("GET", "/nodes")
+
+
+@pytest.mark.asyncio
+class TestHydraClientResponseValidation:
+    """Tests for strict response-shape handling in HydraClient list methods."""
+
+    @pytest.mark.parametrize(
+        ("method_name", "kwargs", "endpoint"),
+        [
+            ("list_nodes", {}, "/nodes"),
+            ("list_services", {}, "/services"),
+            ("list_groups", {}, "/groups"),
+            ("list_networks", {}, "/networks"),
+            ("list_notifications", {}, "/notifications"),
+            ("list_command_catalog", {}, "/command-catalog"),
+            ("list_commands", {}, "/commands"),
+            ("list_audit_entries", {}, "/audit"),
+        ],
+    )
+    async def test_list_methods_raise_on_non_list_response(
+        self,
+        monkeypatch,
+        method_name,
+        kwargs,
+        endpoint,
+    ):
+        hydra_client = HydraClient(
+            settings=SimpleNamespace(
+                api_url="http://hydra-api",
+                api_key="service-api-key",
+                api_timeout=5,
+                transport="stdio",
+            )
+        )
+        monkeypatch.setattr(
+            hydra_client,
+            "_request",
+            AsyncMock(return_value={"items": []}),
+        )
+
+        with pytest.raises(HydraAPIError) as exc_info:
+            await getattr(hydra_client, method_name)(**kwargs)
+
+        assert exc_info.value.code == "INVALID_RESPONSE"
+        assert endpoint in exc_info.value.message
 
 
 class TestInternalContextForwarding:

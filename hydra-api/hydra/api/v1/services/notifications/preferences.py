@@ -1,13 +1,15 @@
 """Notification preference helpers — category mapping, quiet hours, delivery filtering."""
 
+
 from datetime import UTC, datetime, time
+from typing import Any
 from zoneinfo import ZoneInfo
 
-from hydra.api.v1.models.settings import NotificationSettings
 from hydra.api.v1.models.notifications import (
     TIER_MAP,
     NotificationType,
 )
+from hydra.api.v1.models.settings import NotificationSettings
 
 # ------------------------------------------------------------------
 # Tier-based action thresholds
@@ -98,7 +100,7 @@ def _parse_hhmm(value: str | None) -> time | None:
         return None
 
 
-def _coerce_settings(settings: NotificationSettings | dict | None) -> NotificationSettings:
+def _coerce_settings(settings: NotificationSettings | dict[str, Any] | None) -> NotificationSettings:
     if isinstance(settings, NotificationSettings):
         return settings
     if isinstance(settings, dict):
@@ -106,7 +108,7 @@ def _coerce_settings(settings: NotificationSettings | dict | None) -> Notificati
     return NotificationSettings()
 
 
-def is_quiet_hours(settings: NotificationSettings | dict, now: datetime) -> bool:
+def is_quiet_hours(settings: NotificationSettings | dict[str, Any], now: datetime) -> bool:
     """Determine if current time is within quiet hours for user settings."""
     settings = _coerce_settings(settings)
     if not settings.quiet_hours_enabled:
@@ -134,8 +136,8 @@ def is_quiet_hours(settings: NotificationSettings | dict, now: datetime) -> bool
 
 
 def should_deliver(
-    settings: NotificationSettings | dict | None,
-    notification: dict,
+    settings: NotificationSettings | dict[str, Any] | None,
+    notification: dict[str, Any],
     channel: str,
     now: datetime | None = None,
 ) -> bool:
@@ -173,9 +175,8 @@ def should_deliver(
     else:
         return False
 
-    if settings.quiet_hours_enabled and is_quiet_hours(settings, now):
-        if tier < settings.quiet_hours_min_tier:
-            return False
+    if settings.quiet_hours_enabled and is_quiet_hours(settings, now) and tier < settings.quiet_hours_min_tier:
+        return False
 
     category = resolve_category(notif_type or "")
     if category == "node" and not settings.node_notifications:
@@ -188,7 +189,4 @@ def should_deliver(
         return False
     if category == "system" and not settings.system_notifications:
         return False
-    if category == "command" and not settings.command_notifications:
-        return False
-
-    return True
+    return not (category == "command" and not settings.command_notifications)

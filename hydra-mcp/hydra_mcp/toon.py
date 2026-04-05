@@ -48,7 +48,8 @@ class TOONFormatter:
         Returns:
             TOON-formatted string
         """
-        return encode(data, self.options)
+        result: str = encode(data, self.options)  # type: ignore[arg-type]
+        return result
 
     def format_response(self, data: Any, title: str | None = None) -> str:
         """Format an API response with optional title header.
@@ -63,10 +64,11 @@ class TOONFormatter:
         output = ""
         if title:
             output = f"# {title}\n\n"
-        output += encode(data, self.options)
+        encoded: str = encode(data, self.options)  # type: ignore[arg-type]
+        output += encoded
         return output
 
-    def format_error(self, code: str, message: str, details: dict | None = None) -> str:
+    def format_error(self, code: str, message: str, details: dict[str, Any] | None = None) -> str:
         """Format an error response.
 
         Args:
@@ -77,12 +79,12 @@ class TOONFormatter:
         Returns:
             TOON-formatted error
         """
-        error_data = {
-            "error": {
-                "code": code,
-                "message": message,
-            }
+        error_obj: dict[str, Any] = {
+            "code": code,
+            "message": message,
         }
         if details:
-            error_data["error"]["details"] = details
-        return encode(error_data, self.options)
+            error_obj["details"] = details
+        error_data: dict[str, Any] = {"error": error_obj}
+        result: str = encode(error_data, self.options)  # type: ignore[arg-type]
+        return result

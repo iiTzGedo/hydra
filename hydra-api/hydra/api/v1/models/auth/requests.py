@@ -2,18 +2,18 @@
 
 import re
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from hydra.api.v1.core.validators import (
-    AGENT_USERNAME_PATTERN,
     NODE_ID_PATTERN_NEW,
     TAG_PATTERN,
     validate_agent_username,
     validate_node_id,
     validate_tag,
 )
+
 from .enums import Role, TokenScope
 
 
@@ -55,11 +55,10 @@ class UserRegistrationRequest(BaseModel):
     @model_validator(mode="after")
     def validate_registration_fields(self) -> "UserRegistrationRequest":
         if self.role == Role.AGENT:
-            if self.username:
-                if not (
-                    validate_agent_username(self.username)
-                    or re.fullmatch(r"^[a-z0-9_-]{3,32}$", self.username)
-                ):
+            if self.username and not (
+                validate_agent_username(self.username)
+                or re.fullmatch(r"^[a-z0-9_-]{3,32}$", self.username)
+            ):
                     raise ValueError(
                         "Agent username must be lowercase alphanumeric, hyphens, or underscores "
                         "(3-32 chars)"
@@ -131,7 +130,7 @@ class NodeRegistrationRequest(BaseModel):
     description: str | None = Field(default=None, max_length=1024)
     tags: list[str] = Field(default_factory=list)
     parent_node_id: str | None = Field(default=None, alias="parentNodeId")
-    location: dict | None = None
+    location: dict[str, Any] | None = None
     agent_tier: str | None = Field(default=None, alias="agentTier")
     server_address: str | None = Field(default=None, alias="serverAddress", max_length=256)
     server_port: int | None = Field(default=None, alias="serverPort", ge=1, le=65535)
@@ -215,7 +214,7 @@ class CreateUserRequest(BaseModel):
     password: str = Field(min_length=8)
     role: Role = Role.VIEWER
     permissions: list[str] = Field(default_factory=list)
-    preferences: dict = Field(default_factory=dict)
+    preferences: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"populate_by_name": True}
 
@@ -237,7 +236,7 @@ class ApproveUserRequest(BaseModel):
 
     @field_validator("username")
     @classmethod
-    def at_least_one_identifier(cls, v: str | None, info) -> str | None:
+    def at_least_one_identifier(cls, v: str | None, info: Any) -> str | None:
         user_id = info.data.get("user_id")
         if not user_id and not v:
             raise ValueError("Either userId or username must be provided")

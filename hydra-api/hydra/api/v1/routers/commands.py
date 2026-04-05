@@ -222,10 +222,7 @@ async def create_command(
     )
 
     wrapped = SuccessResponse(data=response_data)
-    if execution_method == "agent-direct":
-        status_code = 200
-    else:
-        status_code = 202
+    status_code = 200 if execution_method == "agent-direct" else 202
 
     return JSONResponse(
         content=wrapped.model_dump(by_alias=True, mode="json"),
@@ -440,7 +437,7 @@ async def confirm_command(
 
     execution_method = command.get("executionMethod")
 
-    response_data = CommandQueuedResponse(
+    response_data = CommandQueuedResponse(  # type: ignore[call-arg]
         command_id=command["commandId"],
         registry_id=command.get("registryId"),
         type=CommandType(command["type"]),
@@ -512,7 +509,7 @@ async def poll_commands(
     commands = await commands_service.poll_commands(node_id)
 
     return SuccessResponse(
-        data=CommandPollResponse(commands=commands)
+        data=CommandPollResponse(commands=commands)  # type: ignore[arg-type]
     )
 
 

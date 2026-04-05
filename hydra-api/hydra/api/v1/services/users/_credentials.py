@@ -1,7 +1,8 @@
 """User credentials mixin - handles password reset, change, and email flows."""
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 
@@ -19,14 +20,20 @@ from hydra.api.v1.models.notifications import (
 from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.services.notifications import emit_notification
 from hydra.api.v1.services.query import log_audit
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
 
 class CredentialsMixin:
     """Mixin providing password and credential management functionality."""
+    db: MongoDB
 
-    async def request_password_reset(self, email: str, settings) -> dict:
+    @staticmethod
+    def _to_utc(value: datetime | None) -> datetime | None: ...
+
+
+    async def request_password_reset(self, email: str, settings: Any) -> dict[str, Any]:
         """Request a password reset.
 
         Returns success even if email does not exist to prevent email enumeration.
@@ -55,7 +62,7 @@ class CredentialsMixin:
             return {"email_sent": False}
 
         reset_token = f"prt_{secrets.token_urlsafe(32)}"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_at = now + timedelta(hours=settings.password_reset_token_expire_hours)
 
         token_doc = {
@@ -122,7 +129,7 @@ class CredentialsMixin:
 
         return {"email_sent": email_sent}
 
-    async def reset_password(self, token: str, new_password: str) -> dict:
+    async def reset_password(self, token: str, new_password: str) -> dict[str, Any]:
         """Reset password using a reset token.
 
         Args:
@@ -135,7 +142,7 @@ class CredentialsMixin:
         Raises:
             PasswordResetTokenError: If token is invalid, used, or expired.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         token_doc = await self.db.password_reset_tokens.find_one({"token": token})
 
@@ -186,7 +193,7 @@ class CredentialsMixin:
 
     async def change_password(
         self, user_id: str, current_password: str, new_password: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Change password for authenticated user.
 
         Args:
@@ -208,7 +215,7 @@ class CredentialsMixin:
         if not verify_password(current_password, user["passwordHash"]):
             raise InvalidPasswordError()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         password_hash = hash_password(new_password)
 
         await self.db.users.update_one(

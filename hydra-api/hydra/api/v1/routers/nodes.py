@@ -5,13 +5,20 @@ from typing import Annotated, Literal
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
 
-from hydra.api.v1.core.deps import AuthServiceDep, CurrentUser, MongoDBDep, RegistrationAuth, require_permission
+from hydra.api.v1.core.deps import (
+    AuthServiceDep,
+    CurrentUser,
+    MongoDBDep,
+    RegistrationAuth,
+    require_permission,
+)
 from hydra.api.v1.models.auth import (
     NodeApiKeyRefreshResponse,
     NodeRegistrationRequest,
     NodeRegistrationResponse,
 )
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
+from hydra.api.v1.models.groups import GroupSummary
 from hydra.api.v1.models.nodes import (
     AgentInfo,
     AgentListResponse,
@@ -25,7 +32,6 @@ from hydra.api.v1.models.nodes import (
     NodeType,
     UpdateNodeRequest,
 )
-from hydra.api.v1.models.groups import GroupSummary
 from hydra.api.v1.services.groups import GroupsService
 from hydra.api.v1.services.nodes import NodeService
 
@@ -98,7 +104,7 @@ async def list_nodes(
     Raises:
         HTTPException 403: Insufficient permissions.
     """
-    params = NodeListParams(
+    params = NodeListParams(  # type: ignore[call-arg]
         node_class=node_class,
         node_type=node_type,
         kind=kind,
@@ -319,7 +325,7 @@ async def get_node_groups(
         List of group summaries the node belongs to.
     """
     groups = await groups_service.get_node_groups(node_id)
-    return SuccessResponse(data=groups)
+    return SuccessResponse(data=groups)  # type: ignore[arg-type]
 
 
 node_router = APIRouter(prefix="/nodes", tags=["Node Registration"])

@@ -1,7 +1,8 @@
 """LLM Bridge service for streaming LLM provider calls."""
 
 import json
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import structlog
@@ -17,7 +18,7 @@ logger = structlog.get_logger(__name__)
 class LLMConfigError(ValidationError):
     """LLM configuration error."""
 
-    def __init__(self, message: str, details: dict | None = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message, details or {})
 
 
@@ -27,7 +28,7 @@ class LLMBridge:
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
 
-    async def get_config(self, config_id: str, user_id: str) -> dict:
+    async def get_config(self, config_id: str, user_id: str) -> dict[str, Any]:
         """Get and prepare LLM configuration for API calls.
 
         Args:
@@ -163,8 +164,8 @@ class LLMBridge:
     async def _parse_openai_sse_stream(
         self,
         response: httpx.Response,
-        provider_label: str,
-    ) -> AsyncIterator[dict]:
+        _provider_label: str,
+    ) -> AsyncIterator[dict[str, Any]]:
         """Parse an OpenAI-compatible SSE stream into normalized events.
 
         Handles text deltas, tool call accumulation by index, and finish
@@ -177,7 +178,7 @@ class LLMBridge:
         Yields:
             Normalized event dicts (text_delta, tool_use, done).
         """
-        tool_calls: dict[int, dict] = {}
+        tool_calls: dict[int, dict[str, Any]] = {}
 
         async for line in response.aiter_lines():
             if not line or not line.startswith("data: "):
@@ -238,10 +239,10 @@ class LLMBridge:
     async def _make_openai_streaming_request(
         self,
         url: str,
-        headers: dict,
-        body: dict,
+        headers: dict[str, Any],
+        body: dict[str, Any],
         provider_label: str,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[dict[str, Any]]:
         """Make an OpenAI-compatible streaming request with shared error handling.
 
         Combines httpx client management, status checking, timeout handling,
@@ -282,9 +283,9 @@ class LLMBridge:
 
     async def stream_completion(
         self,
-        provider_config: dict,
-        messages: list[dict],
-        tools: list[dict] | None = None,
+        provider_config: dict[str, Any],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         system_prompt: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
@@ -294,7 +295,7 @@ class LLMBridge:
         presence_penalty: float | None = None,
         reasoning_level: str = "none",
         web_search_enabled: bool = False,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[dict[str, Any]]:
         """Stream a completion from the configured LLM provider.
 
         Routes the request to the appropriate provider-specific streaming method
@@ -372,12 +373,12 @@ class LLMBridge:
 
     async def _stream_anthropic(
         self,
-        config: dict,
-        messages: list[dict],
-        tools: list[dict] | None,
+        config: dict[str, Any],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
         system_prompt: str | None,
-        model_config: dict,
-    ) -> AsyncIterator[dict]:
+        model_config: dict[str, Any],
+    ) -> AsyncIterator[dict[str, Any]]:
         """Stream from Anthropic's Messages API.
 
         Args:
@@ -507,12 +508,12 @@ class LLMBridge:
 
     async def _stream_openai(
         self,
-        config: dict,
-        messages: list[dict],
-        tools: list[dict] | None,
+        config: dict[str, Any],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
         system_prompt: str | None,
-        model_config: dict,
-    ) -> AsyncIterator[dict]:
+        model_config: dict[str, Any],
+    ) -> AsyncIterator[dict[str, Any]]:
         """Stream from OpenAI's Chat Completions API.
 
         Args:
@@ -587,12 +588,12 @@ class LLMBridge:
 
     async def _stream_ollama(
         self,
-        config: dict,
-        messages: list[dict],
-        tools: list[dict] | None,
+        config: dict[str, Any],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
         system_prompt: str | None,
-        model_config: dict,
-    ) -> AsyncIterator[dict]:
+        model_config: dict[str, Any],
+    ) -> AsyncIterator[dict[str, Any]]:
         """Stream from Ollama's Chat API.
 
         Supports tool calling for compatible models (llama3.1+, mistral, qwen2+, etc.).
@@ -710,12 +711,12 @@ class LLMBridge:
 
     async def _stream_openrouter(
         self,
-        config: dict,
-        messages: list[dict],
-        tools: list[dict] | None,
+        config: dict[str, Any],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
         system_prompt: str | None,
-        model_config: dict,
-    ) -> AsyncIterator[dict]:
+        model_config: dict[str, Any],
+    ) -> AsyncIterator[dict[str, Any]]:
         """Stream from OpenRouter's Chat Completions API.
 
         OpenRouter provides access to multiple LLM providers through a unified API.
@@ -796,7 +797,7 @@ class LLMBridge:
         async for event in self._make_openai_streaming_request(url, headers, body, "OpenRouter"):
             yield event
 
-    def _format_messages_anthropic(self, messages: list[dict]) -> list[dict]:
+    def _format_messages_anthropic(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Format messages for Anthropic API.
 
         Converts internal message format to Anthropic's expected structure,
@@ -823,7 +824,7 @@ class LLMBridge:
                     }],
                 })
             elif role == "assistant" and msg.get("tool_calls"):
-                content_blocks: list[dict] = []
+                content_blocks: list[dict[str, Any]] = []
                 if content:
                     content_blocks.append({"type": "text", "text": content})
                 for tc in msg["tool_calls"]:
@@ -840,7 +841,7 @@ class LLMBridge:
 
         return formatted
 
-    def _format_messages_openai(self, messages: list[dict]) -> list[dict]:
+    def _format_messages_openai(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Format messages for OpenAI API.
 
         Converts internal message format to OpenAI's expected structure,
@@ -884,7 +885,7 @@ class LLMBridge:
 
         return formatted
 
-    def _format_messages_ollama(self, messages: list[dict]) -> list[dict]:
+    def _format_messages_ollama(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Format messages for Ollama API.
 
         Converts internal message format to Ollama's expected structure.
@@ -929,7 +930,7 @@ class LLMBridge:
 
         return formatted
 
-    def _format_tools_anthropic(self, tools: list[dict]) -> list[dict]:
+    def _format_tools_anthropic(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Format tools for Anthropic API.
 
         Args:
@@ -947,7 +948,7 @@ class LLMBridge:
             for tool in tools
         ]
 
-    def _format_tools_openai(self, tools: list[dict]) -> list[dict]:
+    def _format_tools_openai(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Format tools for OpenAI API.
 
         Args:
@@ -968,7 +969,7 @@ class LLMBridge:
             for tool in tools
         ]
 
-    def _format_tools_ollama(self, tools: list[dict]) -> list[dict]:
+    def _format_tools_ollama(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Format tools for Ollama API.
 
         Ollama uses an OpenAI-compatible format for tool definitions.

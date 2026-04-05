@@ -1,7 +1,7 @@
 """Tests for profile management endpoints."""
 
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
@@ -23,7 +23,7 @@ async def test_submit_profile_success(
     mock_mongodb.profile_meta.insert_one = AsyncMock()
     mock_mongodb.nodes.update_one = AsyncMock()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     response = await client.post(
         "/api/v1/profiles",
         json={
@@ -91,7 +91,7 @@ async def test_submit_profile_increments_version(
     mock_mongodb.profile_meta.insert_one = AsyncMock()
     mock_mongodb.nodes.update_one = AsyncMock()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     response = await client.post(
         "/api/v1/profiles",
         json={
@@ -121,7 +121,7 @@ async def test_submit_profile_node_not_found(
     """Test submitting profile for non-existent node."""
     mock_mongodb.nodes.find_one = AsyncMock(return_value=None)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     response = await client.post(
         "/api/v1/profiles",
         json={

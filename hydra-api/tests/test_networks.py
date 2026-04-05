@@ -1,6 +1,6 @@
 """Tests for network management endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,7 +12,7 @@ from tests.utils import create_mock_cursor
 @pytest.fixture
 def sample_network():
     """Sample network document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "networkId": "homenet",
         "name": "Home LAN",

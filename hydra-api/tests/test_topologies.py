@@ -1,7 +1,7 @@
 """Tests for topology management endpoints."""
 
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
@@ -12,7 +12,7 @@ from tests.utils import create_mock_cursor
 @pytest.fixture
 def sample_topology():
     """Sample topology document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "topologyId": "topo-abc123",
         "mode": "infrastructure",

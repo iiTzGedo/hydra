@@ -3,6 +3,7 @@
 import hashlib
 import json
 from collections.abc import Iterator, Mapping
+from typing import Any
 
 from hydra.api.v1.models.profiles import ProfileSubmission
 from hydra.core.config import get_settings as _get_settings
@@ -94,7 +95,7 @@ def compute_profile_hash(fingerprints: dict[str, list[str]]) -> str:
     return hashlib.sha256(combined.encode()).hexdigest()
 
 
-def _hash_dict(data: dict) -> str:
+def _hash_dict(data: dict[str, Any]) -> str:
     """Hash a dictionary to a fingerprint."""
     json_str = json.dumps(data, sort_keys=True, default=str)
     return hashlib.sha256(json_str.encode()).hexdigest()[:16]

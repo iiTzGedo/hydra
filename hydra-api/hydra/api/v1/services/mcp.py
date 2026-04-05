@@ -1,7 +1,8 @@
 """MCP server configuration management service."""
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import structlog
@@ -44,7 +45,7 @@ class MCPService:
         enabled_only: bool = False,
         limit: int = 50,
         offset: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """List MCP server configurations for a user.
 
         Args:
@@ -57,7 +58,7 @@ class MCPService:
         Returns:
             Dict with "servers" list and "total" count.
         """
-        query: dict = {"ownerId": user_id}
+        query: dict[str, Any] = {"ownerId": user_id}
         if category:
             query["category"] = category
         if enabled_only:
@@ -78,7 +79,7 @@ class MCPService:
 
         return {"servers": servers, "total": total}
 
-    async def get_server(self, server_id: str, user_id: str) -> dict:
+    async def get_server(self, server_id: str, user_id: str) -> dict[str, Any]:
         """Get a specific MCP server configuration.
 
         Args:
@@ -105,7 +106,7 @@ class MCPService:
         self,
         request: MCPServerCreate,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a new MCP server configuration.
 
         Args:
@@ -115,7 +116,7 @@ class MCPService:
         Returns:
             The created server configuration.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         server_id = f"mcp_{secrets.token_urlsafe(8)}"
 
         encrypted_auth = None
@@ -155,7 +156,7 @@ class MCPService:
         server_id: str,
         request: MCPServerUpdate,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Update an MCP server configuration.
 
         Endpoint changes reset the server status to unknown and clear the
@@ -180,8 +181,8 @@ class MCPService:
         if not doc:
             raise MCPServerNotFoundError(server_id)
 
-        now = datetime.now(timezone.utc)
-        update_fields: dict = {"updatedAt": now}
+        now = datetime.now(UTC)
+        update_fields: dict[str, Any] = {"updatedAt": now}
 
         if request.name is not None:
             update_fields["name"] = request.name
@@ -211,9 +212,9 @@ class MCPService:
 
         logger.info("mcp_server_updated", server_id=server_id, user_id=user_id)
 
-        return self._doc_to_response(updated_doc)
+        return self._doc_to_response(updated_doc)  # type: ignore[arg-type]
 
-    async def delete_server(self, server_id: str, user_id: str) -> dict:
+    async def delete_server(self, server_id: str, user_id: str) -> dict[str, Any]:
         """Delete an MCP server configuration.
 
         Args:
@@ -240,7 +241,7 @@ class MCPService:
 
         return {"deleted": True, "serverId": server_id}
 
-    async def check_health(self, server_id: str, user_id: str) -> dict:
+    async def check_health(self, server_id: str, user_id: str) -> dict[str, Any]:
         """Check the health of an MCP server.
 
         Attempts to reach the server's /health endpoint and updates the stored
@@ -264,7 +265,7 @@ class MCPService:
         if not doc:
             raise MCPServerNotFoundError(server_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         endpoint = doc["endpoint"]
         auth_type = MCPAuthType(doc.get("authType", "none"))
 
@@ -342,7 +343,7 @@ class MCPService:
             "resources": resources,
         }
 
-    async def list_tools(self, server_id: str, user_id: str) -> dict:
+    async def list_tools(self, server_id: str, user_id: str) -> dict[str, Any]:
         """List tools available on an MCP server.
 
         Args:
@@ -404,7 +405,7 @@ class MCPService:
             ],
         }
 
-    async def list_resources(self, server_id: str, user_id: str) -> dict:
+    async def list_resources(self, server_id: str, user_id: str) -> dict[str, Any]:
         """List resources available on an MCP server.
 
         Args:
@@ -473,7 +474,7 @@ class MCPService:
             ],
         }
 
-    def _doc_to_response(self, doc: dict) -> dict:
+    def _doc_to_response(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Convert a database document to a response dictionary."""
         return {
             "server_id": doc["serverId"],
@@ -492,7 +493,7 @@ class MCPService:
             "updated_at": doc["updatedAt"],
         }
 
-    async def check_hydra_health(self) -> dict:
+    async def check_hydra_health(self) -> dict[str, Any]:
         """Check health of the built-in Hydra MCP server.
 
         This doesn't require DB lookup - uses the configured MCP server URL directly.
@@ -502,7 +503,7 @@ class MCPService:
         """
         settings = get_settings()
         endpoint = settings.mcp_server_url
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         status = MCPServerStatus.UNHEALTHY
         message = ""
@@ -566,7 +567,7 @@ class MCPService:
             "endpoint": endpoint,
         }
 
-    async def list_prompts(self, server_id: str, user_id: str) -> dict:
+    async def list_prompts(self, server_id: str, user_id: str) -> dict[str, Any]:
         """List prompts available on an MCP server.
 
         Args:
@@ -639,7 +640,7 @@ class MCPService:
             ],
         }
 
-    async def list_hydra_prompts(self) -> dict:
+    async def list_hydra_prompts(self) -> dict[str, Any]:
         """List prompts available on the built-in Hydra MCP server.
 
         Returns:
@@ -689,7 +690,7 @@ class MCPService:
             ],
         }
 
-    async def list_hydra_tools(self) -> dict:
+    async def list_hydra_tools(self) -> dict[str, Any]:
         """List tools available on the built-in Hydra MCP server.
 
         Returns:

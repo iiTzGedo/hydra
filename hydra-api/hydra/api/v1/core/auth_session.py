@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Request, WebSocket
@@ -31,14 +31,14 @@ def _to_unix_timestamp(value: int | float | str | datetime | None) -> int:
         return 0
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
+            value = value.replace(tzinfo=UTC)
         return int(value.timestamp())
     return int(value)
 
 
 def ttl_from_exp(value: int | float | str | datetime | None) -> int:
     """Return the remaining TTL in seconds from an exp-like value."""
-    return max(_to_unix_timestamp(value) - int(datetime.now(timezone.utc).timestamp()), 0)
+    return max(_to_unix_timestamp(value) - int(datetime.now(UTC).timestamp()), 0)
 
 
 def session_key(session_id: str) -> str:
@@ -56,25 +56,25 @@ def access_blacklist_key(token_jti: str) -> str:
     return f"{ACCESS_BLACKLIST_PREFIX}{token_jti}"
 
 
-async def store_json(redis_client, key: str, value: dict[str, Any], ttl_seconds: int) -> None:
+async def store_json(redis_client: Any, key: str, value: dict[str, Any], ttl_seconds: int) -> None:
     """Serialize and store a JSON document with TTL."""
     await redis_client.setex(key, ttl_seconds, json.dumps(value))
 
 
-async def load_json(redis_client, key: str) -> dict[str, Any] | None:
+async def load_json(redis_client: Any, key: str) -> dict[str, Any] | None:
     """Load and deserialize a JSON document from Redis."""
     raw = await redis_client.get(key)
     if not raw:
         return None
-    return json.loads(raw)
+    return json.loads(raw)  # type: ignore[no-any-return]
 
 
-def should_use_secure_cookies(request: Request, settings) -> bool:
+def should_use_secure_cookies(request: Request, settings: Any) -> bool:
     """Use secure cookies on HTTPS requests or outside development."""
     return request.url.scheme == "https" or not settings.is_development
 
 
-def cookie_settings(request: Request, settings) -> dict[str, Any]:
+def cookie_settings(request: Request, settings: Any) -> dict[str, Any]:
     """Return common cookie attributes for Hydra session cookies."""
     return {
         "httponly": True,

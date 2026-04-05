@@ -1,6 +1,7 @@
 """Global search service."""
 
 import re
+from typing import Any
 
 import structlog
 from pymongo.errors import OperationFailure
@@ -23,7 +24,7 @@ class SearchService:
         types: list[SearchEntityType] | None = None,
         tags: list[str] | None = None,
         limit: int = 20,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Search across nodes, services, groups, and networks.
 
         Args:
@@ -74,9 +75,9 @@ class SearchService:
         query: str,
         tags: list[str] | None,
         limit: int,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Search nodes using text index."""
-        search_query: dict = {}
+        search_query: dict[str, Any] = {}
 
         if query:
             search_query["$text"] = {"$search": query}
@@ -134,9 +135,9 @@ class SearchService:
         query: str,
         tags: list[str] | None,
         limit: int,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fallback regex search for nodes."""
-        search_query: dict = {"status": {"$ne": "archived"}}
+        search_query: dict[str, Any] = {"status": {"$ne": "archived"}}
 
         if query:
             regex = {"$regex": re.escape(query), "$options": "i"}
@@ -169,9 +170,9 @@ class SearchService:
         query: str,
         tags: list[str] | None,
         limit: int,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Search services using text index."""
-        search_query: dict = {}
+        search_query: dict[str, Any] = {}
 
         if query:
             search_query["$text"] = {"$search": query}
@@ -228,9 +229,9 @@ class SearchService:
         query: str,
         tags: list[str] | None,
         limit: int,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fallback regex search for services."""
-        search_query: dict = {}
+        search_query: dict[str, Any] = {}
 
         if query:
             regex = {"$regex": re.escape(query), "$options": "i"}
@@ -264,9 +265,9 @@ class SearchService:
         query: str,
         tags: list[str] | None,
         limit: int,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Search groups."""
-        search_query: dict = {}
+        search_query: dict[str, Any] = {}
 
         if query:
             regex = {"$regex": re.escape(query), "$options": "i"}
@@ -305,9 +306,9 @@ class SearchService:
         query: str,
         tags: list[str] | None,
         limit: int,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Search networks."""
-        search_query: dict = {}
+        search_query: dict[str, Any] = {}
 
         if query:
             regex = {"$regex": re.escape(query), "$options": "i"}

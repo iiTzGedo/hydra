@@ -15,6 +15,7 @@ def configure_logging(settings: Settings) -> None:
     Args:
         settings: Application settings containing log level and format.
     """
+    renderer: structlog.types.Processor
     if settings.log_format == "json":
         renderer = structlog.processors.JSONRenderer()
     else:
@@ -57,4 +58,4 @@ def get_request_logger(request_id: str, **kwargs: Any) -> structlog.BoundLogger:
     Returns:
         BoundLogger instance with request context.
     """
-    return structlog.get_logger().bind(request_id=request_id, **kwargs)
+    return structlog.get_logger().bind(request_id=request_id, **kwargs)  # type: ignore[no-any-return]

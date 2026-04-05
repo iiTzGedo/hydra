@@ -1,7 +1,8 @@
 """Health check and service info endpoints."""
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends
@@ -45,7 +46,7 @@ def get_uptime() -> float:
 async def health_check(
     mongodb: MongoDB = Depends(get_mongodb),
     redis: RedisClient = Depends(get_redis),
-    storage: StorageServiceDep = None,
+    storage: StorageServiceDep = None,  # type: ignore[assignment]
 ) -> HealthCheck:
     """Check health status of the API and all dependencies.
 
@@ -99,7 +100,7 @@ async def health_check(
     return HealthCheck(
         status=status,
         version=__version__,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         checks=checks,
         uptime_seconds=get_uptime(),
     )
@@ -126,7 +127,7 @@ async def service_info(
     Returns:
         Service information with version, API version, statistics, and feature flags.
     """
-    stats: dict = {
+    stats: dict[str, Any] = {
         "nodes": {"total": 0, "active": 0, "byClass": {}},
         "services": {"total": 0, "running": 0},
         "networks": {"total": 0},

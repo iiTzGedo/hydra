@@ -4,10 +4,13 @@ from datetime import datetime
 from typing import Any
 
 from hydra.api.v1.models.notifications import NotificationStatus
+from hydra.db.mongodb import MongoDB
 
 
 class QueryMixin:
     """Mixin providing notification list, detail, and stats queries."""
+    db: MongoDB
+
 
     async def list_notifications(
         self,
@@ -27,7 +30,7 @@ class QueryMixin:
         until: datetime | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List notifications visible to the current user.
 
         Returns (notifications_with_read_state, total_count).
@@ -104,7 +107,7 @@ class QueryMixin:
             ]
 
             count_pipeline = [*base_pipeline, {"$count": "count"}]
-            count_result = await self.db.notifications.aggregate(count_pipeline).to_list(length=1)
+            count_result = await self.db.notifications.aggregate(count_pipeline).to_list(length=1)  # type: ignore[arg-type]
             total = count_result[0]["count"] if count_result else 0
 
             list_pipeline = [
@@ -113,7 +116,7 @@ class QueryMixin:
                 {"$skip": offset},
                 {"$limit": limit},
             ]
-            notifications = await self.db.notifications.aggregate(list_pipeline).to_list(length=limit)
+            notifications = await self.db.notifications.aggregate(list_pipeline).to_list(length=limit)  # type: ignore[arg-type]
             return notifications, total
 
         # Default path: no read filter
@@ -143,7 +146,7 @@ class QueryMixin:
 
     async def get_notification(
         self, notification_id: str, user_id: str
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """Get a single notification with per-user read state."""
         doc = await self.db.notifications.find_one(
             {"notificationId": notification_id}, {"_id": 0}
@@ -156,11 +159,11 @@ class QueryMixin:
             {"_id": 0},
         )
         doc["readAt"] = read_doc.get("readAt") if read_doc else None
-        return doc
+        return doc  # type: ignore[no-any-return]
 
     async def get_stats(
         self, user_id: str, user_roles: list[str]
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get aggregated notification statistics for the current user."""
         visibility_filter: dict[str, Any] = {
             "$or": [

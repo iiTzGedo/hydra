@@ -1,5 +1,7 @@
 """MongoDB index definitions and setup."""
 
+from typing import Any
+
 import structlog
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, TEXT, IndexModel
@@ -185,7 +187,7 @@ INDEXES: dict[str, list[IndexModel]] = {
 }
 
 
-async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
+async def ensure_indexes(db: "AsyncIOMotorDatabase[Any]") -> None:
     """Create all indexes for all collections.
 
     Args:
@@ -209,7 +211,7 @@ async def ensure_indexes(db: AsyncIOMotorDatabase) -> None:
     logger.info("all_indexes_created")
 
 
-async def drop_indexes(db: AsyncIOMotorDatabase, exclude_id: bool = True) -> None:
+async def drop_indexes(db: "AsyncIOMotorDatabase[Any]", exclude_id: bool = True) -> None:
     """Drop all indexes (for testing/reset).
 
     Args:
@@ -218,7 +220,7 @@ async def drop_indexes(db: AsyncIOMotorDatabase, exclude_id: bool = True) -> Non
     """
     logger.warning("dropping_indexes")
 
-    for collection_name in INDEXES.keys():
+    for collection_name in INDEXES:
         collection = db[collection_name]
         try:
             if exclude_id:

@@ -148,6 +148,11 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     }
   }, [isOpen]);
 
+  const handleSelect = useCallback((result: SearchResult) => {
+    navigate(result.route);
+    onClose();
+  }, [navigate, onClose]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;
@@ -176,12 +181,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, results, selectedIndex, onClose]);
-
-  const handleSelect = (result: SearchResult) => {
-    navigate(result.route);
-    onClose();
-  };
+  }, [isOpen, results, selectedIndex, onClose, handleSelect]);
 
   if (!isOpen) return null;
 

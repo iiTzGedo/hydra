@@ -45,18 +45,13 @@ pub struct ApiConfig {
 /// - `Lite`: Profile collection only (SBCs, low-resource nodes)
 /// - `Normal`: Profile + poll-based command execution (general compute)
 /// - `Max`: Profile + embedded HTTP server for sync execution + delegated scanning
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentTier {
     Lite,
+    #[default]
     Normal,
     Max,
-}
-
-impl Default for AgentTier {
-    fn default() -> Self {
-        AgentTier::Normal
-    }
 }
 
 impl std::fmt::Display for AgentTier {

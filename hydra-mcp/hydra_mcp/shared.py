@@ -20,7 +20,7 @@ toon = TOONFormatter(
 )
 
 
-def safe_list(data: Any) -> list:
+def safe_list(data: Any) -> list[Any]:
     """Ensure data is a list, returning empty list if not.
 
     This helper eliminates the repeated ``isinstance(x, list) else []`` pattern

@@ -1,15 +1,15 @@
 """Group models for request/response validation."""
 
 from datetime import datetime
-from enum import Enum
-from typing import Literal
+from enum import StrEnum
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hydra.api.v1.core.validators import TAG_PATTERN, validate_tag
 
 
-class GroupEntityType(str, Enum):
+class GroupEntityType(StrEnum):
     """Types of entities that can be in a group."""
 
     NODE = "node"
@@ -142,7 +142,7 @@ class GroupResolveResult(BaseModel):
 
     group_id: str = Field(alias="groupId")
     member_count: MemberCount = Field(alias="memberCount")
-    changes: dict = Field(default_factory=dict)
+    changes: dict[str, Any] = Field(default_factory=dict)
 
 
 class CreateGroupRequest(BaseModel):

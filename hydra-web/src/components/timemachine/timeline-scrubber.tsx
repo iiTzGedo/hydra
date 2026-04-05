@@ -87,7 +87,14 @@ export function TimelineScrubber({
     <div className="space-y-4">
       <div
         ref={trackRef}
+        role="slider"
+        tabIndex={0}
+        aria-label="Timeline scrubber"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(currentPercent)}
         onClick={handleTrackClick}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleTrackClick(e as unknown as React.MouseEvent<HTMLDivElement>); } }}
         className="relative h-12 cursor-pointer"
       >
         <div className="absolute inset-x-0 top-5 h-2 rounded-full bg-muted" />

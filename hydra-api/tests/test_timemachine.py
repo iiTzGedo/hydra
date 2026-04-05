@@ -1,6 +1,6 @@
 """Tests for Time Machine endpoints."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,7 +12,7 @@ from tests.utils import create_mock_cursor
 @pytest.fixture
 def sample_timeline_profile():
     """Sample profile for timeline events (needs submittedAt, version, profileId, nodeId)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "profileId": "prof-abc123",
         "nodeId": "server-01",
@@ -40,7 +40,7 @@ async def test_get_node_state_at(
     mock_mongodb.profiles.find_one = AsyncMock(return_value=sample_profile)
     mock_mongodb.services.find.return_value = create_mock_cursor([])
 
-    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     response = await client.get(
         f"/api/v1/timemachine/node/{sample_node['nodeId']}?timestamp={timestamp}",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -68,7 +68,7 @@ async def test_get_node_state_at_with_sections(
     mock_mongodb.profiles.find_one = AsyncMock(return_value=sample_profile)
     mock_mongodb.services.find.return_value = create_mock_cursor([])
 
-    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     response = await client.get(
         f"/api/v1/timemachine/node/{sample_node['nodeId']}?timestamp={timestamp}&sections=hardware&sections=network",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -90,7 +90,7 @@ async def test_get_node_state_at_not_found(
     )
     mock_mongodb.nodes.find_one = AsyncMock(return_value=None)
 
-    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     response = await client.get(
         f"/api/v1/timemachine/node/nonexistent?timestamp={timestamp}",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -110,7 +110,7 @@ async def test_get_topology_at(
     mock_mongodb.users.find_one = AsyncMock(
         return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     sample_topology = {
         "topologyId": "topo-abc123",
         "mode": "infrastructure",
@@ -151,7 +151,7 @@ async def test_get_topology_at_without_graph(
     mock_mongodb.users.find_one = AsyncMock(
         return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     sample_topology = {
         "topologyId": "topo-abc123",
         "mode": "infrastructure",
@@ -224,7 +224,7 @@ async def test_get_timeline_with_filters(
     mock_mongodb.topologies.find.return_value = create_mock_cursor([])
     mock_mongodb.networks.find.return_value = create_mock_cursor([])
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     since = (now - timedelta(hours=24)).isoformat().replace("+00:00", "Z")
     until = now.isoformat().replace("+00:00", "Z")
 
@@ -306,7 +306,7 @@ async def test_timemachine_forbidden_for_viewer(
     mock_mongodb.users.find_one = AsyncMock(return_value=viewer_user)
     mock_mongodb.nodes.find_one = AsyncMock(return_value=None)
 
-    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     response = await client.get(
         f"/api/v1/timemachine/node/server-01?timestamp={timestamp}",
         headers={"Authorization": f"Bearer {viewer_token}"},

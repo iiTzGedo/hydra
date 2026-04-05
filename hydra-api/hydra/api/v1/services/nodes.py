@@ -1,17 +1,17 @@
 """Node management service."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 from pymongo import ASCENDING, DESCENDING
 
 from hydra.api.v1.core.exceptions import NodeNotFoundError, ValidationError
-from hydra.core.config import get_settings
-from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.nodes import NodeListParams, NodeStatus, UpdateNodeRequest
 from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.services.query import log_audit
+from hydra.core.config import get_settings
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -22,7 +22,7 @@ class NodeService:
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
 
-    async def get_node(self, node_id: str) -> dict:
+    async def get_node(self, node_id: str) -> dict[str, Any]:
         """Retrieve a single node by its identifier.
 
         Args:
@@ -39,7 +39,7 @@ class NodeService:
             raise NodeNotFoundError(node_id)
         return self._format_node(node)
 
-    async def list_nodes(self, params: NodeListParams) -> tuple[list[dict], int]:
+    async def list_nodes(self, params: NodeListParams) -> tuple[list[dict[str, Any]], int]:
         """List nodes with filtering, sorting, and pagination.
 
         Args:
@@ -102,7 +102,7 @@ class NodeService:
 
         return nodes, total
 
-    async def update_node(self, node_id: str, request: UpdateNodeRequest, user_id: str | None = None) -> dict:
+    async def update_node(self, node_id: str, request: UpdateNodeRequest, user_id: str | None = None) -> dict[str, Any]:
         """Update node metadata.
 
         Args:
@@ -122,7 +122,7 @@ class NodeService:
         if not existing:
             raise NodeNotFoundError(node_id)
 
-        update_fields: dict[str, Any] = {"lastUpdated": datetime.now(timezone.utc)}
+        update_fields: dict[str, Any] = {"lastUpdated": datetime.now(UTC)}
 
         if request.display_name is not None:
             update_fields["displayName"] = request.display_name
@@ -166,7 +166,7 @@ class NodeService:
 
         return await self.get_node(node_id)
 
-    async def archive_node(self, node_id: str, user_id: str | None = None) -> dict:
+    async def archive_node(self, node_id: str, user_id: str | None = None) -> dict[str, Any]:
         """Archive a node (soft delete).
 
         Args:
@@ -192,7 +192,7 @@ class NodeService:
             {
                 "$set": {
                     "status": NodeStatus.ARCHIVED.value,
-                    "lastUpdated": datetime.now(timezone.utc),
+                    "lastUpdated": datetime.now(UTC),
                 }
             },
         )
@@ -210,7 +210,7 @@ class NodeService:
 
         return await self.get_node(node_id)
 
-    async def get_node_children(self, node_id: str) -> list[dict]:
+    async def get_node_children(self, node_id: str) -> list[dict[str, Any]]:
         """Get child nodes of a parent node.
 
         Args:
@@ -248,7 +248,7 @@ class NodeService:
             {
                 "$set": {
                     "networkIds": network_ids,
-                    "lastUpdated": datetime.now(timezone.utc),
+                    "lastUpdated": datetime.now(UTC),
                 }
             },
         )
@@ -270,7 +270,7 @@ class NodeService:
             {
                 "$set": {
                     "lastProfileAt": profile_time,
-                    "lastUpdated": datetime.now(timezone.utc),
+                    "lastUpdated": datetime.now(UTC),
                 }
             },
         )
@@ -283,7 +283,7 @@ class NodeService:
         healthy_only: bool = False,
         limit: int = 50,
         offset: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """List all registered agents (nodes with submitted profiles).
 
         An agent is considered healthy if it has submitted a profile within
@@ -300,11 +300,11 @@ class NodeService:
         """
         from datetime import timedelta
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         settings = get_settings()
         health_threshold = now - timedelta(hours=settings.health_cutoff_hours)
 
-        query: dict = {"lastProfileAt": {"$ne": None}}
+        query: dict[str, Any] = {"lastProfileAt": {"$ne": None}}
 
         if status:
             query["status"] = status
@@ -344,7 +344,7 @@ class NodeService:
         agents = []
         active_count = 0
 
-        async for node in self.db.nodes.aggregate(pipeline):
+        async for node in self.db.nodes.aggregate(pipeline):  # type: ignore[arg-type]
             last_profile_at = node.get("lastProfileAt")
             last_seen_at = node.get("lastSeenAt")
             # Use lastSeenAt if available (includes profile + command poll), fall back to lastProfileAt
@@ -403,7 +403,7 @@ class NodeService:
             "offset": offset,
         }
 
-    def _format_node(self, doc: dict) -> dict:
+    def _format_node(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a node document for API response."""
         return {
             "nodeId": doc["nodeId"],
@@ -430,7 +430,7 @@ class NodeService:
             "lastPollContact": doc.get("lastPollContact"),
         }
 
-    def _format_node_summary(self, doc: dict) -> dict:
+    def _format_node_summary(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a node document for list response."""
         return {
             "nodeId": doc["nodeId"],

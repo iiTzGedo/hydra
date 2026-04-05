@@ -1,7 +1,10 @@
 """Chat request handling and streaming for the chat WebSocket endpoint."""
 
+
+import contextlib
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from fastapi import WebSocket, WebSocketDisconnect
@@ -41,7 +44,7 @@ class ChatWebSocketHandler:
         self.cache_service = ChatCacheService(mongodb=mongodb)
         self._cancelled = False
 
-    async def handle(self):
+    async def handle(self) -> None:
         """Process incoming WebSocket messages until the connection closes."""
         try:
             while True:
@@ -64,19 +67,17 @@ class ChatWebSocketHandler:
             logger.info("websocket_disconnected", user_id=self.user_id)
         except Exception as exc:
             logger.exception("websocket_error", user_id=self.user_id, error=str(exc))
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.WEBSOCKET_FAILURE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="chat_ws"),
                     "WebSocket failure",
                     f"WebSocket error: {str(exc)}",
                 )
-            except Exception:
-                pass
             await self._send_error(str(exc))
 
     @staticmethod
-    def _parse_request_config(data: dict) -> tuple[dict, str, bool]:
+    def _parse_request_config(data: dict[str, Any]) -> tuple[dict[str, Any], str, bool]:
         """Parse model configuration and feature flags from a request."""
         reasoning_level = data.get("reasoningLevel", "none")
         if data.get("reasoningEnabled", False) and reasoning_level == "none":
@@ -98,12 +99,12 @@ class ChatWebSocketHandler:
     async def _prepare_and_stream(
         self,
         session_id: str,
-        session: dict,
+        session: dict[str, Any],
         provider_id: str | None,
-        model_config: dict,
+        model_config: dict[str, Any],
         reasoning_level: str,
         web_search_enabled: bool,
-    ):
+    ) -> None:
         """Prepare conversation context and stream an LLM response."""
         active_provider_id = provider_id or session.get("llm_provider_id")
         if not active_provider_id:
@@ -113,7 +114,7 @@ class ChatWebSocketHandler:
         provider_config = await self.llm_bridge.get_config(active_provider_id, self.user_id)
 
         mcp_server_ids = session.get("mcp_server_ids", [])
-        tools: list[dict] = []
+        tools: list[dict[str, Any]] = []
         if mcp_server_ids:
             tools = await self.mcp_client.get_all_tools_for_session(mcp_server_ids, self.user_id)
 
@@ -166,7 +167,7 @@ class ChatWebSocketHandler:
             context_window=conversation.context_window,
         )
 
-    async def _handle_chat_request(self, data: dict):
+    async def _handle_chat_request(self, data: dict[str, Any]) -> None:
         """Process a chat request with LLM completion and MCP tool support."""
         session_id = data.get("sessionId")
         message_content = data.get("content", "")
@@ -196,22 +197,20 @@ class ChatWebSocketHandler:
             await self._send_error(f"Session not found: {session_id}")
         except LLMConfigError as exc:
             await self._send_error(f"LLM config error: {exc.message}")
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.LLM_PROVIDER_FAILURE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="chat_ws"),
                     "LLM provider failure",
                     f"LLM provider error: {str(exc)}",
                 )
-            except Exception:
-                pass
         except MCPClientError as exc:
             await self._send_error(f"MCP error: {exc.message}")
         except Exception as exc:
             logger.exception("chat_request_error", session_id=session_id, error=str(exc))
             await self._send_error(f"Internal error: {str(exc)}")
 
-    async def _handle_retry_request(self, data: dict):
+    async def _handle_retry_request(self, data: dict[str, Any]) -> None:
         """Retry generating a response for an orphaned user message."""
         session_id = data.get("sessionId")
         message_id = data.get("messageId")
@@ -261,15 +260,13 @@ class ChatWebSocketHandler:
             await self._send_error(f"Session not found: {session_id}")
         except LLMConfigError as exc:
             await self._send_error(f"LLM config error: {exc.message}")
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.LLM_PROVIDER_FAILURE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="chat_ws"),
                     "LLM provider failure",
                     f"LLM provider error: {str(exc)}",
                 )
-            except Exception:
-                pass
         except MCPClientError as exc:
             await self._send_error(f"MCP error: {exc.message}")
         except Exception as exc:
@@ -284,20 +281,20 @@ class ChatWebSocketHandler:
     async def _stream_llm_response(
         self,
         session_id: str,
-        provider_config: dict,
-        messages: list[dict],
-        tools: list[dict],
+        provider_config: dict[str, Any],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
         system_prompt: str,
         mcp_server_ids: list[str],
-        model_config: dict | None = None,
+        model_config: dict[str, Any] | None = None,
         reasoning_level: str = "none",
         web_search_enabled: bool = False,
         conversation_token_count: int = 0,
         context_window: int = 0,
-    ):
+    ) -> None:
         """Stream an LLM response with iterative tool execution support."""
         full_response = ""
-        tool_calls: list[dict] = []
+        tool_calls: list[dict[str, Any]] = []
         max_tool_rounds = 10
         total_tool_calls = 0
 
@@ -309,7 +306,7 @@ class ChatWebSocketHandler:
                 return
 
             round_text = ""
-            round_tool_calls: list[dict] = []
+            round_tool_calls: list[dict[str, Any]] = []
             config = model_config or {}
 
             async for event in self.llm_bridge.stream_completion(
@@ -344,7 +341,7 @@ class ChatWebSocketHandler:
                         "id": event.get("id", f"tc_{secrets.token_urlsafe(4)}"),
                         "name": event.get("name", ""),
                         "input": event.get("input", {}),
-                        "server_id": self._find_tool_server(event.get("name"), tools),
+                        "server_id": self._find_tool_server(event.get("name"), tools),  # type: ignore[arg-type]
                     }
                     round_tool_calls.append(tool_call)
                     tool_calls.append(tool_call)
@@ -361,15 +358,13 @@ class ChatWebSocketHandler:
                 elif event_type == "error":
                     error_msg = event.get("error", "Unknown error")
                     await self._send_error(error_msg)
-                    try:
+                    with contextlib.suppress(Exception):
                         await emit_notification(
                             NotificationType.LLM_PROVIDER_FAILURE,
                             NotificationSource(component=SourceComponent.HYDRA_API, service="chat_ws"),
                             "LLM provider failure",
                             f"LLM provider error: {error_msg}",
                         )
-                    except Exception:
-                        pass
                     return
                 elif event_type == "done":
                     break
@@ -462,14 +457,14 @@ class ChatWebSocketHandler:
             },
         })
 
-    def _find_tool_server(self, tool_name: str, tools: list[dict]) -> str | None:
+    def _find_tool_server(self, tool_name: str, tools: list[dict[str, Any]]) -> str | None:
         """Find which MCP server provides a specific tool."""
         for tool in tools:
             if tool.get("name") == tool_name:
                 return tool.get("server_id")
         return None
 
-    def _format_history(self, messages: list[dict]) -> list[dict]:
+    def _format_history(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Format message history for LLM consumption."""
         tool_response_ids: set[str] = set()
         for msg in messages:
@@ -539,7 +534,7 @@ class ChatWebSocketHandler:
 
         return result
 
-    def _build_system_prompt(self, tools: list[dict]) -> str:
+    def _build_system_prompt(self, tools: list[dict[str, Any]]) -> str:
         """Build the system prompt with MCP tool context."""
         prompt = """You are an AI assistant helping manage infrastructure through Hydra.
 You have access to tools that let you query and control infrastructure.
@@ -554,7 +549,7 @@ Available tools are from connected MCP servers for infrastructure management."""
         if tools:
             tool_names = [tool.get("name") for tool in tools if tool.get("name")]
             if tool_names:
-                prompt += f"\n\nAvailable tools: {', '.join(tool_names)}"
+                prompt += f"\n\nAvailable tools: {', '.join(tool_names)}"  # type: ignore[arg-type]
 
         return prompt
 
@@ -563,11 +558,11 @@ Available tools are from connected MCP servers for infrastructure management."""
         session_id: str,
         role: str,
         content: str,
-        tool_calls: list[dict] | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
         tool_call_id: str | None = None,
-    ):
+    ) -> None:
         """Persist a message and append it to the cache."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         message_id = f"msg_{secrets.token_urlsafe(8)}"
 
         session_result = await self.mongodb.chat_sessions.find_one_and_update(
@@ -620,25 +615,25 @@ Available tools are from connected MCP servers for infrastructure management."""
             "created_at": now.isoformat(),
         })
 
-    async def _send(self, data: dict):
+    async def _send(self, data: dict[str, Any]) -> None:
         """Send a JSON message to the WebSocket client."""
         await self.websocket.send_json(data)
 
-    async def _send_error(self, error: str):
+    async def _send_error(self, error: str) -> None:
         """Send an error message to the WebSocket client."""
         await self._send({"type": WSMessageType.ERROR, "error": error})
 
     async def _update_session_context(
         self,
         session_id: str,
-        provider_config: dict,
+        provider_config: dict[str, Any],
         tool_calls_count: int,
         conversation_tokens: int = 0,
         output_tokens: int = 0,
-    ):
+    ) -> None:
         """Update session context and lock the chosen LLM config."""
-        now = datetime.now(timezone.utc)
-        update_ops: dict = {
+        now = datetime.now(UTC)
+        update_ops: dict[str, Any] = {
             "$set": {
                 "llmConfigLocked": True,
                 "sessionContext.modelUsed": provider_config.get("model"),

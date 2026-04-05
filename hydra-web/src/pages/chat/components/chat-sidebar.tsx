@@ -355,11 +355,24 @@ export function ChatSidebar({
                         ? 'bg-red-500/5 border-red-500/20 hover:bg-red-500/10'
                         : 'bg-muted/30 border-border hover:bg-muted/60'
                   )}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={isHydraMcpInSession ? 'Disconnect Hydra MCP' : 'Connect Hydra MCP'}
                   onClick={() =>
                     isHydraMcpInSession
                       ? onDisconnectServer('hydra-mcp')
                       : onConnectServer('hydra-mcp')
                   }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      if (isHydraMcpInSession) {
+                        onDisconnectServer('hydra-mcp');
+                      } else {
+                        onConnectServer('hydra-mcp');
+                      }
+                    }
+                  }}
                 >
                   <div className="flex items-start gap-3">
                     <div
@@ -466,11 +479,24 @@ export function ChatSidebar({
                               ? 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10'
                               : 'bg-muted/30 border-border hover:bg-muted/60'
                           )}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={mcp.isActive ? `Disconnect ${mcp.name}` : `Connect ${mcp.name}`}
                           onClick={() =>
                             mcp.isActive
                               ? onDisconnectServer(mcp.serverId)
                               : onConnectServer(mcp.serverId)
                           }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              if (mcp.isActive) {
+                                onDisconnectServer(mcp.serverId);
+                              } else {
+                                onConnectServer(mcp.serverId);
+                              }
+                            }
+                          }}
                         >
                           <div className="flex items-start gap-3">
                             <div

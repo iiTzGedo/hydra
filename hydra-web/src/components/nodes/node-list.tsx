@@ -322,7 +322,11 @@ function NodeRow({ node }: { node: NodeListItem }) {
           <>
             <div
               className="fixed inset-0 z-40"
+              role="button"
+              tabIndex={-1}
+              aria-label="Close menu"
               onClick={() => setMenuOpen(false)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setMenuOpen(false); }}
             />
             <div className="absolute right-0 top-full z-50 mt-1 w-40 rounded-lg border bg-popover p-1 shadow-lg">
               <Link

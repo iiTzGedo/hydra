@@ -1,10 +1,10 @@
 """Tests for MCP resource reading functionality."""
 
-import pytest
 from unittest.mock import AsyncMock, patch
 
-from hydra_mcp.server import _read_resource
+import pytest
 
+from hydra_mcp.server import _read_resource
 
 pytestmark = pytest.mark.asyncio
 

@@ -3,7 +3,7 @@
 import html as html_lib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -211,7 +211,7 @@ If you did not request this password reset, please ignore this email.
     async def send_notification_email(
         self,
         to: str,
-        notification: dict,
+        notification: dict[str, Any],
     ) -> bool:
         """Send a notification email.
 
@@ -242,9 +242,9 @@ If you did not request this password reset, please ignore this email.
         link_lines = ""
         if links:
             link_lines = "\nLinks:\n" + "\n".join(
-                f"- {_stringify(l.get('label') or l.get('href'))}: {_stringify(l.get('href'))}"
-                for l in links
-                if _stringify(l.get("href"))
+                f"- {_stringify(link.get('label') or link.get('href'))}: {_stringify(link.get('href'))}"
+                for link in links
+                if _stringify(link.get("href"))
             )
 
         body = f"""Hydra Notification
@@ -267,15 +267,15 @@ Time: {created_at_text}
         html_links = ""
         if links:
             safe_links = []
-            for l in links:
-                href = _stringify(l.get("href"))
+            for link in links:
+                href = _stringify(link.get("href"))
                 if href and (
                     href.startswith("/")
                     or href.startswith("http://")
                     or href.startswith("https://")
                 ):
                     safe_href = _escape_html(href)
-                    safe_label = _escape_html(l.get("label") or href)
+                    safe_label = _escape_html(link.get("label") or href)
                     safe_links.append(f"<li><a href=\"{safe_href}\">{safe_label}</a></li>")
             if safe_links:
                 html_links = f"<ul>{''.join(safe_links)}</ul>"
@@ -348,7 +348,7 @@ async def send_email(
 async def send_notification_email(
     settings: "Settings",
     to: str,
-    notification: dict,
+    notification: dict[str, Any],
 ) -> bool:
     """Convenience function to send notification emails."""
     service = get_email_service(settings)

@@ -1,7 +1,8 @@
 """Core user service - base class with CRUD operations and user retrieval."""
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -12,10 +13,12 @@ from hydra.api.v1.core.exceptions import (
 )
 from hydra.api.v1.core.role_utils import (
     get_active_temporary_roles as _get_active_temp_roles,
+)
+from hydra.api.v1.core.role_utils import (
     to_utc,
 )
 from hydra.api.v1.core.security import hash_password
-from hydra.api.v1.models.auth import CreateUserRequest, Role
+from hydra.api.v1.models.auth import CreateUserRequest
 from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.services.query import log_audit
 from hydra.db.mongodb import MongoDB
@@ -34,21 +37,21 @@ class CoreMixin:
         """Convert datetime to UTC. Delegates to shared utility."""
         return to_utc(value)
 
-    def get_active_temporary_roles(self, temp_roles: list) -> list:
+    def get_active_temporary_roles(self, temp_roles: list) -> list:  # type: ignore[type-arg]
         """Return active temporary roles for a user.
 
         Delegates to shared utility function for consistency across services.
         """
         return _get_active_temp_roles(temp_roles)
 
-    async def create_user(self, request: CreateUserRequest) -> dict:
+    async def create_user(self, request: CreateUserRequest) -> dict[str, Any]:
         """Create a new user (admin endpoint)."""
-        await self._check_username_availability(request.username)
-        await self._check_email_availability(request.email)
-        await self._check_role_limit(request.role.value)
+        await self._check_username_availability(request.username)  # type: ignore[attr-defined]
+        await self._check_email_availability(request.email)  # type: ignore[attr-defined]
+        await self._check_role_limit(request.role.value)  # type: ignore[attr-defined]
 
         user_id = f"user_{secrets.token_urlsafe(8)}"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         user_doc = {
             "userId": user_id,
@@ -83,7 +86,7 @@ class CoreMixin:
             "created_at": now,
         }
 
-    async def archive_user(self, user_id: str) -> dict:
+    async def archive_user(self, user_id: str) -> dict[str, Any]:
         """Archive a user (soft delete)."""
         user = await self.db.users.find_one({"userId": user_id})
         if not user:
@@ -92,7 +95,7 @@ class CoreMixin:
         if user.get("status") == "archived":
             raise ValidationError(f"User '{user_id}' is already archived")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await self.db.users.update_one(
             {"userId": user_id},
             {"$set": {"status": "archived", "updatedAt": now}},
@@ -131,7 +134,7 @@ class CoreMixin:
             "created_at": user["createdAt"],
         }
 
-    async def list_users(self, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
+    async def list_users(self, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
         """List users.
 
         Returns:
@@ -160,9 +163,9 @@ class CoreMixin:
         child = await self.db.users.find_one({"userId": child_user_id})
         if not child:
             return False
-        return child.get("parentUserId") == parent_user_id
+        return child.get("parentUserId") == parent_user_id  # type: ignore[no-any-return]
 
-    async def get_current_user(self, token_payload: dict) -> dict:
+    async def get_current_user(self, token_payload: dict[str, Any]) -> dict[str, Any]:
         """Get current user/agent info from token payload.
 
         Args:
@@ -206,7 +209,7 @@ class CoreMixin:
 
                 all_permissions = []
                 for role in roles or []:
-                    all_permissions.extend(self._get_role_permissions(role))
+                    all_permissions.extend(self._get_role_permissions(role))  # type: ignore[attr-defined]
                 all_permissions.extend(permissions)
 
                 return {
@@ -224,9 +227,9 @@ class CoreMixin:
 
             temp_roles = self.get_active_temporary_roles(user.get("temporaryRoles", []))
 
-            all_permissions = self._get_role_permissions(user["role"])
+            all_permissions = self._get_role_permissions(user["role"])  # type: ignore[attr-defined]
             for tr in temp_roles:
-                all_permissions.extend(self._get_role_permissions(tr["role"]))
+                all_permissions.extend(self._get_role_permissions(tr["role"]))  # type: ignore[attr-defined]
             all_permissions.extend(user.get("permissions", []))
 
             return {
@@ -239,7 +242,7 @@ class CoreMixin:
                 "permissions": list(set(all_permissions)),
             }
 
-    async def get_user_detail(self, user_id: str) -> dict:
+    async def get_user_detail(self, user_id: str) -> dict[str, Any]:
         """Get detailed user information including sub-accounts.
 
         Args:

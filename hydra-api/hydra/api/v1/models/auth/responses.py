@@ -1,7 +1,7 @@
 """Authentication response models."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -369,7 +369,7 @@ class UserDetailResponse(BaseModel):
     permissions: list[str] = Field(default_factory=list)
     resource_permissions: list[str] = Field(default_factory=list, alias="resourcePermissions")
     registered_nodes: list[str] = Field(default_factory=list, alias="registeredNodes")
-    preferences: dict = Field(default_factory=dict)
+    preferences: dict[str, Any] = Field(default_factory=dict)
     status: UserStatus
     # Sub-account fields
     is_system_account: bool = Field(default=False, alias="isSystemAccount")

@@ -1,7 +1,8 @@
 """Tests for HTTP transport endpoints."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock
 
 # Import will be patched
 pytestmark = pytest.mark.asyncio
@@ -14,8 +15,9 @@ class TestHealthEndpoint:
         """Health endpoint should return server status."""
         # This test verifies the health endpoint structure
         # Full integration tests require running the actual server
-        from hydra_mcp.server import create_http_app
         from fastapi.testclient import TestClient
+
+        from hydra_mcp.server import create_http_app
 
         with patch("hydra_mcp.server.list_tools") as mock_tools, \
              patch("hydra_mcp.server.list_resources") as mock_resources:
@@ -47,8 +49,9 @@ class TestToolsEndpoint:
 
     async def test_list_tools_returns_array(self):
         """Tools endpoint should return list of tools."""
-        from hydra_mcp.server import create_http_app
         from fastapi.testclient import TestClient
+
+        from hydra_mcp.server import create_http_app
 
         app = create_http_app()
         client = TestClient(app)
@@ -66,8 +69,9 @@ class TestResourcesEndpoint:
 
     async def test_list_resources_returns_array(self):
         """Resources endpoint should return list of resources."""
-        from hydra_mcp.server import create_http_app
         from fastapi.testclient import TestClient
+
+        from hydra_mcp.server import create_http_app
 
         app = create_http_app()
         client = TestClient(app)
@@ -85,8 +89,9 @@ class TestPromptsEndpoint:
 
     async def test_list_prompts_returns_array(self):
         """Prompts endpoint should return list of prompts."""
-        from hydra_mcp.server import create_http_app
         from fastapi.testclient import TestClient
+
+        from hydra_mcp.server import create_http_app
 
         app = create_http_app()
         client = TestClient(app)

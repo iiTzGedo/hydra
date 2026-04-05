@@ -1,10 +1,10 @@
 """Tests for MCP prompt generation functionality."""
 
-import pytest
 from unittest.mock import AsyncMock, patch
 
-from hydra_mcp.server import get_prompt
+import pytest
 
+from hydra_mcp.server import get_prompt
 
 pytestmark = pytest.mark.asyncio
 

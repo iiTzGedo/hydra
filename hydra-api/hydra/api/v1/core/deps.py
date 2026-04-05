@@ -2,7 +2,10 @@
 
 import hmac
 import json
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
+
+if TYPE_CHECKING:
+    from hydra.api.v1.services.storage import StorageService
 
 import structlog
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -27,11 +30,11 @@ from hydra.api.v1.core.exceptions import (
     InvalidTokenError,
 )
 from hydra.api.v1.core.security import decode_token
+from hydra.api.v1.services.auth import AuthService
+from hydra.api.v1.services.users import UsersService
 from hydra.core.config import get_settings
 from hydra.db.mongodb import MongoDB, get_mongodb
 from hydra.db.redis import RedisClient, get_redis
-from hydra.api.v1.services.auth import AuthService
-from hydra.api.v1.services.users import UsersService
 
 logger = structlog.get_logger(__name__)
 
@@ -81,7 +84,7 @@ def _parse_internal_permissions(raw_value: str | None) -> list[str]:
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
-def _build_internal_token(request: Request) -> dict | None:
+def _build_internal_token(request: Request) -> dict[str, Any] | None:
     """Build an internal-auth token payload from forwarded Hydra headers."""
     internal_flag = request.headers.get(INTERNAL_REQUEST_HEADER, "")
     if internal_flag.lower() not in {"1", "true", "yes"}:
@@ -112,7 +115,7 @@ async def _resolve_optional_token(
     credentials: HTTPAuthorizationCredentials | None,
     x_api_key: str | None,
     auth_service: AuthService,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Resolve the current request's auth payload without forcing authentication."""
     internal_token = _build_internal_token(request)
     if internal_token is not None:
@@ -176,7 +179,7 @@ async def get_optional_token(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     auth_service: AuthService = Depends(get_auth_service),
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Get optional token payload for endpoints supporting both auth and anonymous access.
 
     Args:
@@ -198,7 +201,7 @@ async def get_optional_user(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     auth_service: AuthService = Depends(get_auth_service),
     users_service: UsersService = Depends(get_users_service),
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Get optional current user, returning None if unauthenticated.
 
     Args:
@@ -226,7 +229,7 @@ async def get_current_token(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     auth_service: AuthService = Depends(get_auth_service),
-) -> dict:
+) -> dict[str, Any]:
     """Get and validate the current token payload.
 
     Args:
@@ -260,9 +263,9 @@ async def get_current_token(
 
 
 async def get_current_user(
-    token: dict = Depends(get_current_token),
+    token: dict[str, Any] = Depends(get_current_token),
     users_service: UsersService = Depends(get_users_service),
-) -> dict:
+) -> dict[str, Any]:
     """Get the current authenticated user or agent.
 
     Args:
@@ -295,33 +298,33 @@ async def get_current_user(
     return current_user
 
 
-def get_authenticated_user_id(current_user: dict) -> str | None:
+def get_authenticated_user_id(current_user: dict[str, Any]) -> str | None:
     """Return the authenticated user identifier from the current user context."""
     return current_user.get("user_id") or current_user.get("userId")
 
 
-def get_authenticated_role(current_user: dict) -> str | None:
+def get_authenticated_role(current_user: dict[str, Any]) -> str | None:
     """Return the authenticated user's role."""
     return current_user.get("role")
 
 
-def get_authenticated_permissions(current_user: dict) -> list[str]:
+def get_authenticated_permissions(current_user: dict[str, Any]) -> list[str]:
     """Return the authenticated user's permissions."""
     permissions = current_user.get("permissions", [])
     return permissions if isinstance(permissions, list) else []
 
 
-def get_authenticated_auth_source(current_user: dict) -> str | None:
+def get_authenticated_auth_source(current_user: dict[str, Any]) -> str | None:
     """Return the authentication source for the current request."""
     return current_user.get("auth_source") or current_user.get("authSource")
 
 
-def get_authenticated_client_id(current_user: dict) -> str | None:
+def get_authenticated_client_id(current_user: dict[str, Any]) -> str | None:
     """Return the forwarded internal client identifier, if any."""
     return current_user.get("client_id") or current_user.get("clientId")
 
 
-def get_command_request_source(current_user: dict) -> str:
+def get_command_request_source(current_user: dict[str, Any]) -> str:
     """Map the current request provenance onto the command source enum values."""
     auth_source = get_authenticated_auth_source(current_user)
     client_id = get_authenticated_client_id(current_user)
@@ -333,12 +336,12 @@ def get_command_request_source(current_user: dict) -> str:
     return "api"
 
 
-def require_trusted_write_origin():
+def require_trusted_write_origin() -> Any:
     """Require a trusted Hydra web-originated write request."""
 
     async def check_write_origin(
-        current_user: dict = Depends(get_current_user),
-    ) -> dict:
+        current_user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
         check_not_agent(current_user, "commands:execute")
 
         auth_source = get_authenticated_auth_source(current_user)
@@ -354,7 +357,7 @@ def require_trusted_write_origin():
     return check_write_origin
 
 
-def require_permission(permission: str):
+def require_permission(permission: str) -> Any:
     """Dependency factory for checking permissions.
 
     Args:
@@ -370,8 +373,8 @@ def require_permission(permission: str):
     """
 
     async def check_permission(
-        current_user: dict = Depends(get_current_user),
-    ) -> dict:
+        current_user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
         user_permissions = current_user.get("permissions", [])
 
         if "*:*" in user_permissions:
@@ -394,7 +397,7 @@ def require_permission(permission: str):
     return check_permission
 
 
-def require_agent() -> dict:
+def require_agent() -> dict[str, Any]:
     """Dependency to require agent authentication.
 
     Returns:
@@ -402,13 +405,13 @@ def require_agent() -> dict:
     """
 
     async def check_agent(
-        current_user: dict = Depends(get_current_user),
-    ) -> dict:
+        current_user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
         if current_user.get("type") != "agent":
             raise AuthorizationError("Agent authentication required")
         return current_user
 
-    return Depends(check_agent)
+    return Depends(check_agent)  # type: ignore[no-any-return]
 
 
 async def get_registration_auth(
@@ -416,7 +419,8 @@ async def get_registration_auth(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     x_registration_token: str | None = Header(default=None, alias="X-Registration-Token"),
     auth_service: AuthService = Depends(get_auth_service),
-) -> dict:
+    users_service: UsersService = Depends(get_users_service),
+) -> dict[str, Any]:
     """Get authentication for node registration.
 
     Supports three authentication methods:
@@ -429,6 +433,7 @@ async def get_registration_auth(
         x_api_key: Optional API key from header.
         x_registration_token: Optional registration token from header.
         auth_service: Auth service dependency.
+        users_service: Users service dependency for bearer-token resolution.
 
     Returns:
         Dict with type ("registration_token" or "user") and associated data.
@@ -489,7 +494,7 @@ async def get_registration_auth(
     if credentials:
         try:
             payload = decode_token(credentials.credentials)
-            current_user = await auth_service.users.get_current_user(payload)
+            current_user = await users_service.get_current_user(payload)
 
             user_permissions = current_user.get("permissions", [])
             has_permission = (
@@ -523,20 +528,20 @@ async def get_registration_auth(
     )
 
 
-async def get_storage_service():
+async def get_storage_service() -> Any:
     """Get storage service for agent binaries.
 
     Returns:
         StorageService instance.
     """
-    from hydra.core.config import get_settings
     from hydra.api.v1.services.storage import get_cached_storage_service
+    from hydra.core.config import get_settings
 
     settings = get_settings()
     return get_cached_storage_service(settings)
 
 
-def check_not_agent(current_user: dict, permission: str) -> None:
+def check_not_agent(current_user: dict[str, Any], permission: str) -> None:
     """Verify the current user is not an agent account.
 
     Args:
@@ -550,14 +555,12 @@ def check_not_agent(current_user: dict, permission: str) -> None:
         raise AuthorizationError(permission)
 
 
-CurrentToken = Annotated[dict, Depends(get_current_token)]
-CurrentUser = Annotated[dict, Depends(get_current_user)]
-OptionalUser = Annotated[dict | None, Depends(get_optional_user)]
-RegistrationAuth = Annotated[dict, Depends(get_registration_auth)]
+CurrentToken = Annotated[dict[str, Any], Depends(get_current_token)]
+CurrentUser = Annotated[dict[str, Any], Depends(get_current_user)]
+OptionalUser = Annotated[dict[str, Any] | None, Depends(get_optional_user)]
+RegistrationAuth = Annotated[dict[str, Any], Depends(get_registration_auth)]
 MongoDBDep = Annotated[MongoDB, Depends(get_mongodb)]
 RedisDep = Annotated[RedisClient, Depends(get_redis)]
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 UsersServiceDep = Annotated[UsersService, Depends(get_users_service)]
-
-from hydra.api.v1.services.storage import StorageService
-StorageServiceDep = Annotated[StorageService, Depends(get_storage_service)]
+StorageServiceDep = Annotated["StorageService", Depends(get_storage_service)]

@@ -1,5 +1,8 @@
 """Network processing and network diff logic for profiles."""
 
+
+from typing import Any
+
 import structlog
 
 from hydra.api.v1.core.tasks import safe_create_task
@@ -21,14 +24,14 @@ async def process_networks(
     db: MongoDB,
     node_id: str,
     profile_id: str,
-    network_profile,
+    network_profile: dict[str, Any] | None,
 ) -> list[str]:
     """Extract networks from profile and auto-create/update."""
     from hydra.api.v1.services.networks import NetworksService
 
     # Snapshot existing network IDs before processing for new-discovery detection
     existing_network_ids: set[str] = set()
-    if network_profile and network_profile.interfaces:
+    if network_profile and network_profile.interfaces:  # type: ignore[attr-defined]
         cursor = db.networks.find({}, projection={"networkId": 1})
         async for doc in cursor:
             existing_network_ids.add(doc["networkId"])
@@ -37,7 +40,7 @@ async def process_networks(
     network_ids = await networks_service.process_profile_networks(
         node_id,
         profile_id,
-        network_profile,
+        network_profile,  # type: ignore[arg-type]
     )
 
     # New networks discovered (GREEN)
@@ -76,7 +79,7 @@ async def process_networks(
     return network_ids
 
 
-def _normalize_interface(interface: dict) -> dict:
+def _normalize_interface(interface: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": interface.get("name"),
         "macAddress": interface.get("macAddress"),
@@ -91,7 +94,7 @@ def _normalize_interface(interface: dict) -> dict:
     }
 
 
-def _route_key(route: dict) -> tuple:
+def _route_key(route: dict[str, Any]) -> tuple:  # type: ignore[type-arg]
     return (
         route.get("destination"),
         route.get("gateway"),
@@ -101,8 +104,8 @@ def _route_key(route: dict) -> tuple:
 
 
 def diff_network_config(
-    previous_profile: dict | None, submission: ProfileSubmission
-) -> dict | None:
+    previous_profile: dict[str, Any] | None, submission: ProfileSubmission
+) -> dict[str, Any] | None:
     """Detect network config changes between previous profile and new submission."""
     if not previous_profile or not submission.network:
         return None
@@ -132,13 +135,13 @@ def diff_network_config(
 
     prev_dns = set(prev_network.get("dnsServers") or [])
     new_dns = set(submission.network.dns_servers or [])
-    dns_added = sorted(list(new_dns - prev_dns))
-    dns_removed = sorted(list(prev_dns - new_dns))
+    dns_added = sorted(new_dns - prev_dns)
+    dns_removed = sorted(prev_dns - new_dns)
 
     prev_search = set(prev_network.get("dnsSearch") or [])
     new_search = set(submission.network.dns_search or [])
-    search_added = sorted(list(new_search - prev_search))
-    search_removed = sorted(list(prev_search - new_search))
+    search_added = sorted(new_search - prev_search)
+    search_removed = sorted(prev_search - new_search)
 
     prev_hostname = prev_network.get("hostname")
     new_hostname = submission.network.hostname
@@ -164,8 +167,8 @@ def diff_network_config(
         _route_key(route.model_dump(by_alias=True)): route.model_dump(by_alias=True)
         for route in submission.network.routes
     }
-    added_routes = [new_routes[key] for key in new_routes.keys() if key not in prev_routes]
-    removed_routes = [prev_routes[key] for key in prev_routes.keys() if key not in new_routes]
+    added_routes = [new_routes[key] for key in new_routes if key not in prev_routes]
+    removed_routes = [prev_routes[key] for key in prev_routes if key not in new_routes]
 
     if not (
         added_interfaces

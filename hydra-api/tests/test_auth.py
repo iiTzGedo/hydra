@@ -1,7 +1,8 @@
 """Tests for authentication endpoints."""
 
+import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -156,7 +157,7 @@ async def test_register_node_expired_token(
 ):
     """Test registration fails with expired token."""
     expired_token = sample_registration_token.copy()
-    expired_token["expiresAt"] = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    expired_token["expiresAt"] = datetime(2020, 1, 1, tzinfo=UTC)
     mock_mongodb.tokens.find_one = AsyncMock(return_value=expired_token)
 
     response = await client.post(
@@ -173,6 +174,99 @@ async def test_register_node_expired_token(
     assert response.status_code == 401
     data = response.json()
     assert "expired" in data["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_register_node_with_bearer_token(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Test node registration succeeds with a bearer token and node-create permission."""
+    admin_user = sample_user.copy()
+    admin_user["userId"] = "user_admin123"
+    admin_user["role"] = "admin"
+    admin_user["permissions"] = ["*:*"]
+    mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=None)
+    mock_mongodb.nodes.insert_one = AsyncMock()
+    mock_mongodb.api_keys.insert_one = AsyncMock()
+    mock_mongodb.users.update_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/nodes/register",
+        json={
+            "nodeId": "bearer-node",
+            "class": "compute",
+            "type": "physical",
+            "displayName": "Bearer Node",
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["nodeId"] == "bearer-node"
+    assert data["registeredBy"] == "user_admin123"
+    assert data["apiKey"].startswith("hyk_")
+
+
+@pytest.mark.asyncio
+async def test_register_node_notification_uses_injected_dependencies(
+    client: AsyncClient,
+    mock_mongodb,
+    sample_registration_token,
+    monkeypatch,
+):
+    """Test node-registration notifications do not resolve global database singletons."""
+    scheduled_tasks: list[asyncio.Task[object]] = []
+    emit_mock = AsyncMock(return_value="notif_123")
+
+    def _run_immediately(coro):
+        task = asyncio.create_task(coro)
+        scheduled_tasks.append(task)
+        return task
+
+    def _unexpected_mongodb():
+        raise AssertionError("emit_notification should use injected MongoDB dependency")
+
+    def _unexpected_redis():
+        raise AssertionError("emit_notification should use injected Redis dependency")
+
+    mock_mongodb.tokens.find_one = AsyncMock(return_value=sample_registration_token)
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=None)
+    mock_mongodb.nodes.insert_one = AsyncMock()
+    mock_mongodb.api_keys.insert_one = AsyncMock()
+    mock_mongodb.users.update_one = AsyncMock()
+    mock_mongodb.tokens.update_one = AsyncMock()
+
+    monkeypatch.setattr(
+        "hydra.api.v1.services.auth.nodes.safe_create_task",
+        _run_immediately,
+    )
+    monkeypatch.setattr(
+        "hydra.api.v1.services.notifications.service.NotificationService.emit",
+        emit_mock,
+    )
+    monkeypatch.setattr("hydra.db.mongodb.get_mongodb", _unexpected_mongodb)
+    monkeypatch.setattr("hydra.db.redis.get_redis", _unexpected_redis)
+
+    response = await client.post(
+        "/api/v1/nodes/register",
+        json={
+            "nodeId": "hermetic-node",
+            "class": "compute",
+            "type": "physical",
+            "displayName": "Hermetic Node",
+        },
+        headers={"X-Registration-Token": sample_registration_token["token"]},
+    )
+
+    assert response.status_code == 201
+    assert scheduled_tasks
+    await asyncio.gather(*scheduled_tasks)
+    assert emit_mock.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -356,8 +450,8 @@ async def test_register_agent_success(
         "role": "admin",
         "status": "active",
         "passwordHash": "$2b$12$test",
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
+        "updatedAt": datetime.now(UTC),
     }
     mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, None])
     mock_mongodb.users.insert_one = AsyncMock()
@@ -393,8 +487,8 @@ async def test_register_agent_custom_username(
         "role": "admin",
         "status": "active",
         "passwordHash": "$2b$12$test",
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
+        "updatedAt": datetime.now(UTC),
     }
     mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, None])
     mock_mongodb.users.insert_one = AsyncMock()
@@ -426,8 +520,8 @@ async def test_register_agent_viewer_forbidden(
         "role": "viewer",
         "status": "active",
         "passwordHash": "$2b$12$test",
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
+        "updatedAt": datetime.now(UTC),
     }
     mock_mongodb.users.find_one = AsyncMock(side_effect=[viewer_user, viewer_user])
 
@@ -458,11 +552,11 @@ async def test_list_sub_accounts(
                 "userId": "user_agent1",
                 "username": "agent-ABC123",
                 "role": "agent",
-                "createdAt": datetime.now(timezone.utc),
+                "createdAt": datetime.now(UTC),
             }
         ],
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
+        "updatedAt": datetime.now(UTC),
     }
     agent_user = {
         "userId": "user_agent1",
@@ -471,7 +565,7 @@ async def test_list_sub_accounts(
         "status": "active",
         "isSystemAccount": True,
         "lastLogin": None,
-        "createdAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
     }
     mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, agent_user])
 
@@ -503,8 +597,8 @@ async def test_link_sub_account_success(
         "role": "admin",
         "status": "active",
         "passwordHash": hash_password("adminpass"),
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
+        "updatedAt": datetime.now(UTC),
     }
     family_user = {
         "userId": "user_family123",
@@ -514,8 +608,8 @@ async def test_link_sub_account_success(
         "status": "active",
         "passwordHash": hash_password("familypass"),
         "parentUserId": None,  # No parent yet
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
+        "updatedAt": datetime.now(UTC),
     }
     mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, family_user])
     mock_mongodb.users.update_one = AsyncMock()
@@ -548,8 +642,8 @@ async def test_link_sub_account_invalid_role(
         "role": "admin",
         "status": "active",
         "passwordHash": hash_password("adminpass"),
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
+        "updatedAt": datetime.now(UTC),
     }
     operator_user = {
         "userId": "user_operator123",
@@ -559,8 +653,8 @@ async def test_link_sub_account_invalid_role(
         "status": "active",
         "passwordHash": hash_password("operatorpass"),
         "parentUserId": None,
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
+        "updatedAt": datetime.now(UTC),
     }
     mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, operator_user])
 
@@ -589,8 +683,8 @@ async def test_unlink_sub_account_success(
         "role": "admin",
         "status": "active",
         "subAccounts": [{"userId": "user_family123"}],
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
+        "updatedAt": datetime.now(UTC),
     }
     family_user = {
         "userId": "user_family123",
@@ -599,8 +693,8 @@ async def test_unlink_sub_account_success(
         "role": "family",
         "status": "active",
         "parentUserId": "user_admin123",  # Linked to admin
-        "createdAt": datetime.now(timezone.utc),
-        "updatedAt": datetime.now(timezone.utc),
+        "createdAt": datetime.now(UTC),
+        "updatedAt": datetime.now(UTC),
     }
     mock_mongodb.users.find_one = AsyncMock(side_effect=[admin_user, admin_user, family_user])
     mock_mongodb.users.update_one = AsyncMock()

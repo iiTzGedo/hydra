@@ -5,12 +5,13 @@ Contains mixin class with all provider-specific API interactions:
 - Dynamic model list fetching from provider APIs
 """
 
+from typing import Any
+
 import httpx
 import structlog
 
 from hydra.api.v1.core.exceptions import ValidationError
 from hydra.api.v1.core.url_validator import validate_external_url
-from hydra.api.v1.models.ai import LLMProviderType
 from hydra.core.config import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -164,7 +165,7 @@ class ProviderValidationMixin:
 
     async def _fetch_anthropic_models(
         self, api_key: str | None, tools_only: bool
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch models from Anthropic API."""
         if not api_key:
             raise ValidationError("API key is required to fetch Anthropic models")
@@ -235,7 +236,7 @@ class ProviderValidationMixin:
 
     async def _fetch_openai_models(
         self, api_key: str | None, base_url: str | None, tools_only: bool
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch models from OpenAI API."""
         if not api_key:
             raise ValidationError("API key is required to fetch OpenAI models")
@@ -345,7 +346,7 @@ class ProviderValidationMixin:
 
     async def _fetch_ollama_models(
         self, base_url: str | None, tools_only: bool
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch models from Ollama server."""
         if not base_url:
             raise ValidationError("Base URL is required to fetch Ollama models")
@@ -421,7 +422,7 @@ class ProviderValidationMixin:
 
     async def _fetch_openrouter_models(
         self, api_key: str | None, tools_only: bool
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch models from OpenRouter API."""
         if not api_key:
             raise ValidationError("API key is required to fetch OpenRouter models")

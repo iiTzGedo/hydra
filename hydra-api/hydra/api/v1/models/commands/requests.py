@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -23,7 +23,7 @@ class CreateCommandRequest(BaseModel):
         ),
     ]
     target: CommandTarget = Field(description="Target node/service")
-    parameters: dict | None = Field(default=None, description="Action parameters")
+    parameters: dict[str, Any] | None = Field(default=None, description="Action parameters")
     timeout_seconds: Annotated[
         int | None,
         Field(
@@ -54,7 +54,7 @@ class SubmitCommandResultRequest(BaseModel):
     output: str | None = Field(default=None, description="Command output")
     exit_code: Annotated[int | None, Field(default=None, alias="exitCode")]
     error: str | None = Field(default=None, description="Error message if failed")
-    data: dict | None = Field(default=None, description="Structured result data")
+    data: dict[str, Any] | None = Field(default=None, description="Structured result data")
 
     model_config = {"populate_by_name": True}
 

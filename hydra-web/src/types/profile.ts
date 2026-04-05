@@ -185,7 +185,7 @@ export interface Profile extends ProfileSummary {
   metadata?: Record<string, unknown>;
 }
 
-export interface ProfileListParams extends ListParams {}
+export type ProfileListParams = ListParams;
 
 export interface ProfileDiffChangeSummary {
   added?: number;

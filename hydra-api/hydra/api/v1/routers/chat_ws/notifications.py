@@ -3,6 +3,7 @@
 import asyncio
 import inspect
 import json
+from typing import Any
 
 import structlog
 from fastapi import WebSocket
@@ -21,7 +22,7 @@ logger = structlog.get_logger(__name__)
 
 async def load_websocket_user_roles(
     mongodb: MongoDB,
-    user_payload: dict,
+    user_payload: dict[str, Any],
 ) -> list[str]:
     """Load active roles for a WebSocket user from MongoDB with JWT fallback."""
     user_doc_result = mongodb.users.find_one(

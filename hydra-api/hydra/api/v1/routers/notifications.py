@@ -1,7 +1,7 @@
 """Notification REST endpoints."""
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, Query
@@ -32,16 +32,16 @@ def get_notification_service(mongodb: MongoDBDep, redis: RedisDep) -> Notificati
 NotificationServiceDep = Annotated[NotificationService, Depends(get_notification_service)]
 
 
-def _user_roles(current_user: dict) -> list[str]:
+def _user_roles(current_user: dict[str, Any]) -> list[str]:
     """Extract role list from current user dict."""
     role = current_user.get("role", "")
     roles = current_user.get("roles", [])
     if role and role not in roles:
         roles = [role] + roles
-    return roles
+    return roles  # type: ignore[no-any-return]
 
 
-def _has_permission(current_user: dict, permission: str) -> bool:
+def _has_permission(current_user: dict[str, Any], permission: str) -> bool:
     """Check if a user has a specific permission."""
     perms = current_user.get("permissions", [])
     if "*:*" in perms:
@@ -206,7 +206,7 @@ async def get_notification(
 
 @router.patch(
     "/{notification_id}/read",
-    response_model=SuccessResponse[dict],
+    response_model=SuccessResponse[dict[str, Any]],
     response_model_by_alias=True,
     summary="Mark Read",
     description="Mark a notification as read for the current user.",
@@ -216,7 +216,7 @@ async def mark_read(
     notification_id: str,
     notification_service: NotificationServiceDep,
     current_user: CurrentUser,
-) -> SuccessResponse[dict]:
+) -> SuccessResponse[dict[str, Any]]:
     """Mark a notification as read.
 
     Args:
@@ -363,7 +363,7 @@ async def resolve_notification(
 
 @router.delete(
     "/{notification_id}",
-    response_model=SuccessResponse[dict],
+    response_model=SuccessResponse[dict[str, Any]],
     response_model_by_alias=True,
     summary="Delete Notification",
     description="Delete a notification. Users can delete their own notifications; write/manage users can delete any visible notification.",
@@ -373,7 +373,7 @@ async def delete_notification(
     notification_id: str,
     notification_service: NotificationServiceDep,
     current_user: CurrentUser,
-) -> SuccessResponse[dict]:
+) -> SuccessResponse[dict[str, Any]]:
     """Delete a notification and its read state.
 
     Permission model:

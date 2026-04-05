@@ -1,11 +1,11 @@
 """NotificationService — composed from focused mixins."""
 
+from hydra.api.v1.services.notifications.actions import ActionsMixin
+from hydra.api.v1.services.notifications.delivery import DeliveryMixin
+from hydra.api.v1.services.notifications.emission import EmissionMixin
+from hydra.api.v1.services.notifications.query import QueryMixin
 from hydra.db.mongodb import MongoDB
 from hydra.db.redis import RedisClient
-from hydra.api.v1.services.notifications.emission import EmissionMixin
-from hydra.api.v1.services.notifications.delivery import DeliveryMixin
-from hydra.api.v1.services.notifications.query import QueryMixin
-from hydra.api.v1.services.notifications.actions import ActionsMixin
 
 
 class NotificationService(EmissionMixin, DeliveryMixin, QueryMixin, ActionsMixin):
@@ -18,6 +18,6 @@ class NotificationService(EmissionMixin, DeliveryMixin, QueryMixin, ActionsMixin
     - Deduplication uses ``groupKey`` within a configurable time window.
     """
 
-    def __init__(self, mongodb: MongoDB, redis: RedisClient):
+    def __init__(self, mongodb: MongoDB, redis: RedisClient | None = None):
         self.db = mongodb
         self.redis = redis

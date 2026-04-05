@@ -1,8 +1,10 @@
 """User authentication mixin: login, token refresh, brute-force tracking, device tracking."""
 
+
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -14,7 +16,6 @@ from hydra.api.v1.core.auth_session import (
     store_json,
     ttl_from_exp,
 )
-from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.core.exceptions import (
     InvalidCredentialsError,
     InvalidTokenError,
@@ -23,26 +24,29 @@ from hydra.api.v1.core.exceptions import (
     SystemAccountLoginBlockedError,
     UserNotFoundError,
 )
+from hydra.api.v1.core.role_utils import get_active_temporary_roles
 from hydra.api.v1.core.security import (
-    create_access_token,
     create_token_pair,
     decode_token,
 )
-from hydra.api.v1.core.role_utils import get_active_temporary_roles
-from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.models.notifications import (
-    NotificationType,
-    NotificationSource,
-    NotificationActor,
     ActorType,
+    NotificationActor,
+    NotificationSource,
+    NotificationType,
 )
-from hydra.api.v1.services.query import log_audit
 from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
+from hydra.core.config import Settings
+from hydra.db.mongodb import MongoDB
+from hydra.db.redis import RedisClient
 
 from .constants import (
-    BRUTE_FORCE_WINDOW_SECONDS,
-    BRUTE_FORCE_THRESHOLD,
     BRUTE_FORCE_NOTIFY_COOLDOWN_SECONDS,
+    BRUTE_FORCE_THRESHOLD,
+    BRUTE_FORCE_WINDOW_SECONDS,
 )
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +54,10 @@ logger = structlog.get_logger(__name__)
 
 class LoginMixin:
     """Mixin providing user authentication, token refresh, and login tracking."""
+    db: MongoDB
+    redis: RedisClient | None
+    settings: Settings
+
 
     @property
     def _refresh_ttl_seconds(self) -> int:
@@ -62,8 +70,8 @@ class LoginMixin:
         if value is None:
             return None
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
     @staticmethod
     def _device_fingerprint(ip: str | None, user_agent: str | None) -> str | None:
@@ -128,7 +136,7 @@ class LoginMixin:
                 safe_create_task(
                     emit_notification(
                         notification_type=NotificationType.AUTH_BRUTE_FORCE_DETECTED,
-                        source=NotificationSource(component="hydra-api", service="auth"),
+                        source=NotificationSource(component="hydra-api", service="auth"),  # type: ignore[arg-type]
                         title="Brute force login attempts detected",
                         message=(
                             f"Multiple failed login attempts detected from {ip} "
@@ -142,13 +150,16 @@ class LoginMixin:
                             "windowSeconds": BRUTE_FORCE_WINDOW_SECONDS,
                             "userAgent": user_agent,
                         },
-                        actor=NotificationActor(
+                        actor=NotificationActor(  # type: ignore[call-arg]
                             type=ActorType.SYSTEM,
                             id="auth_service",
                             ip=ip,
                             userAgent=user_agent,
                         ),
                         audit_entry_id=audit_id,
+                        mongodb=self.db,
+                        redis=self.redis,
+                        resolve_dependencies=False,
                     )
                 )
         except Exception:
@@ -172,7 +183,7 @@ class LoginMixin:
 
     async def _update_login_device(
         self,
-        user: dict,
+        user: dict[str, Any],
         ip: str | None,
         user_agent: str | None,
     ) -> tuple[bool, str | None]:
@@ -181,7 +192,7 @@ class LoginMixin:
         if not device_id:
             return False, None
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         user_id = user.get("userId")
         devices = user.get("loginDevices", [])
         existing = next(
@@ -253,7 +264,7 @@ class LoginMixin:
         await store_json(self.redis.client, session_key(session_id), session_record, ttl_seconds)
         await store_json(self.redis.client, refresh_key(refresh_jti), refresh_record, ttl_seconds)
 
-    async def _write_session_record(self, session_record: dict) -> None:
+    async def _write_session_record(self, session_record: dict[str, Any]) -> None:
         """Rewrite an existing session record with its remaining TTL."""
         if not self.redis:
             raise RuntimeError("Redis is required for Hydra auth sessions")
@@ -270,10 +281,10 @@ class LoginMixin:
         *,
         subject: str,
         sub_type: str,
-        additional_claims: dict | None = None,
+        additional_claims: dict[str, Any] | None = None,
         session_id: str | None = None,
         csrf_token: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Issue a fresh access/refresh pair and persist rotation state."""
         current_session_id = session_id or secrets.token_urlsafe(24)
         current_csrf_token = csrf_token or secrets.token_urlsafe(32)
@@ -301,7 +312,7 @@ class LoginMixin:
             "expires_in": self.settings.jwt_expire_minutes * 60,
         }
 
-    async def _load_active_refresh_state(self, refresh_payload: dict) -> tuple[dict, dict]:
+    async def _load_active_refresh_state(self, refresh_payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         """Load refresh-session state and detect reuse or revocation."""
         if not self.redis:
             raise InvalidTokenError("Refresh tokens require Redis-backed session state")
@@ -338,7 +349,7 @@ class LoginMixin:
         session_record["currentRefreshJti"] = None
         await self._write_session_record(session_record)
 
-    async def blacklist_access_token(self, token_payload: dict) -> None:
+    async def blacklist_access_token(self, token_payload: dict[str, Any]) -> None:
         """Blacklist an access token until its natural expiry."""
         if not self.redis:
             return
@@ -349,7 +360,7 @@ class LoginMixin:
         if ttl_seconds > 0:
             await self.redis.client.setex(access_blacklist_key(token_jti), ttl_seconds, "1")
 
-    async def ensure_access_token_active(self, token_payload: dict) -> None:
+    async def ensure_access_token_active(self, token_payload: dict[str, Any]) -> None:
         """Reject blacklisted or session-revoked access tokens."""
         if not self.redis:
             return
@@ -375,7 +386,7 @@ class LoginMixin:
         allow_system_accounts: bool = False,
         ip: str | None = None,
         user_agent: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Authenticate a user and return access/refresh tokens.
 
         Args:
@@ -431,7 +442,7 @@ class LoginMixin:
 
         await self.db.users.update_one(
             {"userId": user["userId"]},
-            {"$set": {"lastLogin": datetime.now(timezone.utc)}},
+            {"$set": {"lastLogin": datetime.now(UTC)}},
         )
         await self._clear_failed_login(username, ip)
 
@@ -457,7 +468,7 @@ class LoginMixin:
                 safe_create_task(
                     emit_notification(
                         notification_type=NotificationType.USER_LOGIN_NEW_DEVICE,
-                        source=NotificationSource(component="hydra-api", service="auth"),
+                        source=NotificationSource(component="hydra-api", service="auth"),  # type: ignore[arg-type]
                         title="New login device detected",
                         message=f"New login detected for {user['username']}",
                         details={
@@ -467,7 +478,7 @@ class LoginMixin:
                             "userAgent": user_agent,
                             "deviceId": device_id,
                         },
-                        actor=NotificationActor(
+                        actor=NotificationActor(  # type: ignore[call-arg]
                             type=ActorType.USER,
                             id=user["userId"],
                             ip=ip,
@@ -475,6 +486,9 @@ class LoginMixin:
                         ),
                         target_user_id=user["userId"],
                         audit_entry_id=audit_id,
+                        mongodb=self.db,
+                        redis=self.redis,
+                        resolve_dependencies=False,
                     )
                 )
 
@@ -502,7 +516,7 @@ class LoginMixin:
             },
         }
 
-    async def refresh_access_token(self, refresh_token: str) -> dict:
+    async def refresh_access_token(self, refresh_token: str) -> dict[str, Any]:
         """Refresh an access token using a valid refresh token.
 
         Args:
@@ -562,7 +576,7 @@ class LoginMixin:
         refresh_record["rotatedTo"] = decode_token(token_bundle["refresh_token"])["jti"]
         ttl_seconds = max(ttl_from_exp(refresh_record.get("expiresAt")), 1)
         await store_json(
-            self.redis.client,
+            self.redis.client,  # type: ignore[union-attr]
             refresh_key(refresh_record["jti"]),
             refresh_record,
             ttl_seconds,

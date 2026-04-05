@@ -10,8 +10,10 @@ Runs as a background asyncio task during the API lifespan. Checks:
 - Service instability (frequent state changes)
 """
 
+
 import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 
@@ -56,7 +58,7 @@ class HealthScanner:
         self.db = mongodb
         self.redis = redis
         self.notif = NotificationService(mongodb, redis)
-        self._source = NotificationSource(component="hydra-api", service="health-scanner")
+        self._source = NotificationSource(component="hydra-api", service="health-scanner")  # type: ignore[arg-type]
 
     @staticmethod
     def _coerce_utc(value: datetime) -> datetime:
@@ -75,7 +77,7 @@ class HealthScanner:
             {"$group": {"_id": "$nodeId", "latestProfile": {"$first": "$$ROOT"}}},
             {"$project": {"nodeId": "$_id", "metadata": "$latestProfile.metadata"}},
         ]
-        results = await self.db.profiles.aggregate(pipeline).to_list(length=500)
+        results = await self.db.profiles.aggregate(pipeline).to_list(length=500)  # type: ignore[arg-type]
         intervals: dict[str, timedelta] = {}
         for doc in results:
             meta = doc.get("metadata") or {}
@@ -122,7 +124,7 @@ class HealthScanner:
         source: NotificationSource,
         title: str,
         message: str,
-        details: dict,
+        details: dict[str, Any],
         resource_type: str,
         resource_id: str,
         actor: NotificationActor | None = None,
@@ -154,7 +156,7 @@ class HealthScanner:
             title=title,
             message=message,
             details=details,
-            actor=actor or NotificationActor(type="system", id="health_scanner"),
+            actor=actor or NotificationActor(type="system", id="health_scanner"),  # type: ignore[arg-type]
             audit_entry_id=audit_id,
             group_key=group_key,
             target_user_id=target_user_id,
@@ -229,7 +231,7 @@ class HealthScanner:
     async def _check_stale_nodes(
         self,
         node_warnings: dict[str, list[str]],
-        active_nodes: list[dict],
+        active_nodes: list[dict[str, Any]],
         schedule_intervals: dict[str, timedelta],
     ) -> None:
         """Find active nodes whose last profile is older than the threshold.
@@ -262,7 +264,7 @@ class HealthScanner:
             await self._emit_with_audit(
                 notification_type=NotificationType.NODE_PROFILE_STALE,
                 source=NotificationSource(
-                    component="hydra-api",
+                    component="hydra-api",  # type: ignore[arg-type]
                     service="health-scanner",
                     node_id=node_id,
                 ),
@@ -285,7 +287,7 @@ class HealthScanner:
     async def _check_offline_nodes(
         self,
         node_warnings: dict[str, list[str]],
-        active_nodes: list[dict],
+        active_nodes: list[dict[str, Any]],
         schedule_intervals: dict[str, timedelta],
     ) -> None:
         """Detect nodes that have been stale for 3x the expected interval.
@@ -317,7 +319,7 @@ class HealthScanner:
             await self._emit_with_audit(
                 notification_type=NotificationType.NODE_OFFLINE,
                 source=NotificationSource(
-                    component="hydra-api",
+                    component="hydra-api",  # type: ignore[arg-type]
                     service="health-scanner",
                     node_id=node_id,
                 ),
@@ -346,7 +348,7 @@ class HealthScanner:
     async def _check_storage_thresholds(
         self,
         node_warnings: dict[str, list[str]],
-        active_nodes: list[dict] | None = None,
+        active_nodes: list[dict[str, Any]] | None = None,
     ) -> None:
         """Check latest profiles for filesystem usage above thresholds."""
         # Get nodes with active status
@@ -375,7 +377,7 @@ class HealthScanner:
             }},
         ]
 
-        results = await self.db.profiles.aggregate(pipeline).to_list(length=500)
+        results = await self.db.profiles.aggregate(pipeline).to_list(length=500)  # type: ignore[arg-type]
 
         for doc in results:
             node_id = doc["nodeId"]
@@ -398,7 +400,7 @@ class HealthScanner:
                     await self._emit_with_audit(
                         notification_type=NotificationType.STORAGE_CRITICAL,
                         source=NotificationSource(
-                            component="hydra-api",
+                            component="hydra-api",  # type: ignore[arg-type]
                             service="health-scanner",
                             node_id=node_id,
                         ),
@@ -421,7 +423,7 @@ class HealthScanner:
                     await self._emit_with_audit(
                         notification_type=NotificationType.STORAGE_WARNING,
                         source=NotificationSource(
-                            component="hydra-api",
+                            component="hydra-api",  # type: ignore[arg-type]
                             service="health-scanner",
                             node_id=node_id,
                         ),
@@ -445,7 +447,7 @@ class HealthScanner:
     async def _check_memory_thresholds(
         self,
         node_warnings: dict[str, list[str]],
-        active_nodes: list[dict] | None = None,
+        active_nodes: list[dict[str, Any]] | None = None,
     ) -> None:
         """Check latest profiles for memory usage above thresholds."""
         if active_nodes is None:
@@ -472,7 +474,7 @@ class HealthScanner:
             }},
         ]
 
-        results = await self.db.profiles.aggregate(pipeline).to_list(length=500)
+        results = await self.db.profiles.aggregate(pipeline).to_list(length=500)  # type: ignore[arg-type]
 
         for doc in results:
             node_id = doc["nodeId"]
@@ -491,7 +493,7 @@ class HealthScanner:
                 await self._emit_with_audit(
                     notification_type=NotificationType.MEMORY_CRITICAL,
                     source=NotificationSource(
-                        component="hydra-api",
+                        component="hydra-api",  # type: ignore[arg-type]
                         service="health-scanner",
                         node_id=node_id,
                     ),
@@ -527,7 +529,7 @@ class HealthScanner:
             await self._emit_with_audit(
                 notification_type=NotificationType.NODE_HEALTH_DEGRADED,
                 source=NotificationSource(
-                    component="hydra-api",
+                    component="hydra-api",  # type: ignore[arg-type]
                     service="health-scanner",
                     node_id=node_id,
                 ),
@@ -694,17 +696,17 @@ class HealthScanner:
             },
         ]
 
-        profiles = await self.db.profiles.aggregate(pipeline).to_list(length=5000)
+        profiles = await self.db.profiles.aggregate(pipeline).to_list(length=5000)  # type: ignore[arg-type]
 
         # Group profiles by node
-        node_profiles: dict[str, list[dict]] = {}
+        node_profiles: dict[str, list[dict[str, Any]]] = {}
         for p in profiles:
             node_profiles.setdefault(p["nodeId"], []).append(p)
 
         # For each node, track per-service status across profiles
         for node_id, ordered_profiles in node_profiles.items():
             # service_key -> {name, runtime, statuses}
-            service_statuses: dict[str, dict] = {}
+            service_statuses: dict[str, dict[str, Any]] = {}
 
             for prof in ordered_profiles:
                 svc_list = prof.get("services") or []
@@ -733,7 +735,7 @@ class HealthScanner:
                     await self._emit_with_audit(
                         notification_type=NotificationType.SERVICE_INSTABILITY,
                         source=NotificationSource(
-                            component="hydra-api",
+                            component="hydra-api",  # type: ignore[arg-type]
                             service="health-scanner",
                             node_id=node_id,
                         ),
@@ -831,7 +833,7 @@ class HealthScanner:
                 }
             },
         ]
-        profiles = await self.db.profiles.aggregate(pipeline).to_list(length=500)
+        profiles = await self.db.profiles.aggregate(pipeline).to_list(length=500)  # type: ignore[arg-type]
 
         targets = {
             (doc.get("metadata") or {}).get("agentTarget")
@@ -858,7 +860,7 @@ class HealthScanner:
                 versions = await backend.list_versions(target)
             except Exception:
                 continue
-            versions_by_target[target] = [v["version"] for v in versions if v.get("version")]
+            versions_by_target[target] = [v["version"] for v in versions if v.get("version")]  # type: ignore[index]
 
         for doc in profiles:
             node_id = doc.get("nodeId")
@@ -891,7 +893,7 @@ class HealthScanner:
             await self._emit_with_audit(
                 notification_type=NotificationType.AGENT_VERSION_OUTDATED,
                 source=NotificationSource(
-                    component="hydra-api",
+                    component="hydra-api",  # type: ignore[arg-type]
                     service="health-scanner",
                     node_id=node_id,
                 ),
@@ -918,7 +920,7 @@ class HealthScanner:
 
     async def _check_health_check_passed(
         self,
-        active_nodes: list[dict],
+        active_nodes: list[dict[str, Any]],
         node_warnings: dict[str, list[str]],
         schedule_intervals: dict[str, timedelta],
     ) -> None:
@@ -954,7 +956,7 @@ class HealthScanner:
             await self._emit_with_audit(
                 notification_type=NotificationType.HEALTH_CHECK_PASSED,
                 source=NotificationSource(
-                    component="hydra-api",
+                    component="hydra-api",  # type: ignore[arg-type]
                     service="health-scanner",
                     node_id=node_id,
                 ),

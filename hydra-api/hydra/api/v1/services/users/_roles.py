@@ -1,6 +1,7 @@
 """User roles mixin - handles role elevation, temporary roles, and permissions."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -10,10 +11,10 @@ from hydra.api.v1.core.exceptions import (
     UserNotFoundError,
 )
 from hydra.api.v1.models.auth import (
+    ROLE_LEVELS,
     ElevateRoleRequest,
     GrantTemporaryRoleRequest,
     Role,
-    ROLE_LEVELS,
 )
 from hydra.api.v1.models.notifications import (
     NotificationSource,
@@ -23,16 +24,26 @@ from hydra.api.v1.models.notifications import (
 from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.services.notifications import emit_notification
 from hydra.api.v1.services.query import log_audit
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
 
 class RolesMixin:
     """Mixin providing role management functionality."""
+    db: MongoDB
+
+    @staticmethod
+    def _to_utc(value: datetime | None) -> datetime | None: ...
+
+    def get_active_temporary_roles(self, temp_roles: list[dict[str, Any]]) -> list[dict[str, Any]]: ...  # type: ignore[empty-body]
+
+    async def _check_role_limit(self, role: str) -> None: ...
+
 
     async def elevate_role(
         self, user_id: str, request: ElevateRoleRequest, elevated_by: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Permanently elevate a user's role.
 
         Args:
@@ -60,7 +71,7 @@ class RolesMixin:
 
         await self._check_role_limit(new_role)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await self.db.users.update_one(
             {"userId": user_id},
             {
@@ -111,7 +122,7 @@ class RolesMixin:
 
     async def grant_temporary_role(
         self, user_id: str, request: GrantTemporaryRoleRequest, granted_by: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Grant a temporary role to a user.
 
         Args:
@@ -131,7 +142,7 @@ class RolesMixin:
             raise UserNotFoundError(user_id)
 
         temp_roles = user.get("temporaryRoles", [])
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for tr in temp_roles:
             expires_at = self._to_utc(tr.get("expiresAt"))
             if tr["role"] == request.role.value and expires_at and expires_at > now:
@@ -155,7 +166,7 @@ class RolesMixin:
 
         updated_user = await self.db.users.find_one({"userId": user_id})
         active_temp_roles = self.get_active_temporary_roles(
-            updated_user.get("temporaryRoles", [])
+            updated_user.get("temporaryRoles", [])  # type: ignore[union-attr]
         )
 
         logger.info(
@@ -188,7 +199,7 @@ class RolesMixin:
 
     async def revoke_temporary_role(
         self, user_id: str, role: str, revoked_by: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Revoke a temporary role from a user.
 
         Args:
@@ -206,7 +217,7 @@ class RolesMixin:
         if not user:
             raise UserNotFoundError(user_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         await self.db.users.update_one(
             {"userId": user_id},

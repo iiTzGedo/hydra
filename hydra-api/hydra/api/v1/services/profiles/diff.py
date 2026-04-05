@@ -15,7 +15,7 @@ async def diff_profiles(
     node_id: str,
     from_version: str | None = None,
     to_version: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Compare two profiles for a node.
 
     If versions are not specified, compares the latest two profiles.
@@ -115,8 +115,8 @@ async def diff_profiles(
 
 
 def diff_config_files(
-    previous_profile: dict | None, submission: ProfileSubmission
-) -> dict | None:
+    previous_profile: dict[str, Any] | None, submission: ProfileSubmission
+) -> dict[str, Any] | None:
     """Detect config file changes between previous profile and new submission."""
     if not previous_profile:
         return None
@@ -139,13 +139,12 @@ def diff_config_files(
         if getattr(f, "path", None)
     }
 
-    added = [path for path in new_map.keys() if path not in prev_map]
-    removed = [path for path in prev_map.keys() if path not in new_map]
+    added = [path for path in new_map if path not in prev_map]
+    removed = [path for path in prev_map if path not in new_map]
     changed = []
-    for path in new_map.keys():
-        if path in prev_map:
-            if new_map[path].hash != prev_map[path].get("hash"):
-                changed.append(path)
+    for path in new_map:
+        if path in prev_map and new_map[path].hash != prev_map[path].get("hash"):
+            changed.append(path)
 
     if not (added or removed or changed):
         return None

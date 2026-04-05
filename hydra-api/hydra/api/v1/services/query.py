@@ -7,7 +7,6 @@ from uuid import uuid4
 import structlog
 
 from hydra.api.v1.core.exceptions import ValidationError
-from hydra.db.mongodb import MongoDB
 from hydra.api.v1.core.query_sanitizer import sanitize_mongo_filter
 from hydra.api.v1.models.query import (
     AuditAction,
@@ -16,6 +15,7 @@ from hydra.api.v1.models.query import (
     QueryCollection,
     QueryRequest,
 )
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -131,7 +131,7 @@ class QueryService:
         self.mongodb = mongodb
         self._groups_service = groups_service
 
-    def _get_collection(self, name: QueryCollection):
+    def _get_collection(self, name: QueryCollection):  # type: ignore[no-untyped-def]
         """Get collection by name."""
         mapping = {
             QueryCollection.NODES: self.mongodb.nodes,
@@ -185,7 +185,7 @@ class QueryService:
                 )
         return sort
 
-    async def execute_query(self, request: QueryRequest) -> tuple[list[dict], int]:
+    async def execute_query(self, request: QueryRequest) -> tuple[list[dict[str, Any]], int]:
         """Execute a structured query against a specified collection.
 
         Args:

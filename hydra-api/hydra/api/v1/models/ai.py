@@ -7,12 +7,12 @@ Terminology:
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class LLMProviderType(str, Enum):
+class LLMProviderType(StrEnum):
     """Supported LLM provider types."""
 
     ANTHROPIC = "anthropic"
@@ -143,7 +143,7 @@ class LLMModelsResponse(BaseModel):
 # =============================================================================
 
 
-class GlobalKeyScope(str, Enum):
+class GlobalKeyScope(StrEnum):
     """Scopes for global API key usage."""
 
     CHAT = "chat"  # Use for chat conversations

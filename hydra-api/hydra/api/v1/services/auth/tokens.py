@@ -1,41 +1,50 @@
 """Registration token mixin: create, validate, use, and list registration tokens."""
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 
-from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.core.exceptions import (
     RegistrationTokenError,
     ValidationError,
 )
-from hydra.api.v1.services.notifications import emit_notification
-from hydra.api.v1.models.notifications import (
-    NotificationType,
-    NotificationSource,
-    NotificationActor,
-    ActorType,
-)
-from hydra.api.v1.services.query import log_audit
-from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.models.auth import (
+    ROLE_LEVELS,
     CreateRegistrationTokenRequest,
     Role,
-    ROLE_LEVELS,
     can_create_token_for_role,
     get_role_level,
 )
+from hydra.api.v1.models.notifications import (
+    NotificationSource,
+    NotificationType,
+)
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
+from hydra.core.config import Settings
+from hydra.db.mongodb import MongoDB
+from hydra.db.redis import RedisClient
 
 logger = structlog.get_logger(__name__)
 
 
 class TokensMixin:
     """Mixin providing registration token management."""
+    db: MongoDB
+    redis: RedisClient | None
+    settings: Settings
+
+    @staticmethod
+    def _to_utc(value: datetime | None) -> datetime | None: ...
+
 
     async def create_registration_token(
         self, request: CreateRegistrationTokenRequest, created_by: str, creator_role: str | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a new registration token for user or node registration.
 
         Role-based restrictions apply: users can only create tokens for roles
@@ -57,7 +66,7 @@ class TokensMixin:
         expires_in = request.expires_in or (
             self.settings.registration_token_expire_days * 24 * 60 * 60
         )
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
         max_uses = request.max_uses or self.settings.registration_token_max_uses
 
         allowed_roles = None
@@ -73,8 +82,7 @@ class TokensMixin:
                     )
                 allowed_roles.append(role.value)
 
-        if request.scope.value == "user" and not allowed_roles and creator_role:
-            if creator_role != "admin":
+        if request.scope.value == "user" and not allowed_roles and creator_role and creator_role != "admin":
                 allowed_roles = [
                     role for role, level in ROLE_LEVELS.items()
                     if level <= creator_role_level
@@ -93,7 +101,7 @@ class TokensMixin:
             "createdBy": created_by,
             "creatorRole": creator_role,
             "maxRoleLevel": creator_role_level,
-            "createdAt": datetime.now(timezone.utc),
+            "createdAt": datetime.now(UTC),
         }
 
         await self.db.tokens.insert_one(token_doc)
@@ -129,7 +137,7 @@ class TokensMixin:
         )
         safe_create_task(emit_notification(
             notification_type=NotificationType.REGISTRATION_TOKEN_CREATED,
-            source=NotificationSource(component="hydra-api", service="auth"),
+            source=NotificationSource(component="hydra-api", service="auth"),  # type: ignore[arg-type]
             title="Registration token created",
             message=f"Registration token created for {request.scope.value} scope",
             details={
@@ -142,6 +150,9 @@ class TokensMixin:
             },
             target_user_id=created_by,
             audit_entry_id=audit_id,
+            mongodb=self.db,
+            redis=self.redis,
+            resolve_dependencies=False,
         ))
 
         return {
@@ -154,7 +165,7 @@ class TokensMixin:
             "created_by": created_by,
         }
 
-    async def validate_registration_token(self, token: str) -> dict:
+    async def validate_registration_token(self, token: str) -> dict[str, Any]:
         """Validate a registration token for node registration.
 
         Args:
@@ -182,7 +193,7 @@ class TokensMixin:
             )
 
         expires_at = self._to_utc(token_doc.get("expiresAt"))
-        if expires_at and expires_at < datetime.now(timezone.utc):
+        if expires_at and expires_at < datetime.now(UTC):
             raise RegistrationTokenError(
                 "AUTH_REGISTRATION_TOKEN_EXPIRED",
                 "Registration token has expired",
@@ -196,7 +207,7 @@ class TokensMixin:
                 "Registration token has reached maximum uses",
             )
 
-        return token_doc
+        return token_doc  # type: ignore[no-any-return]
 
     async def _use_registration_token(
         self, token: str, entity_id: str, entity_type: str
@@ -210,7 +221,7 @@ class TokensMixin:
                     "usedBy": {
                         "entityId": entity_id,
                         "entityType": entity_type,
-                        "usedAt": datetime.now(timezone.utc),
+                        "usedAt": datetime.now(UTC),
                     }
                 },
             },
@@ -227,7 +238,7 @@ class TokensMixin:
         active_only: bool = True,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List registration tokens created by a user.
 
         Args:
@@ -240,9 +251,9 @@ class TokensMixin:
         Returns:
             Tuple of (tokens list, total count).
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
-        query: dict = {"type": "registration", "createdBy": user_id}
+        query: dict[str, Any] = {"type": "registration", "createdBy": user_id}
 
         if scope:
             query["scope"] = scope

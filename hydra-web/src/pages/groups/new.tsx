@@ -277,8 +277,9 @@ export default function NewGroupPage() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1.5">Node/Service IDs</label>
+              <label htmlFor="selector-ids" className="block text-sm font-medium mb-1.5">Node/Service IDs</label>
               <input
+                id="selector-ids"
                 type="text"
                 value={selectorIds}
                 onChange={(e) => setSelectorIds(e.target.value)}
@@ -294,8 +295,9 @@ export default function NewGroupPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1.5">Networks</label>
+              <label htmlFor="selector-networks" className="block text-sm font-medium mb-1.5">Networks</label>
               <input
+                id="selector-networks"
                 type="text"
                 value={selectorNetworks}
                 onChange={(e) => setSelectorNetworks(e.target.value)}
@@ -309,8 +311,9 @@ export default function NewGroupPage() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium mb-1.5">Statuses</label>
+                <label htmlFor="selector-statuses" className="block text-sm font-medium mb-1.5">Statuses</label>
                 <input
+                  id="selector-statuses"
                   type="text"
                   value={selectorStatuses}
                   onChange={(e) => setSelectorStatuses(e.target.value)}
@@ -322,8 +325,9 @@ export default function NewGroupPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1.5">Kinds</label>
+                <label htmlFor="selector-kinds" className="block text-sm font-medium mb-1.5">Kinds</label>
                 <input
+                  id="selector-kinds"
                   type="text"
                   value={selectorKinds}
                   onChange={(e) => setSelectorKinds(e.target.value)}
@@ -337,8 +341,9 @@ export default function NewGroupPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1.5">Runtimes</label>
+              <label htmlFor="selector-runtimes" className="block text-sm font-medium mb-1.5">Runtimes</label>
               <input
+                id="selector-runtimes"
                 type="text"
                 value={selectorRuntimes}
                 onChange={(e) => setSelectorRuntimes(e.target.value)}
@@ -351,10 +356,11 @@ export default function NewGroupPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1.5">Tags</label>
+              <label htmlFor="selector-tags" className="block text-sm font-medium mb-1.5">Tags</label>
               <div className="flex flex-col gap-2 md:flex-row md:items-center">
                 <input
                   type="text"
+                  id="selector-tags"
                   value={selectorTags}
                   onChange={(e) => setSelectorTags(e.target.value)}
                   placeholder="e.g., critical, edge"

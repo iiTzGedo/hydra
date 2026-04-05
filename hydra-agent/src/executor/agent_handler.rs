@@ -4,7 +4,7 @@
 //! restart, update, probe-network.
 
 use std::net::Ipv4Addr;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -56,6 +56,7 @@ pub struct ProbeExecution {
 /// * `api_client` - Optional API client for commands that need to call the API
 /// * `config_path` - Optional path to agent.toml for config-reload
 /// * `vault` - Optional vault for commands that need stored credentials
+#[allow(clippy::too_many_arguments)]
 pub async fn execute(
     action: &str,
     parameters: &Option<Value>,
@@ -63,7 +64,7 @@ pub async fn execute(
     config: Arc<RwLock<AgentConfig>>,
     start_time: Instant,
     api_client: Option<&Arc<ApiClient>>,
-    config_path: Option<&PathBuf>,
+    config_path: Option<&Path>,
     vault: Option<&Vault>,
 ) -> CommandResult {
     info!(action = action, "Executing agent command");
@@ -124,7 +125,7 @@ async fn execute_status(config: Arc<RwLock<AgentConfig>>, start_time: Instant) -
 /// Re-reads agent.toml and updates the in-memory config via RwLock.
 async fn execute_config_reload(
     config: Arc<RwLock<AgentConfig>>,
-    config_path: Option<&PathBuf>,
+    config_path: Option<&Path>,
 ) -> CommandResult {
     let path = match config_path {
         Some(p) => p,

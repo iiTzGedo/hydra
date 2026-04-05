@@ -1,7 +1,9 @@
 """Profile document formatting for API responses."""
 
+from typing import Any
 
-def format_profile(doc: dict) -> dict:
+
+def format_profile(doc: dict[str, Any]) -> dict[str, Any]:
     """Format a profile document for API response."""
     return {
         "profileId": doc["profileId"],
@@ -22,7 +24,7 @@ def format_profile(doc: dict) -> dict:
     }
 
 
-def format_profile_summary(doc: dict) -> dict:
+def format_profile_summary(doc: dict[str, Any]) -> dict[str, Any]:
     """Format a profile document for list response."""
     return {
         "profileId": doc["profileId"],

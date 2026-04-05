@@ -4,11 +4,11 @@ from hydra.core.config import get_settings
 from hydra.db.mongodb import MongoDB
 from hydra.db.redis import RedisClient
 
-from .login import LoginMixin
-from .tokens import TokensMixin
-from .nodes import NodeRegistrationMixin
-from .api_keys import ApiKeysMixin
 from .agents import AgentRegistrationMixin
+from .api_keys import ApiKeysMixin
+from .login import LoginMixin
+from .nodes import NodeRegistrationMixin
+from .tokens import TokensMixin
 
 
 class AuthService(

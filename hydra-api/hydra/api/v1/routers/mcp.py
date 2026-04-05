@@ -1,5 +1,7 @@
 """MCP server configuration management endpoints."""
 
+from typing import Any
+
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
 
@@ -8,12 +10,12 @@ from hydra.api.v1.models.mcp import (
     HydraMCPHealthResponse,
     MCPHealthResponse,
     MCPPromptsResponse,
+    MCPResourcesResponse,
     MCPServerCategory,
     MCPServerCreate,
     MCPServerListResponse,
     MCPServerResponse,
     MCPServerUpdate,
-    MCPResourcesResponse,
     MCPToolsResponse,
 )
 from hydra.api.v1.services.mcp import MCPService
@@ -300,7 +302,7 @@ async def delete_server(
     current_user: CurrentUser,
     mcp_service: MCPService = Depends(get_mcp_service),
     server_id: str = Path(description="Server ID"),
-) -> dict:
+) -> dict[str, Any]:
     """Delete an MCP server configuration.
 
     Args:

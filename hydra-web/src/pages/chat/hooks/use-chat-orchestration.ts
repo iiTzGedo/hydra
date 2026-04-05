@@ -204,10 +204,10 @@ export function useChatOrchestration() {
 
   // ── Derived data ────────────────────────────────────────────────────
   const projects = projectsData?.projects || [];
-  const sessions = sessionsData?.sessions || [];
+  const sessions = useMemo(() => sessionsData?.sessions || [], [sessionsData?.sessions]);
   const llmProviders = llmProvidersData?.configs || [];
   const servers = mcpServersData?.servers || [];
-  const messages = messagesData?.messages || [];
+  const messages = useMemo(() => messagesData?.messages || [], [messagesData?.messages]);
   const sessionContext = sessionContextData?.context ?? null;
 
   const currentSession =
@@ -221,7 +221,7 @@ export function useChatOrchestration() {
     (provider) => provider.configId === activeLLMProviderId
   );
 
-  const activeServerIds = currentSession?.mcpServerIds || [];
+  const activeServerIds = useMemo(() => currentSession?.mcpServerIds || [], [currentSession?.mcpServerIds]);
   const standaloneSessions = useMemo(
     () => sessions.filter((session) => !session.projectId),
     [sessions]
@@ -230,8 +230,8 @@ export function useChatOrchestration() {
   // ── Hydra MCP status ───────────────────────────────────────────────
   const isHydraMcpInSession = activeServerIds.includes('hydra-mcp');
   const isHydraMcpHealthy = hydraMcpHealth?.status === 'healthy';
-  const hydraMcpTools = hydraMcpToolsData?.tools || [];
-  const hydraMcpPrompts = hydraMcpPromptsData?.prompts || [];
+  const hydraMcpTools = useMemo(() => hydraMcpToolsData?.tools || [], [hydraMcpToolsData?.tools]);
+  const hydraMcpPrompts = useMemo(() => hydraMcpPromptsData?.prompts || [], [hydraMcpPromptsData?.prompts]);
 
   // ── External server data (tools/resources/prompts) ─────────────────
   const { externalServers, toolsByServerId, promptsByServerId, serversWithTools } =
@@ -462,7 +462,7 @@ export function useChatOrchestration() {
         }
       );
     }
-  }, [sessionsData, sessions.length, currentSessionId, createSessionMutation]);
+  }, [sessionsData, sessions, currentSessionId, createSessionMutation]);
 
   useEffect(() => {
     if (!currentSessionId || isStreaming) return;

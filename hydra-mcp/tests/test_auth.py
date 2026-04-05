@@ -5,17 +5,17 @@ from types import SimpleNamespace
 import pytest
 
 from hydra_mcp.auth import (
+    ADMIN_PERMISSIONS,
+    FAMILY_PERMISSIONS,
+    OPERATOR_PERMISSIONS,
+    VIEWER_PERMISSIONS,
     AuthContext,
     AuthorizationError,
     check_permission,
+    create_context_from_api_key,
     get_auth_context,
     get_forward_auth_headers,
     set_auth_context,
-    create_context_from_api_key,
-    ADMIN_PERMISSIONS,
-    OPERATOR_PERMISSIONS,
-    VIEWER_PERMISSIONS,
-    FAMILY_PERMISSIONS,
 )
 
 

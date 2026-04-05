@@ -69,7 +69,7 @@ export function GeneralSettings() {
         },
       });
       toast.success('UI preferences updated');
-    } catch (error) {
+    } catch {
       toast.error('Failed to update UI preferences');
     }
   };
@@ -101,7 +101,7 @@ export function GeneralSettings() {
         },
       });
       toast.success('View defaults updated');
-    } catch (error) {
+    } catch {
       toast.error('Failed to update view defaults');
     }
   };

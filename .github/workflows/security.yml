@@ -37,11 +37,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pip-audit
-      - name: Install dependencies
-        run: pip install -e "." 2>/dev/null || true
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: hydra-mcp/uv.lock
+      - name: Export locked dependencies
+        run: uv export --frozen --no-dev --no-editable --no-emit-project --no-hashes --output-file requirements-audit.txt
       - name: Audit hydra-mcp
-        run: pip-audit --desc
+        run: uv tool run --from pip-audit pip-audit --desc -r requirements-audit.txt
 
   npm-audit:
     name: NPM Dependencies
@@ -87,7 +90,7 @@ jobs:
       - name: Build image
         run: docker build -t ${{ matrix.image }} -f ${{ matrix.dockerfile }} ${{ matrix.context }}
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: ${{ matrix.image }}
           format: table

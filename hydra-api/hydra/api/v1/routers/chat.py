@@ -1,5 +1,7 @@
 """Chat management endpoints for projects, sessions, and messages."""
 
+from typing import Any
+
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
 
@@ -195,7 +197,7 @@ async def delete_project(
     chat_service: ChatService = Depends(get_chat_service),
     project_id: str = Path(description="Project ID"),
     cascade: bool = Query(default=True, description="Delete sessions and messages"),
-) -> dict:
+) -> dict[str, Any]:
     """Delete a chat project and optionally its sessions.
 
     Args:
@@ -430,7 +432,7 @@ async def delete_session(
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
     session_id: str = Path(description="Session ID"),
-) -> dict:
+) -> dict[str, Any]:
     """Delete a chat session and all its messages.
 
     Args:

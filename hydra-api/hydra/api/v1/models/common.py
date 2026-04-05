@@ -1,22 +1,20 @@
 """Common response models and utilities."""
 
 from datetime import datetime
-from typing import Any, Generic, TypeVar
+from typing import Any
 
-from pydantic import ConfigDict, BaseModel, Field
-
-T = TypeVar("T")
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PaginationMeta(BaseModel):
     """Pagination metadata for list responses."""
-    
+
     total: int = Field(description="Total number of items")
     limit: int = Field(description="Maximum items per page")
     offset: int = Field(description="Number of items skipped")
 
 
-class SuccessResponse(BaseModel, Generic[T]):
+class SuccessResponse[T](BaseModel):
     """Standard success response wrapper."""
 
     data: T
@@ -41,7 +39,7 @@ class ErrorResponse(BaseModel):
 class HealthCheck(BaseModel):
     """Health check response."""
     model_config = ConfigDict(populate_by_name=True)
-    
+
     status: str = Field(description="Overall health status")
     version: str = Field(description="API version")
     timestamp: datetime = Field(description="Current server time")
@@ -52,7 +50,7 @@ class HealthCheck(BaseModel):
 class ServiceInfo(BaseModel):
     """Service information response."""
     model_config = ConfigDict(populate_by_name=True)
-    
+
     name: str = Field(description="Service name")
     version: str = Field(description="Service version")
     api_version: str = Field(alias="apiVersion", description="API version")

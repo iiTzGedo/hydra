@@ -375,7 +375,11 @@ function EventTimeline({
                   'relative flex gap-3 cursor-pointer group',
                   isSelected ? 'opacity-100' : 'opacity-70 hover:opacity-100'
                 )}
+                role="button"
+                tabIndex={0}
+                aria-label={`Select event ${event.eventType}`}
                 onClick={() => onSelect(event)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(event); } }}
               >
                 <div
                   className={cn(

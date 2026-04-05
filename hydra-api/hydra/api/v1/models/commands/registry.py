@@ -1,15 +1,15 @@
 """Command registry/catalog models."""
 
 from datetime import datetime
-from enum import Enum
-from typing import Annotated
+from enum import StrEnum
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import DangerLevel
 
 
-class CommandCategory(str, Enum):
+class CommandCategory(StrEnum):
     """Command categories matching registry ID prefixes."""
 
     SERVICE = "service"
@@ -17,7 +17,7 @@ class CommandCategory(str, Enum):
     AGENT = "agent"
 
 
-class AuditLogLevel(str, Enum):
+class AuditLogLevel(StrEnum):
     """Audit log verbosity levels."""
 
     MINIMAL = "minimal"
@@ -25,7 +25,7 @@ class AuditLogLevel(str, Enum):
     VERBOSE = "verbose"
 
 
-class CommandDeliveryMode(str, Enum):
+class CommandDeliveryMode(StrEnum):
     """How a command should be dispatched to an agent."""
 
     DIRECT_OR_POLL = "direct_or_poll"
@@ -119,8 +119,8 @@ class CommandDefinitionResponse(BaseModel):
     action: str
     display_name: Annotated[str, Field(alias="displayName")]
     description: str | None = None
-    target_schema: Annotated[dict | None, Field(default=None, alias="targetSchema")]
-    parameters_schema: Annotated[dict | None, Field(default=None, alias="parametersSchema")]
+    target_schema: Annotated[dict[str, Any] | None, Field(default=None, alias="targetSchema")]
+    parameters_schema: Annotated[dict[str, Any] | None, Field(default=None, alias="parametersSchema")]
     execution: ExecutionConfig
     rbac: RbacConfig
     audit: AuditConfig

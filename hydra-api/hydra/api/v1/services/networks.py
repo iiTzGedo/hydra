@@ -2,7 +2,7 @@
 
 import ipaddress
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -14,7 +14,6 @@ from hydra.api.v1.core.exceptions import (
     NotFoundError,
     ValidationError,
 )
-from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.networks import (
     CreateNetworkRequest,
     NetworkListParams,
@@ -22,6 +21,7 @@ from hydra.api.v1.models.networks import (
     UpdateNetworkRequest,
 )
 from hydra.api.v1.models.profiles import NetworkProfile
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -56,7 +56,7 @@ class NetworksService:
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
 
-    async def get_network(self, network_id: str, include_nodes: bool = False) -> dict:
+    async def get_network(self, network_id: str, include_nodes: bool = False) -> dict[str, Any]:
         """Retrieve a single network by its identifier.
 
         Args:
@@ -81,7 +81,7 @@ class NetworksService:
 
         return result
 
-    async def list_networks(self, params: NetworkListParams) -> tuple[list[dict], int]:
+    async def list_networks(self, params: NetworkListParams) -> tuple[list[dict[str, Any]], int]:
         """List networks with optional filtering, sorting, and pagination.
 
         Args:
@@ -147,7 +147,7 @@ class NetworksService:
         self,
         request: CreateNetworkRequest,
         created_by: str = "manual",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a new network.
 
         Args:
@@ -175,7 +175,7 @@ class NetworksService:
             if not router:
                 raise NodeNotFoundError(request.router_node_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         network_doc = {
             "networkId": request.network_id,
@@ -215,7 +215,7 @@ class NetworksService:
 
         return self._format_network(network_doc)
 
-    async def update_network(self, network_id: str, request: UpdateNetworkRequest) -> dict:
+    async def update_network(self, network_id: str, request: UpdateNetworkRequest) -> dict[str, Any]:
         """Update network metadata.
 
         Args:
@@ -234,7 +234,7 @@ class NetworksService:
         if not existing:
             raise NetworkNotFoundError(network_id)
 
-        update_fields: dict[str, Any] = {"updatedAt": datetime.now(timezone.utc)}
+        update_fields: dict[str, Any] = {"updatedAt": datetime.now(UTC)}
 
         if request.name is not None:
             update_fields["name"] = request.name
@@ -269,7 +269,7 @@ class NetworksService:
 
         return await self.get_network(network_id)
 
-    async def delete_network(self, network_id: str, force: bool = False) -> dict:
+    async def delete_network(self, network_id: str, force: bool = False) -> dict[str, Any]:
         """Delete a network.
 
         Args:
@@ -308,7 +308,7 @@ class NetworksService:
 
         return self._format_network(existing)
 
-    async def get_network_nodes(self, network_id: str) -> list[dict]:
+    async def get_network_nodes(self, network_id: str) -> list[dict[str, Any]]:
         """Get all nodes in a network.
 
         Args:
@@ -326,7 +326,7 @@ class NetworksService:
 
         return await self._get_network_nodes(network_id)
 
-    async def _get_network_nodes(self, network_id: str) -> list[dict]:
+    async def _get_network_nodes(self, network_id: str) -> list[dict[str, Any]]:
         """Get nodes belonging to a specific network."""
         nodes = []
         cursor = self.db.nodes.find({"networkIds": network_id})
@@ -359,7 +359,7 @@ class NetworksService:
             return []
 
         network_ids: set[str] = set()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for interface in network_profile.interfaces:
             if interface.name == "lo" or interface.name.startswith("veth"):
@@ -448,7 +448,7 @@ class NetworksService:
         """Generate a network ID from CIDR notation."""
         return cidr.replace(".", "-").replace("/", "-")
 
-    def _format_network(self, doc: dict) -> dict:
+    def _format_network(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a network document for API response."""
         return {
             "networkId": doc["networkId"],
@@ -472,7 +472,7 @@ class NetworksService:
             "updatedAt": doc.get("updatedAt"),
         }
 
-    def _format_network_summary(self, doc: dict) -> dict:
+    def _format_network_summary(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a network document for list response."""
         return {
             "networkId": doc["networkId"],

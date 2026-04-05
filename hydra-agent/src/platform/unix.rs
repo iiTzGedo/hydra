@@ -23,19 +23,19 @@ pub const VAULT_MASTER_KEY_FILE: &str = ".vault-key";
 pub struct UnixPermissions;
 
 impl FilePermissions for UnixPermissions {
-    fn set_owner_only(&self, path: &PathBuf) -> Result<()> {
+    fn set_owner_only(&self, path: &Path) -> Result<()> {
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))
             .with_context(|| format!("Failed to set permissions 0600 on {:?}", path))?;
         Ok(())
     }
 
-    fn set_dir_owner_only(&self, path: &PathBuf) -> Result<()> {
+    fn set_dir_owner_only(&self, path: &Path) -> Result<()> {
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))
             .with_context(|| format!("Failed to set permissions 0700 on {:?}", path))?;
         Ok(())
     }
 
-    fn is_secure(&self, path: &PathBuf) -> Result<bool> {
+    fn is_secure(&self, path: &Path) -> Result<bool> {
         let metadata =
             fs::metadata(path).with_context(|| format!("Failed to get metadata for {:?}", path))?;
         let mode = metadata.permissions().mode();

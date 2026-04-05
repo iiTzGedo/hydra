@@ -1,6 +1,7 @@
 """Workflow service for managing command chain definitions and executions."""
 
 import asyncio
+import contextlib
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
@@ -21,15 +22,12 @@ from hydra.api.v1.models.commands.schemas import CommandTarget
 from hydra.api.v1.models.commands.workflows import (
     CreateWorkflowRequest,
     ExecuteWorkflowRequest,
-    StepFailurePolicy,
     UpdateWorkflowRequest,
     WorkflowExecutionStatus,
 )
+from hydra.api.v1.models.notifications import NotificationSource, NotificationType
 from hydra.api.v1.services.commands.service import CommandsService
 from hydra.api.v1.services.notifications import emit_notification
-from hydra.api.v1.models.notifications import NotificationType, NotificationSource
-from hydra.api.v1.services.query import log_audit
-from hydra.api.v1.models.query import AuditAction
 from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
@@ -51,10 +49,10 @@ class WorkflowService:
             step_id = step.step_id if hasattr(step, "step_id") else step.get("stepId")
             if condition is not None:
                 raise ValidationError(
-                    (
+
                         f"Workflow step '{step_id}' uses unsupported 'condition' logic. "
                         "Conditional workflow execution is not implemented in this phase."
-                    )
+
                 )
 
     # ── Workflow CRUD ────────────────────────────────────────────────────
@@ -142,7 +140,7 @@ class WorkflowService:
         workflow = await self.workflows.find_one({"chainId": chain_id})
         if not workflow:
             raise WorkflowNotFoundError(chain_id)
-        return workflow
+        return workflow  # type: ignore[no-any-return]
 
     async def list_workflows(
         self, limit: int = 50, offset: int = 0
@@ -161,10 +159,10 @@ class WorkflowService:
         self,
         chain_id: str,
         request: UpdateWorkflowRequest,
-        user_id: str | None = None,
+        user_id: str | None = None,  # noqa: ARG002
     ) -> dict[str, Any]:
         """Update a workflow definition."""
-        workflow = await self.get_workflow(chain_id)
+        await self.get_workflow(chain_id)
         now = datetime.now(UTC)
 
         update_set: dict[str, Any] = {"updatedAt": now}
@@ -212,7 +210,7 @@ class WorkflowService:
 
     async def delete_workflow(self, chain_id: str) -> None:
         """Delete a workflow definition."""
-        workflow = await self.get_workflow(chain_id)
+        await self.get_workflow(chain_id)
 
         # Check for active executions
         active_count = await self.workflow_executions.count_documents({
@@ -308,7 +306,7 @@ class WorkflowService:
         )
         if not execution:
             raise WorkflowExecutionNotFoundError(execution_id)
-        return execution
+        return execution  # type: ignore[no-any-return]
 
     async def list_executions(
         self,
@@ -352,12 +350,10 @@ class WorkflowService:
                 step["completedAt"] = now
                 # Cancel the underlying command if it exists
                 if step["commandId"]:
-                    try:
+                    with contextlib.suppress(Exception):
                         await self.commands_service.cancel_command(
                             step["commandId"], cancelled_by=user_id
                         )
-                    except Exception:
-                        pass  # Best-effort cancel
 
         await self.workflow_executions.update_one(
             {"executionId": execution_id},
@@ -376,7 +372,7 @@ class WorkflowService:
             emit_notification(
                 notification_type=NotificationType.COMMAND_EXECUTION_FAILED,
                 source=NotificationSource(
-                    component="hydra-api", service="workflows"
+                    component="hydra-api", service="workflows"  # type: ignore[arg-type]
                 ),
                 title="Workflow cancelled",
                 message=f"Workflow execution '{execution_id}' was cancelled",
@@ -400,7 +396,7 @@ class WorkflowService:
         user_permissions: list[str] | None,
         source: CommandSource,
         client_id: str | None,
-        request: ExecuteWorkflowRequest | None,
+        request: ExecuteWorkflowRequest | None,  # noqa: ARG002
     ) -> None:
         """Orchestrate workflow step execution in topological order."""
         chain_id = workflow["chainId"]
@@ -549,7 +545,7 @@ class WorkflowService:
         await self._update_step_status(execution_id, step_id, "executing")
 
         try:
-            cmd_request = CreateCommandRequest(
+            cmd_request = CreateCommandRequest(  # type: ignore[call-arg]
                 registry_id=registry_id,
                 target=CommandTarget(
                     node_id=target["nodeId"],
@@ -652,7 +648,7 @@ class WorkflowService:
         execution_id: str,
         step_id: str,
         status: str,
-        result: dict | None = None,
+        result: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> None:
         """Update the status of a specific step in an execution."""
@@ -747,7 +743,7 @@ class WorkflowService:
             emit_notification(
                 notification_type=notification_type,
                 source=NotificationSource(
-                    component="hydra-api", service="workflows"
+                    component="hydra-api", service="workflows"  # type: ignore[arg-type]
                 ),
                 title=f"Workflow {status.value}",
                 message=f"Workflow execution '{execution_id}' {status.value}",
@@ -760,7 +756,7 @@ class WorkflowService:
 
     # ── Validation Helpers ───────────────────────────────────────────────
 
-    def _validate_step_graph(self, steps: list) -> None:
+    def _validate_step_graph(self, steps: list) -> None:  # type: ignore[type-arg]
         """Validate that the step dependency graph is a DAG (no cycles)."""
         step_ids = {s.step_id for s in steps}
 

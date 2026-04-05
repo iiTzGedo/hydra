@@ -1,9 +1,9 @@
 """Authentication enums, role constants, and role utility functions."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class TokenType(str, Enum):
+class TokenType(StrEnum):
     """Token types."""
 
     ACCESS = "access"
@@ -12,14 +12,14 @@ class TokenType(str, Enum):
     API_KEY = "api_key"
 
 
-class TokenScope(str, Enum):
+class TokenScope(StrEnum):
     """Registration token scopes."""
 
     USER = "user"  # For user registration
     NODE = "node"  # For node registration
 
 
-class Role(str, Enum):
+class Role(StrEnum):
     """User roles."""
 
     ADMIN = "admin"
@@ -29,7 +29,7 @@ class Role(str, Enum):
     AGENT = "agent"
 
 
-class UserStatus(str, Enum):
+class UserStatus(StrEnum):
     """User account status."""
 
     ACTIVE = "active"
@@ -38,7 +38,7 @@ class UserStatus(str, Enum):
     PENDING_APPROVAL = "pending_approval"
 
 
-class ApiKeyType(str, Enum):
+class ApiKeyType(StrEnum):
     """API key types."""
 
     USER = "user"

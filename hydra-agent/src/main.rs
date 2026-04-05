@@ -121,7 +121,7 @@ async fn main() -> Result<()> {
 /// # Errors
 ///
 /// Returns an error if the configuration file cannot be read or parsed.
-fn load_config(config_path: &PathBuf) -> Result<AgentConfig> {
+fn load_config(config_path: &std::path::Path) -> Result<AgentConfig> {
     AgentConfig::load(config_path).with_context(|| {
         format!(
             "Failed to load configuration from {}",
@@ -146,7 +146,7 @@ fn load_config(config_path: &PathBuf) -> Result<AgentConfig> {
 ///
 /// Returns an error if authentication is unavailable, profile collection fails,
 /// or profile submission fails.
-async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<()> {
+async fn run_agent(config_path: &std::path::Path, vault: &Vault, once: bool) -> Result<()> {
     info!("Starting hydra-agent v{}", env!("CARGO_PKG_VERSION"));
 
     // Enforce single instance — abort if another agent is running
@@ -254,7 +254,7 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
         let server_handle = if config.node.tier == AgentTier::Max && config.server.enabled {
             let app_state = server::build_app_state(
                 shared_config.clone(),
-                config_path.clone(),
+                config_path.to_path_buf(),
                 vault,
                 Some(api_client_arc.clone()),
                 agent_start_time,
@@ -289,7 +289,7 @@ async fn run_agent(config_path: &PathBuf, vault: &Vault, once: bool) -> Result<(
             shared_config,
             agent_start_time,
             Some(api_client_arc.clone()),
-            Some(config_path.clone()),
+            Some(config_path.to_path_buf()),
             Some(vault.clone()),
         );
         let node_id = config.node.node_id.clone();
@@ -438,7 +438,7 @@ async fn poll_and_execute_commands(
 /// # Errors
 ///
 /// Returns an error if status cannot be determined.
-fn show_status(config_path: &PathBuf, vault: &Vault) -> Result<()> {
+fn show_status(config_path: &std::path::Path, vault: &Vault) -> Result<()> {
     #[cfg(target_os = "linux")]
     use std::process::Command;
 
@@ -645,7 +645,7 @@ fn dev_mode_node(args: &cli::node::NodeArgs) -> Result<()> {
     Ok(())
 }
 
-async fn dev_mode_run(config_path: &PathBuf, once: bool) -> Result<()> {
+async fn dev_mode_run(config_path: &std::path::Path, once: bool) -> Result<()> {
     let home_dir = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let output_dir = PathBuf::from(&home_dir).join("hydra").join("profiles");
 

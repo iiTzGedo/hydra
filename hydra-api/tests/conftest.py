@@ -2,9 +2,9 @@
 
 import asyncio
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import AsyncGenerator
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,12 +15,12 @@ from httpx import ASGITransport, AsyncClient
 os.environ.setdefault("HYDRA_ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
 os.environ.setdefault("HYDRA_MCP_INTERNAL_SECRET", "internal-secret-for-tests-0123456789")
 
-from hydra.core.config import Settings, clear_settings_cache, get_settings, override_settings
 from hydra.api.v1.core.security import create_access_token
+from hydra.api.v1.main import app as v1_app
+from hydra.core.config import Settings, clear_settings_cache, get_settings, override_settings
 from hydra.db.mongodb import MongoDB, get_mongodb
 from hydra.db.redis import RedisClient, get_redis
 from hydra.main import app
-from hydra.api.v1.main import app as v1_app
 from tests.utils import create_mock_cursor
 
 
@@ -223,7 +223,7 @@ def viewer_token(test_settings) -> str:
 @pytest.fixture
 def sample_node():
     """Sample node document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "nodeId": "test-server-01",
         "class": "compute",
@@ -246,7 +246,7 @@ def sample_node():
 @pytest.fixture
 def sample_profile():
     """Sample profile document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "profileId": "prof_abc123",
         "nodeId": "test-server-01",
@@ -310,7 +310,7 @@ def sample_profile():
 @pytest.fixture
 def sample_user():
     """Sample user document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "userId": "user_test123",
         "username": "testuser",
@@ -327,14 +327,14 @@ def sample_user():
 @pytest.fixture
 def sample_registration_token():
     """Sample registration token document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "token": "reg_test_token_abc123",
         "type": "registration",
         "description": "Test token",
         "scope": "node",
         "createdBy": "user_admin123",
-        "expiresAt": datetime(2099, 12, 31, tzinfo=timezone.utc),
+        "expiresAt": datetime(2099, 12, 31, tzinfo=UTC),
         "maxUses": 10,
         "usedCount": 0,
         "usedBy": [],

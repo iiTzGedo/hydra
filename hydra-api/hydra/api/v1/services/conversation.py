@@ -90,7 +90,7 @@ class TokenCounter:
             return None
 
         try:
-            import tiktoken
+            import tiktoken  # type: ignore[import-not-found]
         except ImportError:
             logger.warning("tiktoken_not_available", msg="Install tiktoken for accurate OpenAI token counting")
             return None
@@ -137,7 +137,7 @@ class TokenCounter:
         ratio = self.CHAR_RATIOS.get(self.provider, 4.0)
         return int(len(text) / ratio) + 1
 
-    def count_message(self, message: dict) -> int:
+    def count_message(self, message: dict[str, Any]) -> int:
         """Count tokens in a single message including overhead.
 
         Args:
@@ -170,7 +170,7 @@ class TokenCounter:
 
         return tokens
 
-    def count_messages(self, messages: list[dict]) -> int:
+    def count_messages(self, messages: list[dict[str, Any]]) -> int:
         """Count tokens in a list of messages.
 
         Args:
@@ -205,12 +205,12 @@ class Conversation:
 
     system_prompt: str
     summary: str | None
-    messages: list[dict]
+    messages: list[dict[str, Any]]
     token_count: int
     context_window: int
     truncated_count: int = 0
 
-    def to_messages(self, provider: str) -> list[dict]:
+    def to_messages(self, provider: str) -> list[dict[str, Any]]:
         """Format conversation for a specific provider's API.
 
         Args:
@@ -353,7 +353,7 @@ class ConversationBuilder:
     model: str
     context_window: int = field(default=0)
     reserved_output: int = field(default=4096)
-    redis: "RedisClient | None" = field(default=None)
+    redis: RedisClient | None = field(default=None)
     llm_bridge: Any = field(default=None)  # Circular import prevention
 
     # Token budget allocation ratios
@@ -365,7 +365,7 @@ class ConversationBuilder:
     SUMMARY_CACHE_TTL: int = field(default=86400, init=False)  # 24 hours
     CONVERSATION_CACHE_TTL: int = field(default=3600, init=False)  # 1 hour
 
-    def __post_init__(self):
+    def __post_init__(self):  # type: ignore[no-untyped-def]
         """Initialize computed fields after dataclass init."""
         if self.context_window == 0:
             self.context_window = get_context_window(self.provider, self.model)
@@ -380,7 +380,7 @@ class ConversationBuilder:
 
     async def build(
         self,
-        thread: list[dict],
+        thread: list[dict[str, Any]],
         system_prompt: str,
         session_id: str,
     ) -> Conversation:
@@ -411,7 +411,7 @@ class ConversationBuilder:
         effective_recent_budget = self.available_tokens - system_tokens - self.summary_budget
 
         # Phase 1: Fill recent messages from end of thread (sliding window)
-        recent_messages = []
+        recent_messages = []  # type: ignore[var-annotated]
         recent_tokens = 0
         cutoff_index = len(thread)
 
@@ -467,7 +467,7 @@ class ConversationBuilder:
     async def _get_or_create_summary(
         self,
         session_id: str,
-        messages: list[dict],
+        messages: list[dict[str, Any]],
         token_budget: int,
     ) -> str | None:
         """Get cached summary or create new one via LLM.
@@ -521,7 +521,7 @@ class ConversationBuilder:
 
         return summary
 
-    def _create_summary_cache_key(self, session_id: str, messages: list[dict]) -> str:
+    def _create_summary_cache_key(self, session_id: str, messages: list[dict[str, Any]]) -> str:
         """Create deterministic cache key for a message range.
 
         Args:
@@ -541,7 +541,7 @@ class ConversationBuilder:
 
     async def _generate_summary(
         self,
-        messages: list[dict],
+        messages: list[dict[str, Any]],
         token_budget: int,
     ) -> str | None:
         """Generate summary of messages using LLM.
@@ -609,7 +609,7 @@ SUMMARY:"""
             logger.error("summarization_unexpected_error", error=str(e), error_type=type(e).__name__)
             return self._create_simple_summary(messages, token_budget)
 
-    def _get_summarization_config(self) -> dict:
+    def _get_summarization_config(self) -> dict[str, Any]:
         """Get config for summarization model (fast/cheap model).
 
         Returns:
@@ -635,7 +635,7 @@ SUMMARY:"""
                 "model": self.model,
             }
 
-    def _create_simple_summary(self, messages: list[dict], token_budget: int) -> str:
+    def _create_simple_summary(self, messages: list[dict[str, Any]], token_budget: int) -> str:
         """Create simple summary without LLM (fallback).
 
         Args:

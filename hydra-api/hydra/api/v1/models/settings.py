@@ -1,13 +1,13 @@
 """Settings models for user and system configuration."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class ThemeMode(str, Enum):
+class ThemeMode(StrEnum):
     """UI theme mode."""
 
     LIGHT = "light"
@@ -15,7 +15,7 @@ class ThemeMode(str, Enum):
     SYSTEM = "system"
 
 
-class LayoutMode(str, Enum):
+class LayoutMode(StrEnum):
     """List layout mode."""
 
     LIST = "list"
@@ -23,7 +23,7 @@ class LayoutMode(str, Enum):
     COMPACT = "compact"
 
 
-class SortOrder(str, Enum):
+class SortOrder(StrEnum):
     """Sort order."""
 
     ASC = "asc"

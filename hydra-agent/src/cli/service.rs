@@ -6,7 +6,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 /// Service command arguments
@@ -103,7 +103,7 @@ pub enum ServiceCommand {
 }
 
 /// Execute the service command
-pub fn execute(args: &ServiceArgs, config_path: &PathBuf) -> Result<()> {
+pub fn execute(args: &ServiceArgs, config_path: &Path) -> Result<()> {
     // Handle --cron / -c option (shorthand for setting up cron job)
     if let Some(cron_expr) = &args.cron {
         let default_install_dir = PathBuf::from("/usr/local/bin");
@@ -176,8 +176,8 @@ fn check_root() -> Result<()> {
 
 /// Activate (install) the agent as a system service
 fn activate_service(
-    install_dir: &PathBuf,
-    config_path: &PathBuf,
+    install_dir: &Path,
+    config_path: &Path,
     no_start: bool,
     with_alias: bool,
     runtime: ServiceRuntime,
@@ -293,7 +293,7 @@ fn activate_service(
 }
 
 /// Setup Docker-based service
-fn setup_docker_service(config_path: &PathBuf) -> Result<()> {
+fn setup_docker_service(config_path: &Path) -> Result<()> {
     use std::fs;
     use std::process::Command;
 
@@ -378,7 +378,7 @@ fn start_docker_service() -> Result<()> {
 }
 
 /// Setup cron job for scheduled execution
-fn setup_cron_job(install_dir: &PathBuf, config_path: &PathBuf, cron_expr: &str) -> Result<()> {
+fn setup_cron_job(install_dir: &Path, config_path: &Path, cron_expr: &str) -> Result<()> {
     use std::process::Command;
 
     // Validate cron expression (basic check for 5 fields)
@@ -462,7 +462,7 @@ fn setup_cron_job(install_dir: &PathBuf, config_path: &PathBuf, cron_expr: &str)
 
 /// Install systemd unit file
 #[cfg(target_os = "linux")]
-fn install_systemd_unit(install_dir: &PathBuf, config_path: &PathBuf) -> Result<()> {
+fn install_systemd_unit(install_dir: &Path, config_path: &Path) -> Result<()> {
     use std::fs;
     use std::process::Command;
 

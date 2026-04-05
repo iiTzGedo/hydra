@@ -8,7 +8,7 @@
 //! | Logs          | /var/log/hydra/             | C:\ProgramData\Hydra\logs\        |
 //! | Binary        | /usr/local/bin/             | C:\Program Files\Hydra Agent\     |
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Default paths for Unix systems
 #[cfg(unix)]
@@ -92,10 +92,10 @@ impl Paths {
     }
 
     /// Create paths with a custom base directory (useful for testing)
-    pub fn with_base_dir(base: &PathBuf) -> Self {
+    pub fn with_base_dir(base: &Path) -> Self {
         Self {
             config_file: base.join("agent.toml"),
-            config_dir: base.clone(),
+            config_dir: base.to_path_buf(),
             vault_dir: base.join("vault"),
             log_dir: base.join("logs"),
             bin_dir: base.join("bin"),
@@ -154,9 +154,9 @@ pub fn default_bin_dir() -> PathBuf {
 /// Resolve a path that may contain environment variables or special prefixes
 pub fn resolve_path(path: &str) -> PathBuf {
     // Handle home directory expansion
-    if path.starts_with("~/") {
+    if let Some(stripped) = path.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
-            return home.join(&path[2..]);
+            return home.join(stripped);
         }
     }
 

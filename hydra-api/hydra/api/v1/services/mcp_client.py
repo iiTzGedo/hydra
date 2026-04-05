@@ -22,7 +22,7 @@ INTERNAL_CLIENT_ID_HEADER = "X-Hydra-Client-Id"
 class MCPClientError(ValidationError):
     """MCP client error."""
 
-    def __init__(self, message: str, details: dict | None = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message, details or {})
 
 
@@ -46,7 +46,7 @@ class MCPClient:
             self._builtin_mcp_url = self.settings.mcp_server_url
         return self._builtin_mcp_url
 
-    async def get_server_config(self, server_id: str, user_id: str) -> dict:
+    async def get_server_config(self, server_id: str, user_id: str) -> dict[str, Any]:
         """Get MCP server configuration.
 
         Args:
@@ -83,7 +83,7 @@ class MCPClient:
             "transport": doc.get("transport", "http"),
         }
 
-    async def get_tools(self, server_config: dict) -> list[dict]:
+    async def get_tools(self, server_config: dict[str, Any]) -> list[dict[str, Any]]:
         """Get available tools from an MCP server.
 
         Args:
@@ -104,7 +104,7 @@ class MCPClient:
                 response = await client.get(f"{url.rstrip('/')}/tools")
                 response.raise_for_status()
                 data = response.json()
-                return data.get("tools", [])
+                return data.get("tools", [])  # type: ignore[no-any-return]
             except httpx.HTTPStatusError as e:
                 raise MCPClientError(f"Failed to get tools: {e.response.status_code}")
             except httpx.RequestError as e:
@@ -128,11 +128,11 @@ class MCPClient:
 
     async def call_tool(
         self,
-        server_config: dict,
+        server_config: dict[str, Any],
         tool_name: str,
         arguments: dict[str, Any],
         user_id: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Call a tool on an MCP server.
 
         Args:
@@ -193,7 +193,7 @@ class MCPClient:
                     "is_error": True,
                 }
 
-    async def get_resources(self, server_config: dict) -> list[dict]:
+    async def get_resources(self, server_config: dict[str, Any]) -> list[dict[str, Any]]:
         """Get available resources from an MCP server.
 
         Args:
@@ -214,13 +214,13 @@ class MCPClient:
                 response = await client.get(f"{url.rstrip('/')}/resources")
                 response.raise_for_status()
                 data = response.json()
-                return data.get("resources", [])
+                return data.get("resources", [])  # type: ignore[no-any-return]
             except httpx.HTTPStatusError as e:
                 raise MCPClientError(f"Failed to get resources: {e.response.status_code}")
             except httpx.RequestError as e:
                 raise MCPClientError(f"Failed to connect to MCP server: {str(e)}")
 
-    async def read_resource(self, server_config: dict, uri: str) -> str:
+    async def read_resource(self, server_config: dict[str, Any], uri: str) -> str:
         """Read a resource from an MCP server.
 
         Args:
@@ -245,13 +245,13 @@ class MCPClient:
                 )
                 response.raise_for_status()
                 data = response.json()
-                return data.get("content", "")
+                return data.get("content", "")  # type: ignore[no-any-return]
             except httpx.HTTPStatusError as e:
                 raise MCPClientError(f"Failed to read resource: {e.response.status_code}")
             except httpx.RequestError as e:
                 raise MCPClientError(f"Failed to connect to MCP server: {str(e)}")
 
-    async def check_health(self, server_config: dict) -> dict:
+    async def check_health(self, server_config: dict[str, Any]) -> dict[str, Any]:
         """Check the health of an MCP server.
 
         Args:
@@ -286,7 +286,7 @@ class MCPClient:
         self,
         server_ids: list[str],
         user_id: str,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Get all tools from multiple MCP servers for a chat session.
 
         Fetches tools from each enabled server and attaches server metadata
@@ -326,10 +326,10 @@ class MCPClient:
 
     async def execute_tool_call(
         self,
-        tool_call: dict,
+        tool_call: dict[str, Any],
         server_ids: list[str],
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Execute a tool call, routing to the correct server.
 
         If server_id is specified in the tool_call, routes directly to that server.

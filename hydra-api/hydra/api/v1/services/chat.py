@@ -1,14 +1,13 @@
 """Chat service for projects, sessions, and messages."""
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from pymongo import ReturnDocument
 
 from hydra.api.v1.core.exceptions import NotFoundError, ValidationError
-from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
-from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.models.chat import (
     ChatMessageCreate,
     ChatMessageUpsert,
@@ -18,6 +17,8 @@ from hydra.api.v1.models.chat import (
     ChatSessionStatus,
     ChatSessionUpdate,
 )
+from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
+from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.services.chat_cache import ChatCacheService
 from hydra.api.v1.services.notifications import emit_notification
 from hydra.api.v1.services.query import log_audit
@@ -54,7 +55,7 @@ class ChatService:
         user_id: str,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List chat projects for a user.
 
         Args:
@@ -85,7 +86,7 @@ class ChatService:
         ]
 
         projects = []
-        async for doc in self.db.chat_projects.aggregate(pipeline):
+        async for doc in self.db.chat_projects.aggregate(pipeline):  # type: ignore[arg-type]
             session_count = doc.get("sessionCount", 0)
             projects.append(self._project_doc_to_response(doc, session_count))
 
@@ -93,7 +94,7 @@ class ChatService:
 
         return projects, total
 
-    async def get_project(self, project_id: str, user_id: str) -> dict:
+    async def get_project(self, project_id: str, user_id: str) -> dict[str, Any]:
         """Get a specific chat project by ID.
 
         Args:
@@ -124,7 +125,7 @@ class ChatService:
         self,
         request: ChatProjectCreate,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a new chat project.
 
         Args:
@@ -134,7 +135,7 @@ class ChatService:
         Returns:
             The created project details.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         project_id = f"proj_{secrets.token_urlsafe(8)}"
 
         doc = {
@@ -176,7 +177,7 @@ class ChatService:
         project_id: str,
         request: ChatProjectUpdate,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Update a chat project.
 
         Args:
@@ -198,13 +199,13 @@ class ChatService:
         if not doc:
             raise ChatProjectNotFoundError(project_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         update_fields = {"updatedAt": now}
 
         if request.name is not None:
-            update_fields["name"] = request.name
+            update_fields["name"] = request.name  # type: ignore[assignment]
         if request.description is not None:
-            update_fields["description"] = request.description
+            update_fields["description"] = request.description  # type: ignore[assignment]
 
         await self.db.chat_projects.update_one(
             {"projectId": project_id},
@@ -218,14 +219,14 @@ class ChatService:
 
         logger.info("chat_project_updated", project_id=project_id, user_id=user_id)
 
-        return self._project_doc_to_response(updated_doc, session_count)
+        return self._project_doc_to_response(updated_doc, session_count)  # type: ignore[arg-type]
 
     async def delete_project(
         self,
         project_id: str,
         user_id: str,
         cascade: bool = True,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Delete a chat project.
 
         Args:
@@ -283,7 +284,7 @@ class ChatService:
         project_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List chat sessions for a user.
 
         Args:
@@ -295,7 +296,7 @@ class ChatService:
         Returns:
             Tuple of (sessions list, total count).
         """
-        match_query: dict = {"ownerId": user_id}
+        match_query: dict[str, Any] = {"ownerId": user_id}
         if project_id:
             match_query["projectId"] = project_id
 
@@ -319,7 +320,7 @@ class ChatService:
         ]
 
         sessions = []
-        async for doc in self.db.chat_sessions.aggregate(pipeline):
+        async for doc in self.db.chat_sessions.aggregate(pipeline):  # type: ignore[arg-type]
             message_count = doc.get("messageCount", 0)
             sessions.append(self._session_doc_to_response(doc, message_count))
 
@@ -327,7 +328,7 @@ class ChatService:
 
         return sessions, total
 
-    async def get_session(self, session_id: str, user_id: str) -> dict:
+    async def get_session(self, session_id: str, user_id: str) -> dict[str, Any]:
         """Get a specific chat session by ID.
 
         Args:
@@ -358,7 +359,7 @@ class ChatService:
         self,
         request: ChatSessionCreate,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a new chat session.
 
         Args:
@@ -371,7 +372,7 @@ class ChatService:
         Raises:
             ChatProjectNotFoundError: If specified project does not exist.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         session_id = f"sess_{secrets.token_urlsafe(8)}"
 
         if request.project_id:
@@ -382,7 +383,7 @@ class ChatService:
             if not project:
                 raise ChatProjectNotFoundError(request.project_id)
 
-        doc = {
+        doc = {  # type: ignore[var-annotated]
             "sessionId": session_id,
             "projectId": request.project_id,
             "title": request.title or "New Chat",
@@ -418,7 +419,7 @@ class ChatService:
         session_id: str,
         request: ChatSessionUpdate,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Update a chat session.
 
         Args:
@@ -441,13 +442,13 @@ class ChatService:
         if not doc:
             raise ChatSessionNotFoundError(session_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         update_fields = {"updatedAt": now}
 
         if request.title is not None:
-            update_fields["title"] = request.title
+            update_fields["title"] = request.title  # type: ignore[assignment]
         if request.status is not None:
-            update_fields["status"] = request.status.value
+            update_fields["status"] = request.status.value  # type: ignore[assignment]
         if request.project_id is not None:
             if request.project_id:
                 project = await self.db.chat_projects.find_one({
@@ -456,7 +457,7 @@ class ChatService:
                 })
                 if not project:
                     raise ChatProjectNotFoundError(request.project_id)
-            update_fields["projectId"] = request.project_id
+            update_fields["projectId"] = request.project_id  # type: ignore[assignment]
         if request.llm_provider_id is not None:
             # Enforce LLM config locking after first response
             if doc.get("llmConfigLocked") and request.llm_provider_id != doc.get("llmProviderId"):
@@ -464,9 +465,9 @@ class ChatService:
                     "Cannot change LLM configuration after first response",
                     {"field": "llmProviderId", "reason": "session_locked"},
                 )
-            update_fields["llmProviderId"] = request.llm_provider_id
+            update_fields["llmProviderId"] = request.llm_provider_id  # type: ignore[assignment]
         if request.mcp_server_ids is not None:
-            update_fields["mcpServerIds"] = request.mcp_server_ids
+            update_fields["mcpServerIds"] = request.mcp_server_ids  # type: ignore[assignment]
 
         await self.db.chat_sessions.update_one(
             {"sessionId": session_id},
@@ -480,13 +481,13 @@ class ChatService:
 
         logger.info("chat_session_updated", session_id=session_id, user_id=user_id)
 
-        return self._session_doc_to_response(updated_doc, message_count)
+        return self._session_doc_to_response(updated_doc, message_count)  # type: ignore[arg-type]
 
     async def delete_session(
         self,
         session_id: str,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Delete a chat session and all its messages.
 
         Args:
@@ -519,7 +520,7 @@ class ChatService:
 
         return {"deleted": True, "sessionId": session_id}
 
-    async def get_session_context(self, session_id: str, user_id: str) -> dict:
+    async def get_session_context(self, session_id: str, user_id: str) -> dict[str, Any]:
         """Get session context for real-time UI display.
 
         Args:
@@ -574,7 +575,7 @@ class ChatService:
         offset: int = 0,
         order: str = "asc",
         use_cache: bool = True,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List messages in a chat session.
 
         Args:
@@ -646,7 +647,7 @@ class ChatService:
         session_id: str,
         request: ChatMessageCreate,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a new message in a chat session.
 
         Args:
@@ -668,7 +669,7 @@ class ChatService:
         if not session:
             raise ChatSessionNotFoundError(session_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         message_id = f"msg_{secrets.token_urlsafe(8)}"
 
         # Atomically increment messageCount and get the new value for ordering
@@ -721,7 +722,7 @@ class ChatService:
         session_id: str,
         messages: list[ChatMessageUpsert],
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Bulk upsert messages for efficient batch saving.
 
         Updates existing messages by ID or creates new ones. Used for background
@@ -746,7 +747,7 @@ class ChatService:
         if not session:
             raise ChatSessionNotFoundError(session_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         upserted_count = 0
         new_message_ids: list[str] = []
 
@@ -795,7 +796,7 @@ class ChatService:
                 upserted_count += 1
 
         # Write-Around: Update session with new messageIds in thread array
-        update_ops: dict = {"$set": {"lastMessageAt": now, "updatedAt": now}}
+        update_ops: dict[str, Any] = {"$set": {"lastMessageAt": now, "updatedAt": now}}
         if new_message_ids:
             update_ops["$push"] = {"sessionContext.thread": {"$each": new_message_ids}}
             update_ops["$inc"] = {"sessionContext.messageCount": len(new_message_ids)}
@@ -818,7 +819,7 @@ class ChatService:
 
     # ==================== Helpers ====================
 
-    def _project_doc_to_response(self, doc: dict, session_count: int) -> dict:
+    def _project_doc_to_response(self, doc: dict[str, Any], session_count: int) -> dict[str, Any]:
         """Convert project document to response."""
         return {
             "project_id": doc["projectId"],
@@ -830,7 +831,7 @@ class ChatService:
             "updated_at": doc["updatedAt"],
         }
 
-    def _session_doc_to_response(self, doc: dict, message_count: int) -> dict:
+    def _session_doc_to_response(self, doc: dict[str, Any], message_count: int) -> dict[str, Any]:
         """Convert session document to response."""
         session_context = doc.get("sessionContext")
         context_data = None
@@ -863,7 +864,7 @@ class ChatService:
             "last_message_at": doc.get("lastMessageAt"),
         }
 
-    def _message_doc_to_response(self, doc: dict) -> dict:
+    def _message_doc_to_response(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Convert message document to response."""
         return {
             "message_id": doc["messageId"],

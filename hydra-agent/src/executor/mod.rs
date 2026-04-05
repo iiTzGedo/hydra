@@ -107,7 +107,7 @@ impl CommandExecutor {
                     self.config.clone(),
                     self.start_time,
                     self.api_client.as_ref(),
-                    self.config_path.as_ref(),
+                    self.config_path.as_deref(),
                     self.vault.as_ref(),
                 )
                 .await

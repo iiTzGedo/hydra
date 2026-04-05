@@ -8,15 +8,15 @@ Terminology:
 
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import structlog
 
-from hydra.api.v1.core.crypto import decrypt_value, encrypt_value, mask_api_key
+from hydra.api.v1.core.crypto import decrypt_value, encrypt_value
 from hydra.api.v1.core.exceptions import NotFoundError, ValidationError
 from hydra.api.v1.models.ai import (
-    GlobalAPIKeyCreate,
     LLMConfigCreate,
     LLMConfigUpdate,
     LLMProviderType,
@@ -36,7 +36,7 @@ class LLMConfigNotFoundError(NotFoundError):
         super().__init__("llm_config", config_id)
 
 
-class AIService(ProviderValidationMixin, GlobalKeysMixin):
+class AIService(ProviderValidationMixin, GlobalKeysMixin):  # type: ignore[misc]
     """AI/LLM configuration and provider management service."""
 
     def __init__(self, mongodb: MongoDB, cache: ChatCacheService | None = None):
@@ -52,7 +52,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
         user_id: str,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List LLM configurations created by a user.
 
         Args:
@@ -78,7 +78,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
 
         return configs, total
 
-    async def get_config(self, config_id: str, user_id: str) -> dict:
+    async def get_config(self, config_id: str, user_id: str) -> dict[str, Any]:
         """Get a specific LLM configuration by ID.
 
         Args:
@@ -105,7 +105,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
         self,
         request: LLMConfigCreate,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a new LLM configuration.
 
         Args:
@@ -134,7 +134,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
         if existing:
             raise ValidationError(f"A configuration with name '{request.name}' already exists.")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         config_id = f"llm_{secrets.token_urlsafe(8)}"
 
         if request.is_default:
@@ -181,7 +181,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
         config_id: str,
         request: LLMConfigUpdate,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Update an LLM configuration.
 
         Args:
@@ -203,25 +203,25 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
         if not doc:
             raise LLMConfigNotFoundError(config_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         update_fields = {"updatedAt": now}
 
         if request.name is not None:
-            update_fields["name"] = request.name
+            update_fields["name"] = request.name  # type: ignore[assignment]
 
         if request.api_key is not None:
-            update_fields["apiKeyEncrypted"] = encrypt_value(request.api_key)
+            update_fields["apiKeyEncrypted"] = encrypt_value(request.api_key)  # type: ignore[assignment]
             update_fields["apiKeyLast4"] = (
-                request.api_key[-4:] if len(request.api_key) >= 4 else request.api_key
+                request.api_key[-4:] if len(request.api_key) >= 4 else request.api_key  # type: ignore[assignment]
             )
-            update_fields["isValid"] = None
-            update_fields["lastValidatedAt"] = None
+            update_fields["isValid"] = None  # type: ignore[assignment]
+            update_fields["lastValidatedAt"] = None  # type: ignore[assignment]
 
         if request.base_url is not None:
-            update_fields["baseUrl"] = request.base_url
+            update_fields["baseUrl"] = request.base_url  # type: ignore[assignment]
 
         if request.model is not None:
-            update_fields["model"] = request.model
+            update_fields["model"] = request.model  # type: ignore[assignment]
 
         if request.is_default is not None:
             if request.is_default:
@@ -229,7 +229,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
                     {"createdBy": user_id, "isDefault": True, "providerId": {"$ne": config_id}},
                     {"$set": {"isDefault": False, "updatedAt": now}},
                 )
-            update_fields["isDefault"] = request.is_default
+            update_fields["isDefault"] = request.is_default  # type: ignore[assignment]
 
         await self.db.ai_models.update_one(
             {"providerId": config_id},
@@ -244,9 +244,9 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
             user_id=user_id,
         )
 
-        return self._doc_to_response(updated_doc)
+        return self._doc_to_response(updated_doc)  # type: ignore[arg-type]
 
-    async def delete_config(self, config_id: str, user_id: str) -> dict:
+    async def delete_config(self, config_id: str, user_id: str) -> dict[str, Any]:
         """Delete an LLM configuration.
 
         Args:
@@ -277,7 +277,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
 
         return {"deleted": True, "configId": config_id}
 
-    async def validate_config(self, config_id: str, user_id: str) -> dict:
+    async def validate_config(self, config_id: str, user_id: str) -> dict[str, Any]:
         """Validate an LLM configuration by testing the API connection.
 
         Makes a request to the provider's API to verify the configuration is valid.
@@ -301,7 +301,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
             raise LLMConfigNotFoundError(config_id)
 
         provider_type = LLMProviderType(doc["type"])
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         api_key = None
         if doc.get("apiKeyEncrypted"):
@@ -362,7 +362,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
         config_id: str | None = None,
         tools_only: bool = True,
         use_cache: bool = True,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Fetch available models from an LLM provider API.
 
         Args:
@@ -379,7 +379,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
             ValidationError: If no API key is available for the provider.
             LLMConfigNotFoundError: If config_id is specified but not found.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cache_key = f"{provider_type.value}:{tools_only}"
 
         # Try cache first
@@ -465,7 +465,7 @@ class AIService(ProviderValidationMixin, GlobalKeysMixin):
     # Helper Methods
     # =========================================================================
 
-    def _doc_to_response(self, doc: dict) -> dict:
+    def _doc_to_response(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Convert a database document to an API response dictionary."""
         return {
             "config_id": doc["providerId"],  # Map legacy field to new name

@@ -1,7 +1,7 @@
 """Network models for request/response validation."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -18,7 +18,7 @@ from hydra.api.v1.core.validators import (
 )
 
 
-class NetworkType(str, Enum):
+class NetworkType(StrEnum):
     """Network type."""
 
     PHYSICAL = "physical"
@@ -30,7 +30,7 @@ class NetworkType(str, Enum):
     TUNNEL = "tunnel"
 
 
-class NetworkOriginType(str, Enum):
+class NetworkOriginType(StrEnum):
     """How the network was created."""
 
     AUTO = "auto"

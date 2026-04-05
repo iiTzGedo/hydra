@@ -1,7 +1,7 @@
 """Profile models for request/response validation."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -14,7 +14,7 @@ from hydra.api.v1.core.validators import (
 )
 
 
-class CollectionLevel(str, Enum):
+class CollectionLevel(StrEnum):
     """Profile collection depth level."""
 
     SHALLOW = "shallow"
@@ -207,10 +207,10 @@ class ServiceInfo(BaseModel):
     status: str
     version: str | None = None
     image: str | None = None
-    ports: list[dict] = Field(default_factory=list)
-    endpoints: list[dict] = Field(default_factory=list)
-    resources: dict = Field(default_factory=dict)
-    attachments: dict = Field(default_factory=dict)
+    ports: list[dict[str, Any]] = Field(default_factory=list)
+    endpoints: list[dict[str, Any]] = Field(default_factory=list)
+    resources: dict[str, Any] = Field(default_factory=dict)
+    attachments: dict[str, Any] = Field(default_factory=dict)
 
 
 class ServicesProfile(BaseModel):

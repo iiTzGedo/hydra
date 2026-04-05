@@ -9,7 +9,7 @@ use clap::{Args, Subcommand};
 use reqwest::Client;
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use toml_edit::{DocumentMut, Item, Value};
 use tracing::{debug, info, warn};
@@ -448,7 +448,7 @@ fn list_values(config_path: &PathBuf) -> Result<()> {
     println!();
 
     let mut values: BTreeMap<String, String> = BTreeMap::new();
-    collect_values(&doc.as_table(), "", &mut values);
+    collect_values(doc.as_table(), "", &mut values);
 
     for (key, value) in values {
         println!("  {} = {}", key, value);
@@ -457,7 +457,7 @@ fn list_values(config_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn show_path(config_path: &PathBuf) -> Result<()> {
+fn show_path(config_path: &Path) -> Result<()> {
     println!("{}", config_path.display());
 
     if config_path.exists() {
@@ -647,7 +647,7 @@ fn get_nested_value<'a>(doc: &'a DocumentMut, parts: &[&str]) -> Option<&'a Item
     let mut current: &Item = doc.as_item();
 
     for part in parts {
-        current = current.as_table()?.get(*part)?;
+        current = current.as_table()?.get(part)?;
     }
 
     Some(current)
@@ -713,7 +713,7 @@ fn format_value(item: &Item) -> String {
             Value::Float(f) => f.value().to_string(),
             Value::Boolean(b) => b.value().to_string(),
             Value::Array(arr) => {
-                let items: Vec<String> = arr.iter().map(|v| format_toml_value(v)).collect();
+                let items: Vec<String> = arr.iter().map(format_toml_value).collect();
                 format!("[{}]", items.join(", "))
             }
             Value::InlineTable(t) => {
@@ -738,7 +738,7 @@ fn format_toml_value(v: &Value) -> String {
         Value::Float(f) => f.value().to_string(),
         Value::Boolean(b) => b.value().to_string(),
         Value::Array(arr) => {
-            let items: Vec<String> = arr.iter().map(|v| format_toml_value(v)).collect();
+            let items: Vec<String> = arr.iter().map(format_toml_value).collect();
             format!("[{}]", items.join(", "))
         }
         Value::InlineTable(t) => {

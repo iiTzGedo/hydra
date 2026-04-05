@@ -1,12 +1,12 @@
 """MCP server configuration models."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class MCPServerCategory(str, Enum):
+class MCPServerCategory(StrEnum):
     """MCP server category."""
 
     INFRASTRUCTURE = "infrastructure"
@@ -18,7 +18,7 @@ class MCPServerCategory(str, Enum):
     OTHER = "other"
 
 
-class MCPAuthType(str, Enum):
+class MCPAuthType(StrEnum):
     """MCP server authentication type."""
 
     NONE = "none"
@@ -26,7 +26,7 @@ class MCPAuthType(str, Enum):
     BEARER = "bearer"
 
 
-class MCPServerStatus(str, Enum):
+class MCPServerStatus(StrEnum):
     """MCP server connection status."""
 
     UNKNOWN = "unknown"

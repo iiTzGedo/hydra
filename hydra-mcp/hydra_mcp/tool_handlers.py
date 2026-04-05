@@ -12,9 +12,9 @@ from typing import Any
 
 import structlog
 
-from hydra_mcp.tools import tool
-from hydra_mcp.shared import client, toon, safe_list, format_list_response
 from hydra_mcp import dependency_analyzer
+from hydra_mcp.shared import client, format_list_response, safe_list, toon
+from hydra_mcp.tools import tool
 
 logger = structlog.get_logger(__name__)
 
@@ -239,8 +239,9 @@ async def control_service(args: dict[str, Any]) -> str:
     if not service:
         raise ValueError(f"Service not found: {args['serviceId']}")
 
+    node_id: str = service.get("nodeId", "")
     result = await client.control_service(
-        node_id=service.get("nodeId"),
+        node_id=node_id,
         service_id=args["serviceId"],
         action=args["action"],
         parameters=args.get("parameters"),
@@ -560,7 +561,7 @@ async def get_topology(args: dict[str, Any]) -> str:
     """Get infrastructure topology graph."""
     topology = await client.get_topology(
         mode=args.get("mode", "network"),
-        scope=args.get("scope"),
+        _scope=args.get("scope"),
     )
     return toon.format(topology)
 
@@ -944,7 +945,7 @@ async def list_notifications_tool(args: dict[str, Any]) -> str:
     },
     required_permission="notifications:read",
 )
-async def get_notification_stats_tool(args: dict[str, Any]) -> str:
+async def get_notification_stats_tool(_args: dict[str, Any]) -> str:
     """Get notification statistics."""
     stats = await client.get_notification_stats()
     return toon.format(stats)

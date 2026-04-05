@@ -14,7 +14,7 @@ pub mod unix;
 #[cfg(windows)]
 pub mod windows;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Current platform identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,13 +100,13 @@ impl std::fmt::Display for Platform {
 /// Trait for platform-specific file permission handling
 pub trait FilePermissions {
     /// Set file to be readable/writable only by owner (Unix: 0600, Windows: ACL)
-    fn set_owner_only(&self, path: &PathBuf) -> anyhow::Result<()>;
+    fn set_owner_only(&self, path: &Path) -> anyhow::Result<()>;
 
     /// Set directory to be accessible only by owner (Unix: 0700, Windows: ACL)
-    fn set_dir_owner_only(&self, path: &PathBuf) -> anyhow::Result<()>;
+    fn set_dir_owner_only(&self, path: &Path) -> anyhow::Result<()>;
 
     /// Check if file has secure permissions
-    fn is_secure(&self, path: &PathBuf) -> anyhow::Result<bool>;
+    fn is_secure(&self, path: &Path) -> anyhow::Result<bool>;
 }
 
 /// Get the appropriate FilePermissions implementation for the current platform

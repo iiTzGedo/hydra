@@ -1,7 +1,7 @@
 """Service extraction from profiles and related notifications."""
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -60,11 +60,11 @@ async def extract_services(
     db: MongoDB,
     node_id: str,
     profile_id: str,
-    services: list,
+    services: list,  # type: ignore[type-arg]
 ) -> list[str]:
     """Extract services from profile and upsert them."""
     service_ids = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     for svc in services:
         service_id = generate_service_id(node_id, svc.runtime, svc.name)

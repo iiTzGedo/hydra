@@ -1,6 +1,6 @@
 """Tests for group management endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,7 +12,7 @@ from tests.utils import create_mock_cursor
 @pytest.fixture
 def sample_group():
     """Sample group document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "groupId": "grp-production",
         "name": "Production",

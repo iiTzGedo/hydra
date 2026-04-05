@@ -1,16 +1,16 @@
 """Time Machine service for historical state reconstruction."""
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Any
 
 import structlog
-from pymongo import ASCENDING, DESCENDING
+from pymongo import DESCENDING
 
 from hydra.api.v1.core.exceptions import NodeNotFoundError, ValidationError
-from hydra.db.mongodb import MongoDB
 from hydra.api.v1.models.timemachine import TimelineEventType
 from hydra.api.v1.models.topologies import TopologyMode
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -26,7 +26,7 @@ class TimeMachineService:
         node_id: str,
         timestamp: datetime,
         sections: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Reconstruct node state at a specific timestamp.
 
         Finds the latest profile before the timestamp and merges node,
@@ -98,7 +98,7 @@ class TimeMachineService:
         mode: TopologyMode,
         timestamp: datetime,
         include_graph: bool = True,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get topology valid at a specific timestamp.
 
         Finds topology where validFrom <= timestamp < validUntil.
@@ -161,7 +161,7 @@ class TimeMachineService:
         event_types: list[TimelineEventType] | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """Get timeline events for Time Machine visualization.
 
         Aggregates events from profile submissions, topology generations,
@@ -178,7 +178,7 @@ class TimeMachineService:
         Returns:
             Tuple of (timeline events, total count).
         """
-        events: list[dict] = []
+        events: list[dict[str, Any]] = []
 
         profile_filter: dict[str, Any] = {
             "submittedAt": {"$gte": since, "$lte": until}
@@ -277,7 +277,7 @@ class TimeMachineService:
 
         return paginated_events, total
 
-    def _format_node_snapshot(self, doc: dict) -> dict:
+    def _format_node_snapshot(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format node for snapshot."""
         return {
             "nodeId": doc["nodeId"],
@@ -290,7 +290,7 @@ class TimeMachineService:
             "registeredAt": doc.get("registeredAt"),
         }
 
-    def _format_profile_snapshot(self, doc: dict, sections: list[str] | None = None) -> dict:
+    def _format_profile_snapshot(self, doc: dict[str, Any], sections: list[str] | None = None) -> dict[str, Any]:
         """Format profile for snapshot."""
         result = {
             "profileId": doc["profileId"],
@@ -307,7 +307,7 @@ class TimeMachineService:
 
         return result
 
-    def _format_service_snapshot(self, doc: dict) -> dict:
+    def _format_service_snapshot(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format service for snapshot."""
         return {
             "serviceId": doc["serviceId"],

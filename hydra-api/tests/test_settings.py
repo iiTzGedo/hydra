@@ -1,6 +1,6 @@
 """Tests for settings management endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -25,7 +25,7 @@ def sample_user_settings():
             "serviceNotifications": True,
             "profileNotifications": False,
         },
-        "updatedAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(UTC),
     }
 
 
@@ -54,7 +54,7 @@ def sample_system_settings():
             "sessionTimeoutMinutes": 60,
         },
         "updatedBy": "user_admin123",
-        "updatedAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(UTC),
     }
 
 

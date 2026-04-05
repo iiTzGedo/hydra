@@ -2,7 +2,8 @@
 
 import secrets
 import string
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -13,12 +14,20 @@ from hydra.api.v1.core.exceptions import (
 )
 from hydra.api.v1.core.security import hash_password
 from hydra.api.v1.models.auth import Role
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
 
 class AgentRegistrationMixin:
     """Mixin providing agent system account registration."""
+    db: MongoDB
+
+    @staticmethod
+    def _to_utc(value: datetime | None) -> datetime | None: ...
+
+    async def _use_registration_token(self, token: str, entity_id: str, entity_type: str) -> None: ...
+
 
     async def register_agent(
         self,
@@ -26,7 +35,7 @@ class AgentRegistrationMixin:
         username: str | None = None,
         password: str | None = None,
         registration_token: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Register an agent system account.
 
         Creates a special system account for hydra-agent with auto-generated credentials
@@ -46,7 +55,7 @@ class AgentRegistrationMixin:
             ValidationError: If parent user lacks permission to create agent accounts.
             UserNotFoundError: If parent user does not exist.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         token_doc = None
         if registration_token:
@@ -68,7 +77,7 @@ class AgentRegistrationMixin:
                 )
 
             expires_at = self._to_utc(token_doc.get("expiresAt"))
-            if expires_at and expires_at < datetime.now(timezone.utc):
+            if expires_at and expires_at < datetime.now(UTC):
                 raise RegistrationTokenError(
                     "AUTH_REGISTRATION_TOKEN_EXPIRED",
                     "Registration token has expired",

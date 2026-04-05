@@ -2,6 +2,7 @@
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -11,19 +12,26 @@ from hydra.api.v1.models.notifications import NOTIFICATION_CHANNEL
 from hydra.api.v1.models.settings import NotificationSettings
 from hydra.api.v1.services.notifications.preferences import should_deliver
 from hydra.core.config import get_settings
+from hydra.db.mongodb import MongoDB
+from hydra.db.redis import RedisClient
 
 logger = structlog.get_logger(__name__)
 
 
 class DeliveryMixin:
     """Mixin providing Redis pub/sub and email delivery for notifications."""
+    db: MongoDB
+    redis: RedisClient | None
+
 
     # ------------------------------------------------------------------
     # Redis Pub/Sub
     # ------------------------------------------------------------------
 
-    async def _publish_to_redis(self, doc: dict) -> None:
+    async def _publish_to_redis(self, doc: dict[str, Any]) -> None:
         """Publish a notification summary to the Redis pub/sub channel."""
+        if not self.redis:
+            return
         try:
             summary = {
                 "notificationId": doc.get("notificationId"),
@@ -58,13 +66,13 @@ class DeliveryMixin:
             return NotificationSettings.model_validate(doc["notifications"])
         return NotificationSettings()
 
-    async def _deliver_email(self, doc: dict) -> None:
+    async def _deliver_email(self, doc: dict[str, Any]) -> None:
         """Send email notifications to matching recipients (best-effort)."""
         try:
             target_user_id = doc.get("targetUserId")
             target_roles = doc.get("targetRoles", [])
 
-            recipients: list[dict] = []
+            recipients: list[dict[str, Any]] = []
             if target_user_id:
                 user_doc = await self.db.users.find_one(
                     {"userId": target_user_id, "status": "active"},

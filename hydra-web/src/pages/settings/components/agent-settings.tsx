@@ -42,7 +42,7 @@ export function AgentSettings() {
         },
       });
       toast.success('Agent storage settings updated');
-    } catch (error) {
+    } catch {
       toast.error('Failed to update agent storage settings');
     }
   };

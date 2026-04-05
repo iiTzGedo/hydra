@@ -66,9 +66,8 @@ def sanitize_mongo_filter(
         return filter_dict
 
     for key, value in filter_dict.items():
-        if isinstance(key, str) and key.startswith("$"):
-            if key not in ALLOWED_OPERATORS:
-                raise BlockedOperatorError(f"Blocked MongoDB operator: {key}")
+        if isinstance(key, str) and key.startswith("$") and key not in ALLOWED_OPERATORS:
+            raise BlockedOperatorError(f"Blocked MongoDB operator: {key}")
 
         # Recurse into nested dicts
         if isinstance(value, dict):

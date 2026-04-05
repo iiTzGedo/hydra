@@ -1,9 +1,10 @@
 """Hydra API root application entry point."""
 
 import asyncio
+import contextlib
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator
 
 import structlog
 from fastapi import FastAPI
@@ -12,14 +13,14 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from hydra.api.v1 import __version__
+from hydra.api.v1.main import app as v1_app
+from hydra.api.v1.routers import chat_ws, health, notifications_ws
+from hydra.api.v1.services.health_scanner import HealthScanner
 from hydra.core.config import get_settings
 from hydra.core.logging import configure_logging
 from hydra.db.indexes import ensure_indexes
 from hydra.db.mongodb import get_mongodb
 from hydra.db.redis import get_redis
-from hydra.api.v1.main import app as v1_app
-from hydra.api.v1.routers import chat_ws, health, notifications_ws
-from hydra.api.v1.services.health_scanner import HealthScanner
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent / "static"
@@ -28,7 +29,7 @@ logger = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Root application lifespan handler for startup and shutdown."""
     settings = get_settings()
 
@@ -63,7 +64,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Start background command timeout checker
     from hydra.api.v1.services.commands import CommandsService
 
-    async def command_timeout_loop():
+    async def command_timeout_loop() -> None:
         """Periodically mark stale executing commands as timed out."""
         while True:
             try:
@@ -85,14 +86,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("shutting_down_hydra_api")
     timeout_task.cancel()
     scanner_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await timeout_task
-    except asyncio.CancelledError:
-        pass
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await scanner_task
-    except asyncio.CancelledError:
-        pass
     await redis.disconnect()
     await mongodb.disconnect()
     logger.info("hydra_api_stopped")
@@ -124,7 +121,7 @@ def create_app() -> FastAPI:
 
     # Landing page route
     @app.get("/", include_in_schema=False, response_class=HTMLResponse)
-    async def landing_page():
+    async def landing_page() -> HTMLResponse:
         """Serve the API landing page with documentation links."""
         index_path = STATIC_DIR / "index.html"
         if index_path.exists():
@@ -136,7 +133,7 @@ def create_app() -> FastAPI:
 
     # Favicon route
     @app.get("/favicon.ico", include_in_schema=False)
-    async def favicon():
+    async def favicon() -> FileResponse:
         """Serve favicon for browser requests and API docs."""
         favicon_path = STATIC_DIR / "favicon.ico"
         if favicon_path.exists():

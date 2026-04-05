@@ -44,6 +44,9 @@ uv.lock
 node_modules/
 hydra-web/dist/
 hydra-web/e2e/.auth/
+*.tsbuildinfo
+hydra-web/vite.config.js
+hydra-web/vite.config.d.ts
 .npm
 *.log
 npm-debug.log*
@@ -81,6 +84,7 @@ config.toml
 credentials.json
 
 #misc
+.codex
 .claude/
 CLAUDE.md
 Debt.md

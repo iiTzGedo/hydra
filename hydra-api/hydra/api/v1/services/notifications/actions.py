@@ -13,12 +13,15 @@ from hydra.api.v1.services.notifications.preferences import (
     ACKNOWLEDGE_MIN_TIER,
     RESOLVE_MIN_TIER,
 )
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
 
 class ActionsMixin:
     """Mixin providing read/acknowledge/resolve/delete operations."""
+    db: MongoDB
+
 
     # ------------------------------------------------------------------
     # Mark Read (per-user)
@@ -109,7 +112,7 @@ class ActionsMixin:
 
     async def acknowledge(
         self, notification_id: str, user_id: str
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """Acknowledge a notification (tier 3+ only). Returns updated doc or None.
 
         Also marks the notification as read for the user.
@@ -138,7 +141,7 @@ class ActionsMixin:
                 notification_id=notification_id,
                 user_id=user_id,
             )
-        return result
+        return result  # type: ignore[no-any-return]
 
     async def acknowledge_all(
         self,
@@ -225,7 +228,7 @@ class ActionsMixin:
 
     async def resolve(
         self, notification_id: str, user_id: str
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """Manually resolve a notification (tier 3+ only). Returns updated doc or None.
 
         Resolving cascades: auto-acknowledges (if not already) and auto-marks read.
@@ -263,7 +266,7 @@ class ActionsMixin:
                 notification_id=notification_id,
                 user_id=user_id,
             )
-        return result
+        return result  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------
     # Delete

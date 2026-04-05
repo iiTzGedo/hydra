@@ -10,7 +10,7 @@ def PaginationLimit(  # noqa: N802 - uppercase for FastAPI dependency convention
 ) -> int:
     """Create a pagination limit Query parameter using centralized config values."""
     settings = get_settings()
-    return Query(
+    return Query(  # type: ignore[no-any-return]
         default=settings.pagination_default_limit,
         ge=1,
         le=settings.pagination_max_limit,

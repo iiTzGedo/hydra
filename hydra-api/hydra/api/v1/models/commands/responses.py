@@ -1,7 +1,7 @@
 """Command response models."""
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
@@ -31,7 +31,7 @@ class CommandResponse(BaseModel):
     type: CommandType
     target: CommandTarget
     action: str
-    parameters: dict | None = None
+    parameters: dict[str, Any] | None = None
     status: CommandStatus
     execution_method: Annotated[
         CommandExecutionMethod | None,
@@ -104,7 +104,7 @@ class PolledCommand(BaseModel):
     type: CommandType
     action: str
     target: CommandTarget
-    parameters: dict | None = None
+    parameters: dict[str, Any] | None = None
     timeout_seconds: Annotated[int, Field(alias="timeoutSeconds")]
 
     model_config = {"populate_by_name": True}

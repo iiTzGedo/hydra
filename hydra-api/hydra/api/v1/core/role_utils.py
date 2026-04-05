@@ -3,7 +3,7 @@
 Shared utilities for role management used across auth and users services.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def to_utc(value: datetime | None) -> datetime | None:
@@ -18,11 +18,11 @@ def to_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
-def get_active_temporary_roles(temp_roles: list) -> list:
+def get_active_temporary_roles(temp_roles: list) -> list:  # type: ignore[type-arg]
     """Filter temporary roles to only active (non-expired) ones.
 
     Args:
@@ -32,7 +32,7 @@ def get_active_temporary_roles(temp_roles: list) -> list:
     Returns:
         List of active temporary roles with normalized datetime fields.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     active = []
     for tr in temp_roles:
         expires_at = to_utc(tr.get("expiresAt"))

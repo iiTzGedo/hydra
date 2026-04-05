@@ -1,7 +1,8 @@
 """User registration mixin - handles registration, approval, and pending user flows."""
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -15,19 +16,25 @@ from hydra.api.v1.core.exceptions import (
 )
 from hydra.api.v1.core.security import hash_password
 from hydra.api.v1.models.auth import (
+    ROLE_LIMITS,
     ApproveUserRequest,
     Role,
-    ROLE_LIMITS,
     UserRegistrationRequest,
 )
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
 
 class RegistrationMixin:
     """Mixin providing user registration and approval functionality."""
+    db: MongoDB
 
-    async def register_user(self, request: UserRegistrationRequest) -> dict:
+    @staticmethod
+    def _to_utc(value: datetime | None) -> datetime | None: ...
+
+
+    async def register_user(self, request: UserRegistrationRequest) -> dict[str, Any]:
         """Register a new user account.
 
         Handles bootstrap (first user must be admin), token-based registration,
@@ -55,8 +62,8 @@ class RegistrationMixin:
                 raise BootstrapRequiresAdminError()
             return await self._create_active_user(request, is_bootstrap=True)
 
-        await self._check_username_availability(request.username)
-        await self._check_email_availability(request.email)
+        await self._check_username_availability(request.username)  # type: ignore[arg-type]
+        await self._check_email_availability(request.email)  # type: ignore[arg-type]
         await self._check_role_limit(request.role.value)
 
         if request.registration_token:
@@ -105,16 +112,16 @@ class RegistrationMixin:
 
     async def _create_active_user(
         self, request: UserRegistrationRequest, is_bootstrap: bool = False
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create an active user account."""
         user_id = f"user_{secrets.token_urlsafe(8)}"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
-        user_doc = {
+        user_doc = {  # type: ignore[var-annotated]
             "userId": user_id,
             "username": request.username,
             "email": request.email,
-            "passwordHash": hash_password(request.password),
+            "passwordHash": hash_password(request.password),  # type: ignore[arg-type]
             "role": request.role.value,
             "temporaryRoles": [],
             "permissions": [],
@@ -146,16 +153,16 @@ class RegistrationMixin:
             "created_at": now,
         }
 
-    async def _create_pending_user(self, request: UserRegistrationRequest) -> dict:
+    async def _create_pending_user(self, request: UserRegistrationRequest) -> dict[str, Any]:
         """Create a pending user awaiting approval."""
         user_id = f"user_pending_{secrets.token_urlsafe(8)}"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         pending_doc = {
             "userId": user_id,
             "username": request.username,
             "email": request.email,
-            "passwordHash": hash_password(request.password),
+            "passwordHash": hash_password(request.password),  # type: ignore[arg-type]
             "role": request.role.value,
             "requestedAt": now,
         }
@@ -180,7 +187,7 @@ class RegistrationMixin:
 
     async def _validate_user_registration_token(
         self, token: str, requested_role: Role
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Validate a registration token for user registration.
 
         Args:
@@ -210,7 +217,7 @@ class RegistrationMixin:
             )
 
         expires_at = self._to_utc(token_doc.get("expiresAt"))
-        if expires_at and expires_at < datetime.now(timezone.utc):
+        if expires_at and expires_at < datetime.now(UTC):
             raise RegistrationTokenError(
                 "AUTH_REGISTRATION_TOKEN_EXPIRED",
                 "Registration token has expired",
@@ -231,7 +238,7 @@ class RegistrationMixin:
                 f"Registration token does not allow role '{requested_role.value}'",
             )
 
-        return token_doc
+        return token_doc  # type: ignore[no-any-return]
 
     async def _use_registration_token(
         self, token: str, entity_id: str, entity_type: str
@@ -245,7 +252,7 @@ class RegistrationMixin:
                     "usedBy": {
                         "entityId": entity_id,
                         "entityType": entity_type,
-                        "usedAt": datetime.now(timezone.utc),
+                        "usedAt": datetime.now(UTC),
                     }
                 },
             },
@@ -256,7 +263,7 @@ class RegistrationMixin:
         role: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """List pending user registrations."""
         query = {}
         if role:
@@ -290,7 +297,7 @@ class RegistrationMixin:
 
     async def approve_user(
         self, request: ApproveUserRequest, approved_by: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Approve a pending user registration.
 
         Args:
@@ -313,11 +320,11 @@ class RegistrationMixin:
         pending = await self.db.users_pending.find_one(query)
         if not pending:
             identifier = request.user_id or request.username
-            raise PendingUserNotFoundError(identifier)
+            raise PendingUserNotFoundError(identifier)  # type: ignore[arg-type]
 
         await self._check_role_limit(pending["role"])
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         new_user_id = f"user_{secrets.token_urlsafe(8)}"
 
         user_doc = {
@@ -357,14 +364,14 @@ class RegistrationMixin:
             "approved_at": now,
         }
 
-    async def reject_user(self, user_id: str, rejected_by: str) -> dict:
+    async def reject_user(self, user_id: str, rejected_by: str) -> dict[str, Any]:
         """Reject and delete a pending user registration."""
         pending = await self.db.users_pending.find_one({"userId": user_id})
         if not pending:
             raise PendingUserNotFoundError(user_id)
 
         await self.db.users_pending.delete_one({"userId": user_id})
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         logger.info(
             "user_rejected",

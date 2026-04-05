@@ -5,10 +5,11 @@ They match the spec in Phase 2 Technical Specification §4.2.2 and §5 (Controls
 """
 
 from datetime import UTC, datetime
+from typing import Any
 
 _NOW = datetime.now(UTC)
 
-BUILTIN_COMMANDS: list[dict] = [
+BUILTIN_COMMANDS: list[dict[str, Any]] = [
     # ── Service commands (7) ─────────────────────────────────────────────
     {
         "registryId": "reg::service::start",

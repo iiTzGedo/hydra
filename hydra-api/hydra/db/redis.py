@@ -1,7 +1,8 @@
 """Redis client for caching, command queue, and pub/sub."""
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import cast
 
 import redis.asyncio as redis
 import structlog
@@ -25,10 +26,10 @@ class RedisClient:
             settings: Application settings (uses global if not provided).
         """
         self.settings = settings or get_settings()
-        self._client: redis.Redis | None = None
+        self._client: redis.Redis[str] | None = None  # type: ignore[type-arg]
 
     @property
-    def client(self) -> redis.Redis:
+    def client(self) -> redis.Redis[str]:  # type: ignore[type-arg]
         """Get the Redis client.
 
         Raises:
@@ -70,17 +71,17 @@ class RedisClient:
             True if healthy, False otherwise.
         """
         try:
-            await self.client.ping()
+            await self.client.ping()  # type: ignore[misc]
             return True
         except redis.RedisError as e:
             logger.error("redis_health_check_failed", error=str(e))
             try:
+                from hydra.api.v1.core.tasks import safe_create_task
                 from hydra.api.v1.models.notifications import (
                     NotificationSource,
                     NotificationType,
                     SourceComponent,
                 )
-                from hydra.api.v1.core.tasks import safe_create_task
                 from hydra.api.v1.services.notifications import emit_notification
 
                 safe_create_task(
@@ -107,7 +108,7 @@ class RedisClient:
         Returns:
             Cached value or None if not found.
         """
-        return await self.client.get(f"{self.CACHE_PREFIX}{key}")
+        return cast(str | None, await self.client.get(f"{self.CACHE_PREFIX}{key}"))
 
     async def cache_set(self, key: str, value: str, ttl_seconds: int = 300) -> None:
         """Set a cached value with TTL.
@@ -134,7 +135,7 @@ class RedisClient:
             queue_name: Queue name (without prefix).
             value: Value to push.
         """
-        await self.client.rpush(f"{self.COMMAND_QUEUE_PREFIX}{queue_name}", value)
+        await self.client.rpush(f"{self.COMMAND_QUEUE_PREFIX}{queue_name}", value)  # type: ignore[misc]
 
     async def queue_pop(self, queue_name: str, timeout: int = 0) -> str | None:
         """Pop a value from a queue (blocking).
@@ -146,7 +147,7 @@ class RedisClient:
         Returns:
             Popped value or None if timeout.
         """
-        result = await self.client.blpop(
+        result = await self.client.blpop(  # type: ignore[misc]
             f"{self.COMMAND_QUEUE_PREFIX}{queue_name}", timeout=timeout
         )
         return result[1] if result else None
@@ -168,7 +169,7 @@ class RedisClient:
         pipe.expire(full_key, window_seconds)
         results = await pipe.execute()
         current_count = results[0]
-        return current_count <= max_requests
+        return bool(current_count <= max_requests)
 
     async def publish(self, channel: str, message: str) -> int:
         """Publish a message to a Redis pub/sub channel.
@@ -180,7 +181,7 @@ class RedisClient:
         Returns:
             Number of subscribers that received the message.
         """
-        return await self.client.publish(channel, message)
+        return cast(int, await self.client.publish(channel, message))
 
     async def subscribe(self, *channels: str) -> redis.client.PubSub:
         """Subscribe to one or more Redis pub/sub channels.

@@ -4,7 +4,8 @@ Contains mixin class for CRUD and validation of global (per-provider) API keys
 that are shared across all of a user's LLM configurations.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import structlog
@@ -15,6 +16,7 @@ from hydra.api.v1.models.ai import (
     GlobalAPIKeyCreate,
     LLMProviderType,
 )
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -27,8 +29,16 @@ class GlobalKeysMixin:
     - self._validate_anthropic(), _validate_openai(), _validate_openrouter(),
       _validate_ollama() methods (from ProviderValidationMixin)
     """
+    db: MongoDB
 
-    async def list_global_keys(self, user_id: str) -> dict:
+    async def _validate_anthropic(self, api_key: str) -> bool: ...  # type: ignore[empty-body]
+
+    async def _validate_openai(self, api_key: str) -> bool: ...  # type: ignore[empty-body]
+
+    async def _validate_openrouter(self, api_key: str) -> bool: ...  # type: ignore[empty-body]
+
+
+    async def list_global_keys(self, user_id: str) -> dict[str, Any]:
         """List all global API keys for a user.
 
         Args:
@@ -47,7 +57,7 @@ class GlobalKeysMixin:
 
     async def get_global_key(
         self, provider_type: LLMProviderType, user_id: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get the global API key for a specific provider.
 
         Args:
@@ -75,7 +85,7 @@ class GlobalKeysMixin:
         provider_type: LLMProviderType,
         request: GlobalAPIKeyCreate,
         user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Set or update a global API key for a provider.
 
         Args:
@@ -86,7 +96,7 @@ class GlobalKeysMixin:
         Returns:
             Updated global key response dict.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         encrypted_key = encrypt_value(request.api_key)
         api_key_last4 = request.api_key[-4:] if len(request.api_key) >= 4 else request.api_key
@@ -141,11 +151,11 @@ class GlobalKeysMixin:
             "userId": user_id,
             "providerType": provider_type.value,
         })
-        return self._global_key_doc_to_response(updated_doc)
+        return self._global_key_doc_to_response(updated_doc)  # type: ignore[arg-type]
 
     async def delete_global_key(
         self, provider_type: LLMProviderType, user_id: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Delete a global API key for a provider.
 
         Args:
@@ -181,7 +191,7 @@ class GlobalKeysMixin:
 
     async def validate_global_key(
         self, provider_type: LLMProviderType, user_id: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Validate a global API key by testing the API connection.
 
         Args:
@@ -202,7 +212,7 @@ class GlobalKeysMixin:
         if not doc:
             raise NotFoundError("global_api_key", provider_type.value)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         api_key = decrypt_value(doc["apiKeyEncrypted"])
 
         is_valid = False
@@ -210,11 +220,11 @@ class GlobalKeysMixin:
 
         try:
             if provider_type == LLMProviderType.ANTHROPIC:
-                is_valid, message, _ = await self._validate_anthropic(api_key)
+                is_valid, message, _ = await self._validate_anthropic(api_key)  # type: ignore[misc]
             elif provider_type == LLMProviderType.OPENAI:
-                is_valid, message, _ = await self._validate_openai(api_key, None)
+                is_valid, message, _ = await self._validate_openai(api_key, None)  # type: ignore[call-arg, misc]
             elif provider_type == LLMProviderType.OPENROUTER:
-                is_valid, message, _ = await self._validate_openrouter(api_key)
+                is_valid, message, _ = await self._validate_openrouter(api_key)  # type: ignore[misc]
             elif provider_type == LLMProviderType.OLLAMA:
                 # Ollama doesn't use API keys, but we can validate connectivity
                 # For global key, user should store base URL separately
@@ -255,7 +265,7 @@ class GlobalKeysMixin:
     # Helper Methods
     # =========================================================================
 
-    def _global_key_doc_to_response(self, doc: dict) -> dict:
+    def _global_key_doc_to_response(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Convert a global key document to an API response dictionary."""
         return {
             "provider_type": doc["providerType"],

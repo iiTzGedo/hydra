@@ -1,14 +1,13 @@
 """Settings service for user and system configuration."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
 from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
 from hydra.api.v1.models.query import AuditAction
-from hydra.api.v1.services.notifications import emit_notification
-from hydra.api.v1.services.query import log_audit
 from hydra.api.v1.models.settings import (
     DefaultSettings,
     NotificationSettings,
@@ -19,6 +18,8 @@ from hydra.api.v1.models.settings import (
     UserSettingsUpdate,
     ViewSettings,
 )
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
 from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
@@ -32,7 +33,7 @@ class SettingsService:
 
     # ==================== User Settings ====================
 
-    async def get_user_settings(self, user_id: str) -> dict:
+    async def get_user_settings(self, user_id: str) -> dict[str, Any]:
         """Get settings for a user, creating defaults if not exist.
 
         Args:
@@ -52,7 +53,7 @@ class SettingsService:
         self,
         user_id: str,
         request: UserSettingsUpdate,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Update user settings.
 
         Merges provided settings with existing values, preserving unset fields.
@@ -64,7 +65,7 @@ class SettingsService:
         Returns:
             The updated user settings.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         existing = await self.db.user_settings.find_one({"userId": user_id})
         if not existing:
@@ -130,11 +131,11 @@ class SettingsService:
             audit_entry_id=audit_id,
         ))
 
-        return self._user_settings_doc_to_response(updated_doc)
+        return self._user_settings_doc_to_response(updated_doc)  # type: ignore[arg-type]
 
-    async def _create_default_user_settings(self, user_id: str) -> dict:
+    async def _create_default_user_settings(self, user_id: str) -> dict[str, Any]:
         """Create default settings for a new user."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         doc = {
             "userId": user_id,
@@ -151,7 +152,7 @@ class SettingsService:
 
         return doc
 
-    def _user_settings_doc_to_response(self, doc: dict) -> dict:
+    def _user_settings_doc_to_response(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Convert user settings document to response."""
         return {
             "user_id": doc["userId"],
@@ -163,7 +164,7 @@ class SettingsService:
 
     # ==================== System Settings ====================
 
-    async def get_system_settings(self) -> dict:
+    async def get_system_settings(self) -> dict[str, Any]:
         """Get system-wide settings.
 
         Returns:
@@ -180,7 +181,7 @@ class SettingsService:
         self,
         request: SystemSettingsUpdate,
         admin_user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Update system settings (admin only).
 
         Args:
@@ -190,7 +191,7 @@ class SettingsService:
         Returns:
             The updated system settings.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         existing = await self.db.system_settings.find_one({"_id": "system"})
         if not existing:
@@ -231,11 +232,11 @@ class SettingsService:
             updated_by=admin_user_id,
         )
 
-        return self._system_settings_doc_to_response(updated_doc)
+        return self._system_settings_doc_to_response(updated_doc)  # type: ignore[arg-type]
 
-    async def _create_default_system_settings(self) -> dict:
+    async def _create_default_system_settings(self) -> dict[str, Any]:
         """Create default system settings."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         doc = {
             "_id": "system",
@@ -253,7 +254,7 @@ class SettingsService:
 
         return doc
 
-    def _system_settings_doc_to_response(self, doc: dict) -> dict:
+    def _system_settings_doc_to_response(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Convert system settings document to response."""
         return {
             "smtp": doc.get("smtp", SmtpSettings().model_dump(by_alias=True)),

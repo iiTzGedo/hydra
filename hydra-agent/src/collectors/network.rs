@@ -8,6 +8,9 @@ use serde::Serialize;
 use std::collections::HashMap;
 use sysinfo::Networks;
 
+/// Interface IP data: (ipv4_addrs, ipv6_addrs, first_netmask).
+type InterfaceIpData = (Vec<String>, Vec<String>, Option<String>);
+
 /// Network profile containing hostname, interfaces, DNS, and routing information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,8 +162,8 @@ impl NetworkCollector {
     ///
     /// Returns a map of interface name -> (ipv4_addrs, ipv6_addrs, first_netmask).
     #[cfg(unix)]
-    fn collect_interface_ips() -> HashMap<String, (Vec<String>, Vec<String>, Option<String>)> {
-        let mut map: HashMap<String, (Vec<String>, Vec<String>, Option<String>)> = HashMap::new();
+    fn collect_interface_ips() -> HashMap<String, InterfaceIpData> {
+        let mut map: HashMap<String, InterfaceIpData> = HashMap::new();
 
         if let Ok(addrs) = nix::ifaddrs::getifaddrs() {
             for ifaddr in addrs {
@@ -169,14 +172,14 @@ impl NetworkCollector {
 
                 if let Some(addr) = ifaddr.address {
                     if let Some(sockaddr) = addr.as_sockaddr_in() {
-                        let ip = std::net::Ipv4Addr::from(sockaddr.ip());
+                        let ip = sockaddr.ip();
                         entry.0.push(ip.to_string());
 
                         // Extract netmask for this interface
                         if entry.2.is_none() {
                             if let Some(mask) = ifaddr.netmask {
                                 if let Some(mask_in) = mask.as_sockaddr_in() {
-                                    let mask_ip = std::net::Ipv4Addr::from(mask_in.ip());
+                                    let mask_ip = mask_in.ip();
                                     entry.2 = Some(mask_ip.to_string());
                                 }
                             }

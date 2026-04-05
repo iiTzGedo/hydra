@@ -6,7 +6,6 @@ from typing import Any
 
 import structlog
 
-from hydra.db.mongodb import MongoDB
 from hydra.api.v1.core.exceptions import ConflictError, DocNotFoundError
 from hydra.api.v1.models.docs import (
     CreateDocRequest,
@@ -14,6 +13,7 @@ from hydra.api.v1.models.docs import (
     DocStatus,
     UpdateDocRequest,
 )
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -113,7 +113,7 @@ class DocsService:
                     doc["version"] = version
                     break
 
-        return doc
+        return doc  # type: ignore[no-any-return]
 
     async def list_docs(self, params: DocListParams) -> tuple[list[dict[str, Any]], int]:
         """List documentation with filtering and pagination.
@@ -245,7 +245,7 @@ class DocsService:
         Raises:
             DocNotFoundError: If the document does not exist.
         """
-        doc = await self.get_doc(doc_id)
+        await self.get_doc(doc_id)
 
         if permanent:
             await self.docs.delete_one({"docId": doc_id})

@@ -1,6 +1,6 @@
 """Workflow definition and execution endpoints."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, Query
@@ -25,11 +25,11 @@ from hydra.api.v1.models.commands.workflows import (
     WorkflowExecutionResponse,
     WorkflowExecutionStatus,
     WorkflowExecutionSummary,
+    WorkflowInput,
     WorkflowResponse,
     WorkflowStep,
     WorkflowStepExecution,
     WorkflowSummary,
-    WorkflowInput,
 )
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.services.commands.workflows import WorkflowService
@@ -154,7 +154,7 @@ async def update_workflow(
 
 @router.delete(
     "/{chain_id}",
-    response_model=SuccessResponse[dict],
+    response_model=SuccessResponse[dict[str, Any]],
     response_model_by_alias=True,
     summary="Delete Workflow",
     description="Delete a workflow definition.",
@@ -166,7 +166,7 @@ async def update_workflow(
 async def delete_workflow(
     chain_id: str,
     workflow_service: WorkflowServiceDep,
-) -> SuccessResponse[dict]:
+) -> SuccessResponse[dict[str, Any]]:
     """Delete a workflow definition."""
     await workflow_service.delete_workflow(chain_id)
     return SuccessResponse(data={"chainId": chain_id, "deleted": True})
@@ -288,7 +288,7 @@ async def cancel_workflow_execution(
 # ── Format Helpers ───────────────────────────────────────────────────────
 
 
-def _format_workflow_response(w: dict) -> WorkflowResponse:
+def _format_workflow_response(w: dict[str, Any]) -> WorkflowResponse:
     """Format a workflow document into a WorkflowResponse."""
     steps = []
     for s in w.get("steps", []):
@@ -329,7 +329,7 @@ def _format_workflow_response(w: dict) -> WorkflowResponse:
     )
 
 
-def _format_execution_response(e: dict) -> WorkflowExecutionResponse:
+def _format_execution_response(e: dict[str, Any]) -> WorkflowExecutionResponse:
     """Format an execution document into a WorkflowExecutionResponse."""
     steps = [
         WorkflowStepExecution(
@@ -359,7 +359,7 @@ def _format_execution_response(e: dict) -> WorkflowExecutionResponse:
     )
 
 
-def _format_execution_summary(e: dict) -> WorkflowExecutionSummary:
+def _format_execution_summary(e: dict[str, Any]) -> WorkflowExecutionSummary:
     """Format an execution document into a summary."""
     steps = e.get("steps", [])
     completed = sum(

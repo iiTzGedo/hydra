@@ -49,7 +49,7 @@ export function ProfileTab({ nodeId }: ProfileTabProps) {
   const { data: latestProfile, isLoading: latestLoading } = useLatestProfile(nodeId);
   const { data: profilesData, isLoading: historyLoading } = useNodeProfiles(nodeId, { limit: 50 });
 
-  const profileItems = profilesData?.items ?? [];
+  const profileItems = useMemo(() => profilesData?.items ?? [], [profilesData?.items]);
 
   const firstSelectedId = selectedProfiles[0];
   const secondSelectedId = selectedProfiles[1];

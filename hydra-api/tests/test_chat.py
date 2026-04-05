@@ -1,6 +1,6 @@
 """Tests for chat endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,7 +12,7 @@ from tests.utils import create_mock_cursor
 @pytest.fixture
 def sample_chat_session():
     """Sample chat session document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "sessionId": "sess-abc123",
         "projectId": None,
@@ -31,7 +31,7 @@ def sample_chat_session():
 @pytest.fixture
 def sample_chat_message():
     """Sample chat message document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "messageId": "msg-abc123",
         "sessionId": "sess-abc123",

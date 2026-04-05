@@ -1,12 +1,13 @@
 """Service management endpoints."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, Query
 
 from hydra.api.v1.core.deps import MongoDBDep, require_permission
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
+from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.models.services import (
     KnownServiceCreateRequest,
     KnownServiceResponse,
@@ -17,9 +18,8 @@ from hydra.api.v1.models.services import (
     ServiceSummary,
     UpdateServiceRequest,
 )
-from hydra.api.v1.models.query import AuditAction
-from hydra.api.v1.services.query import log_audit
 from hydra.api.v1.services.known_services import KnownServicesService
+from hydra.api.v1.services.query import log_audit
 from hydra.api.v1.services.services_service import ServicesService
 
 router = APIRouter(prefix="/services", tags=["Services"])
@@ -150,7 +150,7 @@ async def list_known_services(
 async def create_known_service(
     request: KnownServiceCreateRequest,
     known_services: KnownServicesServiceDep,
-    current_user: dict = Depends(require_permission("services:update")),
+    current_user: dict[str, Any] = Depends(require_permission("services:update")),
 ) -> SuccessResponse[KnownServiceResponse]:
     """Create a known service entry."""
     created = await known_services.create_known_service(
@@ -183,7 +183,7 @@ async def create_known_service(
 async def delete_known_service(
     known_service_id: str,
     known_services: KnownServicesServiceDep,
-    current_user: dict = Depends(require_permission("services:delete")),
+    current_user: dict[str, Any] = Depends(require_permission("services:delete")),
 ) -> SuccessResponse[KnownServiceResponse]:
     """Delete a known service entry."""
     deleted = await known_services.delete_known_service(known_service_id)

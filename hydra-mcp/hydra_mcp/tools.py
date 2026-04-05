@@ -19,13 +19,14 @@ Usage:
     result = await execute_tool("list_nodes", {...})
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any
 
 import jsonschema
 from mcp.types import Tool
 
-from hydra_mcp.auth import check_permission, get_auth_context, SourceRestrictionError
+from hydra_mcp.auth import SourceRestrictionError, check_permission, get_auth_context
 
 
 class ToolValidationError(Exception):

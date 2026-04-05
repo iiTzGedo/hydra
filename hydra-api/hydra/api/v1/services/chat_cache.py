@@ -90,7 +90,7 @@ class ChatCacheService:
                 logger.debug(
                     "messages_cache_hit", session_id=session_id, count=len(messages)
                 )
-                return messages
+                return messages  # type: ignore[no-any-return]
             logger.debug("messages_cache_miss", session_id=session_id)
             return None
         except redis.exceptions.ConnectionError as e:
@@ -235,7 +235,7 @@ class ChatCacheService:
             value = await self._redis.cache_get(key)
             if value:
                 logger.debug("context_cache_hit", session_id=session_id)
-                return json.loads(value)
+                return json.loads(value)  # type: ignore[no-any-return]
             logger.debug("context_cache_miss", session_id=session_id)
             return None
         except redis.exceptions.ConnectionError as e:
@@ -297,7 +297,7 @@ class ChatCacheService:
                 logger.debug(
                     "models_cache_hit", provider_type=provider_type, count=len(models)
                 )
-                return models
+                return models  # type: ignore[no-any-return]
             logger.debug("models_cache_miss", provider_type=provider_type)
             return None
         except redis.exceptions.ConnectionError as e:

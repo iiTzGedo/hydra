@@ -13,20 +13,19 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
-def _safe_list(val: Any) -> list:
+def _safe_list(val: Any) -> list[Any]:
     """Ensure val is iterable as a list."""
     return val if isinstance(val, list) else []
 
 
-def parse_docker_dependencies(metadata: dict, service_info: dict[str, Any]) -> None:
+def parse_docker_dependencies(metadata: dict[str, Any], service_info: dict[str, Any]) -> None:
     """Extract dependencies from Docker/Podman service metadata."""
     env_vars = metadata.get("environment", {})
     networks = metadata.get("networks", [])
     links = metadata.get("links", [])
 
     for key, value in env_vars.items() if isinstance(env_vars, dict) else []:
-        if isinstance(value, str):
-            if "_HOST" in key or "_URL" in key or "_ENDPOINT" in key:
+        if isinstance(value, str) and ("_HOST" in key or "_URL" in key or "_ENDPOINT" in key):
                 service_info["dependencies"].append({
                     "type": "environment",
                     "target": value,
@@ -42,7 +41,7 @@ def parse_docker_dependencies(metadata: dict, service_info: dict[str, Any]) -> N
         ])
 
 
-def parse_kubernetes_dependencies(metadata: dict, service_info: dict[str, Any]) -> None:
+def parse_kubernetes_dependencies(metadata: dict[str, Any], service_info: dict[str, Any]) -> None:
     """Extract dependencies from Kubernetes service metadata."""
     containers = metadata.get("containers", [])
     for container in _safe_list(containers):
@@ -58,7 +57,7 @@ def parse_kubernetes_dependencies(metadata: dict, service_info: dict[str, Any]) 
                 })
 
 
-def parse_systemd_dependencies(metadata: dict, service_info: dict[str, Any]) -> None:
+def parse_systemd_dependencies(metadata: dict[str, Any], service_info: dict[str, Any]) -> None:
     """Extract dependencies from systemd service metadata."""
     config = metadata.get("config", {})
     requires = config.get("Requires", [])
@@ -87,7 +86,7 @@ _RUNTIME_PARSERS = {
 }
 
 
-def build_service_entries(services: list[dict]) -> tuple[dict, dict[str, list], dict[str, list]]:
+def build_service_entries(services: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, list[Any]], dict[str, list[Any]]]:
     """Build service info entries and initialize dependency tracking.
 
     Returns:
@@ -105,8 +104,8 @@ def build_service_entries(services: list[dict]) -> tuple[dict, dict[str, list], 
         },
     }
 
-    service_deps: dict[str, list] = {}
-    service_dependents: dict[str, list] = {}
+    service_deps: dict[str, list[Any]] = {}
+    service_dependents: dict[str, list[Any]] = {}
 
     for svc in services:
         svc_id = svc.get("serviceId", "")
@@ -134,7 +133,7 @@ def build_service_entries(services: list[dict]) -> tuple[dict, dict[str, list], 
     return dependency_map, service_deps, service_dependents
 
 
-def build_dependency_graph(dependency_map: dict, service_dependents: dict[str, list]) -> None:
+def build_dependency_graph(dependency_map: dict[str, Any], service_dependents: dict[str, list[Any]]) -> None:
     """Build dependency edges by matching targets to service names/IDs."""
     for svc_info in dependency_map["services"]:
         svc_id = svc_info["serviceId"]
@@ -155,9 +154,9 @@ def build_dependency_graph(dependency_map: dict, service_dependents: dict[str, l
 
 
 def analyze_services(
-    dependency_map: dict,
-    service_deps: dict[str, list],
-    service_dependents: dict[str, list],
+    dependency_map: dict[str, Any],
+    service_deps: dict[str, list[Any]],
+    service_dependents: dict[str, list[Any]],
 ) -> None:
     """Identify critical services, isolated services, and single points of failure."""
     for svc_info in dependency_map["services"]:
@@ -188,9 +187,9 @@ def analyze_services(
             })
 
 
-def analyze_network_patterns(dependency_map: dict) -> None:
+def analyze_network_patterns(dependency_map: dict[str, Any]) -> None:
     """Identify communication patterns from shared networks."""
-    network_services: dict[str, list] = {}
+    network_services: dict[str, list[Any]] = {}
     for svc_info in dependency_map["services"]:
         svc_networks = svc_info.get("networks", [])
         for net in svc_networks:

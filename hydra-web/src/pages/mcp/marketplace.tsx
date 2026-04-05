@@ -88,7 +88,7 @@ export default function MCPMarketplacePage() {
   const deleteServerMutation = useDeleteMCPServer();
   const checkHealthMutation = useCheckMCPServerHealth();
 
-  const servers = serversData?.servers || [];
+  const servers = useMemo(() => serversData?.servers || [], [serversData?.servers]);
   const [activeTab, setActiveTab] = useState<'servers' | 'sources'>('servers');
   const [showAddServerModal, setShowAddServerModal] = useState(false);
   const [showAddSourceModal, setShowAddSourceModal] = useState(false);

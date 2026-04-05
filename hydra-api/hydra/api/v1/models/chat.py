@@ -1,20 +1,20 @@
 """Chat models for projects, sessions, and messages."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class ChatSessionStatus(str, Enum):
+class ChatSessionStatus(StrEnum):
     """Chat session status."""
 
     ACTIVE = "active"
     ARCHIVED = "archived"
 
 
-class MessageRole(str, Enum):
+class MessageRole(StrEnum):
     """Message role in conversation."""
 
     USER = "user"
@@ -23,7 +23,7 @@ class MessageRole(str, Enum):
     TOOL = "tool"
 
 
-class ToolCallStatus(str, Enum):
+class ToolCallStatus(StrEnum):
     """Tool call execution status."""
 
     PENDING = "pending"

@@ -285,7 +285,11 @@ export function Sidebar() {
       {sidebarMobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden animate-in fade-in duration-200"
+          role="button"
+          tabIndex={-1}
+          aria-label="Close sidebar"
           onClick={() => setSidebarMobileOpen(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setSidebarMobileOpen(false); }}
         />
       )}
 

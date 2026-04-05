@@ -1,7 +1,7 @@
 """Node models for request/response validation."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -14,7 +14,7 @@ from hydra.api.v1.core.validators import (
 )
 
 
-class NodeClass(str, Enum):
+class NodeClass(StrEnum):
     """Node class types."""
 
     COMPUTE = "compute"
@@ -22,14 +22,14 @@ class NodeClass(str, Enum):
     IOT = "iot"
 
 
-class NodeType(str, Enum):
+class NodeType(StrEnum):
     """Node type (physical or logical)."""
 
     PHYSICAL = "physical"
     LOGICAL = "logical"
 
 
-class NodeKind(str, Enum):
+class NodeKind(StrEnum):
     """Node kind (specific hardware/software type)."""
 
     # Compute
@@ -55,7 +55,7 @@ class NodeKind(str, Enum):
     OTHER = "other"
 
 
-class NodeStatus(str, Enum):
+class NodeStatus(StrEnum):
     """Node status."""
 
     ACTIVE = "active"
@@ -64,7 +64,7 @@ class NodeStatus(str, Enum):
     PENDING = "pending"
 
 
-class AgentTier(str, Enum):
+class AgentTier(StrEnum):
     """Agent tier classification."""
 
     LITE = "lite"

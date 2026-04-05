@@ -3,18 +3,42 @@
 import asyncio
 import uuid
 from pathlib import Path
+from typing import Any
 
 import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from hydra.api.v1 import __version__
-from hydra.core.config import get_settings
 from hydra.api.v1.core.context import get_request_id, set_request_id
 from hydra.api.v1.core.exceptions import HydraError
-from hydra.api.v1.routers import ai, auth, chat, commands, docs, groups, ha, health, install, mcp, networks, nodes, notifications, profiles, query, search, services, settings as settings_router, timemachine, topologies, users, workflows
+from hydra.api.v1.routers import (
+    ai,
+    auth,
+    chat,
+    commands,
+    docs,
+    groups,
+    ha,
+    health,
+    install,
+    mcp,
+    networks,
+    nodes,
+    notifications,
+    profiles,
+    query,
+    search,
+    services,
+    timemachine,
+    topologies,
+    users,
+    workflows,
+)
+from hydra.api.v1.routers import settings as settings_router
+from hydra.core.config import get_settings
 
 # Static files directory (shared with root app)
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
@@ -48,7 +72,7 @@ def create_app() -> FastAPI:
 
     # Request ID middleware
     @app.middleware("http")
-    async def add_request_id(request: Request, call_next):
+    async def add_request_id(request: Request, call_next: Any) -> Any:
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         set_request_id(request_id)
         structlog.contextvars.clear_contextvars()
@@ -60,7 +84,7 @@ def create_app() -> FastAPI:
 
     # Request logging middleware
     @app.middleware("http")
-    async def log_requests(request: Request, call_next):
+    async def log_requests(request: Request, call_next: Any) -> Any:
         logger.info(
             "request_started",
             method=request.method,
@@ -77,7 +101,7 @@ def create_app() -> FastAPI:
 
     # Exception handlers
     @app.exception_handler(HydraError)
-    async def hydra_error_handler(request: Request, exc: HydraError) -> JSONResponse:
+    async def hydra_error_handler(_request: Request, exc: HydraError) -> JSONResponse:
         request_id = get_request_id()
         logger.warning(
             "hydra_error",
@@ -99,7 +123,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(
-        request: Request, exc: RequestValidationError
+        _request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         request_id = get_request_id()
         errors = exc.errors()
@@ -158,7 +182,7 @@ def create_app() -> FastAPI:
 
     # Favicon route for swagger docs (ensures proper favicon in API docs)
     @app.get("/favicon.ico", include_in_schema=False)
-    async def favicon():
+    async def favicon() -> Any:
         """Serve favicon for swagger docs."""
         favicon_path = STATIC_DIR / "favicon.ico"
         if favicon_path.exists():

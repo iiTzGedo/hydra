@@ -1,15 +1,15 @@
 """Service models for request/response validation."""
 
 from datetime import datetime
-from enum import Enum
-from typing import Literal
+from enum import StrEnum
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hydra.api.v1.core.validators import TAG_PATTERN, validate_tag
 
 
-class ServiceRuntime(str, Enum):
+class ServiceRuntime(StrEnum):
     """Service runtime environment."""
 
     SYSTEMD = "systemd"
@@ -27,7 +27,7 @@ class ServiceRuntime(str, Enum):
     UNKNOWN = "unknown"
 
 
-class ServiceStatus(str, Enum):
+class ServiceStatus(StrEnum):
     """Service status."""
 
     RUNNING = "running"
@@ -39,7 +39,7 @@ class ServiceStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
-class HealthStatus(str, Enum):
+class HealthStatus(StrEnum):
     """Service health status."""
 
     HEALTHY = "healthy"
@@ -123,8 +123,8 @@ class ServiceResponse(BaseModel):
     profile_id: str = Field(alias="profileId")
     node_id: str = Field(alias="nodeId")
     exposure: ServiceExposure | None = None
-    resources: dict | None = None
-    attachments: dict | None = None
+    resources: dict[str, Any] | None = None
+    attachments: dict[str, Any] | None = None
     origin: ServiceOrigin
     health: ServiceHealth | None = None
     tags: list[str] = Field(default_factory=list)

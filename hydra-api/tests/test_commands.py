@@ -1,6 +1,6 @@
 """Tests for command execution endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -8,7 +8,6 @@ import pytest
 from httpx import AsyncClient
 
 from tests.utils import create_mock_cursor
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -40,7 +39,7 @@ def sample_definition():
         "audit": {"logLevel": "standard", "captureOutput": True, "sensitiveParameters": []},
         "metadata": {
             "version": "0.5.0",
-            "addedAt": datetime.now(timezone.utc),
+            "addedAt": datetime.now(UTC),
             "builtIn": True,
             "deprecated": False,
         },
@@ -50,7 +49,7 @@ def sample_definition():
 @pytest.fixture
 def sample_managed_service():
     """Sample service doc used for command target normalization."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "serviceId": "svc-nginx-a1b2",
         "nodeId": "server-01",
@@ -73,7 +72,7 @@ def sample_managed_service():
 @pytest.fixture
 def sample_container_service():
     """Sample container service for update-command normalization tests."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "serviceId": "svc-app-c3d4",
         "nodeId": "server-01",
@@ -96,7 +95,7 @@ def sample_container_service():
 @pytest.fixture
 def sample_command():
     """Sample command document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "commandId": "cmd-abc123",
         "registryId": "reg::service::restart",
@@ -820,7 +819,7 @@ async def test_confirm_command_rejects_cross_user(
         **sample_command,
         "status": "pending_confirmation",
         "requestedBy": {"userId": "user_admin123", "source": "web"},
-        "confirmationExpiresAt": datetime.now(timezone.utc),
+        "confirmationExpiresAt": datetime.now(UTC),
     }
     mock_mongodb.commands.find_one = AsyncMock(return_value=pending_command)
 
@@ -862,13 +861,13 @@ async def test_confirm_command_rechecks_control_permission(
             "chain": None,
             "error": None,
             "result": None,
-            "createdAt": datetime.now(timezone.utc),
+            "createdAt": datetime.now(UTC),
             "queuedAt": None,
             "startedAt": None,
             "completedAt": None,
             "cancelledAt": None,
             "cancelledBy": None,
-            "confirmationExpiresAt": datetime.now(timezone.utc),
+            "confirmationExpiresAt": datetime.now(UTC),
         }
     )
     mock_mongodb.command_definitions.find_one = AsyncMock(

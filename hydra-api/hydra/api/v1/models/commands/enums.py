@@ -1,9 +1,9 @@
 """Command execution enums."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class CommandType(str, Enum):
+class CommandType(StrEnum):
     """Types of commands that can be executed."""
 
     METADATA = "metadata"
@@ -16,7 +16,7 @@ class CommandType(str, Enum):
     CUSTOM = "custom"
 
 
-class CommandStatus(str, Enum):
+class CommandStatus(StrEnum):
     """Status of a command in the execution pipeline."""
 
     PENDING = "pending"
@@ -30,7 +30,7 @@ class CommandStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class CommandSource(str, Enum):
+class CommandSource(StrEnum):
     """Source of the command request."""
 
     WEB = "web"
@@ -39,7 +39,7 @@ class CommandSource(str, Enum):
     AUTOMATION = "automation"
 
 
-class CommandExecutionMethod(str, Enum):
+class CommandExecutionMethod(StrEnum):
     """How a command was or will be executed."""
 
     AGENT_DIRECT = "agent-direct"
@@ -47,7 +47,7 @@ class CommandExecutionMethod(str, Enum):
     INTEGRATION = "integration"
 
 
-class DangerLevel(str, Enum):
+class DangerLevel(StrEnum):
     """Danger level classification for command safety controls.
 
     Determines the confirmation UX tier and rate-limiting behavior.
@@ -60,7 +60,7 @@ class DangerLevel(str, Enum):
     CRITICAL = "critical"  # Potentially catastrophic (shutdown, update-system)
 
 
-class ServiceAction(str, Enum):
+class ServiceAction(StrEnum):
     """Actions that can be performed on services."""
 
     START = "start"

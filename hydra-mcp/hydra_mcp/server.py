@@ -10,11 +10,9 @@ from typing import Any
 import httpx
 import structlog
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 from mcp.server.sse import SseServerTransport
+from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import StreamableHTTPServerTransport
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
 from mcp.types import (
     CallToolResult,
     GetPromptResult,
@@ -28,15 +26,19 @@ from mcp.types import (
     Resource,
     TextContent,
 )
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
+# Import tool handlers to register them with the registry
+import hydra_mcp.tool_handlers  # noqa: F401
 from hydra_mcp.auth import (
-    AuthorizationError,
     INTERNAL_CLIENT_ID_HEADER,
     INTERNAL_PERMISSIONS_HEADER,
     INTERNAL_REQUEST_HEADER,
     INTERNAL_ROLE_HEADER,
     INTERNAL_SECRET_HEADER,
     INTERNAL_USER_ID_HEADER,
+    AuthorizationError,
     SourceRestrictionError,
     create_context_from_user_info,
     push_auth_context,
@@ -44,11 +46,9 @@ from hydra_mcp.auth import (
 )
 from hydra_mcp.client import HydraAPIError
 from hydra_mcp.config import get_settings
-from hydra_mcp.shared import settings, client, toon, safe_list, format_list_response
-from hydra_mcp.tools import get_all_tools, execute_tool as registry_execute_tool, ToolValidationError
-
-# Import tool handlers to register them with the registry
-import hydra_mcp.tool_handlers  # noqa: F401
+from hydra_mcp.shared import client, format_list_response, safe_list, settings, toon
+from hydra_mcp.tools import ToolValidationError, get_all_tools
+from hydra_mcp.tools import execute_tool as registry_execute_tool
 
 logger = structlog.get_logger(__name__)
 
@@ -74,7 +74,7 @@ def _parse_internal_permissions(value: str | None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def _build_internal_context(headers) -> Any | None:
+def _build_internal_context(headers: Any) -> Any | None:
     if headers.get(INTERNAL_REQUEST_HEADER, "").lower() not in {"1", "true", "yes"}:
         return None
 
@@ -114,7 +114,7 @@ def _build_internal_context(headers) -> Any | None:
     )
 
 
-async def _build_external_context(headers) -> Any | None:
+async def _build_external_context(headers: Any) -> Any | None:
     auth_headers: dict[str, str] = {}
 
     authorization = headers.get("authorization")
@@ -148,7 +148,7 @@ async def _build_external_context(headers) -> Any | None:
     )
 
 
-async def _build_request_auth_context(headers) -> Any | None:
+async def _build_request_auth_context(headers: Any) -> Any | None:
     internal_context = _build_internal_context(headers)
     if internal_context is not None:
         return internal_context
@@ -158,7 +158,7 @@ async def _build_request_auth_context(headers) -> Any | None:
 class AuthContextMiddleware(BaseHTTPMiddleware):
     """Populate request-scoped auth context for HTTP-based MCP transports."""
 
-    async def dispatch(self, request, call_next):
+    async def dispatch(self, request: Any, call_next: Any) -> Any:
         try:
             context = await _build_request_auth_context(request.headers)
         except PermissionError as exc:
@@ -183,7 +183,7 @@ async def _emit_mcp_notification(
     event_type: str,
     title: str,
     message: str,
-    details: dict | None = None,
+    details: dict[str, Any] | None = None,
 ) -> None:
     """Fire-and-forget notification emission from MCP context.
 
@@ -212,7 +212,7 @@ async def _emit_mcp_notification(
         )
 
 
-@server.list_tools()
+@server.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]
 async def list_tools() -> ListToolsResult:
     """List all available MCP tools for infrastructure management.
 
@@ -224,7 +224,7 @@ async def list_tools() -> ListToolsResult:
     return ListToolsResult(tools=get_all_tools())
 
 
-@server.call_tool()
+@server.call_tool()  # type: ignore[untyped-decorator]
 async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
     """Execute a tool call and return TOON-formatted results.
 
@@ -334,7 +334,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
 
 
-@server.list_resources()
+@server.list_resources()  # type: ignore[no-untyped-call,untyped-decorator]
 async def list_resources() -> ListResourcesResult:
     """List available MCP resources for infrastructure data.
 
@@ -343,37 +343,37 @@ async def list_resources() -> ListResourcesResult:
     """
     resources = [
         Resource(
-            uri="infrastructure://overview",
+            uri="infrastructure://overview",  # type: ignore[arg-type]
             name="Infrastructure Overview",
             description="High-level summary of infrastructure status",
             mimeType="text/plain",
         ),
         Resource(
-            uri="infrastructure://nodes",
+            uri="infrastructure://nodes",  # type: ignore[arg-type]
             name="All Nodes",
             description="List of all infrastructure nodes",
             mimeType="text/plain",
         ),
         Resource(
-            uri="infrastructure://services",
+            uri="infrastructure://services",  # type: ignore[arg-type]
             name="All Services",
             description="List of all services",
             mimeType="text/plain",
         ),
         Resource(
-            uri="infrastructure://networks",
+            uri="infrastructure://networks",  # type: ignore[arg-type]
             name="All Networks",
             description="List of all networks",
             mimeType="text/plain",
         ),
         Resource(
-            uri="infrastructure://topology/network",
+            uri="infrastructure://topology/network",  # type: ignore[arg-type]
             name="Network Topology",
             description="Current network topology graph",
             mimeType="text/plain",
         ),
         Resource(
-            uri="infrastructure://topology/infrastructure",
+            uri="infrastructure://topology/infrastructure",  # type: ignore[arg-type]
             name="Infrastructure Topology",
             description="Current infrastructure topology graph",
             mimeType="text/plain",
@@ -382,7 +382,7 @@ async def list_resources() -> ListResourcesResult:
     return ListResourcesResult(resources=resources)
 
 
-@server.read_resource()
+@server.read_resource()  # type: ignore[no-untyped-call,untyped-decorator]
 async def read_resource(uri: str) -> ReadResourceResult:
     """Read a resource and return its TOON-formatted content.
 
@@ -394,10 +394,10 @@ async def read_resource(uri: str) -> ReadResourceResult:
     """
     try:
         content = await _read_resource(uri)
-        return ReadResourceResult(contents=[TextContent(type="text", text=content)])
+        return ReadResourceResult(contents=[TextContent(type="text", text=content)])  # type: ignore[list-item]
     except Exception as e:
         logger.exception("resource_read_error", uri=uri, error=str(e))
-        return ReadResourceResult(contents=[TextContent(type="text", text=f"Error: {e}")])
+        return ReadResourceResult(contents=[TextContent(type="text", text=f"Error: {e}")])  # type: ignore[list-item]
 
 
 async def _read_resource(uri: str) -> str:
@@ -439,7 +439,7 @@ async def _read_resource(uri: str) -> str:
         raise ValueError(f"Unknown resource: {uri}")
 
 
-@server.list_prompts()
+@server.list_prompts()  # type: ignore[no-untyped-call,untyped-decorator]
 async def list_prompts() -> ListPromptsResult:
     """List available MCP prompts for infrastructure analysis.
 
@@ -547,7 +547,7 @@ async def list_prompts() -> ListPromptsResult:
     return ListPromptsResult(prompts=prompts)
 
 
-@server.get_prompt()
+@server.get_prompt()  # type: ignore[no-untyped-call,untyped-decorator]
 async def get_prompt(name: str, arguments: dict[str, str] | None) -> GetPromptResult:
     """Get a prompt populated with infrastructure context.
 
@@ -763,7 +763,7 @@ Please create documentation including:
         raise ValueError(f"Unknown prompt: {name}")
 
 
-def create_http_app():
+def create_http_app() -> Any:
     """Create a FastAPI application for HTTP transport.
 
     Returns:
@@ -789,7 +789,7 @@ def create_http_app():
     )
 
     @http_app.middleware("http")
-    async def auth_context_middleware(request, call_next):
+    async def auth_context_middleware(request: Any, call_next: Any) -> Any:
         try:
             context = await _build_request_auth_context(request.headers)
         except PermissionError as exc:
@@ -821,7 +821,7 @@ def create_http_app():
         uri: str
 
     @http_app.get("/health")
-    async def health():
+    async def health() -> dict[str, Any]:
         """Health check endpoint."""
         tools_result = await list_tools()
         resources_result = await list_resources()
@@ -835,7 +835,7 @@ def create_http_app():
         }
 
     @http_app.get("/tools")
-    async def get_tools():
+    async def get_tools() -> dict[str, Any]:
         """List available tools."""
         result = await list_tools()
         return {
@@ -850,7 +850,7 @@ def create_http_app():
         }
 
     @http_app.post("/tools/call")
-    async def call_tool_http(request: ToolCallRequest):
+    async def call_tool_http(request: ToolCallRequest) -> ToolCallResponse:
         """Call a tool."""
         result = await call_tool(request.name, request.arguments)
         content = result.content[0].text if result.content else ""
@@ -860,7 +860,7 @@ def create_http_app():
         )
 
     @http_app.get("/resources")
-    async def get_resources():
+    async def get_resources() -> dict[str, Any]:
         """List available resources."""
         result = await list_resources()
         return {
@@ -876,14 +876,14 @@ def create_http_app():
         }
 
     @http_app.post("/resources/read")
-    async def read_resource_http(request: ResourceReadRequest):
+    async def read_resource_http(request: ResourceReadRequest) -> dict[str, Any]:
         """Read a resource."""
         result = await read_resource(request.uri)
         content = result.contents[0].text if result.contents else ""
         return {"content": content}
 
     @http_app.get("/prompts")
-    async def get_prompts():
+    async def get_prompts() -> dict[str, Any]:
         """List available prompts."""
         result = await list_prompts()
         return {
@@ -935,7 +935,7 @@ async def run_http() -> None:
         version=settings.server_version,
     )
 
-    http_app = create_http_app()
+    http_app: Any = create_http_app()
     config = uvicorn.Config(
         http_app,
         host=settings.http_host,
@@ -948,9 +948,9 @@ async def run_http() -> None:
 
 async def run_sse() -> None:
     """Run the MCP server with Server-Sent Events transport."""
+    import uvicorn
     from starlette.applications import Starlette
     from starlette.routing import Route
-    import uvicorn
 
     logger.info(
         "starting_hydra_mcp_server",
@@ -970,8 +970,8 @@ async def run_sse() -> None:
     )
     sse_app.add_middleware(AuthContextMiddleware)
 
-    async with sse_transport.connect_sse() as streams:
-        async def run_server():
+    async with sse_transport.connect_sse() as streams:  # type: ignore[call-arg]
+        async def run_server() -> None:
             await server.run(
                 streams[0],
                 streams[1],
@@ -993,10 +993,10 @@ async def run_sse() -> None:
 
 async def run_streamable_http() -> None:
     """Run the MCP server with Streamable HTTP transport for Claude Desktop."""
-    from starlette.applications import Starlette
-    from starlette.routing import Mount
-    from starlette.middleware.cors import CORSMiddleware
     import uvicorn
+    from starlette.applications import Starlette
+    from starlette.middleware.cors import CORSMiddleware
+    from starlette.routing import Mount
 
     logger.info(
         "starting_hydra_mcp_server",
@@ -1026,7 +1026,7 @@ async def run_streamable_http() -> None:
         allow_headers=["*"],
     )
 
-    async def run_mcp():
+    async def run_mcp() -> None:
         async with streamable_transport.connect() as streams:
             await server.run(
                 streams[0],

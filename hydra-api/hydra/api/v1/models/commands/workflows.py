@@ -1,18 +1,17 @@
 """Workflow definition and execution models for command chains."""
 
 from datetime import datetime
-from enum import Enum
-from typing import Annotated, Any, Literal
+from enum import StrEnum
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .schemas import CommandTarget
 
-
 # ── Enums ────────────────────────────────────────────────────────────────
 
 
-class WorkflowExecutionStatus(str, Enum):
+class WorkflowExecutionStatus(StrEnum):
     """Status of a workflow execution."""
 
     PENDING = "pending"
@@ -23,7 +22,7 @@ class WorkflowExecutionStatus(str, Enum):
     PARTIALLY_COMPLETED = "partially_completed"
 
 
-class StepFailurePolicy(str, Enum):
+class StepFailurePolicy(StrEnum):
     """Policy for handling step failures."""
 
     ABORT = "abort"
@@ -176,7 +175,7 @@ class WorkflowStepExecution(BaseModel):
     retry_count: Annotated[int, Field(default=0, alias="retryCount")]
     started_at: Annotated[datetime | None, Field(default=None, alias="startedAt")]
     completed_at: Annotated[datetime | None, Field(default=None, alias="completedAt")]
-    result: dict | None = None
+    result: dict[str, Any] | None = None
     error: str | None = None
 
 

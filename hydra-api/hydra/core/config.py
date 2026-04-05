@@ -1,6 +1,7 @@
 """Application configuration using pydantic-settings."""
 
 import warnings
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Literal
 
@@ -32,12 +33,12 @@ class Settings(BaseSettings):
     api_port: int = 8080
     api_workers: int = 4
 
-    mongodb_uri: MongoDsn = Field(default="mongodb://mongo-dev.db.nimi.labs:27017")
+    mongodb_uri: MongoDsn = Field(default="mongodb://mongo-dev.db.nimi.labs:27017")  # type: ignore[assignment]
     mongodb_database: str = "hydra_dev"
     mongodb_min_pool_size: int = 5
     mongodb_max_pool_size: int = 50
 
-    redis_url: RedisDsn = Field(default="redis://redis-dev.db.nimi.labs:6379/0")
+    redis_url: RedisDsn = Field(default="redis://redis-dev.db.nimi.labs:6379/0")  # type: ignore[assignment]
     redis_max_connections: int = 20
 
     jwt_secret: str = Field(description="JWT signing secret (HYDRA_JWT_SECRET)")
@@ -226,7 +227,7 @@ def clear_settings_cache() -> None:
 
 
 @contextmanager
-def override_settings(settings: Settings):
+def override_settings(settings: Settings) -> Generator[Settings, None, None]:
     """Temporarily override the global settings instance.
 
     Use in tests to inject custom settings without touching the environment.

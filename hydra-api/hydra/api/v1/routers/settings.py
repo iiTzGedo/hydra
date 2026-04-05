@@ -99,7 +99,7 @@ async def update_user_settings(
     dependencies=[Depends(require_permission("settings:*"))],
 )
 async def get_system_settings(
-    current_user: CurrentUser,
+    _current_user: CurrentUser,
     settings_service: SettingsService = Depends(get_settings_service),
 ) -> SystemSettingsResponse:
     """Get system-wide settings.

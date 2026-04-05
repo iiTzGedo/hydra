@@ -1,7 +1,7 @@
 """Query, capacity, and audit endpoints."""
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -226,7 +226,7 @@ async def get_audit_log(
 
 @router.delete(
     "/audit",
-    response_model=SuccessResponse[dict],
+    response_model=SuccessResponse[dict[str, Any]],
     response_model_by_alias=True,
     summary="Delete Audit Entries",
     description="Delete audit log entries within a time window. Admin only.",
@@ -237,8 +237,8 @@ async def delete_audit_entries(
     request: Request,
     since: datetime = Query(..., description="Start of time window (inclusive)"),
     until: datetime = Query(..., description="End of time window (inclusive)"),
-    current_user: dict = Depends(get_current_user),
-) -> SuccessResponse[dict]:
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> SuccessResponse[dict[str, Any]]:
     """Delete audit log entries within a specific time window.
 
     Only admins with audit:delete permission can perform this operation.

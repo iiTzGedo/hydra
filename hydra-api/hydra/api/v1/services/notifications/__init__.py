@@ -4,6 +4,8 @@ Re-exports all public symbols so that ``from hydra.api.v1.services.notifications
 continues to work unchanged.
 """
 
+from typing import Any, cast
+
 import structlog
 
 from hydra.api.v1.models.notifications import (
@@ -20,8 +22,11 @@ from hydra.api.v1.services.notifications.preferences import (
     should_deliver,
 )
 from hydra.api.v1.services.notifications.service import NotificationService
+from hydra.db.mongodb import MongoDB
+from hydra.db.redis import RedisClient
 
 logger = structlog.get_logger(__name__)
+_UNSET = object()
 
 __all__ = [
     # Class
@@ -49,27 +54,46 @@ async def emit_notification(
     title: str,
     message: str,
     *,
-    details: dict | None = None,
-    links: list[dict] | None = None,
+    details: dict[str, Any] | None = None,
+    links: list[dict[str, Any]] | None = None,
     actor: NotificationActor | None = None,
     target_user_id: str | None = None,
     target_roles: list[str] | None = None,
     correlation_id: str | None = None,
     audit_entry_id: str | None = None,
     group_key: str | None = None,
+    mongodb: MongoDB | object = _UNSET,
+    redis: RedisClient | None | object = _UNSET,
+    resolve_dependencies: bool = True,
 ) -> str | None:
     """Convenience function to emit a notification from any service.
 
-    Obtains the MongoDB and Redis singletons, creates a NotificationService,
-    and calls emit(). Safe to call from anywhere — never raises.
+    Uses injected MongoDB/Redis dependencies when provided, otherwise falls
+    back to the process singletons, then calls NotificationService.emit().
+    Safe to call from anywhere — never raises.
     """
     try:
-        from hydra.db.mongodb import get_mongodb
-        from hydra.db.redis import get_redis
+        resolved_mongodb = mongodb
+        resolved_redis = redis
 
-        mongodb = get_mongodb()
-        redis = get_redis()
-        service = NotificationService(mongodb, redis)
+        if resolve_dependencies:
+            from hydra.db.mongodb import get_mongodb
+            from hydra.db.redis import get_redis
+
+            if resolved_mongodb is _UNSET:
+                resolved_mongodb = get_mongodb()
+            if resolved_redis is _UNSET:
+                resolved_redis = get_redis()
+
+        if resolved_mongodb is _UNSET:
+            raise RuntimeError("MongoDB dependency is required to emit notifications")
+        if resolved_redis is _UNSET:
+            resolved_redis = None
+
+        service = NotificationService(
+            cast(MongoDB, resolved_mongodb),
+            cast(RedisClient | None, resolved_redis),
+        )
         return await service.emit(
             notification_type=notification_type,
             source=source,

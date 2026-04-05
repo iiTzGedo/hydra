@@ -1,6 +1,6 @@
 """Tests for service management endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,7 +12,7 @@ from tests.utils import create_mock_cursor
 @pytest.fixture
 def sample_service():
     """Sample service document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "serviceId": "svc-nginx-a1b2",
         "nodeId": "test-server-01",

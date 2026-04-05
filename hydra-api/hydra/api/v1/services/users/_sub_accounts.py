@@ -1,6 +1,7 @@
 """Sub-account management mixin - handles linking, unlinking, and listing sub-accounts."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
@@ -23,12 +24,15 @@ from hydra.api.v1.models.notifications import (
 from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.services.notifications import emit_notification
 from hydra.api.v1.services.query import log_audit
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
 
 class SubAccountsMixin:
     """Mixin providing sub-account management functionality."""
+    db: MongoDB
+
 
     async def link_sub_account(
         self,
@@ -36,7 +40,7 @@ class SubAccountsMixin:
         target_user_id: str,
         target_password: str,
         reset_password: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Link an existing user as a sub-account of the parent user.
 
         Args:
@@ -81,7 +85,7 @@ class SubAccountsMixin:
         if not verify_password(target_password, target["passwordHash"]):
             raise InvalidPasswordError()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         update_fields = {
             "parentUserId": parent_user_id,
@@ -165,7 +169,7 @@ class SubAccountsMixin:
         self,
         parent_user_id: str,
         sub_account_user_id: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Unlink a sub-account from its parent.
 
         Args:
@@ -190,7 +194,7 @@ class SubAccountsMixin:
         if sub_account.get("parentUserId") != parent_user_id:
             raise NotASubAccountError(sub_account_user_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         await self.db.users.update_one(
             {"userId": sub_account_user_id},
@@ -220,7 +224,7 @@ class SubAccountsMixin:
             "unlinked_at": now,
         }
 
-    async def list_sub_accounts(self, user_id: str) -> tuple[list[dict], int]:
+    async def list_sub_accounts(self, user_id: str) -> tuple[list[dict[str, Any]], int]:
         """List sub-accounts of a user.
 
         Args:

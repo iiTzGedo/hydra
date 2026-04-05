@@ -3,6 +3,7 @@
 import re
 import secrets
 from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from pymongo import DESCENDING
@@ -25,7 +26,7 @@ class KnownServicesService:
         return name.strip().lower()
 
     @staticmethod
-    def _format_known_service(doc: dict) -> dict:
+    def _format_known_service(doc: dict[str, Any]) -> dict[str, Any]:
         return {
             "knownServiceId": doc["knownServiceId"],
             "runtime": doc["runtime"],
@@ -43,9 +44,9 @@ class KnownServicesService:
         search: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List known services with optional filtering."""
-        query: dict = {}
+        query: dict[str, Any] = {}
         if runtime:
             query["runtime"] = runtime
         if search:
@@ -79,7 +80,7 @@ class KnownServicesService:
         self,
         request: KnownServiceCreateRequest,
         created_by: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create a known service entry."""
         normalized = self._normalize_name(request.name)
         existing = await self.db.known_services.find_one(
@@ -112,7 +113,7 @@ class KnownServicesService:
 
         return self._format_known_service(doc)
 
-    async def delete_known_service(self, known_service_id: str) -> dict:
+    async def delete_known_service(self, known_service_id: str) -> dict[str, Any]:
         """Delete a known service entry."""
         existing = await self.db.known_services.find_one(
             {"knownServiceId": known_service_id}

@@ -1,6 +1,6 @@
 """Tests for workflow definition and execution endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,14 +11,13 @@ from hydra.api.v1.models.commands.workflows import WorkflowExecutionStatus
 from hydra.api.v1.services.commands.workflows import WorkflowService
 from tests.utils import create_mock_cursor
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def sample_workflow():
     """Sample workflow document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "chainId": "chain_abc123",
         "name": "Restart Web Stack",
@@ -55,7 +54,7 @@ def sample_workflow():
 @pytest.fixture
 def sample_execution(sample_workflow):
     """Sample workflow execution document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "executionId": "exec_xyz789",
         "chainId": sample_workflow["chainId"],

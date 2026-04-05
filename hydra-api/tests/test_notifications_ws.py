@@ -1,7 +1,7 @@
 """Tests for notification WebSocket helpers and endpoint flow."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -43,9 +43,9 @@ async def test_load_user_context_uses_database_roles_and_settings():
         "roles": ["operator"],
         "temporaryRoles": [{
             "role": "family",
-            "expiresAt": datetime.now(timezone.utc) + timedelta(hours=1),
+            "expiresAt": datetime.now(UTC) + timedelta(hours=1),
             "grantedBy": "user_admin123",
-            "grantedAt": datetime.now(timezone.utc),
+            "grantedAt": datetime.now(UTC),
         }],
     })
     mongodb.user_settings.find_one = AsyncMock(return_value={

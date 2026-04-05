@@ -1,7 +1,7 @@
 """Hydra API client wrapper for MCP service."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar, cast
 
 import httpx
 import structlog
@@ -10,6 +10,7 @@ from hydra_mcp.auth import get_auth_context, get_forward_auth_headers
 from hydra_mcp.config import Settings, get_settings
 
 logger = structlog.get_logger(__name__)
+ListItemT = TypeVar("ListItemT")
 
 
 class HydraAPIError(Exception):
@@ -21,7 +22,7 @@ class HydraAPIError(Exception):
         details: Optional dictionary with additional error context.
     """
 
-    def __init__(self, code: str, message: str, details: dict | None = None):
+    def __init__(self, code: str, message: str, details: dict[str, Any] | None = None):
         self.code = code
         self.message = message
         self.details = details or {}
@@ -75,8 +76,8 @@ class HydraClient:
         self,
         method: str,
         endpoint: str,
-        params: dict | None = None,
-        json_data: dict | None = None,
+        params: dict[str, Any] | None = None,
+        json_data: dict[str, Any] | None = None,
         auth_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Make an API request, optionally with per-request auth headers.
@@ -111,7 +112,8 @@ class HydraClient:
                     message=error.get("message", "Unknown error"),
                     details=error.get("details"),
                 )
-            return data.get("data", data)
+            result: dict[str, Any] = data.get("data", data)
+            return result
         except httpx.RequestError as e:
             logger.error("api_request_error", error=str(e), endpoint=endpoint)
             raise HydraAPIError("CONNECTION_ERROR", f"Failed to connect to API: {e}")
@@ -120,6 +122,22 @@ class HydraClient:
         """Close the HTTP client and release resources."""
         if self._client and not self._client.is_closed:
             await self._client.aclose()
+
+    @staticmethod
+    def _expect_list_result(result: Any, endpoint: str) -> list[ListItemT]:
+        """Validate list endpoints so schema drift fails loudly."""
+        if isinstance(result, list):
+            return cast(list[ListItemT], result)
+
+        raise HydraAPIError(
+            "INVALID_RESPONSE",
+            f"Expected a list response from {endpoint}, got {type(result).__name__}",
+            details={
+                "endpoint": endpoint,
+                "expected": "list",
+                "received_type": type(result).__name__,
+            },
+        )
 
     async def list_nodes(
         self,
@@ -130,7 +148,7 @@ class HydraClient:
         agent_tier: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List infrastructure nodes with optional filtering.
 
         Args:
@@ -157,14 +175,14 @@ class HydraClient:
         if agent_tier:
             params["agentTier"] = agent_tier
         result = await self._request("GET", "/nodes", params=params)
-        return result if isinstance(result, list) else result, 0
+        return self._expect_list_result(result, "/nodes"), 0
 
     async def get_node(
         self,
         node_id: str,
         include_children: bool = True,
         include_services: bool = True,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get detailed information about a specific node.
 
         Args:
@@ -185,7 +203,7 @@ class HydraClient:
         self,
         node_id: str,
         sections: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get the latest profile snapshot for a node.
 
         Args:
@@ -208,7 +226,7 @@ class HydraClient:
         status: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List services across the infrastructure.
 
         Args:
@@ -229,9 +247,9 @@ class HydraClient:
         if status:
             params["status"] = status
         result = await self._request("GET", "/services", params=params)
-        return result if isinstance(result, list) else result, 0
+        return self._expect_list_result(result, "/services"), 0
 
-    async def get_service(self, service_id: str) -> dict:
+    async def get_service(self, service_id: str) -> dict[str, Any]:
         """Get detailed information about a specific service.
 
         Args:
@@ -248,7 +266,7 @@ class HydraClient:
         tags: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List logical groups.
 
         Args:
@@ -266,9 +284,9 @@ class HydraClient:
         if tags:
             params["tags"] = tags  # httpx sends as tags=tag1&tags=tag2
         result = await self._request("GET", "/groups", params=params)
-        return result if isinstance(result, list) else result, 0
+        return self._expect_list_result(result, "/groups"), 0
 
-    async def get_group(self, group_id: str, resolve_members: bool = False) -> dict:
+    async def get_group(self, group_id: str, resolve_members: bool = False) -> dict[str, Any]:
         """Get detailed information about a specific group.
 
         Args:
@@ -286,7 +304,7 @@ class HydraClient:
         network_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List networks in the infrastructure.
 
         Args:
@@ -301,13 +319,13 @@ class HydraClient:
         if network_type:
             params["type"] = network_type
         result = await self._request("GET", "/networks", params=params)
-        return result if isinstance(result, list) else result, 0
+        return self._expect_list_result(result, "/networks"), 0
 
     async def get_network(
         self,
         network_id: str,
         include_nodes: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get detailed information about a specific network.
 
         Args:
@@ -323,8 +341,8 @@ class HydraClient:
     async def get_topology(
         self,
         mode: str = "network",
-        scope: dict | None = None,
-    ) -> dict:
+        _scope: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Get the current infrastructure or network topology graph.
 
         Args:
@@ -341,7 +359,7 @@ class HydraClient:
         self,
         mode: str,
         timestamp: datetime,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get the topology at a specific historical point in time.
 
         Args:
@@ -362,7 +380,7 @@ class HydraClient:
         node_id: str,
         timestamp: datetime,
         sections: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get a node's state at a specific historical point in time.
 
         Args:
@@ -383,7 +401,7 @@ class HydraClient:
         node_id: str,
         from_version: str | None = None,
         to_version: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Compare two profile versions to see what changed.
 
         Args:
@@ -405,7 +423,7 @@ class HydraClient:
         self,
         group_by: str | None = None,
         include_logical: bool = False,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get infrastructure capacity summary.
 
         Args:
@@ -423,12 +441,12 @@ class HydraClient:
     async def query(
         self,
         collection: str,
-        filter_query: dict | None = None,
-        projection: dict | None = None,
-        sort: dict | None = None,
+        filter_query: dict[str, Any] | None = None,
+        projection: dict[str, Any] | None = None,
+        sort: dict[str, Any] | None = None,
         limit: int = 50,
         skip: int = 0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Execute a raw query against infrastructure data.
 
         Args:
@@ -457,7 +475,7 @@ class HydraClient:
         query: str,
         types: list[str] | None = None,
         limit: int = 20,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Search across nodes and services by name or ID.
 
         Args:
@@ -495,8 +513,8 @@ class HydraClient:
         node_id: str,
         service_id: str,
         action: str,
-        parameters: dict | None = None,
-    ) -> dict:
+        parameters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Execute a control action on a service.
 
         Args:
@@ -519,8 +537,8 @@ class HydraClient:
         self,
         node_id: str,
         action: str,
-        parameters: dict | None = None,
-    ) -> dict:
+        parameters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Execute a control action on a node.
 
         Args:
@@ -542,8 +560,8 @@ class HydraClient:
         self,
         node_id: str,
         action: str,
-        parameters: dict | None = None,
-    ) -> dict:
+        parameters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Execute a control action on the Hydra agent.
 
         Args:
@@ -561,7 +579,7 @@ class HydraClient:
         }
         return await self._request("POST", "/commands", json_data=body)
 
-    async def get_command_status(self, command_id: str) -> dict:
+    async def get_command_status(self, command_id: str) -> dict[str, Any]:
         """Get the status and result of a command.
 
         Args:
@@ -575,7 +593,7 @@ class HydraClient:
     async def list_command_catalog(
         self,
         category: str | None = None,
-    ) -> list:
+    ) -> list[Any]:
         """List available commands from the command registry/catalog.
 
         Args:
@@ -588,14 +606,14 @@ class HydraClient:
         if category:
             params["category"] = category
         result = await self._request("GET", "/command-catalog", params=params)
-        return result if isinstance(result, list) else []
+        return self._expect_list_result(result, "/command-catalog")
 
     async def list_commands(
         self,
         node_id: str | None = None,
         status: str | None = None,
         limit: int = 20,
-    ) -> list:
+    ) -> list[Any]:
         """List command execution history with optional filters.
 
         Args:
@@ -612,12 +630,12 @@ class HydraClient:
         if status:
             params["status"] = status
         result = await self._request("GET", "/commands", params=params)
-        return result if isinstance(result, list) else []
+        return self._expect_list_result(result, "/commands")
 
     async def get_queue_status(
         self,
         node_id: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Get the current command queue state and statistics.
 
         Args:
@@ -635,8 +653,8 @@ class HydraClient:
         self,
         entity_id: str,
         service: str,
-        data: dict | None = None,
-    ) -> dict:
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Control an IoT device via Home Assistant integration.
 
         Args:
@@ -654,7 +672,7 @@ class HydraClient:
         }
         return await self._request("POST", "/ha/control", json_data=body)
 
-    async def get_ha_status(self) -> dict:
+    async def get_ha_status(self) -> dict[str, Any]:
         """Get Home Assistant integration status.
 
         Returns:
@@ -676,7 +694,7 @@ class HydraClient:
         notification_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List notifications visible to the current user.
 
         Args:
@@ -706,9 +724,9 @@ class HydraClient:
         if notification_type:
             params["type"] = notification_type
         result = await self._request("GET", "/notifications", params=params)
-        return result if isinstance(result, list) else result, 0
+        return self._expect_list_result(result, "/notifications"), 0
 
-    async def get_notification_stats(self) -> dict:
+    async def get_notification_stats(self) -> dict[str, Any]:
         """Get aggregated notification statistics.
 
         Returns:
@@ -716,7 +734,7 @@ class HydraClient:
         """
         return await self._request("GET", "/notifications/stats")
 
-    async def get_notification(self, notification_id: str) -> dict:
+    async def get_notification(self, notification_id: str) -> dict[str, Any]:
         """Get a single notification by ID.
 
         Args:
@@ -741,7 +759,7 @@ class HydraClient:
         until: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """List audit log entries with optional filtering.
 
         Args:
@@ -771,13 +789,13 @@ class HydraClient:
         if until:
             params["until"] = until
         result = await self._request("GET", "/audit", params=params)
-        return result if isinstance(result, list) else result
+        return self._expect_list_result(result, "/audit")
 
     async def delete_audit_entries(
         self,
         since: str,
         until: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Delete audit log entries within a time range.
 
         Args:
@@ -790,7 +808,7 @@ class HydraClient:
         params = {"since": since, "until": until}
         return await self._request("DELETE", "/audit", params=params)
 
-    async def health_check(self) -> dict:
+    async def health_check(self) -> dict[str, Any]:
         """Check API health status.
 
         Returns:
@@ -798,7 +816,7 @@ class HydraClient:
         """
         return await self._request("GET", "/health")
 
-    async def get_info(self) -> dict:
+    async def get_info(self) -> dict[str, Any]:
         """Get API information and statistics.
 
         Returns:

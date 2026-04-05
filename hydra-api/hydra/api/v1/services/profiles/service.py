@@ -1,7 +1,7 @@
 """Profile management service with versioning and diff calculation."""
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -39,7 +39,7 @@ class ProfileService:
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
 
-    async def submit_profile(self, submission: ProfileSubmission) -> dict:
+    async def submit_profile(self, submission: ProfileSubmission) -> dict[str, Any]:
         """Submit a new profile from an agent.
 
         Validates the node, computes fingerprints and version, stores the profile,
@@ -76,7 +76,7 @@ class ProfileService:
                 profile_hash=profile_hash[:16],
             )
             existing = await self.db.profiles.find_one({"profileId": previous["profileId"]})
-            return format_profile(existing)
+            return format_profile(existing)  # type: ignore[arg-type]
 
         if previous:
             calculated_version = calculate_version(
@@ -97,7 +97,7 @@ class ProfileService:
 
         version = calculated_version
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         profile_id = f"prof_{secrets.token_urlsafe(12)}"
 
         profile_doc = {
@@ -133,7 +133,7 @@ class ProfileService:
             self.db,
             submission.node_id,
             profile_id,
-            submission.network,
+            submission.network,  # type: ignore[arg-type]
         )
 
         await self.db.profiles.insert_one(profile_doc)
@@ -304,7 +304,7 @@ class ProfileService:
 
         return format_profile(profile_doc)
 
-    async def get_profile(self, profile_id: str) -> dict:
+    async def get_profile(self, profile_id: str) -> dict[str, Any]:
         """Retrieve a specific profile by its identifier.
 
         Args:
@@ -321,7 +321,7 @@ class ProfileService:
             raise ProfileNotFoundError(profile_id)
         return format_profile(profile)
 
-    async def get_latest_profile(self, node_id: str) -> dict:
+    async def get_latest_profile(self, node_id: str) -> dict[str, Any]:
         """Retrieve the most recent profile for a node.
 
         Args:
@@ -352,7 +352,7 @@ class ProfileService:
         node_id: str,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List profiles for a node with pagination.
 
         Args:
@@ -390,11 +390,11 @@ class ProfileService:
         node_id: str,
         from_version: str | None = None,
         to_version: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Compare two profiles for a node. Delegates to diff module."""
         return await diff_profiles(self.db, node_id, from_version, to_version)
 
-    async def _get_latest_profile_meta(self, node_id: str) -> dict | None:
+    async def _get_latest_profile_meta(self, node_id: str) -> dict[str, Any] | None:
         """Get the latest profile metadata for a node."""
         return await self.db.profile_meta.find_one(
             {"nodeId": node_id},

@@ -12,6 +12,7 @@ Examples:
 The authorization context can be set per-request to enforce RBAC.
 """
 
+import contextvars
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
@@ -46,7 +47,7 @@ class SourceRestrictionError(Exception):
     Returns a structured guidance response per spec §4.7.1 instead of a bare error.
     """
 
-    def __init__(self, tool: str, action: str | None = None, context: dict | None = None):
+    def __init__(self, tool: str, action: str | None = None, context: dict[str, Any] | None = None):
         self.tool = tool
         self.action = action
         self.context = context or {}
@@ -140,12 +141,12 @@ def set_auth_context(ctx: AuthContext | None) -> None:
     _auth_context.set(ctx)
 
 
-def push_auth_context(ctx: AuthContext | None):
+def push_auth_context(ctx: AuthContext | None) -> contextvars.Token[AuthContext | None]:
     """Push a temporary authorization context and return the reset token."""
     return _auth_context.set(ctx)
 
 
-def reset_auth_context(token) -> None:
+def reset_auth_context(token: contextvars.Token[AuthContext | None]) -> None:
     """Reset the authorization context to a previous token."""
     _auth_context.reset(token)
 

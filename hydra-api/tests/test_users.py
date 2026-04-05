@@ -1,6 +1,6 @@
 """Tests for user management endpoints."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -208,9 +208,9 @@ async def test_grant_temporary_role(
     user_with_temp_role["temporaryRoles"] = [
         {
             "role": "operator",
-            "expiresAt": datetime.now(timezone.utc) + timedelta(hours=24),
+            "expiresAt": datetime.now(UTC) + timedelta(hours=24),
             "grantedBy": "user_admin123",
-            "grantedAt": datetime.now(timezone.utc),
+            "grantedAt": datetime.now(UTC),
             "reason": "Emergency access",
         }
     ]
@@ -223,7 +223,7 @@ async def test_grant_temporary_role(
         f"/api/v1/users/{sample_user['userId']}/roles/grant-temporary",
         json={
             "role": "operator",
-            "expiresAt": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+            "expiresAt": (datetime.now(UTC) + timedelta(hours=24)).isoformat(),
             "reason": "Emergency access",
         },
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -250,9 +250,9 @@ async def test_revoke_temporary_role(
     user_with_temp_role["temporaryRoles"] = [
         {
             "role": "operator",
-            "expiresAt": datetime.now(timezone.utc) + timedelta(hours=24),
+            "expiresAt": datetime.now(UTC) + timedelta(hours=24),
             "grantedBy": "user_admin123",
-            "grantedAt": datetime.now(timezone.utc),
+            "grantedAt": datetime.now(UTC),
         }
     ]
 

@@ -1,36 +1,45 @@
 """API key mixin: create, list, revoke, and validate API keys."""
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 
-from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.core.exceptions import (
     ApiKeyNotFoundError,
     InvalidTokenError,
 )
 from hydra.api.v1.core.security import hash_password, verify_password
-from hydra.api.v1.services.notifications import emit_notification
-from hydra.api.v1.models.notifications import (
-    NotificationType,
-    NotificationSource,
-    NotificationActor,
-    ActorType,
-)
-from hydra.api.v1.services.query import log_audit
-from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.models.auth import CreateApiKeyRequest
+from hydra.api.v1.models.notifications import (
+    ActorType,
+    NotificationActor,
+    NotificationSource,
+    NotificationType,
+)
+from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.notifications import emit_notification
+from hydra.api.v1.services.query import log_audit
+from hydra.db.mongodb import MongoDB
+from hydra.db.redis import RedisClient
 
 logger = structlog.get_logger(__name__)
 
 
 class ApiKeysMixin:
     """Mixin providing API key management."""
+    db: MongoDB
+    redis: RedisClient | None
+
+    @staticmethod
+    def _to_utc(value: datetime | None) -> datetime | None: ...
+
 
     async def create_api_key(
         self, request: CreateApiKeyRequest, user_id: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Create an API key for a user.
 
         Args:
@@ -42,7 +51,7 @@ class ApiKeysMixin:
         """
         key_id = f"key_{secrets.token_urlsafe(8)}"
         key = f"hyk_{key_id}.{secrets.token_urlsafe(32)}"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         roles = None
         if request.roles:
@@ -76,13 +85,16 @@ class ApiKeysMixin:
 
         safe_create_task(emit_notification(
             notification_type=NotificationType.API_KEY_CREATED,
-            source=NotificationSource(component="hydra-api", service="auth"),
+            source=NotificationSource(component="hydra-api", service="auth"),  # type: ignore[arg-type]
             title="API key created",
             message=f"API key '{request.name}' created",
             details={"keyId": key_id, "entityId": key_id, "name": request.name, "userId": user_id},
             actor=NotificationActor(type=ActorType.USER, id=user_id),
             target_user_id=user_id,
             audit_entry_id=audit_id,
+            mongodb=self.db,
+            redis=self.redis,
+            resolve_dependencies=False,
         ))
 
         return {
@@ -98,7 +110,7 @@ class ApiKeysMixin:
 
     async def list_api_keys(
         self, user_id: str, include_sub_account_ids: list[str] | None = None
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List active API keys for a user and optionally their sub-accounts.
 
         Args:
@@ -134,7 +146,7 @@ class ApiKeysMixin:
 
         return api_keys, len(api_keys)
 
-    async def revoke_api_key(self, key_id: str, user_id: str, user_role: str | None = None) -> dict:
+    async def revoke_api_key(self, key_id: str, user_id: str, user_role: str | None = None) -> dict[str, Any]:
         """Revoke an API key.
 
         Args:
@@ -157,7 +169,7 @@ class ApiKeysMixin:
             if not owner or owner.get("parentUserId") != user_id:
                 raise ApiKeyNotFoundError(key_id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await self.db.api_keys.update_one(
             {"keyId": key_id},
             {"$set": {"revokedAt": now}},
@@ -173,13 +185,16 @@ class ApiKeysMixin:
 
         safe_create_task(emit_notification(
             notification_type=NotificationType.API_KEY_REVOKED,
-            source=NotificationSource(component="hydra-api", service="auth"),
+            source=NotificationSource(component="hydra-api", service="auth"),  # type: ignore[arg-type]
             title="API key revoked",
             message=f"API key '{key_id}' revoked",
             details={"keyId": key_id, "entityId": key_id, "userId": user_id},
             actor=NotificationActor(type=ActorType.USER, id=user_id),
             target_user_id=user_id,
             audit_entry_id=audit_id,
+            mongodb=self.db,
+            redis=self.redis,
+            resolve_dependencies=False,
         ))
 
         return {
@@ -188,7 +203,7 @@ class ApiKeysMixin:
             "revoked_at": now,
         }
 
-    async def validate_api_key(self, api_key: str) -> dict:
+    async def validate_api_key(self, api_key: str) -> dict[str, Any]:
         """Validate an API key and return its associated data.
 
         Hydra API keys embed the keyId for O(1) lookup:
@@ -230,16 +245,16 @@ class ApiKeysMixin:
                 return key_part
         return None
 
-    async def _validate_and_touch(self, key_doc: dict) -> dict:
+    async def _validate_and_touch(self, key_doc: dict[str, Any]) -> dict[str, Any]:
         """Validate expiry and update usage tracking for a matched key."""
         expires_at = self._to_utc(key_doc.get("expiresAt"))
-        if expires_at and expires_at < datetime.now(timezone.utc):
+        if expires_at and expires_at < datetime.now(UTC):
             raise InvalidTokenError("API key has expired")
 
         await self.db.api_keys.update_one(
             {"keyId": key_doc["keyId"]},
             {
-                "$set": {"lastUsedAt": datetime.now(timezone.utc)},
+                "$set": {"lastUsedAt": datetime.now(UTC)},
                 "$inc": {"usageCount": 1},
             },
         )

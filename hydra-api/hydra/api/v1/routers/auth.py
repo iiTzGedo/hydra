@@ -1,5 +1,7 @@
 """Authentication endpoints."""
 
+from typing import Any
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 
@@ -15,12 +17,10 @@ from hydra.api.v1.core.deps import (
     CurrentToken,
     CurrentUser,
     OptionalUser,
-    RedisDep,
     UsersServiceDep,
     require_permission,
 )
 from hydra.api.v1.core.exceptions import AuthorizationError
-from hydra.core.config import get_settings
 from hydra.api.v1.models.auth import (
     ApiKeyListResponse,
     ApiKeyResponse,
@@ -48,11 +48,10 @@ from hydra.api.v1.models.auth import (
     ResetPasswordRequest,
     ResetPasswordResponse,
     Role,
-    SubAccountLinkRequest,
-    SubAccountLinkResponse,
-    SubAccountListResponse,
     SessionLoginResponse,
     SessionRefreshResponse,
+    SubAccountLinkRequest,
+    SubAccountLinkResponse,
     TemporaryRole,
     TokenResponse,
     TokenScope,
@@ -61,6 +60,7 @@ from hydra.api.v1.models.auth import (
     UserRegistrationResponse,
     UserStatus,
 )
+from hydra.core.config import get_settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 logger = structlog.get_logger(__name__)
@@ -555,7 +555,7 @@ async def list_pending_approvals(
     )
     return PendingUsersListResponse(
         pending_users=[
-            {
+            {  # type: ignore[misc]
                 "user_id": u["user_id"],
                 "username": u["username"],
                 "email": u["email"],
@@ -693,9 +693,8 @@ async def create_registration_token(
     if request.scope.value == "user":
         if not (has_full_permission or has_user_permission):
             raise AuthorizationError("tokens:create:user")
-    elif request.scope.value == "node":
-        if not (has_full_permission or has_node_permission):
-            raise AuthorizationError("tokens:create:node")
+    elif request.scope.value == "node" and not (has_full_permission or has_node_permission):
+        raise AuthorizationError("tokens:create:node")
 
     result = await auth_service.create_registration_token(
         request, current_user["user_id"], creator_role=user_role
@@ -817,9 +816,7 @@ async def create_api_key(
     """
     owner_id = current_user["user_id"]
     if sub_account_user_id:
-        if current_user.get("role") == Role.ADMIN.value:
-            owner_id = sub_account_user_id
-        elif await users_service.is_parent_of(current_user["user_id"], sub_account_user_id):
+        if current_user.get("role") == Role.ADMIN.value or await users_service.is_parent_of(current_user["user_id"], sub_account_user_id):
             owner_id = sub_account_user_id
         else:
             raise AuthorizationError()
@@ -869,9 +866,7 @@ async def list_api_keys(
 
     if sub_account_user_id:
         # Explicit sub-account query
-        if current_user.get("role") == Role.ADMIN.value:
-            owner_id = sub_account_user_id
-        elif await users_service.is_parent_of(current_user["user_id"], sub_account_user_id):
+        if current_user.get("role") == Role.ADMIN.value or await users_service.is_parent_of(current_user["user_id"], sub_account_user_id):
             owner_id = sub_account_user_id
         else:
             raise AuthorizationError()
@@ -886,7 +881,7 @@ async def list_api_keys(
     api_keys, total = await auth_service.list_api_keys(owner_id, include_sub_ids)
     return ApiKeyListResponse(
         api_keys=[
-            {
+            {  # type: ignore[misc]
                 "key_id": k["key_id"],
                 "name": k["name"],
                 "type": k["type"],
@@ -1072,7 +1067,7 @@ async def unlink_sub_account(
     users_service: UsersServiceDep,
     current_user: CurrentUser,
     user_id: str = Path(description="User ID of the sub-account to unlink"),
-) -> dict:
+) -> dict[str, Any]:
     """Unlink a sub-account from the current user.
 
     Args:

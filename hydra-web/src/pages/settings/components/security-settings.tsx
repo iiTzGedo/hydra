@@ -47,7 +47,7 @@ export function SecuritySettings() {
         },
       });
       toast.success('Security defaults updated');
-    } catch (error) {
+    } catch {
       toast.error('Failed to update security defaults');
     }
   };

@@ -1,6 +1,5 @@
 """Notification emission — deduplication, auto-resolution, document creation."""
 
-import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -11,7 +10,6 @@ from hydra.api.v1.models.notifications import (
     AUTO_RESOLVE_MAP,
     DEDUP_WINDOW,
     DEFAULT_TARGET_ROLES,
-    NOTIFICATION_CHANNEL,
     RESOLVED_RETENTION,
     TIER_LABELS,
     TIER_MAP,
@@ -23,6 +21,7 @@ from hydra.api.v1.models.notifications import (
     NotificationType,
     build_group_key,
 )
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +33,12 @@ def _generate_notification_id() -> str:
 
 class EmissionMixin:
     """Mixin providing notification emission, deduplication, and auto-resolution."""
+    db: MongoDB
+
+    async def _publish_to_redis(self, doc: dict[str, Any]) -> None: ...
+
+    async def _deliver_email(self, doc: dict[str, Any]) -> None: ...
+
 
     async def emit(
         self,
@@ -42,8 +47,8 @@ class EmissionMixin:
         title: str,
         message: str,
         *,
-        details: dict | None = None,
-        links: list[dict] | None = None,
+        details: dict[str, Any] | None = None,
+        links: list[dict[str, Any]] | None = None,
         actor: NotificationActor | None = None,
         target_user_id: str | None = None,
         target_roles: list[str] | None = None,
@@ -84,8 +89,8 @@ class EmissionMixin:
         source: NotificationSource,
         title: str,
         message: str,
-        details: dict | None,
-        links: list[dict] | None,
+        details: dict[str, Any] | None,
+        links: list[dict[str, Any]] | None,
         actor: NotificationActor | None,
         target_user_id: str | None,
         target_roles: list[str] | None,
@@ -115,7 +120,7 @@ class EmissionMixin:
         if dedup_result is not None:
             # Existing notification was updated instead of creating new
             await self._publish_to_redis(dedup_result)
-            return dedup_result["notificationId"]
+            return dedup_result["notificationId"]  # type: ignore[no-any-return]
 
         # 3. Compute TTL
         expires_at = self._compute_expiry(tier, now)
@@ -180,8 +185,8 @@ class EmissionMixin:
     # ------------------------------------------------------------------
 
     async def _deduplicate(
-        self, group_key: str, tier: int, now: datetime
-    ) -> dict | None:
+        self, group_key: str, _tier: int, now: datetime
+    ) -> dict[str, Any] | None:
         """Check for an existing active notification with the same groupKey.
 
         If found within the dedup window, update it (increment count, refresh

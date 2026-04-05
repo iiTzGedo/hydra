@@ -1,19 +1,19 @@
 """Tests for notification helpers, routes, and list behavior."""
 
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from hydra.api.v1.core.exceptions import NotFoundError, ValidationError
 from hydra.api.v1.models.notifications import (
+    NotificationBulkActionRequest,
+    NotificationBulkDeleteRequest,
     NotificationSource,
     NotificationStatsResponse,
     NotificationStatus,
     NotificationType,
     SourceComponent,
-    NotificationBulkActionRequest,
-    NotificationBulkDeleteRequest,
     build_group_key,
 )
 from hydra.api.v1.models.settings import NotificationSettings
@@ -51,7 +51,7 @@ def _sample_notification(
     tier: int = 3,
     status: NotificationStatus = NotificationStatus.ACTIVE,
 ) -> dict:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "notificationId": notification_id,
         "type": notification_type.value,
@@ -372,7 +372,7 @@ async def test_acknowledge_notification_rejects_low_tier_items():
 @pytest.mark.asyncio
 async def test_acknowledge_notification_returns_updated_document():
     raw = _sample_notification(tier=3)
-    updated = {**raw, "acknowledgedAt": datetime.now(timezone.utc), "acknowledgedBy": "user_admin123"}
+    updated = {**raw, "acknowledgedAt": datetime.now(UTC), "acknowledgedBy": "user_admin123"}
     service = MagicMock()
     service.get_notification = AsyncMock(return_value=raw)
     service.acknowledge = AsyncMock(return_value=updated)
@@ -479,7 +479,7 @@ async def test_delete_many_notifications_passes_permission_flags_and_body():
                 notification_ids=["ntf-1", "ntf-2"],
                 status=NotificationStatus.RESOLVED,
                 tier=4,
-                before=datetime(2026, 2, 4, tzinfo=timezone.utc),
+                before=datetime(2026, 2, 4, tzinfo=UTC),
             ),
         )
 
@@ -490,7 +490,7 @@ async def test_delete_many_notifications_passes_permission_flags_and_body():
         notification_ids=["ntf-1", "ntf-2"],
         status="resolved",
         tier=4,
-        before=datetime(2026, 2, 4, tzinfo=timezone.utc),
+        before=datetime(2026, 2, 4, tzinfo=UTC),
         has_write=True,
         has_manage=False,
     )

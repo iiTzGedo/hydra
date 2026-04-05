@@ -1,13 +1,13 @@
 """Query and analytics models."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
 
-class QueryCollection(str, Enum):
+class QueryCollection(StrEnum):
     """Collections that can be queried."""
 
     NODES = "nodes"
@@ -17,7 +17,7 @@ class QueryCollection(str, Enum):
     NETWORKS = "networks"
 
 
-class CapacityGroupBy(str, Enum):
+class CapacityGroupBy(StrEnum):
     """Grouping options for capacity summary."""
 
     NODE = "node"
@@ -27,7 +27,7 @@ class CapacityGroupBy(str, Enum):
     GROUP = "group"
 
 
-class AuditAction(str, Enum):
+class AuditAction(StrEnum):
     """Types of audited actions."""
 
     CREATE = "create"

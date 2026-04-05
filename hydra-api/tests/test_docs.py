@@ -1,6 +1,6 @@
 """Tests for documentation endpoints."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -12,7 +12,7 @@ from tests.utils import create_mock_cursor
 @pytest.fixture
 def sample_doc():
     """Sample documentation document."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "docId": "doc::getting-started",
         "title": "Getting Started",
@@ -136,7 +136,7 @@ async def test_get_doc_by_slug(
 
     # Note: slug endpoint may not be implemented
     response = await client.get(
-        f"/api/v1/docs/slug/getting-started",
+        "/api/v1/docs/slug/getting-started",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -447,7 +447,7 @@ async def test_get_doc_specific_version(
     admin_user["role"] = "admin"
     mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     doc_with_versions = {
         "docId": "doc::versioned",
         "title": "Versioned Doc",

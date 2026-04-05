@@ -1,7 +1,6 @@
 """Tests for database layer (MongoDB, Redis, indexes)."""
 
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -162,10 +161,10 @@ class TestDatabaseIndexes:
     @pytest.mark.asyncio
     async def test_ensure_indexes(self, mock_mongodb):
         """Test index creation."""
-        from hydra.db.indexes import ensure_indexes, INDEXES
+        from hydra.db.indexes import INDEXES, ensure_indexes
 
         collections = {}
-        for name in INDEXES.keys():
+        for name in INDEXES:
             collection = MagicMock()
             collection.create_indexes = AsyncMock()
             collections[name] = collection

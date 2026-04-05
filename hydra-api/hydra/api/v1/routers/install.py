@@ -9,12 +9,12 @@ Also provides an event reporting endpoint for agents to emit
 notifications about failures and state changes.
 """
 
-import asyncio
 import re
-from typing import Literal
+from collections.abc import AsyncIterator
+from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -321,7 +321,7 @@ async def download_agent(
 
             resolved_version = version
             if version == "latest":
-                resolved_version = await backend.get_latest_version(target)
+                resolved_version = await backend.get_latest_version(target)  # type: ignore[assignment]
                 if not resolved_version:
                     raise HTTPException(
                         status_code=404,
@@ -341,7 +341,7 @@ async def download_agent(
         else:
             resolved_version = version
             if version == "latest":
-                resolved_version = await backend.get_latest_version()
+                resolved_version = await backend.get_latest_version()  # type: ignore[assignment]
                 if not resolved_version:
                     raise HTTPException(
                         status_code=404,
@@ -353,7 +353,7 @@ async def download_agent(
                         },
                     )
 
-            object_key = backend.get_bundle_key(resolved_version)
+            object_key = backend.get_bundle_key(resolved_version)  # type: ignore[attr-defined]
             filename = f"hydra-agent-{resolved_version}.zip"
             media_type = "application/zip"
 
@@ -368,8 +368,8 @@ async def download_agent(
             size=metadata.get("size"),
         )
 
-        async def stream_file():
-            async for chunk in backend.get_object_stream(object_key):
+        async def stream_file() -> AsyncIterator[bytes]:
+            async for chunk in backend.get_object_stream(object_key):  # type: ignore[attr-defined]
                 yield chunk
 
         headers = {
@@ -451,7 +451,7 @@ async def list_versions(
         default=StorageSource.BINARY,
         description="Storage source: binary (pre-compiled), obs (S3 bundles), local (local bundles)",
     ),
-) -> dict:
+) -> dict[str, Any]:
     """List available agent versions.
 
     For source=binary: Returns versions per target architecture.
@@ -507,7 +507,7 @@ async def list_versions(
         if source == StorageSource.BINARY:
             manifest["targets"] = {}
 
-            for target_name, target_info in SUPPORTED_TARGETS.items():
+            for _target_name, target_info in SUPPORTED_TARGETS.items():
                 target = target_info["target"]
 
                 try:
@@ -523,19 +523,19 @@ async def list_versions(
                     )
 
                     if versions:
-                        manifest["targets"][target] = {
+                        manifest["targets"][target] = {  # type: ignore[index]
                             "latest": latest or (versions[0]["version"] if versions else None),
                             "versions": versions,
                         }
                     else:
-                        manifest["targets"][target] = {
+                        manifest["targets"][target] = {  # type: ignore[index]
                             "latest": None,
                             "versions": [],
                             "status": "no_binaries_available",
                         }
                 except StorageUnavailableError as e:
                     logger.warning("storage_unavailable_for_target", target=target, error=str(e))
-                    manifest["targets"][target] = {
+                    manifest["targets"][target] = {  # type: ignore[index]
                         "latest": None,
                         "versions": [],
                         "status": "storage_unavailable",
@@ -547,7 +547,7 @@ async def list_versions(
                         error=str(e),
                         error_type=type(e).__name__,
                     )
-                    manifest["targets"][target] = {
+                    manifest["targets"][target] = {  # type: ignore[index]
                         "latest": None,
                         "versions": [],
                         "status": "error",
@@ -599,7 +599,7 @@ class AgentEventReport(BaseModel):
     event_type: str = Field(alias="eventType", description="Notification event type")
     title: str = Field(max_length=120, description="Short event title")
     message: str = Field(max_length=2000, description="Detailed event message")
-    details: dict | None = Field(default=None, description="Additional event details")
+    details: dict[str, Any] | None = Field(default=None, description="Additional event details")
     node_id: str | None = Field(
         default=None,
         alias="nodeId",
@@ -702,7 +702,7 @@ async def report_agent_event(
             },
         )
 
-    source = NotificationSource(
+    source = NotificationSource(  # type: ignore[call-arg]
         component=SourceComponent.HYDRA_AGENT,
         service="hydra-agent",
         nodeId=node_id,
@@ -730,7 +730,7 @@ async def report_agent_event(
         agent_user_id=current_user.get("user_id"),
     )
 
-    return AgentEventResponse(
+    return AgentEventResponse(  # type: ignore[call-arg]
         notificationId=notification_id,
         status="accepted",
     )

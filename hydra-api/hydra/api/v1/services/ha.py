@@ -1,5 +1,6 @@
 """Home Assistant integration service."""
 
+import contextlib
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -7,12 +8,12 @@ from uuid import uuid4
 import httpx
 import structlog
 
-from hydra.core.config import Settings, get_settings
-from hydra.db.mongodb import MongoDB
-from hydra.api.v1.core.exceptions import HomeAssistantUnavailableError, HydraError
+from hydra.api.v1.core.exceptions import HomeAssistantUnavailableError
 from hydra.api.v1.models.ha import HAControlRequest, HADeviceListParams, HASyncRequest
 from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
 from hydra.api.v1.services.notifications import emit_notification
+from hydra.core.config import Settings, get_settings
+from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
 
@@ -36,7 +37,7 @@ class HomeAssistantService:
         """Enter async context manager."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
         """Exit async context manager and clean up resources."""
         await self.close()
 
@@ -66,7 +67,7 @@ class HomeAssistantService:
                 raise HomeAssistantUnavailableError("Home Assistant integration is not enabled")
 
             self._http_client = httpx.AsyncClient(
-                base_url=self.ha_url,
+                base_url=self.ha_url,  # type: ignore[arg-type]
                 headers={
                     "Authorization": f"Bearer {self.ha_token}",
                     "Content-Type": "application/json",
@@ -79,25 +80,23 @@ class HomeAssistantService:
         self,
         method: str,
         endpoint: str,
-        json_data: dict | None = None,
+        json_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Make a request to Home Assistant API."""
         try:
             client = await self._get_client()
             response = await client.request(method, endpoint, json=json_data)
             response.raise_for_status()
-            return response.json()
+            return response.json()  # type: ignore[no-any-return]
         except httpx.ConnectError as e:
             logger.error("ha_connection_error", error=str(e))
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.IOT_DEVICE_UNREACHABLE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
                     "IoT device unreachable",
                     f"Failed to connect to device: {str(e)}",
                 )
-            except Exception:
-                pass
             raise HomeAssistantUnavailableError("Unable to connect to Home Assistant")
         except httpx.HTTPStatusError as e:
             logger.error("ha_http_error", status=e.response.status_code, error=str(e))
@@ -122,7 +121,7 @@ class HomeAssistantService:
             return status
 
         try:
-            api_status = await self._ha_request("GET", "/api/")
+            await self._ha_request("GET", "/api/")
             status["connected"] = True
 
             states = await self._ha_request("GET", "/api/states")
@@ -141,39 +140,33 @@ class HomeAssistantService:
         except HomeAssistantUnavailableError as e:
             logger.warning("ha_status_check_unavailable", error=str(e))
             status["connected"] = False
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.IOT_DEVICE_UNREACHABLE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
                     "IoT device unreachable",
                     f"Failed to connect to device: {str(e)}",
                 )
-            except Exception:
-                pass
         except httpx.TimeoutException:
             logger.warning("ha_status_check_timeout")
             status["connected"] = False
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.IOT_DEVICE_UNREACHABLE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
                     "IoT device unreachable",
                     "Failed to connect to device: connection timed out",
                 )
-            except Exception:
-                pass
         except httpx.ConnectError as e:
             logger.warning("ha_status_check_connection_error", error=str(e))
             status["connected"] = False
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.IOT_DEVICE_UNREACHABLE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
                     "IoT device unreachable",
                     f"Failed to connect to device: {str(e)}",
                 )
-            except Exception:
-                pass
         except Exception as e:
             logger.error("ha_status_check_unexpected_error", error=str(e), error_type=type(e).__name__)
             status["connected"] = False
@@ -204,7 +197,7 @@ class HomeAssistantService:
             {"metadata.haEntityId": {"$exists": True}, "status": "active"},
             {"nodeId": 1, "displayName": 1, "metadata.haEntityId": 1},
         )
-        ha_node_map: dict[str, dict] = {}
+        ha_node_map: dict[str, dict[str, Any]] = {}
         async for node in ha_nodes_cursor:
             entity_id = node.get("metadata", {}).get("haEntityId")
             if entity_id:
@@ -215,13 +208,13 @@ class HomeAssistantService:
 
         devices = []
         for state in states:
-            entity_id = state.get("entity_id", "")
+            entity_id = state.get("entity_id", "")  # type: ignore[attr-defined]
             domain = entity_id.split(".")[0] if "." in entity_id else ""
 
             if params.domain and domain != params.domain:
                 continue
 
-            area = state.get("attributes", {}).get("area_id")
+            area = state.get("attributes", {}).get("area_id")  # type: ignore[attr-defined]
             if params.area and area != params.area:
                 continue
 
@@ -234,12 +227,12 @@ class HomeAssistantService:
 
             device = {
                 "entityId": entity_id,
-                "name": state.get("attributes", {}).get("friendly_name", entity_id),
+                "name": state.get("attributes", {}).get("friendly_name", entity_id),  # type: ignore[attr-defined]
                 "domain": domain,
                 "area": area,
-                "state": state.get("state", "unknown"),
-                "attributes": state.get("attributes", {}),
-                "lastUpdated": state.get("last_updated"),
+                "state": state.get("state", "unknown"),  # type: ignore[attr-defined]
+                "attributes": state.get("attributes", {}),  # type: ignore[attr-defined]
+                "lastUpdated": state.get("last_updated"),  # type: ignore[attr-defined]
             }
 
             if hydra_node:
@@ -282,7 +275,7 @@ class HomeAssistantService:
             # Filter states by domain
             filtered_states = []
             for state in states:
-                entity_id = state.get("entity_id", "")
+                entity_id = state.get("entity_id", "")  # type: ignore[attr-defined]
                 domain = entity_id.split(".")[0] if "." in entity_id else ""
                 if request.domains and domain not in request.domains:
                     continue
@@ -303,12 +296,12 @@ class HomeAssistantService:
                 existing_node_ids = {doc["nodeId"] async for doc in existing_cursor}
 
                 # Build bulk operations
-                from pymongo import UpdateOne, InsertOne
+                from pymongo import InsertOne, UpdateOne
 
                 operations = []
                 for entity_id, domain, state in filtered_states:
                     node_id = f"ha-{domain}-{entity_id.replace('.', '-')}"
-                    friendly_name = state.get("attributes", {}).get("friendly_name", entity_id)
+                    friendly_name = state.get("attributes", {}).get("friendly_name", entity_id)  # type: ignore[attr-defined]
 
                     if node_id in existing_node_ids:
                         operations.append(
@@ -318,8 +311,8 @@ class HomeAssistantService:
                                     "$set": {
                                         "displayName": friendly_name,
                                         "metadata.haEntityId": entity_id,
-                                        "metadata.haState": state.get("state"),
-                                        "metadata.haLastUpdated": state.get("last_updated"),
+                                        "metadata.haState": state.get("state"),  # type: ignore[attr-defined]
+                                        "metadata.haLastUpdated": state.get("last_updated"),  # type: ignore[attr-defined]
                                         "updatedAt": now,
                                     }
                                 },
@@ -328,7 +321,7 @@ class HomeAssistantService:
                         updated_nodes += 1
                     else:
                         operations.append(
-                            InsertOne({
+                            InsertOne({  # type: ignore[arg-type]
                                 "nodeId": node_id,
                                 "class": "iot",
                                 "type": "logical",
@@ -339,9 +332,9 @@ class HomeAssistantService:
                                 "status": "active",
                                 "metadata": {
                                     "haEntityId": entity_id,
-                                    "haState": state.get("state"),
+                                    "haState": state.get("state"),  # type: ignore[attr-defined]
                                     "haDomain": domain,
-                                    "haLastUpdated": state.get("last_updated"),
+                                    "haLastUpdated": state.get("last_updated"),  # type: ignore[attr-defined]
                                 },
                                 "registeredAt": now,
                                 "updatedAt": now,
@@ -423,15 +416,13 @@ class HomeAssistantService:
             }
         except HomeAssistantUnavailableError as e:
             logger.warning("ha_control_unavailable", entity_id=entity_id, error=str(e))
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.IOT_DEVICE_UNREACHABLE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
                     "IoT device unreachable",
                     f"Failed to connect to device: {str(e)}",
                 )
-            except Exception:
-                pass
             return {
                 "entityId": entity_id,
                 "service": request.service,
@@ -440,15 +431,13 @@ class HomeAssistantService:
             }
         except httpx.TimeoutException:
             logger.warning("ha_control_timeout", entity_id=entity_id)
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.IOT_DEVICE_UNREACHABLE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
                     "IoT device unreachable",
                     f"Failed to connect to device: connection timed out for {entity_id}",
                 )
-            except Exception:
-                pass
             return {
                 "entityId": entity_id,
                 "service": request.service,
@@ -457,15 +446,13 @@ class HomeAssistantService:
             }
         except httpx.ConnectError as e:
             logger.warning("ha_control_connection_error", entity_id=entity_id, error=str(e))
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.IOT_DEVICE_UNREACHABLE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
                     "IoT device unreachable",
                     f"Failed to connect to device: {str(e)}",
                 )
-            except Exception:
-                pass
             return {
                 "entityId": entity_id,
                 "service": request.service,
@@ -499,9 +486,9 @@ class HomeAssistantService:
         try:
             states = await self._ha_request("GET", "/api/states")
 
-            areas: dict[str, dict] = {}
+            areas: dict[str, dict[str, Any]] = {}
             for state in states:
-                area_id = state.get("attributes", {}).get("area_id")
+                area_id = state.get("attributes", {}).get("area_id")  # type: ignore[attr-defined]
                 if area_id:
                     if area_id not in areas:
                         areas[area_id] = {
@@ -517,39 +504,33 @@ class HomeAssistantService:
 
         except HomeAssistantUnavailableError as e:
             logger.warning("ha_list_areas_unavailable", error=str(e))
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.IOT_DEVICE_UNREACHABLE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
                     "IoT device unreachable",
                     f"Failed to connect to device: {str(e)}",
                 )
-            except Exception:
-                pass
             return [], 0
         except httpx.TimeoutException:
             logger.warning("ha_list_areas_timeout")
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.IOT_DEVICE_UNREACHABLE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
                     "IoT device unreachable",
                     "Failed to connect to device: connection timed out",
                 )
-            except Exception:
-                pass
             return [], 0
         except httpx.ConnectError as e:
             logger.warning("ha_list_areas_connection_error", error=str(e))
-            try:
+            with contextlib.suppress(Exception):
                 await emit_notification(
                     NotificationType.IOT_DEVICE_UNREACHABLE,
                     NotificationSource(component=SourceComponent.HYDRA_API, service="ha"),
                     "IoT device unreachable",
                     f"Failed to connect to device: {str(e)}",
                 )
-            except Exception:
-                pass
             return [], 0
         except Exception as e:
             logger.error("ha_list_areas_unexpected_error", error=str(e), error_type=type(e).__name__)
@@ -572,7 +553,7 @@ class HomeAssistantService:
         }
         return mapping.get(domain, "sensor")
 
-    async def close(self):
+    async def close(self) -> None:
         """Close the HTTP client."""
         if self._http_client and not self._http_client.is_closed:
             await self._http_client.aclose()

@@ -1,13 +1,13 @@
 """Documentation models for infrastructure knowledge base."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated
 
 from pydantic import BaseModel, Field
 
 
-class DocType(str, Enum):
+class DocType(StrEnum):
     """Types of documentation."""
 
     GUIDE = "guide"
@@ -19,7 +19,7 @@ class DocType(str, Enum):
     OTHER = "other"
 
 
-class DocFormat(str, Enum):
+class DocFormat(StrEnum):
     """Documentation content format."""
 
     MARKDOWN = "markdown"
@@ -27,7 +27,7 @@ class DocFormat(str, Enum):
     HTML = "html"
 
 
-class DocStatus(str, Enum):
+class DocStatus(StrEnum):
     """Documentation status."""
 
     DRAFT = "draft"
@@ -35,7 +35,7 @@ class DocStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-class EntityType(str, Enum):
+class EntityType(StrEnum):
     """Types of entities that can be linked to documentation."""
 
     NODE = "node"
