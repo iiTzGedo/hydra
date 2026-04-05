@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from hydra_mcp.server import _read_resource
+from hydra_mcp.client import HydraAPIError
+from hydra_mcp.server import _read_resource, read_resource
 
 pytestmark = pytest.mark.asyncio
 
@@ -211,6 +212,30 @@ class TestResourceErrorHandling:
         """Test that malformed URI raises ValueError."""
         with pytest.raises(ValueError, match="Unknown resource"):
             await _read_resource("not-a-valid-uri")
+
+    async def test_read_resource_returns_explicit_invalid_resource_error(self, mock_client):
+        """Test that invalid resource URIs remain explicit but structured."""
+        result = await read_resource("infrastructure://unknown")
+        text = result.contents[0].text
+
+        assert "INVALID_RESOURCE" in text
+        assert "Unknown resource" in text
+
+    async def test_read_resource_sanitizes_backend_failures(self, mock_client):
+        """Test that backend/internal resource failures do not leak details."""
+        mock_client.get_info = AsyncMock(
+            side_effect=HydraAPIError(
+                code="CONNECTION_ERROR",
+                message="Failed to connect to API: http://hydra-api.internal:8080",
+            )
+        )
+
+        result = await read_resource("infrastructure://overview")
+        text = result.contents[0].text
+
+        assert "RESOURCE_ERROR" in text
+        assert "hydra-api.internal" not in text
+        assert "Failed to connect to API" not in text
 
 
 class TestResourceTOONFormatting:

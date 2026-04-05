@@ -507,6 +507,8 @@ async def my_tool(args: dict[str, Any]) -> str:
 
 ## Security
 
+Tool inputs are now strict at the top level: unknown arguments are rejected, oversized strings/arrays/objects fail validation, and internal/backend failures return generic client-safe messages while detailed causes stay in server logs.
+
 ### Authentication
 
 All API requests require a valid API key configured via `HYDRA_MCP_API_KEY`. The key is passed as a bearer token in the `Authorization` header.

@@ -27,6 +27,7 @@ import jsonschema
 from mcp.types import Tool
 
 from hydra_mcp.auth import SourceRestrictionError, check_permission, get_auth_context
+from hydra_mcp.schema_helpers import harden_tool_schema
 
 
 class ToolValidationError(Exception):
@@ -93,10 +94,11 @@ def tool(
         if name in _tool_registry:
             raise ValueError(f"Tool '{name}' is already registered")
 
+        hardened_schema = harden_tool_schema(schema)
         _tool_registry[name] = RegisteredTool(
             name=name,
             description=description,
-            schema=schema,
+            schema=hardened_schema,
             handler=handler,
             required_permission=required_permission,
             internal_only=internal_only,
@@ -145,11 +147,12 @@ def validate_tool_args(name: str, args: dict[str, Any], schema: dict[str, Any]) 
     Raises:
         ToolValidationError: If validation fails.
     """
+    hardened_schema = harden_tool_schema(schema)
     try:
-        jsonschema.validate(instance=args, schema=schema)
+        jsonschema.validate(instance=args, schema=hardened_schema)
     except jsonschema.ValidationError as e:
         # Build list of all validation errors
-        validator = jsonschema.Draft7Validator(schema)
+        validator = jsonschema.Draft7Validator(hardened_schema)
         errors = [err.message for err in validator.iter_errors(args)]
         raise ToolValidationError(
             tool_name=name,

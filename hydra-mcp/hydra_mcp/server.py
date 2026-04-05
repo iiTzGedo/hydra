@@ -5,7 +5,7 @@ exposing infrastructure data through tools, resources, and prompts.
 """
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import structlog
@@ -25,6 +25,7 @@ from mcp.types import (
     ReadResourceResult,
     Resource,
     TextContent,
+    TextResourceContents,
 )
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
@@ -60,6 +61,10 @@ server = Server("hydra-mcp")
 
 # Write tools that should emit notifications on failure
 _WRITE_TOOLS = {"control_service", "control_device", "control_node", "control_agent"}
+_SAFE_API_ERROR_CODES = {"NOT_FOUND", "VALIDATION_ERROR"}
+_GENERIC_AUTH_ERROR_MESSAGE = "Authentication failed for this MCP request"
+_GENERIC_TOOL_ERROR_MESSAGE = "An internal error occurred while executing the tool"
+_GENERIC_RESOURCE_ERROR_MESSAGE = "An internal error occurred while reading the resource"
 
 
 def _parse_internal_permissions(value: str | None) -> list[str]:
@@ -155,22 +160,62 @@ async def _build_request_auth_context(headers: Any) -> Any | None:
     return await _build_external_context(headers)
 
 
+def _build_auth_error_response() -> JSONResponse:
+    """Build a sanitized auth failure response for HTTP transports."""
+    return JSONResponse(
+        status_code=401,
+        content={
+            "error": {
+                "code": "UNAUTHORIZED",
+                "message": _GENERIC_AUTH_ERROR_MESSAGE,
+            }
+        },
+    )
+
+
+def _map_hydra_api_error(
+    error: HydraAPIError,
+    *,
+    fallback_code: str,
+    fallback_message: str,
+) -> tuple[str, str, dict[str, Any] | None]:
+    """Map API errors to safe client-facing MCP responses."""
+    if error.code in _SAFE_API_ERROR_CODES:
+        return error.code, error.message, error.details
+
+    if error.code in {"FORBIDDEN", "UNAUTHORIZED"}:
+        return error.code, "The Hydra API rejected the request", None
+
+    if error.code in {"CONNECTION_ERROR", "INVALID_RESPONSE"}:
+        return fallback_code, fallback_message, None
+
+    return fallback_code, fallback_message, None
+
+
+def _build_text_resource_result(uri: str, text: str) -> ReadResourceResult:
+    """Build a text resource response with a validated MCP resource payload."""
+    return ReadResourceResult(
+        contents=[
+            TextResourceContents(
+                uri=cast(Any, uri),
+                mimeType="text/plain",
+                text=text,
+            )
+        ]
+    )
+
+
 class AuthContextMiddleware(BaseHTTPMiddleware):
     """Populate request-scoped auth context for HTTP-based MCP transports."""
 
     async def dispatch(self, request: Any, call_next: Any) -> Any:
         try:
             context = await _build_request_auth_context(request.headers)
-        except PermissionError as exc:
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "error": {
-                        "code": "UNAUTHORIZED",
-                        "message": str(exc),
-                    }
-                },
-            )
+        except PermissionError:
+            return _build_auth_error_response()
+        except Exception as exc:
+            logger.exception("auth_context_build_failed", error=str(exc))
+            return _build_auth_error_response()
 
         token = push_auth_context(context)
         try:
@@ -299,6 +344,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         )
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
     except HydraAPIError as e:
+        code, message, details = _map_hydra_api_error(
+            e,
+            fallback_code="TOOL_ERROR",
+            fallback_message=_GENERIC_TOOL_ERROR_MESSAGE,
+        )
+
         # Emit RED-tier notification for write tool failures (best-effort)
         if name in _WRITE_TOOLS:
             try:
@@ -306,13 +357,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                 asyncio.create_task(_emit_mcp_notification(
                     event_type="mcp_tool_write_failed",
                     title=f"MCP write tool failed: {name}",
-                    message=f"Tool '{name}' failed with error: {e.message}",
-                    details={"tool": name, "errorCode": e.code, "arguments": arguments},
+                    message=f"Tool '{name}' failed: {message}",
+                    details={"tool": name, "errorCode": code, "arguments": arguments},
                 ))
             except Exception:
                 pass
 
-        error_text = toon.format_error(e.code, e.message, e.details)
+        error_text = toon.format_error(code, message, details)
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
     except Exception as e:
         logger.exception("tool_execution_error", tool=name, error=str(e))
@@ -324,13 +375,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                 asyncio.create_task(_emit_mcp_notification(
                     event_type="mcp_tool_write_failed",
                     title=f"MCP write tool error: {name}",
-                    message=f"Tool '{name}' encountered unexpected error: {str(e)[:500]}",
+                    message=f"Tool '{name}' encountered an internal error",
                     details={"tool": name, "errorType": type(e).__name__},
                 ))
             except Exception:
                 pass
 
-        error_text = toon.format_error("TOOL_ERROR", "An internal error occurred while executing the tool")
+        error_text = toon.format_error("TOOL_ERROR", _GENERIC_TOOL_ERROR_MESSAGE)
         return CallToolResult(content=[TextContent(type="text", text=error_text)], isError=True)
 
 
@@ -394,10 +445,24 @@ async def read_resource(uri: str) -> ReadResourceResult:
     """
     try:
         content = await _read_resource(uri)
-        return ReadResourceResult(contents=[TextContent(type="text", text=content)])  # type: ignore[list-item]
+        return _build_text_resource_result(uri, content)
+    except ValueError as e:
+        logger.warning("resource_read_invalid_uri", uri=uri, error=str(e))
+        error_text = toon.format_error("INVALID_RESOURCE", str(e))
+        return _build_text_resource_result(uri, error_text)
+    except HydraAPIError as e:
+        logger.exception("resource_read_api_error", uri=uri, error=str(e), code=e.code)
+        code, message, details = _map_hydra_api_error(
+            e,
+            fallback_code="RESOURCE_ERROR",
+            fallback_message=_GENERIC_RESOURCE_ERROR_MESSAGE,
+        )
+        error_text = toon.format_error(code, message, details)
+        return _build_text_resource_result(uri, error_text)
     except Exception as e:
         logger.exception("resource_read_error", uri=uri, error=str(e))
-        return ReadResourceResult(contents=[TextContent(type="text", text=f"Error: {e}")])  # type: ignore[list-item]
+        error_text = toon.format_error("RESOURCE_ERROR", _GENERIC_RESOURCE_ERROR_MESSAGE)
+        return _build_text_resource_result(uri, error_text)
 
 
 async def _read_resource(uri: str) -> str:
@@ -772,8 +837,6 @@ def create_http_app() -> Any:
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
-    from starlette.responses import JSONResponse
-
     http_app = FastAPI(
         title="Hydra MCP Server",
         description="MCP server for Hydra infrastructure management",
@@ -792,16 +855,11 @@ def create_http_app() -> Any:
     async def auth_context_middleware(request: Any, call_next: Any) -> Any:
         try:
             context = await _build_request_auth_context(request.headers)
-        except PermissionError as exc:
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "error": {
-                        "code": "UNAUTHORIZED",
-                        "message": str(exc),
-                    }
-                },
-            )
+        except PermissionError:
+            return _build_auth_error_response()
+        except Exception as exc:
+            logger.exception("auth_context_build_failed", error=str(exc))
+            return _build_auth_error_response()
 
         token = push_auth_context(context)
         try:

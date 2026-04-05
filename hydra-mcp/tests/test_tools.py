@@ -189,8 +189,8 @@ class TestValidateToolArgs:
         # Should not raise
         validate_tool_args("list_nodes", args, schema)
 
-    def test_additional_properties_allowed_by_default(self):
-        """Test that additional properties are allowed by default."""
+    def test_additional_properties_are_rejected_for_tool_inputs(self):
+        """Test that top-level unknown properties are rejected."""
         schema = {
             "type": "object",
             "properties": {
@@ -199,8 +199,70 @@ class TestValidateToolArgs:
         }
         args = {"nodeId": "node-1", "extraField": "ignored"}
 
-        # Should not raise - JSON Schema allows additional properties by default
-        validate_tool_args("test_tool", args, schema)
+        with pytest.raises(ToolValidationError) as exc_info:
+            validate_tool_args("test_tool", args, schema)
+
+        assert "additional properties" in str(exc_info.value).lower()
+
+    def test_identifier_max_length_is_inferred(self):
+        """Test that identifier-like strings are capped automatically."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "nodeId": {"type": "string"},
+            },
+            "required": ["nodeId"],
+        }
+
+        with pytest.raises(ToolValidationError):
+            validate_tool_args("get_node", {"nodeId": "n" * 129}, schema)
+
+    def test_array_max_items_is_inferred(self):
+        """Test that array item limits are enforced automatically."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+        }
+
+        with pytest.raises(ToolValidationError):
+            validate_tool_args("list_nodes", {"tags": [f"tag-{i}" for i in range(26)]}, schema)
+
+    def test_object_max_properties_is_inferred(self):
+        """Test that dynamic objects receive property count limits."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "projection": {"type": "object"},
+            },
+        }
+
+        with pytest.raises(ToolValidationError):
+            validate_tool_args(
+                "query_infrastructure",
+                {"projection": {f"field_{i}": 1 for i in range(26)}},
+                schema,
+            )
+
+    def test_projection_values_must_be_zero_or_one(self):
+        """Test that projection values are restricted to include/exclude flags."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "projection": {"type": "object"},
+            },
+        }
+
+        with pytest.raises(ToolValidationError):
+            validate_tool_args(
+                "query_infrastructure",
+                {"projection": {"nodeId": 2}},
+                schema,
+            )
 
     def test_validation_error_contains_errors_list(self):
         """Test that ToolValidationError contains list of all errors."""
@@ -275,6 +337,26 @@ class TestToolValidationIntegration:
         # list_nodes has tags as array of strings
         with pytest.raises(ToolValidationError):
             await execute_tool("list_nodes", {"tags": [123, 456]})
+
+    async def test_execute_tool_rejects_unknown_top_level_args(self, mock_client):
+        """Test that unexpected top-level fields are rejected."""
+        with pytest.raises(ToolValidationError):
+            await execute_tool("get_node", {"nodeId": "node-1", "unexpected": True})
+
+    async def test_execute_tool_rejects_oversized_query_string(self, mock_client):
+        """Test that free-text inputs enforce max lengths."""
+        with pytest.raises(ToolValidationError):
+            await execute_tool("search_infrastructure", {"query": "q" * 257})
+
+    async def test_execute_tool_rejects_excessive_limit(self, mock_client):
+        """Test that list limits mirror API-side ceilings."""
+        with pytest.raises(ToolValidationError):
+            await execute_tool("list_nodes", {"limit": 201})
+
+    async def test_execute_tool_rejects_excessive_dependency_depth(self, mock_client):
+        """Test that dependency traversal depth is bounded."""
+        with pytest.raises(ToolValidationError):
+            await execute_tool("service_dependency_map", {"depth": 11})
 
 
 @pytest.mark.asyncio
@@ -707,6 +789,18 @@ class TestExecuteTool:
             data={"brightness": 255},
         )
 
+    async def test_control_device_rejects_excessive_parameters(self, mock_client):
+        """Test that flexible object args still have size caps."""
+        with pytest.raises(ToolValidationError):
+            await execute_tool(
+                "control_device",
+                {
+                    "entityId": "light.living_room",
+                    "service": "turn_on",
+                    "parameters": {f"key_{i}": i for i in range(21)},
+                },
+            )
+
     async def test_unknown_tool_raises(self, mock_client):
         """Test that unknown tool raises ValueError."""
         with pytest.raises(ValueError, match="Unknown tool"):
@@ -746,6 +840,20 @@ class TestCallTool:
 
         assert result.isError is True
         assert "NOT_FOUND" in result.content[0].text or "not found" in result.content[0].text.lower()
+
+    async def test_api_connection_error_is_sanitized(self, mock_execute_tool):
+        """Test connection failures return generic MCP-safe text."""
+        mock_execute_tool.side_effect = HydraAPIError(
+            code="CONNECTION_ERROR",
+            message="Failed to connect to API: http://hydra-api.internal:8080",
+        )
+
+        result = await call_tool("list_nodes", {})
+
+        assert result.isError is True
+        assert "TOOL_ERROR" in result.content[0].text
+        assert "hydra-api.internal" not in result.content[0].text
+        assert "Failed to connect to API" not in result.content[0].text
 
     async def test_generic_error_returns_error_result(self, mock_execute_tool):
         """Test generic exception returns sanitized error result (SEC-027)."""
