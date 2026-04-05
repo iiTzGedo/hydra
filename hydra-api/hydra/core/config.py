@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "console"] = "json"
 
-    cors_origins: list[str] = Field(default=["http://localhost:5173", "http://localhost:3000"])
+    cors_origins: list[str] = Field(default=["*"])
 
     rate_limit_enabled: bool = True
     rate_limit_requests: int = 100

@@ -46,7 +46,7 @@ services:
       - HYDRA_SMTP_PASSWORD=${HYDRA_SMTP_PASSWORD}
       - HYDRA_SMTP_FROM_ADDRESS=${HYDRA_SMTP_FROM_ADDRESS}
       - HYDRA_SMTP_FROM_NAME=${HYDRA_SMTP_FROM_NAME:-Hydra}
-      - HYDRA_CORS_ORIGINS=${HYDRA_CORS_ORIGINS:-["http://localhost:5173","http://localhost:3000"]}
+      - HYDRA_CORS_ORIGINS=${HYDRA_CORS_ORIGINS:-["*"]}
     depends_on:
       mongodb:
         condition: service_healthy
@@ -90,8 +90,6 @@ services:
     container_name: hydra-web
     ports:
       - "${HYDRA_WEB_PORT:-3000}:80"
-    environment:
-      - VITE_API_URL=${HYDRA_API_URL:-http://localhost:8080/api/v1}
     depends_on:
       - hydra-api
     restart: unless-stopped

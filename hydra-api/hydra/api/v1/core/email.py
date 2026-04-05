@@ -153,10 +153,13 @@ class EmailService:
         Returns:
             True if email was sent successfully
         """
-        base_url = (
-            self.settings.password_reset_base_url
-            or f"http://localhost:{self.settings.api_port}"
-        )
+        base_url = self.settings.password_reset_base_url
+        if not base_url:
+            logger.warning(
+                "HYDRA_PASSWORD_RESET_BASE_URL not configured; "
+                "falling back to localhost — reset links will not work in multi-machine deployments"
+            )
+            base_url = f"http://localhost:{self.settings.api_port}"
         reset_link = f"{base_url}/reset-password?token={reset_token}"
 
         subject = "Hydra - Password Reset Request"

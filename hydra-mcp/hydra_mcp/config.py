@@ -89,7 +89,7 @@ class Settings(BaseSettings):
         description="HTTP server port (only used when transport=http)",
     )
     cors_origins: list[str] = Field(
-        default=["http://localhost:5173", "http://localhost:3000"],
+        default=["*"],
         description="CORS allowed origins for HTTP transport",
     )
 
