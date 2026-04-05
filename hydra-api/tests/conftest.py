@@ -12,6 +12,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+os.environ.setdefault("HYDRA_JWT_SECRET", "test-secret-key-for-ci-at-least-32chars")
 os.environ.setdefault("HYDRA_ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
 os.environ.setdefault("HYDRA_MCP_INTERNAL_SECRET", "internal-secret-for-tests-0123456789")
 
