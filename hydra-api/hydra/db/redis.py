@@ -1,5 +1,7 @@
 """Redis client for caching, command queue, and pub/sub."""
 
+from __future__ import annotations
+
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import cast
