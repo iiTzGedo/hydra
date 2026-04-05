@@ -37,8 +37,6 @@ htmlcov/
 # Rust
 hydra-agent/target/
 **/*.rs.bk
-Cargo.lock
-uv.lock
 
 # Node.js
 node_modules/
