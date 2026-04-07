@@ -51,12 +51,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Accessibility reports (keep README)
-hydra-web/accessibility-reports/*.html
-hydra-web/accessibility-reports/*.json
-hydra-web/accessibility-reports/*.md
-!hydra-web/accessibility-reports/README.md
-hydra-web/accessibility-reports/screenshots/
+# Accessibility reports
+hydra-web/accessibility-reports/
 
 # IDE
 .idea/
@@ -93,3 +89,8 @@ Web Audit.md
 .docs
 .docs/
 CODEX.md
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+.tmp-auth-cookies.txt

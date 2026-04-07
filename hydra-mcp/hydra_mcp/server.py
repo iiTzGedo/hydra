@@ -86,6 +86,9 @@ def _build_internal_context(headers: Any) -> Any | None:
     import hmac
 
     runtime_settings = get_settings()
+    if not runtime_settings.internal_secret:
+        raise PermissionError("Internal MCP request support is not configured")
+
     provided_secret = headers.get(INTERNAL_SECRET_HEADER, "")
     if not hmac.compare_digest(provided_secret, runtime_settings.internal_secret):
         raise PermissionError("Invalid internal request secret")
@@ -121,6 +124,7 @@ def _build_internal_context(headers: Any) -> Any | None:
 
 async def _build_external_context(headers: Any) -> Any | None:
     auth_headers: dict[str, str] = {}
+    auth_source = "request_headers"
 
     authorization = headers.get("authorization")
     api_key = headers.get("x-api-key")
@@ -130,7 +134,10 @@ async def _build_external_context(headers: Any) -> Any | None:
         auth_headers["X-API-Key"] = api_key
 
     if not auth_headers:
-        return None
+        if not settings.api_key:
+            return None
+        auth_headers["X-API-Key"] = settings.api_key
+        auth_source = "server_api_key"
 
     async with httpx.AsyncClient(timeout=settings.api_timeout) as http_client:
         response = await http_client.get(
@@ -145,9 +152,9 @@ async def _build_external_context(headers: Any) -> Any | None:
     return create_context_from_user_info(
         user_info,
         source_type="external",
-        client_id=headers.get("x-client-id") or headers.get("user-agent"),
+        client_id=headers.get("x-client-id") or headers.get("user-agent") or settings.server_name,
         metadata={
-            "source": "validated_network_request",
+            "source": auth_source,
             "forward_auth": auth_headers,
         },
     )

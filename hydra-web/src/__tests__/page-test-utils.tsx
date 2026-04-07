@@ -1,5 +1,5 @@
 import { ReactElement } from 'react';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { createTestQueryClient } from './msw/test-utils';
@@ -86,10 +86,12 @@ export function renderWithRoute(
   ui: ReactElement,
   { path, route, queryClient, user = TEST_ADMIN_USER }: RenderWithRouteOptions
 ) {
-  resetTestStores();
-  if (user) {
-    seedAuthStore(user);
-  }
+  act(() => {
+    resetTestStores();
+    if (user) {
+      seedAuthStore(user);
+    }
+  });
 
   const testQueryClient = queryClient || createTestQueryClient();
 
@@ -101,7 +103,7 @@ export function renderWithRoute(
           initialEntries={[route]}
           future={{
             v7_relativeSplatPath: true,
-            v7_startTransition: true,
+            v7_startTransition: false,
           }}
         >
           <Routes>

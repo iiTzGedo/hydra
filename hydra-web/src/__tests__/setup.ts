@@ -219,7 +219,9 @@ vi.mock('@/components/ui/tabs', async () => {
 
     const setValue = (nextValue: string) => {
       if (value === undefined) {
-        setInternalValue(nextValue);
+        act(() => {
+          setInternalValue(nextValue);
+        });
       }
       onValueChange?.(nextValue);
     };
@@ -313,7 +315,9 @@ vi.mock('@/components/ui/dialog', async () => {
 
     const setOpen = (nextOpen: boolean) => {
       if (open === undefined) {
-        setInternalOpen(nextOpen);
+        act(() => {
+          setInternalOpen(nextOpen);
+        });
       }
       onOpenChange?.(nextOpen);
     };
@@ -519,10 +523,14 @@ vi.mock('@/components/ui/select', async () => {
 
     const selectOption = (nextValue: string) => {
       if (value === undefined) {
-        setInternalValue(nextValue);
+        act(() => {
+          setInternalValue(nextValue);
+        });
       }
       onValueChange?.(nextValue);
-      setOpen(false);
+      act(() => {
+        setOpen(false);
+      });
     };
 
     return React.createElement(
@@ -532,7 +540,13 @@ vi.mock('@/components/ui/select', async () => {
           value: selectedValue,
           label: selectedLabel ?? null,
           open: disabled ? false : open,
-          setOpen: disabled ? () => {} : setOpen,
+          setOpen: disabled
+            ? () => {}
+            : (nextOpen) => {
+                act(() => {
+                  setOpen(nextOpen);
+                });
+              },
           selectOption: (nextValue, _label) => selectOption(nextValue),
         },
       },

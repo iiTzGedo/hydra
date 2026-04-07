@@ -50,7 +50,11 @@ class Settings(BaseSettings):
     )
     api_key: str | None = Field(
         default=None,
-        description="API key for authentication (optional, can use JWT instead)",
+        description=(
+            "API key for Hydra API authentication. Also used as the default "
+            "server-side auth identity for network transports when requests do "
+            "not forward Authorization or X-API-Key headers."
+        ),
     )
     api_timeout: int = Field(
         default=30,
@@ -58,11 +62,15 @@ class Settings(BaseSettings):
     )
     allow_unauthenticated: bool = Field(
         default=False,
-        description="Explicitly allow unauthenticated access on non-stdio transports for local development only",
+        description="Allow missing auth context on stdio transport for local development only",
     )
     internal_secret: str | None = Field(
         default=None,
-        description="Shared secret for validating X-Hydra-Internal-Request headers (HYDRA_MCP_INTERNAL_SECRET)",
+        description=(
+            "Optional shared secret for validating X-Hydra-Internal-Request "
+            "headers when Hydra services forward trusted internal auth context "
+            "(HYDRA_MCP_INTERNAL_SECRET)"
+        ),
     )
 
     # Server settings
@@ -82,15 +90,15 @@ class Settings(BaseSettings):
     )
     http_host: str = Field(
         default="127.0.0.1",
-        description="HTTP server host (only used when transport=http)",
+        description="Host for HTTP-based transports (http, sse, streamable-http)",
     )
     http_port: int = Field(
         default=8081,
-        description="HTTP server port (only used when transport=http)",
+        description="Port for HTTP-based transports (http, sse, streamable-http)",
     )
     cors_origins: list[str] = Field(
         default=["*"],
-        description="CORS allowed origins for HTTP transport",
+        description="CORS allowed origins for HTTP-based transports",
     )
 
     # TOON formatting (see https://github.com/toon-format/toon-python)
@@ -118,17 +126,12 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
-    def _validate_network_internal_secret(self) -> "Settings":
-        """Require the internal secret for all network transports."""
-        if self.transport != "stdio":
-            if not self.internal_secret:
-                raise ValueError(
-                    "HYDRA_MCP_INTERNAL_SECRET is required for non-stdio MCP transports"
-                )
-            if len(self.internal_secret) < 32:
-                raise ValueError(
-                    "HYDRA_MCP_INTERNAL_SECRET must be at least 32 characters"
-                )
+    def _validate_internal_secret(self) -> "Settings":
+        """Validate the optional shared secret used for internal request forwarding."""
+        if self.internal_secret and len(self.internal_secret) < 32:
+            raise ValueError(
+                "HYDRA_MCP_INTERNAL_SECRET must be at least 32 characters"
+            )
         return self
 
 

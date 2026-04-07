@@ -7,29 +7,13 @@ import {
   openSeededNode,
 } from './helpers/app';
 
-test.describe('Authentication', () => {
+test.describe('Critical Journeys', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  test('login and redirect to dashboard', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     await login(page);
-    await expect(page.locator('#main-content')).toBeVisible();
   });
 
-  test('logout returns to login page', async ({ page }) => {
-    await login(page);
-
-    await page.getByText('system_admin').first().click();
-    await page.getByText(/log ?out/i).click();
-    await expect(page).toHaveURL(/login/, { timeout: 10_000 });
-  });
-
-  test('unauthenticated user is redirected to login', async ({ page }) => {
-    await page.goto('/dashboard');
-    await expect(page).toHaveURL(/login/, { timeout: 10_000 });
-  });
-});
-
-test.describe('Critical Journeys', () => {
   test('dashboard surfaces the main application shell', async ({ page }) => {
     await gotoPage(page, '/dashboard');
 
@@ -321,5 +305,27 @@ test.describe('Critical Journeys', () => {
 
     await page.getByRole('button', { name: new RegExp(`^Remove ${serverName}$`) }).click();
     await expect(page.locator('#main-content')).not.toContainText(serverName);
+  });
+});
+
+test.describe('Authentication', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('login and redirect to dashboard', async ({ page }) => {
+    await login(page);
+    await expect(page.locator('#main-content')).toBeVisible();
+  });
+
+  test('logout returns to login page', async ({ page }) => {
+    await login(page);
+
+    await page.getByText('system_admin').first().click();
+    await page.getByText(/log ?out/i).click();
+    await expect(page).toHaveURL(/login/, { timeout: 10_000 });
+  });
+
+  test('unauthenticated user is redirected to login', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page).toHaveURL(/login/, { timeout: 10_000 });
   });
 });

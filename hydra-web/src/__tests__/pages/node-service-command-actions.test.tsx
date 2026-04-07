@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const createCommandMock = vi.fn();
@@ -118,14 +118,22 @@ describe('Node and Service Command Actions', () => {
   it('queues service commands using only the stable service target contract', async () => {
     const user = userEvent.setup();
 
-    renderWithRoute(<ServiceDetailPage />, {
-      path: '/services/:serviceId',
-      route: '/services/svc-nginx-a1b2',
+    await act(async () => {
+      renderWithRoute(<ServiceDetailPage />, {
+        path: '/services/:serviceId',
+        route: '/services/svc-nginx-a1b2',
+      });
     });
 
-    await user.click(screen.getByRole('button', { name: 'Restart' }));
+    const restartButton = await screen.findByRole('button', { name: 'Restart' });
+    await act(async () => {
+      await user.click(restartButton);
+    });
 
     await waitFor(() => expect(createCommandMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Restart' })).toBeEnabled()
+    );
 
     const payload = createCommandMock.mock.calls[0][0];
     expect(payload.registryId).toBe('reg::service::restart');
@@ -143,15 +151,26 @@ describe('Node and Service Command Actions', () => {
   it('queues node actions from the node detail entry point', async () => {
     const user = userEvent.setup();
 
-    renderWithRoute(<NodeDetailPage />, {
-      path: '/nodes/:nodeId',
-      route: '/nodes/server-01',
+    await act(async () => {
+      renderWithRoute(<NodeDetailPage />, {
+        path: '/nodes/:nodeId',
+        route: '/nodes/server-01',
+      });
     });
 
-    await user.click(screen.getByRole('tab', { name: 'Controls' }));
-    await user.click(screen.getByRole('button', { name: 'Reboot' }));
+    await act(async () => {
+      await user.click(screen.getByRole('tab', { name: 'Controls' }));
+    });
+    expect(await screen.findByText('Node Controls')).toBeInTheDocument();
+
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Reboot' }));
+    });
 
     await waitFor(() => expect(createCommandMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Reboot' })).toBeEnabled()
+    );
 
     expect(createCommandMock).toHaveBeenCalledWith({
       registryId: 'reg::node::reboot',
@@ -164,22 +183,40 @@ describe('Node and Service Command Actions', () => {
   it('requires a hostname before submitting the set-hostname control', async () => {
     const user = userEvent.setup();
 
-    renderWithRoute(<NodeDetailPage />, {
-      path: '/nodes/:nodeId',
-      route: '/nodes/server-01',
+    await act(async () => {
+      renderWithRoute(<NodeDetailPage />, {
+        path: '/nodes/:nodeId',
+        route: '/nodes/server-01',
+      });
     });
 
-    await user.click(screen.getByRole('tab', { name: 'Controls' }));
-    await user.click(screen.getByRole('button', { name: 'Set Hostname' }));
-    await user.click(screen.getByRole('button', { name: 'Send Command' }));
+    await act(async () => {
+      await user.click(screen.getByRole('tab', { name: 'Controls' }));
+    });
+    expect(await screen.findByText('Node Controls')).toBeInTheDocument();
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Set Hostname' }));
+    });
+    const dialog = await screen.findByRole('dialog');
+    const hostnameInput = within(dialog).getByLabelText('Hostname');
+    await act(async () => {
+      await user.click(within(dialog).getByRole('button', { name: 'Send Command' }));
+    });
 
     expect(await screen.findByText('Hostname is required.')).toBeInTheDocument();
     expect(createCommandMock).not.toHaveBeenCalled();
 
-    await user.type(screen.getByLabelText('Hostname'), 'hydra-node-01');
-    await user.click(screen.getByRole('button', { name: 'Send Command' }));
+    await act(async () => {
+      await user.type(hostnameInput, 'hydra-node-01');
+    });
+    await act(async () => {
+      await user.click(within(dialog).getByRole('button', { name: 'Send Command' }));
+    });
 
     await waitFor(() => expect(createCommandMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Hostname')).not.toBeInTheDocument()
+    );
     expect(createCommandMock).toHaveBeenCalledWith({
       registryId: 'reg::node::set-hostname',
       target: {
@@ -194,24 +231,42 @@ describe('Node and Service Command Actions', () => {
   it('requires a CIDR subnet before submitting probe-network', async () => {
     const user = userEvent.setup();
 
-    renderWithRoute(<NodeDetailPage />, {
-      path: '/nodes/:nodeId',
-      route: '/nodes/server-01',
+    await act(async () => {
+      renderWithRoute(<NodeDetailPage />, {
+        path: '/nodes/:nodeId',
+        route: '/nodes/server-01',
+      });
     });
 
-    await user.click(screen.getByRole('tab', { name: 'Controls' }));
-    await user.click(screen.getByRole('button', { name: 'Probe Network' }));
-    await user.click(screen.getByRole('button', { name: 'Send Command' }));
+    await act(async () => {
+      await user.click(screen.getByRole('tab', { name: 'Controls' }));
+    });
+    expect(await screen.findByText('Agent Controls')).toBeInTheDocument();
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Probe Network' }));
+    });
+    const dialog = await screen.findByRole('dialog');
+    const subnetInput = within(dialog).getByLabelText('Subnet');
+    await act(async () => {
+      await user.click(within(dialog).getByRole('button', { name: 'Send Command' }));
+    });
 
     expect(
       await screen.findByText('Subnet is required.')
     ).toBeInTheDocument();
     expect(createCommandMock).not.toHaveBeenCalled();
 
-    await user.type(screen.getByLabelText('Subnet'), '192.168.1.0/24');
-    await user.click(screen.getByRole('button', { name: 'Send Command' }));
+    await act(async () => {
+      await user.type(subnetInput, '192.168.1.0/24');
+    });
+    await act(async () => {
+      await user.click(within(dialog).getByRole('button', { name: 'Send Command' }));
+    });
 
     await waitFor(() => expect(createCommandMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Subnet')).not.toBeInTheDocument()
+    );
     expect(createCommandMock).toHaveBeenCalledWith({
       registryId: 'reg::agent::probe-network',
       target: {

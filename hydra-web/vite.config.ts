@@ -30,6 +30,7 @@ function buildContentSecurityPolicy(apiBaseUrl: string): string {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, '');
   const apiBaseUrl = env.VITE_API_URL || '/api/v1';
+  const apiProxyTarget = env.HYDRA_API_PROXY_TARGET || 'http://127.0.0.1:8080';
   const csp = buildContentSecurityPolicy(apiBaseUrl);
 
   return {
@@ -57,7 +58,7 @@ export default defineConfig(({ mode }) => {
         exclude: ['node_modules/', 'src/__tests__/setup.ts'],
       },
       env: {
-        VITE_API_URL: 'http://localhost:8080/api/v1',
+        VITE_API_URL: 'http://127.0.0.1:8080/api/v1',
       },
     },
     optimizeDeps: {
@@ -65,9 +66,10 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5173,
+      allowedHosts: true,
       proxy: {
         '/api': {
-          target: 'http://localhost:8080',
+          target: apiProxyTarget,
           changeOrigin: true,
           ws: true,
         },

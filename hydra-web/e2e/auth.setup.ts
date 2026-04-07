@@ -1,4 +1,4 @@
-import { test as setup } from '@playwright/test';
+import { expect, test as setup } from '@playwright/test';
 import { login } from './helpers/app';
 
 setup('authenticate', async ({ page }) => {
@@ -8,6 +8,8 @@ setup('authenticate', async ({ page }) => {
   }
 
   await login(page);
+  await page.waitForLoadState('networkidle');
+  await expect(page.locator('#main-content')).toBeVisible();
 
   // Save authenticated state
   await page.context().storageState({ path: 'e2e/.auth/user.json' });

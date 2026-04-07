@@ -28,6 +28,7 @@ const RECONNECT_MAX_ATTEMPTS = 10;
 const PING_INTERVAL = 30000; // 30 seconds
 
 const API_BASE_URL = getApiBaseUrl();
+let sessionRefreshPromise: Promise<string | null> | null = null;
 
 /**
  * Refresh the cookie-backed browser session.
@@ -40,29 +41,44 @@ export async function refreshSession(): Promise<string | null> {
     return null;
   }
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/auth/session/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        [CSRF_HEADER_NAME]: csrfToken,
-      },
-    });
+  if (sessionRefreshPromise) {
+    wsDebug.log('Session refresh already in progress');
+    return sessionRefreshPromise;
+  }
 
-    if (!response.ok) {
-      wsDebug.log('Session refresh failed:', response.status);
-      if (response.status === 401) {
-        useAuthStore.getState().clearAuth();
+  const refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/session/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          [CSRF_HEADER_NAME]: csrfToken,
+        },
+      });
+
+      if (!response.ok) {
+        // Avoid logging the user out on a transient background refresh race.
+        wsDebug.log('Session refresh failed:', response.status);
+        return null;
       }
+
+      wsDebug.log('Session refreshed successfully');
+      return getCsrfToken() || csrfToken;
+    } catch (error) {
+      wsDebug.error('Session refresh error:', error);
       return null;
     }
+  })();
 
-    wsDebug.log('Session refreshed successfully');
-    return getCsrfToken();
-  } catch (error) {
-    wsDebug.error('Session refresh error:', error);
-    return null;
-  }
+  sessionRefreshPromise = refreshPromise;
+  const clearRefreshPromise = () => {
+    if (sessionRefreshPromise === refreshPromise) {
+      sessionRefreshPromise = null;
+    }
+  };
+  refreshPromise.then(clearRefreshPromise, clearRefreshPromise);
+
+  return refreshPromise;
 }
 
 /**
@@ -136,8 +152,10 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const pingIntervalRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const connectPromiseRef = useRef<Promise<void> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const authFailedRef = useRef(false);
+  const connectCycleRef = useRef(0);
 
   // Callback refs to avoid stale closures
   const onMessageRef = useRef(onMessage);
@@ -180,127 +198,162 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
       return;
     }
 
-    const csrfToken = getCsrfToken();
-    if (!csrfToken) {
-      wsDebug.warn('No CSRF token available');
-      onErrorRef.current?.('Not authenticated');
-      return;
+    if (connectPromiseRef.current) {
+      wsDebug.log('Connection setup already in progress');
+      return connectPromiseRef.current;
     }
 
-    wsDebug.log('Refreshing session before connection...');
-    const refreshedCsrfToken = await refreshSession();
-    const bootstrapToken = refreshedCsrfToken || getCsrfToken() || csrfToken;
-    if (!bootstrapToken) {
-      wsDebug.warn('No CSRF bootstrap token available');
-      onErrorRef.current?.('Not authenticated');
-      return;
-    }
+    const connectCycle = ++connectCycleRef.current;
+    const connectPromise: Promise<void> = (async () => {
+      const csrfToken = getCsrfToken();
+      if (!csrfToken) {
+        wsDebug.warn('No CSRF token available');
+        onErrorRef.current?.('Not authenticated');
+        return;
+      }
 
-    const wsUrl = buildWsUrl(path);
+      wsDebug.log('Refreshing session before connection...');
+      const refreshedCsrfToken = await refreshSession();
+      const bootstrapToken = refreshedCsrfToken || getCsrfToken() || csrfToken;
 
-    try {
-      wsDebug.log('Attempting connection...', {
-        attempt: reconnectAttemptRef.current + 1,
-        maxAttempts: RECONNECT_MAX_ATTEMPTS,
-      });
+      if (connectCycle !== connectCycleRef.current) {
+        wsDebug.log('Connection attempt superseded before WebSocket creation');
+        return;
+      }
 
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      if (!bootstrapToken) {
+        wsDebug.warn('No CSRF bootstrap token available');
+        onErrorRef.current?.('Not authenticated');
+        return;
+      }
 
-      ws.onopen = () => {
-        wsDebug.log('Connected, sending authentication message...');
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsDebug.log('Already connected');
+        return;
+      }
+      if (wsRef.current?.readyState === WebSocket.CONNECTING) {
+        wsDebug.log('Connection in progress');
+        return;
+      }
 
-        ws.send(JSON.stringify({ type: 'authenticate', csrfToken: bootstrapToken }));
-      };
+      const wsUrl = buildWsUrl(path);
 
-      ws.onclose = (event) => {
-        wsDebug.log('Connection closed', {
-          code: event.code,
-          reason: event.reason,
-          wasClean: event.wasClean,
+      try {
+        wsDebug.log('Attempting connection...', {
+          attempt: reconnectAttemptRef.current + 1,
+          maxAttempts: RECONNECT_MAX_ATTEMPTS,
         });
 
-        setIsConnected(false);
-        onDisconnectedRef.current?.();
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
-        // Clear ping interval
-        if (pingIntervalRef.current) {
-          clearInterval(pingIntervalRef.current);
-          pingIntervalRef.current = null;
-        }
+        ws.onopen = () => {
+          wsDebug.log('Connected, sending authentication message...');
 
-        // Handle specific close codes
-        if (event.code === 4001) {
-          authFailedRef.current = true;
-          useAuthStore.getState().clearAuth();
-          onErrorRef.current?.('Authentication failed - please log in again');
-          return;
-        }
-        if (event.code === 4003) {
-          authFailedRef.current = true;
-          onErrorRef.current?.('Access denied - agents cannot use chat');
-          return;
-        }
-        // Normal closure - don't reconnect
-        if (event.code === 1000) {
-          return;
-        }
+          ws.send(JSON.stringify({ type: 'authenticate', csrfToken: bootstrapToken }));
+        };
 
-        // Unexpected close - attempt reconnection with exponential backoff
-        if (reconnectAttemptRef.current < RECONNECT_MAX_ATTEMPTS) {
-          const delay = Math.min(
-            RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttemptRef.current),
-            RECONNECT_MAX_DELAY
-          );
-          reconnectAttemptRef.current++;
+        ws.onclose = (event) => {
+          wsDebug.log('Connection closed', {
+            code: event.code,
+            reason: event.reason,
+            wasClean: event.wasClean,
+          });
 
-          wsDebug.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current}/${RECONNECT_MAX_ATTEMPTS})`);
+          if (wsRef.current === ws) {
+            wsRef.current = null;
+          }
 
-          reconnectTimeoutRef.current = window.setTimeout(() => {
-            connect();
-          }, delay);
-        } else {
-          onErrorRef.current?.('Connection lost - maximum reconnection attempts reached');
-        }
-      };
+          setIsConnected(false);
+          onDisconnectedRef.current?.();
 
-      ws.onerror = (event) => {
-        wsDebug.error('Connection error', event);
-      };
+          // Clear ping interval
+          if (pingIntervalRef.current) {
+            clearInterval(pingIntervalRef.current);
+            pingIntervalRef.current = null;
+          }
 
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          // Handle authentication response from server
-          if (data.type === 'authenticated') {
-            wsDebug.log('Authenticated successfully');
-            reconnectAttemptRef.current = 0;
-            setIsConnected(true);
-            onConnectedRef.current?.();
-
-            // Start ping interval after successful auth
-            pingIntervalRef.current = window.setInterval(() => {
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: pingType }));
-              }
-            }, PING_INTERVAL);
+          // Handle specific close codes
+          if (event.code === 4001) {
+            authFailedRef.current = true;
+            useAuthStore.getState().clearAuth();
+            onErrorRef.current?.('Authentication failed - please log in again');
+            return;
+          }
+          if (event.code === 4003) {
+            authFailedRef.current = true;
+            onErrorRef.current?.('Access denied');
+            return;
+          }
+          // Normal closure - don't reconnect
+          if (event.code === 1000) {
             return;
           }
 
-          onMessageRef.current?.(data);
-        } catch (e) {
-          wsDebug.error('Failed to parse message:', e);
-        }
-      };
-    } catch (error) {
-      wsDebug.error('Failed to create WebSocket:', error);
-      onErrorRef.current?.(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
-    }
+          // Unexpected close - attempt reconnection with exponential backoff
+          if (reconnectAttemptRef.current < RECONNECT_MAX_ATTEMPTS) {
+            const delay = Math.min(
+              RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttemptRef.current),
+              RECONNECT_MAX_DELAY
+            );
+            reconnectAttemptRef.current++;
+
+            wsDebug.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current}/${RECONNECT_MAX_ATTEMPTS})`);
+
+            reconnectTimeoutRef.current = window.setTimeout(() => {
+              void connect();
+            }, delay);
+          } else {
+            onErrorRef.current?.('Connection lost - maximum reconnection attempts reached');
+          }
+        };
+
+        ws.onerror = (event) => {
+          wsDebug.error('Connection error', event);
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+
+            // Handle authentication response from server
+            if (data.type === 'authenticated') {
+              wsDebug.log('Authenticated successfully');
+              reconnectAttemptRef.current = 0;
+              setIsConnected(true);
+              onConnectedRef.current?.();
+
+              // Start ping interval after successful auth
+              pingIntervalRef.current = window.setInterval(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: pingType }));
+                }
+              }, PING_INTERVAL);
+              return;
+            }
+
+            onMessageRef.current?.(data);
+          } catch (e) {
+            wsDebug.error('Failed to parse message:', e);
+          }
+        };
+      } catch (error) {
+        wsDebug.error('Failed to create WebSocket:', error);
+        onErrorRef.current?.(`Failed to connect: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    })().finally(() => {
+      if (connectPromiseRef.current === connectPromise) {
+        connectPromiseRef.current = null;
+      }
+    });
+
+    connectPromiseRef.current = connectPromise;
+    return connectPromise;
   }, [path, pingType]); // Minimal dependencies - callbacks accessed via refs
 
   const disconnect = useCallback(() => {
     wsDebug.log('Disconnecting...');
+    connectCycleRef.current += 1;
 
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);

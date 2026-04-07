@@ -133,6 +133,7 @@ Edit `.env` with your configuration (see [Configuration](#configuration) below).
 | `test` | `npm run test` | Run Vitest unit tests |
 | `test:watch` | `npm run test:watch` | Run tests in watch mode |
 | `test:e2e` | `npm run test:e2e` | Run Playwright E2E tests |
+| `serve` | `npm run serve` | Serve production build on port 3000 |
 
 ### Tech Stack
 
@@ -220,29 +221,29 @@ Log in with the test account (`system_admin` / `system12345`).
 docker build -t hydra-web:latest .
 ```
 
-This runs a multi-stage build: Node.js builds the production bundle, then nginx serves the static assets.
+This builds the production bundle and serves it with Node `serve` (SPA routing via `-s` flag).
 
 ### Running with Docker
 
 ```bash
-docker run -p 3000:80 hydra-web:latest
+docker run -p 3000:3000 hydra-web:latest
 ```
 
-> **Note:** `VITE_API_URL` is baked into the bundle at build time. To change it, rebuild the image with the desired value or use runtime env substitution in `nginx.conf`.
+> **Note:** `VITE_API_URL` is baked into the bundle at build time. To change it, rebuild the image with the desired value.
 
-### Docker Compose (Development)
+### Docker Compose
 
 From the repository root:
 
 ```bash
 # Start all Hydra services
-docker compose -f docker-compose.dev.yml up -d
+docker compose up -d
 
 # Start only hydra-web
-docker compose -f docker-compose.dev.yml up -d hydra-web
+docker compose up -d hydra-web
 
 # View logs
-docker compose -f docker-compose.dev.yml logs -f hydra-web
+docker compose logs -f hydra-web
 ```
 
 ## Security
@@ -258,7 +259,7 @@ docker compose -f docker-compose.dev.yml logs -f hydra-web
 |---------|----------|
 | `VITE_API_URL` not working | Ensure the variable is set **before** `npm run build`; Vite inlines env vars at build time |
 | CORS errors in browser | Check `HYDRA_CORS_ORIGINS` in the API includes your web origin (e.g., `http://localhost:5173`) |
-| Blank page after deploy | Verify nginx `try_files` fallback is configured for SPA routing |
+| Blank page after deploy | Verify `serve.json` SPA rewrite is in place or that `serve -s` flag is used |
 | 401 loops | Clear browser storage and re-login; the refresh token may have expired |
 | `npm install` engine warning | Ensure Node.js >= 22 (`node --version`) |
 

@@ -9,15 +9,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for faster package management
-RUN pip install uv
+RUN pip install --no-cache-dir uv
 
 # Copy project files
 COPY pyproject.toml .
+COPY uv.lock .
 COPY README.md .
-COPY hydra/ ./hydra/
+COPY hydra_mcp/ ./hydra_mcp/
 
-# Install dependencies (includes toon-format from git, uvicorn for HTTP)
-RUN uv pip install --system -e . uvicorn[standard] fastapi
+# Install dependencies
+RUN uv sync --frozen --no-dev
 
 # Default environment variables
 ENV HYDRA_MCP_TRANSPORT=http
@@ -32,4 +33,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8081/health || exit 1
 
 # Run the MCP server (defaults to HTTP transport via env)
-CMD ["hydra-mcp"]
+CMD ["uv", "run", "--no-sync", "hydra-mcp"]

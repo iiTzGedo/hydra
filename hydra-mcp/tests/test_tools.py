@@ -20,7 +20,7 @@ from hydra_mcp.auth import (
 from hydra_mcp.client import HydraAPIError, HydraClient
 
 # Import call_tool from server (it uses the registry internally)
-from hydra_mcp.server import _build_internal_context, call_tool
+from hydra_mcp.server import _build_internal_context, _build_request_auth_context, call_tool
 from hydra_mcp.tool_handlers import _format_list_response, _safe_list
 from hydra_mcp.tools import (
     ToolValidationError,
@@ -975,12 +975,54 @@ class TestHydraClientResponseValidation:
             "_request",
             AsyncMock(return_value={"items": []}),
         )
+        monkeypatch.setattr(
+            hydra_client,
+            "_request_with_meta",
+            AsyncMock(return_value=({"items": []}, None)),
+        )
 
         with pytest.raises(HydraAPIError) as exc_info:
             await getattr(hydra_client, method_name)(**kwargs)
 
         assert exc_info.value.code == "INVALID_RESPONSE"
         assert endpoint in exc_info.value.message
+
+    @pytest.mark.parametrize(
+        ("method_name", "endpoint"),
+        [
+            ("list_nodes", "/nodes"),
+            ("list_services", "/services"),
+            ("list_groups", "/groups"),
+            ("list_networks", "/networks"),
+            ("list_notifications", "/notifications"),
+        ],
+    )
+    async def test_tuple_list_methods_return_api_totals(
+        self,
+        monkeypatch,
+        method_name,
+        endpoint,
+    ):
+        hydra_client = HydraClient(
+            settings=SimpleNamespace(
+                api_url="http://hydra-api",
+                api_key="service-api-key",
+                api_timeout=5,
+                transport="stdio",
+            )
+        )
+        monkeypatch.setattr(
+            hydra_client,
+            "_request_with_meta",
+            AsyncMock(return_value=([{"id": "item-1"}], {"total": 7})),
+        )
+
+        items, total = await getattr(hydra_client, method_name)()
+
+        assert items == [{"id": "item-1"}]
+        assert total == 7
+        hydra_client._request_with_meta.assert_awaited_once()
+        assert hydra_client._request_with_meta.await_args.args[1] == endpoint
 
 
 class TestInternalContextForwarding:
@@ -1015,3 +1057,74 @@ class TestInternalContextForwarding:
             INTERNAL_CLIENT_ID_HEADER: "hydra-api",
             INTERNAL_SECRET_HEADER: "internal-secret-for-tests-0123456789",
         }
+
+    def test_internal_context_requires_configured_secret(self, monkeypatch):
+        server_module = importlib.import_module("hydra_mcp.server")
+        monkeypatch.setattr(
+            server_module,
+            "get_settings",
+            lambda: SimpleNamespace(internal_secret=None),
+        )
+
+        with pytest.raises(PermissionError, match="not configured"):
+            _build_internal_context(
+                {
+                    INTERNAL_REQUEST_HEADER: "true",
+                    INTERNAL_USER_ID_HEADER: "user_admin123",
+                    INTERNAL_ROLE_HEADER: "admin",
+                    INTERNAL_SECRET_HEADER: "internal-secret-for-tests-0123456789",
+                }
+            )
+
+
+class TestExternalContextForwarding:
+    """Tests for external network auth handling."""
+
+    @pytest.mark.asyncio
+    async def test_request_context_falls_back_to_configured_api_key(self, monkeypatch):
+        server_module = importlib.import_module("hydra_mcp.server")
+        monkeypatch.setattr(
+            server_module,
+            "settings",
+            SimpleNamespace(
+                api_url="http://hydra-api/api/v1",
+                api_key="server-api-key",
+                api_timeout=5,
+                server_name="hydra-mcp",
+            ),
+        )
+
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "userId": "svc_hydra_mcp",
+            "permissions": ["nodes:read"],
+            "role": "operator",
+        }
+        response.raise_for_status.return_value = None
+
+        class DummyAsyncClient:
+            def __init__(self, *, timeout):
+                self.timeout = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def get(self, url, headers):
+                assert url == "http://hydra-api/api/v1/auth/me"
+                assert headers == {"X-API-Key": "server-api-key"}
+                return response
+
+        monkeypatch.setattr(server_module.httpx, "AsyncClient", DummyAsyncClient)
+
+        context = await _build_request_auth_context({})
+
+        assert context is not None
+        assert context.user_id == "svc_hydra_mcp"
+        assert context.source_type == "external"
+        assert context.client_id == "hydra-mcp"
+        assert context.metadata["source"] == "server_api_key"
+        assert context.metadata["forward_auth"] == {"X-API-Key": "server-api-key"}

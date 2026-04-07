@@ -24,38 +24,15 @@
 - [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Configuration](#configuration)
-  - [API Connection](#api-connection)
-  - [Transport Settings](#transport-settings)
-  - [TOON Formatting](#toon-formatting)
-  - [Logging](#logging)
 - [Usage](#usage)
-  - [Transport Modes](#transport-modes)
-  - [HTTP API Endpoints](#http-api-endpoints)
-  - [Claude Desktop Integration](#claude-desktop-integration)
 - [Available Tools](#available-tools)
-  - [Node Tools](#node-tools-3)
-  - [Service Tools](#service-tools-3)
-  - [Group Tools](#group-tools-2)
-  - [Network Tools](#network-tools-2)
-  - [Topology & Query Tools](#topology--query-tools-3)
-  - [Profile & Capacity Tools](#profile--capacity-tools-2)
-  - [Time Machine Tools](#time-machine-tools-2)
-  - [IoT/Control Tools](#iotcontrol-tools-2)
 - [Available Resources](#available-resources)
-  - [Static Resources](#static-resources-6)
-  - [Dynamic Resource Patterns](#dynamic-resource-patterns-2)
 - [Available Prompts](#available-prompts)
 - [TOON Output Format](#toon-output-format)
 - [Docker](#docker)
 - [Architecture](#architecture)
-- [Project Structure](#project-structure)
 - [Development](#development)
-  - [Test Coverage](#test-coverage)
-  - [Adding New Tools](#adding-new-tools)
 - [Security](#security)
-  - [Authentication](#authentication)
-  - [Authorization](#authorization)
-  - [Transport Security](#transport-security)
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
 
@@ -63,7 +40,7 @@
 
 The Hydra MCP service enables LLMs to interact with your infrastructure through a standardized protocol. It provides:
 
-- **19 Tools** for querying and controlling infrastructure
+- **29 Tools** for querying and controlling infrastructure
 - **8 Resources** for browsing infrastructure state (6 static + 2 dynamic patterns)
 - **6 Prompts** for common infrastructure tasks
 
@@ -82,39 +59,36 @@ All responses are formatted using [TOON](https://github.com/toon-format/toon-pyt
 ## Quick Start
 
 ```bash
-# Install with uv
+# Install dependencies from uv.lock
 cd hydra-mcp
-uv pip install -e .
+uv sync --locked
 
 # Set environment variables
 export HYDRA_MCP_API_URL=http://localhost:8080/api/v1
 export HYDRA_MCP_API_KEY=your-api-key
 
 # Run with stdio (Claude Desktop local)
-hydra-mcp
+uv run hydra-mcp
 
 # Or with streamable-http (Claude Desktop remote)
-HYDRA_MCP_TRANSPORT=streamable-http hydra-mcp
+HYDRA_MCP_TRANSPORT=streamable-http uv run hydra-mcp
 ```
 
 ## Prerequisites
 
 - Python 3.12+
-- [uv](https://github.com/astral-sh/uv) (recommended) or pip
+- [uv](https://github.com/astral-sh/uv)
 - [Docker Engine](https://docs.docker.com/engine/install/) with the [Compose plugin](https://docs.docker.com/compose/install/) (`docker compose`) — for containerized deployment
 - A running [hydra-api](../hydra-api/README.md) instance
 
 ## Installation
 
 ```bash
-# From the hydra-mcp directory (using uv, recommended)
-uv pip install -e .
+# Runtime dependencies
+uv sync --locked
 
-# Or with pip
-pip install -e .
-
-# With dev dependencies
-uv pip install -e ".[dev]"
+# Development dependencies
+uv sync --dev --locked
 ```
 
 > **Note:** The `toon-format` dependency is installed directly from GitHub. Ensure `git` is available in your environment.
@@ -128,17 +102,18 @@ Environment variables (prefix: `HYDRA_MCP_`):
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `HYDRA_MCP_API_URL` | Hydra API base URL | `http://localhost:8080/api/v1` |
-| `HYDRA_MCP_API_KEY` | API key for authentication | - |
+| `HYDRA_MCP_API_KEY` | Hydra API key. Also used as the default server-side auth identity for network transports when requests do not forward auth headers. | - |
 | `HYDRA_MCP_API_TIMEOUT` | Request timeout (seconds) | `30` |
+| `HYDRA_MCP_INTERNAL_SECRET` | Optional shared secret for trusted Hydra internal forwarded auth headers. Use the same 32+ character value in Hydra API/Web and Hydra MCP. | - |
 
 ### Transport Settings
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `HYDRA_MCP_TRANSPORT` | Transport mode | `stdio` |
-| `HYDRA_MCP_HTTP_HOST` | HTTP server host | `0.0.0.0` |
-| `HYDRA_MCP_HTTP_PORT` | HTTP server port | `8081` |
-| `HYDRA_MCP_CORS_ORIGINS` | CORS allowed origins (JSON array) | `["*"]` |
+| `HYDRA_MCP_HTTP_HOST` | Host for HTTP-based transports (`http`, `sse`, `streamable-http`) | `127.0.0.1` |
+| `HYDRA_MCP_HTTP_PORT` | Port for HTTP-based transports (`http`, `sse`, `streamable-http`) | `8081` |
+| `HYDRA_MCP_CORS_ORIGINS` | CORS allowed origins for HTTP-based transports (JSON array) | `["*"]` |
 
 ### TOON Formatting
 
@@ -172,13 +147,13 @@ Hydra MCP supports **four transport modes**:
 
 ```bash
 # For Claude Desktop (local subprocess)
-hydra-mcp
+uv run hydra-mcp
 
 # For Claude Desktop (remote HTTP) - RECOMMENDED
-HYDRA_MCP_TRANSPORT=streamable-http hydra-mcp
+HYDRA_MCP_TRANSPORT=streamable-http uv run hydra-mcp
 
 # For Hydra Web/API integration
-HYDRA_MCP_TRANSPORT=http hydra-mcp
+HYDRA_MCP_TRANSPORT=http uv run hydra-mcp
 ```
 
 ### HTTP API Endpoints
@@ -226,7 +201,8 @@ curl -X POST http://localhost:8081/resources/read \
 {
   "mcpServers": {
     "hydra": {
-      "command": "/path/to/hydra-mcp",
+      "command": "uv",
+      "args": ["--directory", "/path/to/hydra-mcp", "run", "hydra-mcp"],
       "env": {
         "HYDRA_MCP_API_URL": "http://localhost:8080/api/v1",
         "HYDRA_MCP_API_KEY": "your-api-key"
@@ -239,11 +215,13 @@ curl -X POST http://localhost:8081/resources/read \
 **Option 2: Remote (streamable-http)** - Connect to running MCP server (recommended)
 
 ```bash
-# Start MCP server
+# Start MCP server.
+# HYDRA_MCP_API_KEY is used as the default auth identity for network requests
+# unless the client forwards Authorization or X-API-Key headers.
 HYDRA_MCP_TRANSPORT=streamable-http \
 HYDRA_MCP_API_URL=http://localhost:8080/api/v1 \
 HYDRA_MCP_API_KEY=your-api-key \
-hydra-mcp
+uv run hydra-mcp
 ```
 
 ```json
@@ -262,11 +240,13 @@ hydra-mcp
 claude mcp add hydra --transport streamable-http http://localhost:8081/mcp
 ```
 
+If Hydra API or Hydra Web will forward trusted internal auth headers to Hydra MCP, also set `HYDRA_MCP_INTERNAL_SECRET` to the same 32+ character value in every participating service.
+
 ## Available Tools
 
-All 19 tools are implemented in `tool_handlers.py` and registered via the `@register_tool()` decorator pattern.
+All 29 tools are implemented in `tool_handlers.py` and registered via the `@tool()` decorator.
 
-### Node Tools (3)
+### Node Tools
 
 | Tool | Description | Required Permission |
 |------|-------------|---------------------|
@@ -274,56 +254,71 @@ All 19 tools are implemented in `tool_handlers.py` and registered via the `@regi
 | `get_node` | Get detailed node information including children and services | `nodes:read` |
 | `get_node_profile` | Get hardware, network, storage profile for a node | `profiles:read` |
 
-### Service Tools (3)
+### Service Tools
 
 | Tool | Description | Required Permission |
 |------|-------------|---------------------|
 | `list_services` | List services across infrastructure | `services:read` |
 | `get_service` | Get detailed service information | `services:read` |
-| `control_service` | Control a service (start, stop, restart, reload) | `services:control` |
+| `service_dependency_map` | Analyze service dependencies and identify critical paths | `services:read` |
 
-### Group Tools (2)
+### Command Tools
+
+| Tool | Description | Required Permission |
+|------|-------------|---------------------|
+| `control_service` | Control a service. Internal-only; callable from trusted Hydra clients. | `commands:execute` |
+| `control_node` | Control a node. Internal-only; callable from trusted Hydra clients. | `commands:execute` |
+| `control_agent` | Control an agent. Internal-only; callable from trusted Hydra clients. | `commands:execute` |
+| `get_command_status` | Get execution status for a command | `commands:read` |
+| `list_command_catalog` | List available command definitions | `commands:read` |
+| `list_commands` | List queued and historical commands | `commands:read` |
+| `get_queue_status` | View command queue health and throughput | `commands:read` |
+
+### Group Tools
 
 | Tool | Description | Required Permission |
 |------|-------------|---------------------|
 | `list_groups` | List logical groups | `groups:read` |
 | `get_group` | Get group details with member resolution | `groups:read` |
 
-### Network Tools (2)
+### Network & Topology Tools
 
 | Tool | Description | Required Permission |
 |------|-------------|---------------------|
 | `list_networks` | List networks | `networks:read` |
 | `get_network` | Get network details | `networks:read` |
-
-### Topology & Query Tools (3)
-
-| Tool | Description | Required Permission |
-|------|-------------|---------------------|
 | `get_topology` | Get infrastructure or network topology graph | `topologies:read` |
+
+### Query & Analysis Tools
+
+| Tool | Description | Required Permission |
+|------|-------------|---------------------|
 | `search_infrastructure` | Search across nodes, services, and entities | `nodes:read` |
-| `query_infrastructure` | Execute raw queries against collections | `nodes:read` |
+| `query_infrastructure` | Execute raw queries against supported collections | `*:*` |
+| `compare_profiles` | Compare two profiles to see changes between snapshots | `profiles:read` |
+| `get_capacity` | Get infrastructure capacity summary | `nodes:read` |
 
-### Profile & Capacity Tools (2)
-
-| Tool | Description | Required Permission |
-|------|-------------|---------------------|
-| `compare_profiles` | Compare two profiles to see changes | `profiles:read` |
-| `get_capacity` | Get infrastructure capacity summary | `profiles:read` |
-
-### Time Machine Tools (2)
+### Time Machine Tools
 
 | Tool | Description | Required Permission |
 |------|-------------|---------------------|
-| `time_machine_node` | Get node state at a specific timestamp | `nodes:read`, `profiles:read` |
+| `time_machine_node` | Get node state at a specific timestamp | `profiles:read` |
 | `time_machine_topology` | Get topology at a specific timestamp | `topologies:read` |
 
-### IoT/Control Tools (2)
+### IoT Tools
 
 | Tool | Description | Required Permission |
 |------|-------------|---------------------|
-| `control_device` | Control IoT device via Home Assistant | `iot:control` |
-| `service_dependency_map` | Map dependencies between services and identify critical paths | `services:read` |
+| `control_device` | Control IoT devices via Home Assistant | `iot:control` |
+
+### Notification & Audit Tools
+
+| Tool | Description | Required Permission |
+|------|-------------|---------------------|
+| `list_notifications` | List notifications visible to the current user | `notifications:read` |
+| `get_notification_stats` | Get aggregated notification statistics | `notifications:read` |
+| `list_audit_entries` | List audit log entries | `audit:read` |
+| `delete_audit_entries` | Delete audit log entries within a time range | `audit:delete` |
 
 ## Available Resources
 
@@ -386,6 +381,7 @@ network:
 ### Building the Image
 
 ```bash
+cd hydra-mcp
 docker build -t hydra-mcp:latest .
 ```
 
@@ -402,6 +398,8 @@ docker run -d --name hydra-mcp \
 curl http://localhost:8081/health
 ```
 
+If Hydra API or Hydra Web will call the built-in Hydra MCP service using forwarded internal auth headers, also provide the same `HYDRA_MCP_INTERNAL_SECRET` value to every participating container.
+
 ### Running with stdio Transport
 
 ```bash
@@ -417,66 +415,62 @@ docker run -it --rm \
 
 ```bash
 # Start all services
-docker compose -f docker-compose.dev.yml up -d
+docker compose up -d
 
 # Start only hydra-mcp
-docker compose -f docker-compose.dev.yml up -d hydra-mcp
+docker compose up -d hydra-mcp
 
 # View logs
-docker compose -f docker-compose.dev.yml logs -f hydra-mcp
+docker compose logs -f hydra-mcp
 ```
 
 ## Architecture
 
-The codebase was refactored from a monolithic 2,299-line server to a modular architecture:
+Hydra MCP is split into a few focused modules:
 
-| Module | Lines | Purpose |
-|--------|-------|---------|
-| `server.py` | 818 | MCP server with stdio + HTTP transport |
-| `tool_handlers.py` | 835 | 19 tool implementations using registry pattern |
-| `client.py` | 542 | Async HTTP client for Hydra API |
-| `tools.py` | 212 | Tool registry infrastructure (decorator-based) |
-| `auth.py` | 203 | Authorization module with role-based permissions |
-| `config.py` | 124 | Settings via pydantic-settings |
-| `toon.py` | 88 | TOON formatter wrapper |
-| `shared.py` | 48 | Shared globals (client, settings, formatter) |
+| Module | Purpose |
+|--------|---------|
+| `server.py` | MCP server transports, auth middleware, resources, and prompts |
+| `tool_handlers.py` | Tool definitions and implementations |
+| `client.py` | Async Hydra API client with retry, auth forwarding, and response validation |
+| `tools.py` | Tool registry infrastructure and schema validation |
+| `auth.py` | Request-scoped auth context and permission checks |
+| `config.py` | Pydantic settings loaded from environment variables |
+| `toon.py` | TOON formatting helpers |
+| `shared.py` | Shared singleton instances used by server and tools |
 
 **Key Patterns:**
-- **Tool Registry**: Tools are registered via `@register_tool()` decorator in `tool_handlers.py`
+- **Tool Registry**: Tools are registered via the `@tool()` decorator in `tool_handlers.py`
 - **Authorization**: Permission-based access control for all tools
 - **TOON Formatting**: All responses use token-efficient TOON format
 - **Multi-Transport**: Supports stdio, streamable-http, SSE, and HTTP modes
 
 ## Development
 
-### Test Coverage
-
-The test suite includes 75+ tests across 3 test files:
-- `test_auth.py` - Authorization and permissions
-- `test_tools.py` - Tool registry and validation
-- `test_server.py` - Server transport and handlers
+The test suite covers auth, tool execution, resources, prompts, query sanitization,
+dependency analysis, packaging assumptions, and the HTTP transport.
 
 ```bash
 # Install dev dependencies
-uv pip install -e ".[dev]"
+uv sync --dev --locked
 
 # Run tests
-pytest
+uv run pytest tests/
 
 # Run with coverage
-pytest --cov=hydra_mcp --cov-report=html
+uv run pytest tests/ --cov=hydra_mcp --cov-report=html
 
 # Run specific test file
-pytest tests/test_tools.py -v
+uv run pytest tests/test_tools.py -v
 
 # Type checking
-mypy hydra_mcp
+uv run mypy hydra_mcp/
 
 # Linting
-ruff check hydra_mcp
+uv run ruff check .
 
-# Formatting
-ruff format hydra_mcp
+# Dependency audit
+uv run pip-audit
 ```
 
 ### Adding New Tools
@@ -484,12 +478,12 @@ ruff format hydra_mcp
 Tools are registered using the decorator pattern in `tool_handlers.py`:
 
 ```python
-from hydra_mcp.tools import register_tool
+from hydra_mcp.tools import tool
 
-@register_tool(
+@tool(
     name="my_tool",
     description="Tool description",
-    input_schema={
+    schema={
         "type": "object",
         "properties": {
             "arg1": {"type": "string", "description": "Argument 1"}
@@ -500,8 +494,7 @@ from hydra_mcp.tools import register_tool
 )
 async def my_tool(args: dict[str, Any]) -> str:
     """Tool implementation."""
-    # Tool logic here
-    result = await client.get(f"/endpoint/{args['arg1']}")
+    result = await client.get_node(args["arg1"])
     return toon.format(result)
 ```
 
@@ -511,24 +504,36 @@ Tool inputs are now strict at the top level: unknown arguments are rejected, ove
 
 ### Authentication
 
-All API requests require a valid API key configured via `HYDRA_MCP_API_KEY`. The key is passed as a bearer token in the `Authorization` header.
+Hydra MCP accepts two network-auth patterns:
+
+- Forwarded request credentials via `Authorization` or `X-API-Key`
+- A server-level fallback `HYDRA_MCP_API_KEY` configured on the Hydra MCP process
+
+When request credentials are present, Hydra MCP validates and forwards those exact headers to Hydra API. When they are absent on network transports, Hydra MCP falls back to the configured `HYDRA_MCP_API_KEY` if one is set.
+
+`HYDRA_MCP_INTERNAL_SECRET` is separate: it is only used to validate trusted `X-Hydra-Internal-*` forwarded auth headers from Hydra API/Web.
 
 ### Authorization
 
-Tools are protected by role-based permissions defined in `auth.py`:
+Tool permissions are enforced from the authenticated Hydra user or API key metadata:
 
-| Permission | Required For | Granted To |
-|------------|--------------|------------|
-| `nodes:read` | Viewing nodes | viewer, operator, admin |
-| `profiles:read` | Viewing profiles | viewer, operator, admin |
-| `services:read` | Viewing services | viewer, operator, admin |
-| `services:control` | Controlling services | operator, admin |
-| `iot:control` | Controlling IoT devices | family, operator, admin |
-| `groups:read` | Viewing groups | viewer, operator, admin |
-| `networks:read` | Viewing networks | viewer, operator, admin |
-| `topologies:read` | Viewing topologies | viewer, operator, admin |
+| Permission | Used By |
+|------------|---------|
+| `nodes:read` | Node listing, node lookup, infrastructure search, capacity summaries |
+| `profiles:read` | Node profiles, profile diffs, time-machine node lookups |
+| `services:read` | Service listing, service lookup, dependency maps |
+| `commands:read` | Command catalog, queue status, command history, command status |
+| `commands:execute` | `control_service`, `control_node`, `control_agent` |
+| `groups:read` | Group listing and detail |
+| `networks:read` | Network listing and detail |
+| `topologies:read` | Current and historical topologies |
+| `iot:control` | IoT device control |
+| `notifications:read` | Notification listing and stats |
+| `audit:read` | Audit entry listing |
+| `audit:delete` | Audit entry deletion |
+| `*:*` | Raw infrastructure queries |
 
-**Note:** The `agent` role has minimal permissions and cannot use MCP tools. Use `viewer` or higher for AI interaction.
+`control_service`, `control_node`, and `control_agent` are additionally restricted to trusted internal Hydra clients even when the caller has `commands:execute`.
 
 ### Transport Security
 
@@ -544,21 +549,32 @@ For production deployments, place Hydra MCP behind a reverse proxy with TLS term
 **Claude Desktop not connecting:**
 - Verify transport matches: config says `streamable-http`, server must use `streamable-http`
 - Check endpoint URL: `http://localhost:8081/mcp` for streamable-http
-- Test server: `curl http://localhost:8081/mcp`
+- Start the server from the project with `HYDRA_MCP_TRANSPORT=streamable-http uv run hydra-mcp`
 
 **"Address already in use":**
 - Stop old instance: `pkill hydra-mcp`
 - Or use different port: `HYDRA_MCP_HTTP_PORT=8082`
+
+**Tool calls return `AUTHORIZATION_DENIED` on network transports:**
+- Set `HYDRA_MCP_API_KEY` on the Hydra MCP process, or send `Authorization` / `X-API-Key` on each request
+- Internal-only command tools (`control_service`, `control_node`, `control_agent`) require trusted Hydra internal headers and are not available to external MCP clients
 
 **HTTP transport returns 404 from Claude Desktop:**
 - Expected! `http` transport is NOT MCP protocol compatible
 - Use `streamable-http` or `sse` for Claude Desktop
 - `http` transport is only for Hydra Web/API integration
 
+**Built-in Hydra API/Web integration fails with 401:**
+- Ensure Hydra API/Web and Hydra MCP share the same `HYDRA_MCP_INTERNAL_SECRET`
+- Only internal forwarded requests should send `X-Hydra-Internal-*` headers
+
 **API connection errors:**
 - Verify `HYDRA_MCP_API_URL` points to running Hydra API
 - Check API key is valid: `HYDRA_MCP_API_KEY`
 - Test API directly: `curl $HYDRA_MCP_API_URL/health`
+
+**Docker build fails:**
+- Build from the `hydra-mcp/` directory so the Docker context includes `hydra_mcp/`, `pyproject.toml`, and `uv.lock`
 
 ## License
 

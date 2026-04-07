@@ -80,7 +80,7 @@ cp .env.example .env
 # Edit .env with your settings
 
 # Start all services with local databases
-docker compose -f docker compose.dev.yml --profile local-db up -d
+docker compose --profile local-db up -d
 ```
 
 ### Manual Setup
@@ -308,7 +308,7 @@ uv tool install pre-commit
 pre-commit install
 
 # Start development databases
-docker compose -f docker compose.dev.yml --profile local-db up -d mongodb redis
+docker compose --profile local-db up -d mongodb redis
 ```
 
 ## Community

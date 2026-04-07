@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 
@@ -348,16 +348,23 @@ describe('Dashboard Page', () => {
     const user = userEvent.setup();
     setupEmpty();
 
-    renderWithRoute(<DashboardPage />, {
-      path: '/dashboard',
-      route: '/dashboard',
+    await act(async () => {
+      renderWithRoute(<DashboardPage />, {
+        path: '/dashboard',
+        route: '/dashboard',
+      });
     });
 
-    expect(screen.getByText('No dashboard boards yet')).toBeInTheDocument();
+    expect(await screen.findByText('No dashboard boards yet')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Create Starter Board' }));
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Create Starter Board' }));
+    });
 
     await waitFor(() => expect(createDashboardMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
+    );
     expect(createDashboardMock.mock.calls[0][0]).toMatchObject({
       name: 'My Dashboard',
       boardType: 'home',
@@ -365,43 +372,55 @@ describe('Dashboard Page', () => {
     });
   });
 
-  it('renders the board switcher with all boards listed', () => {
+  it('renders the board switcher with all boards listed', async () => {
     setupWithBoards([starterBoard, secondBoard]);
 
-    renderWithRoute(<DashboardPage />, {
-      path: '/dashboard',
-      route: '/dashboard',
+    await act(async () => {
+      renderWithRoute(<DashboardPage />, {
+        path: '/dashboard',
+        route: '/dashboard',
+      });
     });
 
     // The select trigger should show the active board name
-    expect(screen.getByText('Operations Overview')).toBeInTheDocument();
+    expect(await screen.findByText('Operations Overview')).toBeInTheDocument();
   });
 
-  it('renders all visible widgets from the board', () => {
+  it('renders all visible widgets from the board', async () => {
     setupWithBoards();
 
-    renderWithRoute(<DashboardPage />, {
-      path: '/dashboard',
-      route: '/dashboard',
+    await act(async () => {
+      renderWithRoute(<DashboardPage />, {
+        path: '/dashboard',
+        route: '/dashboard',
+      });
     });
 
     // Should render all 6 widgets (none hidden)
-    expect(screen.getByTestId('widget-grid')).toBeInTheDocument();
-    expect(screen.getByText('Stats Cards')).toBeInTheDocument();
-    expect(screen.getByText('Service Summary')).toBeInTheDocument();
+    expect(await screen.findByTestId('widget-grid')).toBeInTheDocument();
+    expect(await screen.findByText('Stats Cards')).toBeInTheDocument();
+    expect(await screen.findByText('Service Summary')).toBeInTheDocument();
   });
 
   it('shows edit mode controls when edit mode is enabled', async () => {
     const user = userEvent.setup();
     setupWithBoards();
 
-    renderWithRoute(<DashboardPage />, {
-      path: '/dashboard',
-      route: '/dashboard',
+    await act(async () => {
+      renderWithRoute(<DashboardPage />, {
+        path: '/dashboard',
+        route: '/dashboard',
+      });
     });
 
+    await waitFor(() =>
+      expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
+    );
+
     // Toggle edit mode
-    await user.click(screen.getByRole('button', { name: 'Toggle Edit Mode' }));
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Toggle Edit Mode' }));
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId('edit-mode-status')).toHaveTextContent('editing');
@@ -417,13 +436,21 @@ describe('Dashboard Page', () => {
     const user = userEvent.setup();
     setupWithBoards();
 
-    renderWithRoute(<DashboardPage />, {
-      path: '/dashboard',
-      route: '/dashboard',
+    await act(async () => {
+      renderWithRoute(<DashboardPage />, {
+        path: '/dashboard',
+        route: '/dashboard',
+      });
     });
 
+    await waitFor(() =>
+      expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
+    );
+
     // Enter edit mode
-    await user.click(screen.getByRole('button', { name: 'Toggle Edit Mode' }));
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Toggle Edit Mode' }));
+    });
 
     await waitFor(() => {
       const widgets = screen.getAllByTestId(/^widget-/);
@@ -435,34 +462,55 @@ describe('Dashboard Page', () => {
     });
   });
 
-  it('persists activeBoardId in store when board is selected', () => {
+  it('persists activeBoardId in store when board is selected', async () => {
     setupWithBoards();
 
-    renderWithRoute(<DashboardPage />, {
-      path: '/dashboard',
-      route: '/dashboard',
+    await act(async () => {
+      renderWithRoute(<DashboardPage />, {
+        path: '/dashboard',
+        route: '/dashboard',
+      });
     });
 
     // The store should have been updated with the first board's ID
-    expect(useDashboardStore.getState().activeBoardId).toBe('board-001');
+    await waitFor(() =>
+      expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
+    );
   });
 
   it('persists widget settings through dashboard updates', async () => {
     const user = userEvent.setup();
     setupWithBoards();
 
-    renderWithRoute(<DashboardPage />, {
-      path: '/dashboard',
-      route: '/dashboard',
+    await act(async () => {
+      renderWithRoute(<DashboardPage />, {
+        path: '/dashboard',
+        route: '/dashboard',
+      });
     });
 
-    await user.click(screen.getByRole('button', { name: 'Configure First Widget' }));
-    fireEvent.change(screen.getByLabelText('Title'), {
-      target: { value: 'Executive Summary' },
+    await waitFor(() =>
+      expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
+    );
+
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Configure First Widget' }));
     });
-    await user.click(screen.getByRole('button', { name: 'Save Settings' }));
+    const dialog = await screen.findByRole('dialog');
+    const titleInput = within(dialog).getByLabelText('Title');
+    await act(async () => {
+      fireEvent.change(titleInput, {
+        target: { value: 'Executive Summary' },
+      });
+    });
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Save Settings' }));
+    });
 
     await waitFor(() => expect(updateDashboardMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
+    );
 
     const latestUpdate = updateDashboardMock.mock.calls.at(-1)?.[0];
     expect(latestUpdate).toMatchObject({

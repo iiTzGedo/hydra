@@ -354,13 +354,13 @@ docker run -p 8080:8080 \
 
 ```bash
 # Start with docker compose
-docker compose -f docker-compose.dev.yml up hydra-api
+docker compose up hydra-api
 
 # Start with local databases
-docker compose -f docker-compose.dev.yml --profile local-db up
+docker compose --profile local-db up
 
 # View logs
-docker compose -f docker-compose.dev.yml logs -f hydra-api
+docker compose logs -f hydra-api
 ```
 
 ## Development

@@ -22,7 +22,8 @@ class TestHealthEndpoint:
         from hydra_mcp.server import create_http_app
 
         with patch("hydra_mcp.server.list_tools") as mock_tools, \
-             patch("hydra_mcp.server.list_resources") as mock_resources:
+             patch("hydra_mcp.server.list_resources") as mock_resources, \
+             patch("hydra_mcp.server._build_request_auth_context", AsyncMock(return_value=None)):
 
             # Mock the tool and resource lists
             mock_tools_result = AsyncMock()
@@ -55,7 +56,11 @@ class TestToolsEndpoint:
 
         app = create_http_app()
         async with _get_test_client(app) as client:
-            response = await client.get("/tools")
+            with patch(
+                "hydra_mcp.server._build_request_auth_context",
+                AsyncMock(return_value=None),
+            ):
+                response = await client.get("/tools")
         assert response.status_code == 200
 
         data = response.json()
@@ -90,7 +95,11 @@ class TestResourcesEndpoint:
 
         app = create_http_app()
         async with _get_test_client(app) as client:
-            response = await client.get("/resources")
+            with patch(
+                "hydra_mcp.server._build_request_auth_context",
+                AsyncMock(return_value=None),
+            ):
+                response = await client.get("/resources")
         assert response.status_code == 200
 
         data = response.json()
@@ -107,7 +116,11 @@ class TestPromptsEndpoint:
 
         app = create_http_app()
         async with _get_test_client(app) as client:
-            response = await client.get("/prompts")
+            with patch(
+                "hydra_mcp.server._build_request_auth_context",
+                AsyncMock(return_value=None),
+            ):
+                response = await client.get("/prompts")
         assert response.status_code == 200
 
         data = response.json()

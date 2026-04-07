@@ -1,176 +1,116 @@
-# Hydra Production Docker Compose
+# Hydra Docker Compose
 #
-# This compose file supports two modes:
+# Quick start:
+#   cp .env.docker.example .env.docker   # fill in your values
+#   docker compose up -d
 #
-# 1. BUNDLED MODE (default): Runs MongoDB, Redis, and Garage locally
-#    docker compose --profile bundled up -d
-#
-# 2. EXTERNAL MODE: Connects to external data services
-#    docker compose up -d
-#    (Configure external URLs via environment variables)
-#
-# See scripts/setup-data-layer.sh for automated setup
-
-version: '3.8'
+# With bundled databases:
+#   docker compose --profile local-db up -d
 
 services:
-  # ============================================
-  # HYDRA SERVICES
-  # ============================================
-
   hydra-api:
     build:
       context: ./hydra-api
       dockerfile: Dockerfile
-    container_name: hydra-api
-    ports:
-      - "${HYDRA_API_PORT:-8080}:8080"
+    network_mode: host
+    env_file: .env.docker
     environment:
-      - HYDRA_ENV=${HYDRA_ENV:-production}
-      - HYDRA_MONGODB_URI=${HYDRA_MONGODB_URI:-mongodb://mongodb:27017}
-      - HYDRA_MONGODB_DATABASE=${HYDRA_MONGODB_DATABASE:-hydra}
-      - HYDRA_REDIS_URL=${HYDRA_REDIS_URL:-redis://redis:6379/0}
-      - HYDRA_JWT_SECRET=${HYDRA_JWT_SECRET}
-      - HYDRA_ENCRYPTION_KEY=${HYDRA_ENCRYPTION_KEY:?HYDRA_ENCRYPTION_KEY_must_be_set}
-      - HYDRA_MCP_INTERNAL_SECRET=${HYDRA_MCP_INTERNAL_SECRET:?HYDRA_MCP_INTERNAL_SECRET_must_be_set}
-      - HYDRA_OBJECT_STORAGE_ENABLED=${HYDRA_OBJECT_STORAGE_ENABLED:-true}
-      - HYDRA_OBJECT_STORAGE_ENDPOINT=${HYDRA_OBJECT_STORAGE_ENDPOINT:-http://garage:3900}
-      - HYDRA_OBJECT_STORAGE_BUCKET=${HYDRA_OBJECT_STORAGE_BUCKET:-hydra-bucket}
-      - HYDRA_OBJECT_STORAGE_ACCESS_KEY=${HYDRA_OBJECT_STORAGE_ACCESS_KEY}
-      - HYDRA_OBJECT_STORAGE_SECRET_KEY=${HYDRA_OBJECT_STORAGE_SECRET_KEY}
-      - HYDRA_OBJECT_STORAGE_REGION=${HYDRA_OBJECT_STORAGE_REGION:-garage}
+      - HYDRA_ENV=${HYDRA_ENV:-development}
+      - HYDRA_DEBUG=${HYDRA_DEBUG:-false}
+      - HYDRA_MONGODB_DATABASE=hydra
+      - HYDRA_JWT_ALGORITHM=HS256
+      - HYDRA_JWT_EXPIRE_MINUTES=60
+      - HYDRA_ENCRYPTION_KEY=${HYDRA_ENCRYPTION_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
+      - HYDRA_MCP_INTERNAL_SECRET=${HYDRA_MCP_INTERNAL_SECRET:-hydra-dev-internal-secret-0123456789abcdef}
+      - HYDRA_CORS_ORIGINS=["*"]
       - HYDRA_SMTP_ENABLED=${HYDRA_SMTP_ENABLED:-false}
-      - HYDRA_SMTP_HOST=${HYDRA_SMTP_HOST}
+      - HYDRA_SMTP_HOST=${HYDRA_SMTP_HOST:-}
       - HYDRA_SMTP_PORT=${HYDRA_SMTP_PORT:-587}
-      - HYDRA_SMTP_USERNAME=${HYDRA_SMTP_USERNAME}
-      - HYDRA_SMTP_PASSWORD=${HYDRA_SMTP_PASSWORD}
-      - HYDRA_SMTP_FROM_ADDRESS=${HYDRA_SMTP_FROM_ADDRESS}
-      - HYDRA_SMTP_FROM_NAME=${HYDRA_SMTP_FROM_NAME:-Hydra}
-      - HYDRA_CORS_ORIGINS=${HYDRA_CORS_ORIGINS:-["*"]}
-    depends_on:
-      mongodb:
-        condition: service_healthy
-        required: false
-      redis:
-        condition: service_healthy
-        required: false
-      garage:
-        condition: service_started
-        required: false
+    volumes:
+      - ./hydra-api/hydra:/app/hydra:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
-    restart: unless-stopped
-    networks:
-      - hydra-network
 
   hydra-mcp:
     build:
       context: ./hydra-mcp
       dockerfile: Dockerfile
-    container_name: hydra-mcp
-    ports:
-      - "${HYDRA_MCP_PORT:-8081}:8081"
+    network_mode: host
     environment:
-      - HYDRA_API_URL=http://hydra-api:8080/api/v1
-      - HYDRA_MCP_INTERNAL_SECRET=${HYDRA_MCP_INTERNAL_SECRET:?HYDRA_MCP_INTERNAL_SECRET_must_be_set}
+      - HYDRA_MCP_TRANSPORT=http
+      - HYDRA_MCP_HTTP_HOST=0.0.0.0
+      - HYDRA_MCP_HTTP_PORT=8081
+      - HYDRA_MCP_CORS_ORIGINS=["*"]
+      - HYDRA_MCP_API_URL=http://localhost:8080/api/v1
+      - HYDRA_MCP_API_TIMEOUT=60
+      - HYDRA_MCP_INTERNAL_SECRET=${HYDRA_MCP_INTERNAL_SECRET:-hydra-dev-internal-secret-0123456789abcdef}
+      - HYDRA_MCP_TOON_INDENT=2
+      - HYDRA_MCP_TOON_DELIMITER=,
+      - HYDRA_MCP_LOG_LEVEL=INFO
+      - HYDRA_MCP_LOG_FORMAT=json
+    volumes:
+      - ./hydra-mcp/hydra:/app/hydra:ro
     depends_on:
-      - hydra-api
-    restart: unless-stopped
-    networks:
-      - hydra-network
+      hydra-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   hydra-web:
     build:
       context: ./hydra-web
       dockerfile: Dockerfile
-    container_name: hydra-web
-    ports:
-      - "${HYDRA_WEB_PORT:-3000}:80"
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    network_mode: host
+    environment:
+      - VITE_API_URL=
+    volumes:
+      - ./hydra-web/src:/app/src:ro
+      - ./hydra-web/public:/app/public:ro
     depends_on:
       - hydra-api
-    restart: unless-stopped
-    networks:
-      - hydra-network
 
-  # ============================================
-  # BUNDLED DATA SERVICES (profile: bundled)
-  # ============================================
-
+  # Bundled data services (optional)
+  # Use: docker compose --profile local-db up -d
   mongodb:
     image: mongo:7.0
-    container_name: hydra-mongodb
-    profiles: ["bundled"]
     ports:
-      - "${MONGO_PORT:-27017}:27017"
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USER:-hydra}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASS:-changeme}
-      - MONGO_INITDB_DATABASE=hydra
+      - "27017:27017"
     volumes:
       - mongodb_data:/data/db
-      - mongodb_config:/data/configdb
-    healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/hydra --quiet
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    restart: unless-stopped
-    networks:
-      - hydra-network
+    profiles:
+      - local-db
 
   redis:
     image: redis:7-alpine
-    container_name: hydra-redis
-    profiles: ["bundled"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+      - "6379:6379"
     volumes:
       - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - hydra-network
+    profiles:
+      - local-db
 
   garage:
     image: dxflrs/garage:v1.0.0
-    container_name: hydra-garage
-    profiles: ["bundled"]
     ports:
-      - "${GARAGE_S3_PORT:-3900}:3900"      # S3 API
-      - "${GARAGE_ADMIN_PORT:-3903}:3903"   # Admin API
-    environment:
-      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:-changeme}
+      - "3900:3900"
+      - "3903:3903"
     volumes:
       - garage_data:/var/lib/garage
-      - garage_meta:/var/lib/garage/meta
       - ./garage.toml:/etc/garage.toml:ro
     command: ["/garage", "server", "-c", "/etc/garage.toml"]
-    restart: unless-stopped
-    networks:
-      - hydra-network
+    profiles:
+      - local-db
 
 volumes:
   mongodb_data:
-    driver: local
-  mongodb_config:
-    driver: local
   redis_data:
-    driver: local
   garage_data:
-    driver: local
-  garage_meta:
-    driver: local
-
-networks:
-  hydra-network:
-    driver: bridge
