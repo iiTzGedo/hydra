@@ -5,7 +5,7 @@ import { useCommand, useCommandCatalog, useCommands } from '@/api/commands';
 import { renderWithQuery } from '../msw/test-utils';
 import { server } from '../msw/server';
 
-const BASE_URL = 'http://localhost:8080/api/v1';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
 
 describe('Commands API Hooks', () => {
   it('fetches command catalog entries with delivery mode metadata', async () => {

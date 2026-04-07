@@ -7,7 +7,7 @@ import ProfileComparePage from '@/pages/nodes/[nodeId]/profiles/compare';
 import { server } from '../msw/server';
 import { renderWithRoute } from '../page-test-utils';
 
-const BASE_URL = 'http://localhost:8080/api/v1';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
 
 describe('Node Profiles Integration', () => {
   it('shows compare actions only after two profiles are selected', async () => {

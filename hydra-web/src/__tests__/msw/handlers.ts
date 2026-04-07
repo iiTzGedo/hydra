@@ -3,7 +3,10 @@ import type { ChatMessageResponse, ChatToolCall } from '@/api/chat';
 import type { MCPServerResponse, MCPServerStatus } from '@/api/mcp';
 import { mockState } from './mock-state';
 
-const BASE_URL = 'http://localhost:8080/api/v1';
+// Must match VITE_API_URL set in vite.config.ts test env block (http://127.0.0.1:8080/api/v1).
+// Using 'localhost' here would cause MSW to miss all requests since axios sends them to
+// 127.0.0.1, silently falling through to the real server instead of the mock.
+const BASE_URL = 'http://127.0.0.1:8080/api/v1';
 
 const mockNodes = [
   {
