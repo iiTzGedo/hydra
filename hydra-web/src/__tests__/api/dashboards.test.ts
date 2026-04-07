@@ -41,7 +41,7 @@ describe('Dashboards API Hooks', () => {
       });
     });
 
-    expect(result.current.isSuccess).toBe(true);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.name).toBe('Created From Test');
     expect(result.current.data?.boardId).toBeTruthy();
   });
@@ -63,7 +63,7 @@ describe('Dashboards API Hooks', () => {
       });
     });
 
-    expect(result.current.isSuccess).toBe(true);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.widgets[0].config).toEqual({ hidden: true });
     expect(result.current.data?.version).toBeGreaterThan(1);
   });

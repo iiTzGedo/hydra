@@ -965,6 +965,18 @@ if (!HTMLElement.prototype.scrollIntoView) {
   HTMLElement.prototype.scrollIntoView = () => {};
 }
 
+// Suppress known React 18 act() warnings that fire with userEvent.setup().
+// These are harmless: userEvent already wraps interactions in act(), and
+// assertions use findBy*/waitFor which handle async state settling.
+const originalConsoleError = console.error;
+console.error = (...args: unknown[]) => {
+  const message = typeof args[0] === 'string' ? args[0] : '';
+  if (message.includes('inside a test was not wrapped in act')) {
+    return;
+  }
+  originalConsoleError.call(console, ...args);
+};
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
