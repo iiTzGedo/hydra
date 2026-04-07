@@ -13,9 +13,11 @@ from hydra.api.v1.core.exceptions import (
     CommandConfirmationExpiredError,
     CommandConfirmationInvalidError,
     CommandCooldownError,
+    CommandMaxRetriesError,
     CommandNodeMismatchError,
     CommandNotCancellableError,
     CommandNotFoundError,
+    CommandNotRetriableError,
     CommandNotSupportedError,
     CommandRateLimitError,
     CommandRegistryNotFoundError,
@@ -127,20 +129,116 @@ class CommandsService:
                 control_permission,
             )
         ):
-                error_message = (
-                    f"Missing permission '{control_permission}' for "
-                    f"'{definition.get('registryId')}'"
+            error_message = (
+                f"Missing permission '{control_permission}' for "
+                f"'{definition.get('registryId')}'"
+            )
+            if persist_rejection and request is not None:
+                await self._create_rejected_command(
+                    request,
+                    user_id,
+                    source,
+                    client_id,
+                    error_code="MISSING_CONTROL_PERMISSION",
+                    error_message=error_message,
                 )
-                if persist_rejection and request is not None:
-                    await self._create_rejected_command(
-                        request,
-                        user_id,
-                        source,
-                        client_id,
-                        error_code="MISSING_CONTROL_PERMISSION",
-                        error_message=error_message,
-                    )
-                raise CommandRejectedError(error_message)
+            raise CommandRejectedError(error_message)
+
+    @staticmethod
+    def _estimate_delivery_mode(tier: str, delivery_mode: str) -> str:
+        """Estimate the effective execution mode for dry-run previews."""
+        if tier == "lite":
+            return "rejected"
+        if tier == "max" and delivery_mode == CommandDeliveryMode.DIRECT_OR_POLL.value:
+            return "direct"
+        return "poll"
+
+    async def _prepare_command_submission(
+        self,
+        request: CreateCommandRequest,
+        *,
+        user_id: str | None,
+        user_role: str | None,
+        user_permissions: list[str] | None,
+        source: CommandSource,
+        client_id: str | None,
+        persist_rejection: bool,
+        allow_policy_failure: bool = False,
+    ) -> dict[str, Any]:
+        """Build the shared, non-mutating execution context for a command."""
+        definition = await self.command_definitions.find_one(
+            {"registryId": request.registry_id}
+        )
+        if not definition:
+            if persist_rejection:
+                await self._create_rejected_command(
+                    request,
+                    user_id,
+                    source,
+                    client_id,
+                    error_code="REGISTRY_NOT_FOUND",
+                    error_message=(
+                        f"Command '{request.registry_id}' is not registered in the catalog"
+                    ),
+                )
+            raise CommandRegistryNotFoundError(request.registry_id)
+
+        permission_check_passed = True
+        try:
+            await self._enforce_submission_policy(
+                request=request,
+                definition=definition,
+                user_id=user_id,
+                user_role=user_role,
+                user_permissions=user_permissions,
+                source=source,
+                client_id=client_id,
+                persist_rejection=persist_rejection,
+            )
+        except CommandRejectedError:
+            if not allow_policy_failure:
+                raise
+            permission_check_passed = False
+
+        node = await self.nodes.find_one(
+            {"nodeId": request.target.node_id, "status": "active"}
+        )
+        if not node:
+            raise NodeNotFoundError(request.target.node_id)
+
+        tier = node.get("agentTier", "normal")
+        category = definition.get("category", "custom")
+        action = definition.get("action", request.registry_id.split("::")[-1])
+        dispatch_parameters = dict(request.parameters or {})
+
+        if category == "service":
+            dispatch_parameters = await self._normalize_service_parameters(
+                request, action, dispatch_parameters
+            )
+
+        timeout = request.timeout_seconds or definition.get("execution", {}).get("timeout", 60)
+        delivery_mode = definition.get("execution", {}).get(
+            "deliveryMode",
+            CommandDeliveryMode.POLL_ONLY.value,
+        )
+        requires_confirmation = definition.get("rbac", {}).get(
+            "requiresConfirmation", False
+        )
+        danger_level = definition.get("rbac", {}).get("dangerLevel", "medium")
+
+        return {
+            "definition": definition,
+            "node": node,
+            "tier": tier,
+            "category": category,
+            "action": action,
+            "dispatch_parameters": dispatch_parameters,
+            "timeout": timeout,
+            "delivery_mode": delivery_mode,
+            "requires_confirmation": requires_confirmation,
+            "danger_level": danger_level,
+            "permission_check_passed": permission_check_passed,
+        }
 
     async def create_command(
         self,
@@ -175,23 +273,8 @@ class CommandsService:
             NodeNotFoundError: If the target node does not exist or is not active.
             CommandNotSupportedError: If the agent tier does not support commands.
         """
-        # Step 1: Validate against command registry
-        definition = await self.command_definitions.find_one(
-            {"registryId": request.registry_id}
-        )
-        if not definition:
-            # Persist rejected command for audit trail
-            await self._create_rejected_command(
-                request, user_id, source, client_id,
-                error_code="REGISTRY_NOT_FOUND",
-                error_message=f"Command '{request.registry_id}' is not registered in the catalog",
-            )
-            raise CommandRegistryNotFoundError(request.registry_id)
-
-        # Step 2: Enforce origin restriction and RBAC
-        await self._enforce_submission_policy(
-            request=request,
-            definition=definition,
+        prepared = await self._prepare_command_submission(
+            request,
             user_id=user_id,
             user_role=user_role,
             user_permissions=user_permissions,
@@ -199,15 +282,16 @@ class CommandsService:
             client_id=client_id,
             persist_rejection=True,
         )
-
-        # Step 3: Validate target node
-        node = await self.nodes.find_one(
-            {"nodeId": request.target.node_id, "status": "active"}
-        )
-        if not node:
-            raise NodeNotFoundError(request.target.node_id)
-
-        tier = node.get("agentTier", "normal")
+        definition = prepared["definition"]
+        node = prepared["node"]
+        tier = prepared["tier"]
+        category = prepared["category"]
+        action = prepared["action"]
+        dispatch_parameters = prepared["dispatch_parameters"]
+        timeout = prepared["timeout"]
+        delivery_mode = prepared["delivery_mode"]
+        requires_confirmation = prepared["requires_confirmation"]
+        danger_level = prepared["danger_level"]
 
         # Lite tier: reject
         if tier == "lite":
@@ -216,30 +300,11 @@ class CommandsService:
                 f"command execution. Upgrade to 'normal' or 'max' tier."
             )
 
-        # Step 3b: Rate limiting
+        # Step 3: Rate limiting
         await self._check_rate_limits(user_id, request.target.node_id, definition)
 
-        # Derive category and action from the registry definition
-        category = definition.get("category", "custom")
-        action = definition.get("action", request.registry_id.split("::")[-1])
-        dispatch_parameters = dict(request.parameters or {})
-
-        if category == "service":
-            dispatch_parameters = await self._normalize_service_parameters(
-                request, action, dispatch_parameters
-            )
-
-        # Step 4: Resolve timeout (request override > registry default)
-        timeout = request.timeout_seconds or definition.get("execution", {}).get("timeout", 60)
-        delivery_mode = definition.get("execution", {}).get(
-            "deliveryMode",
-            CommandDeliveryMode.POLL_ONLY.value,
-        )
-
-        # Step 5: Two-phase confirmation for dangerous commands
-        requires_confirmation = definition.get("rbac", {}).get("requiresConfirmation", False)
+        # Step 4: Two-phase confirmation for dangerous commands
         if requires_confirmation:
-            danger_level = definition.get("rbac", {}).get("dangerLevel", "medium")
             return await self._create_pending_confirmation(
                 request, definition, category, action, timeout,
                 dispatch_parameters, user_id, source, client_id, chain,
@@ -277,6 +342,126 @@ class CommandsService:
             client_id,
             chain,
         )
+
+    async def dry_run_command(
+        self,
+        request: CreateCommandRequest,
+        user_id: str | None = None,
+        user_role: str | None = None,
+        user_permissions: list[str] | None = None,
+        source: CommandSource = CommandSource.API,
+        client_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Preview a command without executing it.
+
+        Validates the full pipeline (registry, RBAC, node, rate limits, cooldown)
+        but does NOT persist a command record, dispatch to agents, increment
+        rate-limit counters, set cooldowns, or emit audit logs.
+
+        Returns a dict matching DryRunResponse fields.
+        """
+        from hydra.api.v1.models.commands.responses import DryRunResponse
+
+        prepared = await self._prepare_command_submission(
+            request,
+            user_id=user_id,
+            user_role=user_role,
+            user_permissions=user_permissions,
+            source=source,
+            client_id=client_id,
+            persist_rejection=False,
+            allow_policy_failure=True,
+        )
+        definition = prepared["definition"]
+        tier = prepared["tier"]
+
+        # Step 1: Check rate limits (peek, do NOT increment)
+        rate_limit_ok = await self._peek_rate_limits(
+            user_id, request.target.node_id, definition
+        )
+
+        # Step 2: Check cooldown (peek, do NOT set)
+        cooldown_ok = await self._peek_cooldown(
+            request.target.node_id, definition
+        )
+
+        estimated_delivery = self._estimate_delivery_mode(
+            tier, prepared["delivery_mode"]
+        )
+
+        return DryRunResponse(
+            would_require_confirmation=prepared["requires_confirmation"],
+            estimated_delivery_mode=estimated_delivery,
+            target_node_tier=tier,
+            permission_check_passed=prepared["permission_check_passed"],
+            rate_limit_ok=rate_limit_ok,
+            cooldown_ok=cooldown_ok,
+            danger_level=prepared["danger_level"],
+            registry_id=request.registry_id,
+            target_node_id=request.target.node_id,
+        ).model_dump(by_alias=True)
+
+    async def _peek_rate_limits(
+        self, user_id: str | None, node_id: str, definition: dict[str, Any]
+    ) -> bool:
+        """Check rate-limit counters without incrementing them.
+
+        Returns True if all limits would allow the request, False otherwise.
+        """
+        try:
+            from hydra.core.config import get_settings
+            from hydra.db.redis import get_redis
+
+            redis = get_redis()
+            settings = get_settings()
+            danger_level = definition.get("rbac", {}).get("dangerLevel", "medium")
+
+            # Per-user rate limit peek
+            if user_id:
+                full_key = f"{redis.RATE_LIMIT_PREFIX}cmd:user:{user_id}"
+                current = await redis.client.get(full_key)
+                if current is not None and int(current) >= settings.command_rate_limit_per_user:
+                    return False
+
+            # Per-node rate limit peek
+            full_key = f"{redis.RATE_LIMIT_PREFIX}cmd:node:{node_id}"
+            current = await redis.client.get(full_key)
+            if current is not None and int(current) >= settings.command_rate_limit_per_node:
+                return False
+
+            # Destructive command rate limit peek
+            if danger_level in ("high", "critical") and user_id:
+                full_key = f"{redis.RATE_LIMIT_PREFIX}cmd:destructive:user:{user_id}"
+                current = await redis.client.get(full_key)
+                if current is not None and int(current) >= settings.command_rate_limit_destructive_per_user:
+                    return False
+
+            return True
+        except Exception:
+            logger.warning("dry_run_rate_limit_peek_failed", reason="redis unavailable")
+            return False
+
+    async def _peek_cooldown(
+        self, node_id: str, definition: dict[str, Any]
+    ) -> bool:
+        """Check cooldown status without setting a new cooldown.
+
+        Returns True if no active cooldown, False otherwise.
+        """
+        danger_level = definition.get("rbac", {}).get("dangerLevel", "medium")
+        if danger_level not in ("high", "critical"):
+            return True
+
+        try:
+            from hydra.db.redis import get_redis
+
+            redis = get_redis()
+            cooldown_key = f"cmd:cooldown:{node_id}"
+            ttl = int(await redis.client.ttl(cooldown_key))
+            return ttl <= 0
+        except Exception:
+            logger.warning("dry_run_cooldown_peek_failed", reason="redis unavailable")
+            return False
 
     async def _create_rejected_command(
         self,
@@ -316,6 +501,8 @@ class CommandsService:
             },
             "timeoutSeconds": request.timeout_seconds or 60,
             "retryCount": 0,
+            "maxRetries": 0,
+            "retriedFrom": None,
             "chain": None,
             "createdAt": now,
             "queuedAt": None,
@@ -394,6 +581,8 @@ class CommandsService:
             },
             "timeoutSeconds": timeout,
             "retryCount": 0,
+            "maxRetries": _definition.get("execution", {}).get("maxRetries", 0),
+            "retriedFrom": None,
             "queuePosition": queue_count + 1,
             "chain": chain,
             "createdAt": now,
@@ -542,6 +731,8 @@ class CommandsService:
                     },
                     "timeoutSeconds": timeout,
                     "retryCount": 0,
+                    "maxRetries": _definition.get("execution", {}).get("maxRetries", 0),
+                    "retriedFrom": None,
                     "queuePosition": None,
                     "chain": chain,
                     "createdAt": now,
@@ -831,6 +1022,14 @@ class CommandsService:
             )
             if not command:
                 break
+            if command.get("registryId") == "reg::agent::network-scan":
+                from hydra.api.v1.services.discovery import DiscoveryService
+
+                scan_id = command.get("parameters", {}).get("scanId")
+                if isinstance(scan_id, str) and scan_id:
+                    await DiscoveryService(self.mongodb).mark_delegated_scan_running(
+                        scan_id
+                    )
             commands.append(command)
 
         result = []
@@ -935,6 +1134,16 @@ class CommandsService:
             status=final_status.value,
         )
 
+        if command.get("registryId") == "reg::agent::network-scan":
+            from hydra.api.v1.services.discovery import DiscoveryService
+
+            await DiscoveryService(self.mongodb).handle_scan_command_result(
+                command,
+                result.success,
+                result.data,
+                result.error,
+            )
+
         if result.success:
             audit_id = await log_audit(
                 action=AuditAction.EXECUTE,
@@ -994,6 +1203,10 @@ class CommandsService:
                     audit_entry_id=audit_id,
                 )
             )
+
+        # Schedule auto-retry if the command failed and is retryable
+        if not result.success:
+            safe_create_task(self._maybe_auto_retry(command))
 
         return {
             "commandId": command_id,
@@ -1313,6 +1526,8 @@ class CommandsService:
             },
             "timeoutSeconds": timeout,
             "retryCount": 0,
+            "maxRetries": definition.get("execution", {}).get("maxRetries", 0),
+            "retriedFrom": None,
             "chain": chain,
             "dangerLevel": danger_level,
             "confirmationExpiresAt": expires_at,
@@ -1470,3 +1685,297 @@ class CommandsService:
         )
 
         return await self.get_command(command_id)
+
+    # ── Command Retries (P2B-002) ──────────────────────────────────────────
+
+    # Retriable terminal statuses
+    RETRIABLE_STATUSES = frozenset({CommandStatus.FAILED.value, CommandStatus.TIMEOUT.value})
+
+    async def _maybe_auto_retry(self, command: dict[str, Any]) -> None:
+        """Check if a failed command should be auto-retried with backoff.
+
+        Called as a fire-and-forget background task after a command fails.
+        Applies exponential backoff based on the current retry count before
+        dispatching the retry.
+        """
+        import asyncio as _asyncio
+
+        registry_id = command.get("registryId")
+        if not registry_id:
+            return
+
+        definition = await self.command_definitions.find_one(
+            {"registryId": registry_id}
+        )
+        if not definition:
+            return
+
+        execution_config = definition.get("execution", {})
+        if not execution_config.get("retryable", False):
+            return
+
+        max_retries = execution_config.get("maxRetries", 0)
+        # Resolve the original command to check retry count
+        original_id = command.get("retriedFrom") or command["commandId"]
+        original = (
+            command
+            if original_id == command["commandId"]
+            else await self.get_command(original_id)
+        )
+        current_retry_count = original.get("retryCount", 0)
+        if current_retry_count >= max_retries:
+            return
+
+        # Exponential backoff: 2^retry_count * 5 seconds (5s, 10s, 20s, ...)
+        backoff_seconds = (2 ** current_retry_count) * 5
+        logger.info(
+            "auto_retry_scheduled",
+            command_id=command["commandId"],
+            original_command_id=original_id,
+            backoff_seconds=backoff_seconds,
+            retry_count=current_retry_count + 1,
+        )
+
+        await _asyncio.sleep(backoff_seconds)
+
+        try:
+            await self.retry_command(
+                command["commandId"],
+                is_auto_retry=True,
+            )
+        except Exception:
+            logger.warning(
+                "auto_retry_failed",
+                command_id=command["commandId"],
+                exc_info=True,
+            )
+
+    async def retry_command(
+        self,
+        command_id: str,
+        *,
+        user_id: str | None = None,
+        user_role: str | None = None,
+        user_permissions: list[str] | None = None,
+        source: CommandSource = CommandSource.API,
+        client_id: str | None = None,
+        is_auto_retry: bool = False,
+    ) -> dict[str, Any]:
+        """Retry a failed or timed-out command.
+
+        Creates a new command record linked to the original via ``retriedFrom``,
+        increments ``retryCount`` on the original, and dispatches the new command
+        through the normal tier-aware routing path.
+
+        Args:
+            command_id: The command to retry.
+            user_id: The requesting user (None for auto-retry).
+            user_role: The user's role.
+            user_permissions: The user's permission list.
+            source: The command source.
+            client_id: The originating client identifier.
+            is_auto_retry: True when invoked by the background auto-retry logic.
+
+        Returns:
+            The newly created retry command document.
+
+        Raises:
+            CommandNotFoundError: If the command does not exist.
+            CommandNotRetriableError: If the command is not in a retriable state.
+            CommandMaxRetriesError: If max retries have been reached.
+            CommandRegistryNotFoundError: If the command's definition is missing.
+        """
+        command = await self.get_command(command_id)
+
+        # Validate retriable state
+        if command["status"] not in self.RETRIABLE_STATUSES:
+            raise CommandNotRetriableError(command_id, command["status"])
+
+        # Resolve the original command for retry chains (follow retriedFrom links)
+        original_command_id = command.get("retriedFrom") or command_id
+        original_command = (
+            command
+            if original_command_id == command_id
+            else await self.get_command(original_command_id)
+        )
+
+        # Look up the command definition for retry policy
+        registry_id = command.get("registryId")
+        definition = await self.command_definitions.find_one(
+            {"registryId": registry_id}
+        ) if registry_id else None
+
+        if not definition:
+            raise CommandRegistryNotFoundError(registry_id or "unknown")
+
+        execution_config = definition.get("execution", {})
+        retryable = execution_config.get("retryable", False)
+        max_retries = execution_config.get("maxRetries", 0)
+
+        if not retryable or max_retries <= 0:
+            raise CommandNotRetriableError(
+                command_id,
+                f"{command['status']} (definition not retryable)",
+            )
+
+        # Check retry count on the original command
+        current_retry_count = original_command.get("retryCount", 0)
+        if current_retry_count >= max_retries:
+            raise CommandMaxRetriesError(command_id, max_retries, current_retry_count)
+
+        # Re-check RBAC for manual retries (auto-retries use system authority)
+        if not is_auto_retry:
+            await self._enforce_submission_policy(
+                request=None,
+                definition=definition,
+                user_id=user_id,
+                user_role=user_role,
+                user_permissions=user_permissions,
+                source=source,
+                client_id=client_id,
+                persist_rejection=False,
+            )
+
+        # Increment retryCount on the original command
+        new_retry_count = current_retry_count + 1
+        await self.commands.update_one(
+            {"commandId": original_command_id},
+            {"$set": {"retryCount": new_retry_count}},
+        )
+
+        # Build and dispatch the retry command through the normal creation path
+        retry_request = CreateCommandRequest(
+            registry_id=command["registryId"],
+            target={  # type: ignore[arg-type]
+                "nodeId": command["target"]["nodeId"],
+                "serviceId": command["target"].get("serviceId"),
+            },
+            parameters=command.get("parameters"),
+            timeout_seconds=command.get("timeoutSeconds"),
+        )
+
+        retry_cmd = await self.create_command(
+            retry_request,
+            user_id=user_id if not is_auto_retry else "system:auto-retry",
+            user_role=user_role if not is_auto_retry else "admin",
+            user_permissions=user_permissions if not is_auto_retry else ["*:*"],
+            source=source if not is_auto_retry else CommandSource.AUTOMATION,
+            client_id=client_id if not is_auto_retry else "hydra-api",
+            chain=command.get("chain"),
+        )
+
+        # Patch the retry command with linkage to the original
+        await self.commands.update_one(
+            {"commandId": retry_cmd["commandId"]},
+            {
+                "$set": {
+                    "retriedFrom": original_command_id,
+                    "retryCount": new_retry_count,
+                    "maxRetries": max_retries,
+                }
+            },
+        )
+        retry_cmd["retriedFrom"] = original_command_id
+        retry_cmd["retryCount"] = new_retry_count
+        retry_cmd["maxRetries"] = max_retries
+
+        logger.info(
+            "command_retried",
+            command_id=retry_cmd["commandId"],
+            original_command_id=original_command_id,
+            retry_count=new_retry_count,
+            max_retries=max_retries,
+            auto_retry=is_auto_retry,
+        )
+
+        # Audit the retry
+        safe_create_task(
+            log_audit(
+                action=AuditAction.EXECUTE,
+                resource_type="command",
+                resource_id=retry_cmd["commandId"],
+                actor_type="system" if is_auto_retry else "user",
+                actor_id="hydra-api" if is_auto_retry else (user_id or "unknown"),
+                success=True,
+                details={
+                    "registryId": registry_id,
+                    "action": "retry",
+                    "originalCommandId": original_command_id,
+                    "retryCount": new_retry_count,
+                    "autoRetry": is_auto_retry,
+                },
+            )
+        )
+
+        return retry_cmd
+
+    async def schedule_auto_retries(self) -> int:
+        """Check for recently failed/timed-out commands that are auto-retryable.
+
+        Called periodically by the background task scheduler. For each eligible
+        command, schedules a retry with exponential backoff by checking elapsed
+        time since failure against the expected backoff delay.
+
+        Returns:
+            Number of auto-retries scheduled.
+        """
+        now = datetime.now(UTC)
+        retried = 0
+
+        # Find commands that failed or timed out recently and may be retryable
+        cursor = self.commands.find({
+            "status": {"$in": [CommandStatus.FAILED.value, CommandStatus.TIMEOUT.value]},
+            "retriedFrom": None,  # Only originals, not retry attempts themselves
+            "completedAt": {"$gte": now - timedelta(hours=1)},  # Within last hour
+        }).sort("completedAt", -1).limit(50)
+
+        commands = await cursor.to_list(length=50)
+
+        for cmd in commands:
+            registry_id = cmd.get("registryId")
+            if not registry_id:
+                continue
+
+            definition = await self.command_definitions.find_one(
+                {"registryId": registry_id}
+            )
+            if not definition:
+                continue
+
+            execution_config = definition.get("execution", {})
+            if not execution_config.get("retryable", False):
+                continue
+
+            max_retries = execution_config.get("maxRetries", 0)
+            current_retry_count = cmd.get("retryCount", 0)
+            if current_retry_count >= max_retries:
+                continue
+
+            # Exponential backoff: 2^retry_count * 5 seconds (5s, 10s, 20s, ...)
+            backoff_seconds = (2 ** current_retry_count) * 5
+            completed_at = cmd.get("completedAt")
+            if not completed_at:
+                continue
+
+            elapsed = (now - completed_at).total_seconds()
+            if elapsed < backoff_seconds:
+                continue  # Not yet time for this retry
+
+            try:
+                await self.retry_command(
+                    cmd["commandId"],
+                    is_auto_retry=True,
+                )
+                retried += 1
+            except Exception:
+                logger.warning(
+                    "auto_retry_failed",
+                    command_id=cmd["commandId"],
+                    registry_id=registry_id,
+                    exc_info=True,
+                )
+
+        if retried > 0:
+            logger.info("auto_retries_scheduled", count=retried)
+
+        return retried

@@ -16,6 +16,7 @@ from hydra.api.v1.models.notifications import (
 )
 from hydra.api.v1.models.profiles import ProfileSubmission
 from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.docs import DocsService
 from hydra.api.v1.services.notifications import emit_notification
 from hydra.api.v1.services.query import log_audit
 from hydra.db.mongodb import MongoDB
@@ -38,6 +39,7 @@ class ProfileService:
 
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
+        self.docs = DocsService(mongodb)
 
     async def submit_profile(self, submission: ProfileSubmission) -> dict[str, Any]:
         """Submit a new profile from an agent.
@@ -155,6 +157,19 @@ class ProfileService:
             {"nodeId": submission.node_id},
             {"$set": node_update_fields},
         )
+
+        try:
+            await self.docs.refresh_documents_for_entity(
+                "node",
+                submission.node_id,
+                user_id=submission.node_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "profile_docs_refresh_failed",
+                node_id=submission.node_id,
+                error=str(exc),
+            )
 
         logger.info(
             "profile_submitted",

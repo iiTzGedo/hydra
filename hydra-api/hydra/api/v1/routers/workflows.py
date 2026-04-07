@@ -308,6 +308,8 @@ def _format_workflow_response(w: dict[str, Any]) -> WorkflowResponse:
                 on_failure=StepFailurePolicy(s.get("onFailure", "abort")),
                 max_retries=s.get("maxRetries", 0),
                 condition=s.get("condition"),
+                parallel_group=s.get("parallelGroup"),
+                compensation=s.get("compensation"),
             )
         )
 

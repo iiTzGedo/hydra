@@ -5,9 +5,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+from bson import ObjectId
 from httpx import AsyncClient
 
 from tests.utils import create_mock_cursor
+
+
+def _mock_insert_one_result() -> MagicMock:
+    """Return a mock that mimics pymongo InsertOneResult."""
+    result = MagicMock()
+    result.inserted_id = ObjectId()
+    result.acknowledged = True
+    return result
+
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -354,6 +364,7 @@ async def test_create_command_rejects_lite_tier(
     admin_token,
     sample_user,
     sample_definition,
+    sample_managed_service,
 ):
     """Test lite-tier nodes reject command execution."""
     _setup_command_mocks(mock_mongodb, sample_user, sample_definition)
@@ -364,6 +375,7 @@ async def test_create_command_rejects_lite_tier(
             "agentTier": "lite",
         }
     )
+    mock_mongodb.services.find_one = AsyncMock(return_value=sample_managed_service)
 
     response = await client.post(
         "/api/v1/commands",
@@ -942,6 +954,51 @@ async def test_poll_commands_returns_typed_target(
 
 
 @pytest.mark.asyncio
+async def test_poll_commands_marks_network_scan_running(
+    client: AsyncClient,
+    mock_mongodb,
+    agent_token,
+    sample_node,
+    monkeypatch,
+):
+    """Polling a delegated network scan updates the linked discovery scan."""
+    command_for_node = {
+        "commandId": "cmd-network-scan-001",
+        "registryId": "reg::agent::network-scan",
+        "type": "agent",
+        "action": "network-scan",
+        "target": {"nodeId": sample_node["nodeId"]},
+        "parameters": {
+            "scanId": "scan_delegated001",
+            "targetSpecs": [{"subnet": "192.168.1.0/24"}],
+        },
+        "timeoutSeconds": 180,
+        "status": "queued",
+    }
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
+    mock_mongodb.commands.find_one_and_update = AsyncMock(
+        side_effect=[command_for_node, None]
+    )
+    mark_running = AsyncMock()
+    monkeypatch.setattr(
+        "hydra.api.v1.services.discovery.DiscoveryService.mark_delegated_scan_running",
+        mark_running,
+    )
+
+    response = await client.get(
+        f"/api/v1/nodes/{sample_node['nodeId']}/commands/poll",
+        headers={"Authorization": f"Bearer {agent_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]["commands"]
+    assert len(data) == 1
+    assert data[0]["registryId"] == "reg::agent::network-scan"
+    await_args = mark_running.await_args
+    assert await_args.args[0] == "scan_delegated001"
+
+
+@pytest.mark.asyncio
 async def test_submit_command_result(
     client: AsyncClient,
     mock_mongodb,
@@ -971,6 +1028,63 @@ async def test_submit_command_result(
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_submit_network_scan_result_triggers_discovery_ingest(
+    client: AsyncClient,
+    mock_mongodb,
+    agent_token,
+    sample_node,
+    monkeypatch,
+):
+    """Submitting a network scan result hands the payload back to discovery."""
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
+    command_for_node = {
+        "commandId": "cmd-network-scan-001",
+        "registryId": "reg::agent::network-scan",
+        "type": "agent",
+        "action": "network-scan",
+        "target": {"nodeId": sample_node["nodeId"]},
+        "parameters": {"scanId": "scan_delegated001"},
+        "status": "executing",
+        "timeoutSeconds": 180,
+    }
+    mock_mongodb.commands.find_one = AsyncMock(return_value=command_for_node)
+    mock_mongodb.commands.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
+    ingest = AsyncMock()
+    monkeypatch.setattr(
+        "hydra.api.v1.services.discovery.DiscoveryService.handle_scan_command_result",
+        ingest,
+    )
+
+    response = await client.post(
+        f"/api/v1/nodes/{sample_node['nodeId']}/commands/{command_for_node['commandId']}/result",
+        json={
+            "success": True,
+            "output": "scan complete",
+            "exitCode": 0,
+            "error": None,
+            "data": {
+                "scanId": "scan_delegated001",
+                "summary": {
+                    "hostsScanned": 254,
+                    "hostsAlive": 4,
+                    "newDiscoveries": 2,
+                    "returningDevices": 1,
+                    "errors": [],
+                },
+                "results": [],
+            },
+        },
+        headers={"Authorization": f"Bearer {agent_token}"},
+    )
+
+    assert response.status_code == 200
+    await_args = ingest.await_args
+    assert await_args.args[0]["commandId"] == "cmd-network-scan-001"
+    assert await_args.args[1] is True
+    assert await_args.args[2]["scanId"] == "scan_delegated001"
 
 
 # ── Permission Tests ─────────────────────────────────────────────────────
@@ -1188,3 +1302,369 @@ async def test_get_command_definition_not_found(
     )
 
     assert response.status_code == 404
+
+
+# ── Command Retries (P2B-002) ──────────────────────────────────────────
+
+
+@pytest.fixture
+def failed_command():
+    """Sample failed command document."""
+    now = datetime.now(UTC)
+    return {
+        "commandId": "cmd-failed-001",
+        "registryId": "reg::service::restart",
+        "type": "service",
+        "target": {"nodeId": "server-01", "serviceId": "svc-nginx-a1b2"},
+        "action": "restart",
+        "parameters": {"serviceId": "svc-nginx-a1b2", "name": "nginx", "runtime": "systemd"},
+        "status": "failed",
+        "executionMethod": "agent-poll",
+        "requestedBy": {"userId": "user_admin123", "source": "web", "clientId": "hydra-web"},
+        "timeoutSeconds": 60,
+        "retryCount": 0,
+        "maxRetries": 3,
+        "retriedFrom": None,
+        "queuePosition": None,
+        "chain": None,
+        "error": {
+            "code": "EXECUTION_FAILED",
+            "message": "Service restart failed",
+            "details": {"exitCode": 1},
+        },
+        "result": {
+            "success": False,
+            "output": None,
+            "exitCode": 1,
+            "error": "Service restart failed",
+            "data": None,
+        },
+        "createdAt": now,
+        "queuedAt": now,
+        "startedAt": now,
+        "completedAt": now,
+        "cancelledAt": None,
+        "cancelledBy": None,
+    }
+
+
+@pytest.fixture
+def retryable_definition(sample_definition):
+    """Definition with retryable enabled and maxRetries > 0."""
+    defn = dict(sample_definition)
+    defn["execution"] = {
+        **defn["execution"],
+        "retryable": True,
+        "maxRetries": 3,
+    }
+    return defn
+
+
+@pytest.mark.asyncio
+async def test_retry_failed_command_succeeds(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    failed_command,
+    retryable_definition,
+    sample_user,
+    sample_managed_service,
+):
+    """Test retrying a failed command creates a new queued command."""
+    # First call returns the failed command; subsequent calls return updated docs
+    mock_mongodb.commands.find_one = AsyncMock(
+        side_effect=[
+            failed_command,                # get_command (retry_command)
+            retryable_definition,          # command_definitions.find_one -> handled separately
+            failed_command,                # get original (same id)
+            None,                          # Not used
+        ]
+    )
+    mock_mongodb.command_definitions.find_one = AsyncMock(return_value=retryable_definition)
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.commands.update_one = AsyncMock()
+    mock_mongodb.commands.insert_one = AsyncMock(return_value=_mock_insert_one_result())
+    mock_mongodb.commands.count_documents = AsyncMock(return_value=0)
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={"nodeId": "server-01", "status": "active", "agentTier": "normal"}
+    )
+    mock_mongodb.services.find_one = AsyncMock(return_value=sample_managed_service)
+
+    response = await client.post(
+        "/api/v1/commands/cmd-failed-001/retry",
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["data"]["originalCommandId"] == "cmd-failed-001"
+    assert data["data"]["retryCount"] == 1
+    assert data["data"]["maxRetries"] == 3
+    assert data["data"]["status"] == "queued"
+    # Verify insert_one was called (new command created)
+    mock_mongodb.commands.insert_one.assert_awaited_once()
+    # Verify retryCount was incremented on original (2 update_one calls:
+    # 1) increment retryCount on original, 2) patch retriedFrom on new command)
+    assert mock_mongodb.commands.update_one.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_retry_non_failed_command_rejected(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_command,
+    sample_user,
+):
+    """Test that a completed/queued command cannot be retried."""
+    # sample_command has status "queued" which is not retriable
+    mock_mongodb.commands.find_one = AsyncMock(return_value=sample_command)
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+
+    response = await client.post(
+        f"/api/v1/commands/{sample_command['commandId']}/retry",
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 409
+    data = response.json()
+    assert data["error"]["code"] == "COMMAND_NOT_RETRIABLE"
+
+
+@pytest.mark.asyncio
+async def test_retry_completed_command_rejected(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_command,
+    sample_user,
+):
+    """Test that a completed command cannot be retried."""
+    completed_command = {**sample_command, "status": "completed"}
+    mock_mongodb.commands.find_one = AsyncMock(return_value=completed_command)
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+
+    response = await client.post(
+        f"/api/v1/commands/{completed_command['commandId']}/retry",
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 409
+    data = response.json()
+    assert data["error"]["code"] == "COMMAND_NOT_RETRIABLE"
+
+
+@pytest.mark.asyncio
+async def test_retry_exceeds_max_retries(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    failed_command,
+    retryable_definition,
+    sample_user,
+):
+    """Test that retrying beyond maxRetries is rejected."""
+    # Already at max retries
+    maxed_command = {**failed_command, "retryCount": 3}
+    mock_mongodb.commands.find_one = AsyncMock(return_value=maxed_command)
+    mock_mongodb.command_definitions.find_one = AsyncMock(return_value=retryable_definition)
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+
+    response = await client.post(
+        "/api/v1/commands/cmd-failed-001/retry",
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 409
+    data = response.json()
+    assert data["error"]["code"] == "COMMAND_MAX_RETRIES_EXCEEDED"
+    assert data["error"]["details"]["maxRetries"] == 3
+    assert data["error"]["details"]["retryCount"] == 3
+
+
+@pytest.mark.asyncio
+async def test_retry_links_to_original(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    failed_command,
+    retryable_definition,
+    sample_user,
+    sample_managed_service,
+):
+    """Test that the retry command is linked to the original via retriedFrom."""
+    mock_mongodb.commands.find_one = AsyncMock(return_value=failed_command)
+    mock_mongodb.command_definitions.find_one = AsyncMock(return_value=retryable_definition)
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.commands.update_one = AsyncMock()
+    mock_mongodb.commands.insert_one = AsyncMock(return_value=_mock_insert_one_result())
+    mock_mongodb.commands.count_documents = AsyncMock(return_value=0)
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={"nodeId": "server-01", "status": "active", "agentTier": "normal"}
+    )
+    mock_mongodb.services.find_one = AsyncMock(return_value=sample_managed_service)
+
+    response = await client.post(
+        "/api/v1/commands/cmd-failed-001/retry",
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["data"]["originalCommandId"] == "cmd-failed-001"
+
+    # Verify insert_one was called (new command created)
+    mock_mongodb.commands.insert_one.assert_awaited_once()
+
+    # Verify the retry command was patched with retriedFrom
+    update_calls = mock_mongodb.commands.update_one.await_args_list
+    # There should be exactly 2 update_one calls:
+    # 1) increment retryCount on original
+    # 2) patch retriedFrom on new command
+    assert len(update_calls) == 2
+    # The second update should set retriedFrom
+    patch_call = update_calls[1]
+    patch_set = patch_call.args[1]["$set"]
+    assert patch_set["retriedFrom"] == "cmd-failed-001"
+    assert patch_set["retryCount"] == 1
+    assert patch_set["maxRetries"] == 3
+
+
+@pytest.mark.asyncio
+async def test_retry_requires_permission(
+    client: AsyncClient,
+    mock_mongodb,
+    viewer_token,
+    failed_command,
+    sample_user,
+):
+    """Test that viewers without commands:execute cannot retry commands."""
+    viewer_user = sample_user.copy()
+    viewer_user["userId"] = "user_viewer123"
+    viewer_user["role"] = "viewer"
+    mock_mongodb.users.find_one = AsyncMock(return_value=viewer_user)
+    mock_mongodb.commands.find_one = AsyncMock(return_value=failed_command)
+
+    response = await client.post(
+        f"/api/v1/commands/{failed_command['commandId']}/retry",
+        headers={"Authorization": f"Bearer {viewer_token}"},
+    )
+
+    # Viewer lacks commands:execute permission, should get 403
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_retry_timeout_command_succeeds(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    failed_command,
+    retryable_definition,
+    sample_user,
+    sample_managed_service,
+):
+    """Test retrying a timed-out command succeeds."""
+    timeout_command = {**failed_command, "status": "timeout"}
+    mock_mongodb.commands.find_one = AsyncMock(return_value=timeout_command)
+    mock_mongodb.command_definitions.find_one = AsyncMock(return_value=retryable_definition)
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.commands.update_one = AsyncMock()
+    mock_mongodb.commands.insert_one = AsyncMock(return_value=_mock_insert_one_result())
+    mock_mongodb.commands.count_documents = AsyncMock(return_value=0)
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={"nodeId": "server-01", "status": "active", "agentTier": "normal"}
+    )
+    mock_mongodb.services.find_one = AsyncMock(return_value=sample_managed_service)
+
+    response = await client.post(
+        "/api/v1/commands/cmd-failed-001/retry",
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["data"]["originalCommandId"] == "cmd-failed-001"
+    assert data["data"]["retryCount"] == 1
+    assert data["data"]["maxRetries"] == 3
+    assert data["data"]["status"] == "queued"
+    # Verify insert_one was called (new command created)
+    mock_mongodb.commands.insert_one.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retry_non_retryable_definition_rejected(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    failed_command,
+    sample_definition,
+    sample_user,
+):
+    """Test that a command whose definition has retryable=false is rejected."""
+    # sample_definition has retryable=True but maxRetries=1; override to False
+    non_retryable_def = dict(sample_definition)
+    non_retryable_def["execution"] = {
+        **non_retryable_def["execution"],
+        "retryable": False,
+        "maxRetries": 0,
+    }
+    mock_mongodb.commands.find_one = AsyncMock(return_value=failed_command)
+    mock_mongodb.command_definitions.find_one = AsyncMock(return_value=non_retryable_def)
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+
+    response = await client.post(
+        f"/api/v1/commands/{failed_command['commandId']}/retry",
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 409
+    data = response.json()
+    assert data["error"]["code"] == "COMMAND_NOT_RETRIABLE"
+
+
+@pytest.mark.asyncio
+async def test_get_command_includes_retry_fields(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    failed_command,
+    sample_user,
+):
+    """Test that GET /commands/{id} includes retry-related fields."""
+    retried_cmd = {
+        **failed_command,
+        "status": "queued",
+        "retriedFrom": "cmd-original-001",
+        "retryCount": 2,
+        "maxRetries": 3,
+    }
+    mock_mongodb.commands.find_one = AsyncMock(return_value=retried_cmd)
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+
+    response = await client.get(
+        f"/api/v1/commands/{retried_cmd['commandId']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["data"]["retriedFrom"] == "cmd-original-001"
+    assert data["data"]["retryCount"] == 2
+    assert data["data"]["maxRetries"] == 3

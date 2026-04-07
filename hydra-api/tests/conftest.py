@@ -101,12 +101,16 @@ def mock_mongodb():
     mock.workflow_executions = create_mock_collection()
     mock.audit_log = create_mock_collection()
     mock.docs = create_mock_collection()
+    mock.doc_templates = create_mock_collection()
+    mock.dashboards = create_mock_collection()
     mock.ai_models = create_mock_collection()
     mock.chat_sessions = create_mock_collection()
     mock.chat_messages = create_mock_collection()
     mock.mcp_servers = create_mock_collection()
     mock.user_settings = create_mock_collection()
     mock.system_settings = create_mock_collection()
+    mock.discovery_scans = create_mock_collection()
+    mock.discovered_nodes = create_mock_collection()
 
     # Health check
     mock.health_check = AsyncMock(return_value=True)

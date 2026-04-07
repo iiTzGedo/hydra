@@ -5,6 +5,7 @@ export * from './node';
 export * from './profile';
 export * from './service';
 export * from './network';
+export * from './discovery';
 export * from './group';
 export * from './topology';
 export * from './user';

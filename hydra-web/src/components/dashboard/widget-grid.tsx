@@ -1,6 +1,13 @@
-import { ReactNode, useState } from 'react';
-import { Settings2, Eye, EyeOff, RotateCcw, Maximize2, Minimize2, LucideIcon } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { ReactNode, useState, useMemo, useCallback } from 'react';
+import {
+  ResponsiveGridLayout,
+  useContainerWidth,
+  type Layout,
+  type LayoutItem,
+  type ResponsiveLayouts,
+} from 'react-grid-layout';
+import { Settings2, Eye, EyeOff, RotateCcw, Maximize2, Minimize2, X, LucideIcon } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -10,25 +17,125 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { useDashboardStore, type WidgetConfig } from '@/stores/dashboard-store';
+import type { DashboardWidgetInstance } from '@/types/dashboard';
 
-const WIDGET_LABELS: Record<WidgetConfig['type'], string> = {
-  stats: 'Stats Cards',
-  capacity: 'Capacity Overview',
-  notifications: 'Recent Activities',
-  activity: 'Recent Activity',
-  'topology-mini': 'Mini Topology',
-  services: 'Services Status',
+import 'react-grid-layout/css/styles.css';
+import 'react-resizable/css/styles.css';
+
+const WIDGET_TYPE_LABELS: Record<string, string> = {
+  'hydra::stats-cards': 'Stats Cards',
+  'hydra::capacity-overview': 'Capacity Overview',
+  'hydra::recent-activity': 'Recent Activities',
+  'hydra::node-status-grid': 'Node Status Grid',
+  'hydra::mini-topology': 'Mini Topology',
+  'hydra::service-summary': 'Service Summary',
 };
 
+export function widgetTypeLabel(widgetType: string): string {
+  return WIDGET_TYPE_LABELS[widgetType] ?? widgetType;
+}
+
+/** Map API widget instances to react-grid-layout LayoutItem array */
+export function widgetsToLayout(widgets: DashboardWidgetInstance[]): LayoutItem[] {
+  return widgets.map((w) => ({
+    i: w.instanceId,
+    x: w.position.x,
+    y: w.position.y,
+    w: w.position.w,
+    h: w.position.h,
+  }));
+}
+
+/** Apply RGL layout changes back onto existing widget instances */
+export function applyLayoutToWidgets(
+  widgets: DashboardWidgetInstance[],
+  layout: Layout
+): DashboardWidgetInstance[] {
+  const positionMap = new Map(
+    layout.map((item) => [item.i, { x: item.x, y: item.y, w: item.w, h: item.h }])
+  );
+  return widgets.map((widget) => {
+    const pos = positionMap.get(widget.instanceId);
+    if (!pos) return widget;
+    return {
+      ...widget,
+      position: pos,
+    };
+  });
+}
+
 interface WidgetGridProps {
+  widgets: DashboardWidgetInstance[];
+  isEditMode: boolean;
+  onLayoutChange?: (layout: Layout) => void;
+  onRemoveWidget?: (instanceId: string) => void;
+  rowHeight?: number;
   children: ReactNode;
 }
 
-export function WidgetGrid({ children }: WidgetGridProps) {
+export function WidgetGrid({
+  widgets,
+  isEditMode,
+  onLayoutChange,
+  onRemoveWidget,
+  rowHeight = 80,
+  children,
+}: WidgetGridProps) {
+  const { width, containerRef, mounted } = useContainerWidth({ initialWidth: 1200 });
+
+  const layouts: ResponsiveLayouts = useMemo(
+    () => ({ lg: widgetsToLayout(widgets) }),
+    [widgets]
+  );
+
+  const handleLayoutChange = useCallback(
+    (currentLayout: Layout) => {
+      if (isEditMode && onLayoutChange) {
+        onLayoutChange(currentLayout);
+      }
+    },
+    [isEditMode, onLayoutChange]
+  );
+
   return (
-    <div className="space-y-4">
-      {children}
+    <div ref={containerRef as React.RefObject<HTMLDivElement>} className={cn('widget-grid', isEditMode && 'widget-grid--editing')}>
+      {mounted && (
+        <ResponsiveGridLayout
+          className="layout"
+          width={width}
+          layouts={layouts}
+          breakpoints={{ lg: 1200, md: 996, sm: 768 }}
+          cols={{ lg: 12, md: 8, sm: 4 }}
+          rowHeight={rowHeight}
+          dragConfig={{ enabled: isEditMode, handle: '.widget-drag-handle' }}
+          resizeConfig={{ enabled: isEditMode }}
+          onLayoutChange={handleLayoutChange}
+          margin={[16, 16]}
+          containerPadding={[0, 0]}
+        >
+          {widgets.map((widget, index) => (
+            <div key={widget.instanceId} className="relative">
+              {isEditMode && onRemoveWidget && (
+                <button
+                  type="button"
+                  className="absolute -top-2 -right-2 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-md hover:bg-destructive/90 transition-colors"
+                  onClick={() => onRemoveWidget(widget.instanceId)}
+                  aria-label={`Remove ${widgetTypeLabel(widget.widgetType)}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {isEditMode && (
+                <div className="widget-drag-handle absolute top-0 left-0 right-0 h-8 cursor-grab z-10" />
+              )}
+              {/* Render the corresponding child by index.
+                 INVARIANT: parent must pass children in the same order as
+                 the `widgets` array so that index-based lookup is correct. */}
+              {Array.isArray(children) ? children[index] : index === 0 ? children : null}
+            </div>
+          ))}
+        </ResponsiveGridLayout>
+      )}
     </div>
   );
 }
@@ -43,6 +150,7 @@ interface WidgetProps {
   actions?: ReactNode;
   collapsible?: boolean;
   defaultCollapsed?: boolean;
+  isEditMode?: boolean;
 }
 
 export function Widget({
@@ -54,20 +162,15 @@ export function Widget({
   icon: Icon,
   actions,
   collapsible = false,
-  defaultCollapsed = false
+  defaultCollapsed = false,
+  isEditMode = false,
 }: WidgetProps) {
-  const { widgetLayout, isEditMode } = useDashboardStore();
-  const config = widgetLayout.find((w) => w.id === id);
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
-
-  if (!config?.visible) {
-    return null;
-  }
 
   return (
     <div
       className={cn(
-        'relative rounded-xl border border-border bg-card overflow-hidden',
+        'relative h-full rounded-xl border border-border bg-card overflow-hidden',
         isEditMode && 'ring-2 ring-dashed ring-muted-foreground/30',
         className
       )}
@@ -90,9 +193,7 @@ export function Widget({
               )}
             </div>
             {isEditMode && !title && (
-              <span className="text-xs text-muted-foreground">
-                {WIDGET_LABELS[config.type] || id}
-              </span>
+              <span className="text-xs text-muted-foreground">{id}</span>
             )}
           </div>
 
@@ -115,14 +216,14 @@ export function Widget({
           </div>
         </div>
       )}
-      
+
       {/* Edit Mode Label (when no header) */}
       {isEditMode && !title && !Icon && (
         <div className="absolute -top-3 left-2 bg-card px-2 py-0.5 text-xs text-muted-foreground rounded border border-border z-10">
-          {WIDGET_LABELS[config.type] || id}
+          {id}
         </div>
       )}
-      
+
       {/* Widget Content */}
       <AnimatePresence initial={false}>
         {!isCollapsed && (
@@ -142,10 +243,31 @@ export function Widget({
   );
 }
 
-export function WidgetCustomizer() {
-  const { widgetLayout, toggleWidgetVisibility, resetLayout, isEditMode, setEditMode } =
-    useDashboardStore();
+interface WidgetCustomizerContentProps {
+  widgetLayout: {
+    id: string;
+    type: string;
+    visible: boolean;
+    configurable?: boolean;
+    supportsVisibilityToggle?: boolean;
+  }[];
+  isEditMode: boolean;
+  setEditMode: (editing: boolean) => void;
+  onToggleWidget: (id: string) => void;
+  onConfigureWidget?: (id: string) => void;
+  onResetLayout: () => void;
+  isSaving?: boolean;
+}
 
+export function WidgetCustomizerContent({
+  widgetLayout,
+  isEditMode,
+  setEditMode,
+  onToggleWidget,
+  onConfigureWidget,
+  onResetLayout,
+  isSaving = false,
+}: WidgetCustomizerContentProps) {
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -171,9 +293,22 @@ export function WidgetCustomizer() {
                   htmlFor={`widget-${widget.id}`}
                   className="text-sm text-foreground cursor-pointer"
                 >
-                  {WIDGET_LABELS[widget.type] || widget.id}
+                  {WIDGET_TYPE_LABELS[widget.type] || widget.id}
                 </Label>
                 <div className="flex items-center gap-2">
+                  {widget.configurable && onConfigureWidget && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      disabled={isSaving}
+                      onClick={() => onConfigureWidget(widget.id)}
+                      aria-label={`Configure ${widgetTypeLabel(widget.type)}`}
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                   {widget.visible ? (
                     <Eye className="h-3.5 w-3.5 text-muted-foreground" />
                   ) : (
@@ -182,7 +317,8 @@ export function WidgetCustomizer() {
                   <Switch
                     id={`widget-${widget.id}`}
                     checked={widget.visible}
-                    onCheckedChange={() => toggleWidgetVisibility(widget.id)}
+                    disabled={isSaving || widget.supportsVisibilityToggle === false}
+                    onCheckedChange={() => onToggleWidget(widget.id)}
                   />
                 </div>
               </div>
@@ -201,14 +337,15 @@ export function WidgetCustomizer() {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Enable to see widget boundaries
+              Enable to drag, resize, and manage widgets
             </p>
           </div>
 
           <Button
             variant="outline"
             size="sm"
-            onClick={resetLayout}
+            disabled={isSaving}
+            onClick={onResetLayout}
             className="w-full gap-2 border-border text-foreground hover:bg-muted"
           >
             <RotateCcw className="h-4 w-4" />

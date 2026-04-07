@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import AsyncClient
 
+from hydra.api.v1.services.docs import DocsService
 from tests.utils import create_mock_cursor
 
 
@@ -63,6 +64,47 @@ async def test_submit_profile_success(
     assert "profileId" in data["data"]
     assert data["data"]["version"] == "E0-0.0.0.1"  # First profile
     assert data["data"]["nodeId"] == sample_node["nodeId"]
+
+
+@pytest.mark.asyncio
+async def test_submit_profile_triggers_docs_refresh(
+    client: AsyncClient,
+    mock_mongodb,
+    agent_token,
+    sample_node,
+    monkeypatch,
+):
+    """Profile submission refreshes generated docs linked to the node."""
+    refresh_mock = AsyncMock(
+        return_value={"flagged": 1, "regenerated": 1, "warningCount": 0, "errors": 0}
+    )
+    monkeypatch.setattr(DocsService, "refresh_documents_for_entity", refresh_mock)
+
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
+    mock_mongodb.profile_meta.find_one = AsyncMock(return_value=None)
+    mock_mongodb.profiles.insert_one = AsyncMock()
+    mock_mongodb.profile_meta.insert_one = AsyncMock()
+    mock_mongodb.nodes.update_one = AsyncMock()
+
+    now = datetime.now(UTC)
+    response = await client.post(
+        "/api/v1/profiles",
+        json={
+            "nodeId": sample_node["nodeId"],
+            "version": "E0-0.0.0.1",
+            "collectedAt": now.isoformat(),
+            "agentVersion": "0.1.0",
+            "collectionLevel": "neutral",
+        },
+        headers={"Authorization": f"Bearer {agent_token}"},
+    )
+
+    assert response.status_code == 200
+    refresh_mock.assert_awaited_once_with(
+        "node",
+        sample_node["nodeId"],
+        user_id=sample_node["nodeId"],
+    )
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,6 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useDashboardStore } from '@/stores/dashboard-store';
-import type { WidgetConfig } from '@/stores/dashboard-store';
 
 describe('dashboard-store', () => {
   beforeEach(() => {
@@ -12,14 +11,7 @@ describe('dashboard-store', () => {
     useDashboardStore.setState({
       timeRange: 'last24h',
       customTimeRange: null,
-      widgetLayout: [
-        { id: 'stats', type: 'stats', x: 0, y: 0, w: 12, h: 2, visible: true },
-        { id: 'services', type: 'services', x: 0, y: 2, w: 6, h: 4, visible: true },
-        { id: 'notifications', type: 'notifications', x: 6, y: 2, w: 6, h: 4, visible: true },
-        { id: 'capacity', type: 'capacity', x: 0, y: 6, w: 12, h: 4, visible: true },
-        { id: 'topology-mini', type: 'topology-mini', x: 0, y: 10, w: 12, h: 4, visible: true },
-        { id: 'activity', type: 'activity', x: 0, y: 14, w: 12, h: 4, visible: true },
-      ],
+      activeBoardId: null,
       isEditMode: false,
     });
   });
@@ -33,17 +25,8 @@ describe('dashboard-store', () => {
       const state = useDashboardStore.getState();
       expect(state.timeRange).toBe('last24h');
       expect(state.customTimeRange).toBeNull();
+      expect(state.activeBoardId).toBeNull();
       expect(state.isEditMode).toBe(false);
-    });
-
-    it('should have 6 default widgets', () => {
-      const state = useDashboardStore.getState();
-      expect(state.widgetLayout).toHaveLength(6);
-    });
-
-    it('should have all widgets visible by default', () => {
-      const state = useDashboardStore.getState();
-      expect(state.widgetLayout.every((w) => w.visible)).toBe(true);
     });
   });
 
@@ -89,126 +72,18 @@ describe('dashboard-store', () => {
     });
   });
 
-  describe('updateWidgetLayout', () => {
-    it('should replace entire widget layout', () => {
-      const { updateWidgetLayout } = useDashboardStore.getState();
-      const newLayout: WidgetConfig[] = [
-        { id: 'stats', type: 'stats', x: 0, y: 0, w: 6, h: 2, visible: true },
-      ];
-
-      updateWidgetLayout(newLayout);
-
-      const state = useDashboardStore.getState();
-      expect(state.widgetLayout).toEqual(newLayout);
-      expect(state.widgetLayout).toHaveLength(1);
-    });
-  });
-
-  describe('updateWidgetPosition', () => {
-    it('should update widget position by id', () => {
-      const { updateWidgetPosition } = useDashboardStore.getState();
-      updateWidgetPosition('stats', 5, 10);
-
-      const state = useDashboardStore.getState();
-      const statsWidget = state.widgetLayout.find((w) => w.id === 'stats');
-      expect(statsWidget?.x).toBe(5);
-      expect(statsWidget?.y).toBe(10);
+  describe('setActiveBoardId', () => {
+    it('should set the active board id', () => {
+      const { setActiveBoardId } = useDashboardStore.getState();
+      setActiveBoardId('board-123');
+      expect(useDashboardStore.getState().activeBoardId).toBe('board-123');
     });
 
-    it('should not affect other widgets when updating position', () => {
-      const { updateWidgetPosition } = useDashboardStore.getState();
-      const initialLayout = useDashboardStore.getState().widgetLayout;
-      updateWidgetPosition('stats', 5, 10);
-
-      const state = useDashboardStore.getState();
-      const servicesWidget = state.widgetLayout.find((w) => w.id === 'services');
-      const initialServicesWidget = initialLayout.find((w) => w.id === 'services');
-      expect(servicesWidget).toEqual(initialServicesWidget);
-    });
-
-    it('should handle non-existent widget id gracefully', () => {
-      const { updateWidgetPosition } = useDashboardStore.getState();
-      const initialLayout = useDashboardStore.getState().widgetLayout;
-      updateWidgetPosition('non-existent-id', 5, 10);
-
-      const state = useDashboardStore.getState();
-      expect(state.widgetLayout).toEqual(initialLayout);
-    });
-  });
-
-  describe('updateWidgetSize', () => {
-    it('should update widget size by id', () => {
-      const { updateWidgetSize } = useDashboardStore.getState();
-      updateWidgetSize('capacity', 8, 6);
-
-      const state = useDashboardStore.getState();
-      const capacityWidget = state.widgetLayout.find((w) => w.id === 'capacity');
-      expect(capacityWidget?.w).toBe(8);
-      expect(capacityWidget?.h).toBe(6);
-    });
-
-    it('should not affect other properties when updating size', () => {
-      const { updateWidgetSize } = useDashboardStore.getState();
-      const initialLayout = useDashboardStore.getState().widgetLayout;
-      const initialWidget = initialLayout.find((w) => w.id === 'capacity');
-
-      updateWidgetSize('capacity', 8, 6);
-
-      const state = useDashboardStore.getState();
-      const updatedWidget = state.widgetLayout.find((w) => w.id === 'capacity');
-      expect(updatedWidget?.x).toBe(initialWidget?.x);
-      expect(updatedWidget?.y).toBe(initialWidget?.y);
-      expect(updatedWidget?.visible).toBe(initialWidget?.visible);
-    });
-  });
-
-  describe('toggleWidgetVisibility', () => {
-    it('should toggle widget from visible to hidden', () => {
-      const { toggleWidgetVisibility } = useDashboardStore.getState();
-      toggleWidgetVisibility('stats');
-
-      const state = useDashboardStore.getState();
-      const statsWidget = state.widgetLayout.find((w) => w.id === 'stats');
-      expect(statsWidget?.visible).toBe(false);
-    });
-
-    it('should toggle widget from hidden to visible', () => {
-      const { toggleWidgetVisibility } = useDashboardStore.getState();
-      toggleWidgetVisibility('stats');
-      toggleWidgetVisibility('stats');
-
-      const state = useDashboardStore.getState();
-      const statsWidget = state.widgetLayout.find((w) => w.id === 'stats');
-      expect(statsWidget?.visible).toBe(true);
-    });
-  });
-
-  describe('resetLayout', () => {
-    it('should reset widget layout to default', () => {
-      const { updateWidgetPosition, resetLayout } = useDashboardStore.getState();
-
-      updateWidgetPosition('stats', 5, 10);
-      const modifiedState = useDashboardStore.getState();
-      expect(modifiedState.widgetLayout.find((w) => w.id === 'stats')?.x).toBe(5);
-
-      resetLayout();
-
-      const state = useDashboardStore.getState();
-      expect(state.widgetLayout).toHaveLength(6);
-      expect(state.widgetLayout.find((w) => w.id === 'stats')?.x).toBe(0);
-      expect(state.widgetLayout.find((w) => w.id === 'stats')?.y).toBe(0);
-    });
-
-    it('should reset all widgets to visible', () => {
-      const { toggleWidgetVisibility, resetLayout } = useDashboardStore.getState();
-
-      toggleWidgetVisibility('stats');
-      toggleWidgetVisibility('services');
-
-      resetLayout();
-
-      const state = useDashboardStore.getState();
-      expect(state.widgetLayout.every((w) => w.visible)).toBe(true);
+    it('should allow clearing the active board id', () => {
+      const { setActiveBoardId } = useDashboardStore.getState();
+      setActiveBoardId('board-123');
+      setActiveBoardId(null);
+      expect(useDashboardStore.getState().activeBoardId).toBeNull();
     });
   });
 
@@ -367,16 +242,16 @@ describe('dashboard-store', () => {
       }
     });
 
-    it('should persist widgetLayout to localStorage', () => {
-      const { updateWidgetPosition } = useDashboardStore.getState();
-      updateWidgetPosition('stats', 3, 5);
+    it('should persist activeBoardId to localStorage', () => {
+      const { setActiveBoardId } = useDashboardStore.getState();
+      setActiveBoardId('board-persist-test');
 
       const stored = localStorage.getItem('hydra-dashboard-storage');
+      expect(stored).toBeTruthy();
+
       if (stored) {
         const parsed = JSON.parse(stored);
-        const statsWidget = parsed.state.widgetLayout.find((w: WidgetConfig) => w.id === 'stats');
-        expect(statsWidget.x).toBe(3);
-        expect(statsWidget.y).toBe(5);
+        expect(parsed.state.activeBoardId).toBe('board-persist-test');
       }
     });
 

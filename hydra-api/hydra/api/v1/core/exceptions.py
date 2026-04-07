@@ -547,6 +547,36 @@ class CommandRateLimitError(HydraError):
         )
 
 
+class CommandNotRetriableError(HydraError):
+    """Command is not in a retriable state."""
+
+    def __init__(self, command_id: str, status: str) -> None:
+        super().__init__(
+            "COMMAND_NOT_RETRIABLE",
+            f"Command '{command_id}' cannot be retried (status: {status}). "
+            f"Only failed or timed-out commands can be retried.",
+            status_code=409,
+            details={"commandId": command_id, "status": status},
+        )
+
+
+class CommandMaxRetriesError(HydraError):
+    """Command has exceeded the maximum number of retries."""
+
+    def __init__(self, command_id: str, max_retries: int, retry_count: int) -> None:
+        super().__init__(
+            "COMMAND_MAX_RETRIES_EXCEEDED",
+            f"Command '{command_id}' has reached the maximum retry limit "
+            f"({retry_count}/{max_retries}).",
+            status_code=409,
+            details={
+                "commandId": command_id,
+                "maxRetries": max_retries,
+                "retryCount": retry_count,
+            },
+        )
+
+
 class DocNotFoundError(NotFoundError):
     """Documentation not found."""
 

@@ -197,6 +197,16 @@ class MongoDB:
         return self.db.docs
 
     @property
+    def dashboards(self) -> AsyncIOMotorCollection[Any]:
+        """Dashboards collection."""
+        return self.db.dashboards
+
+    @property
+    def doc_templates(self) -> AsyncIOMotorCollection[Any]:
+        """Document templates collection."""
+        return self.db.doc_templates
+
+    @property
     def ai_models(self) -> AsyncIOMotorCollection[Any]:
         """AI/LLM provider configurations collection."""
         return self.db.ai_models
@@ -245,6 +255,16 @@ class MongoDB:
     def notification_reads(self) -> AsyncIOMotorCollection[Any]:
         """Per-user notification read state collection."""
         return self.db.notification_reads
+
+    @property
+    def discovery_scans(self) -> AsyncIOMotorCollection[Any]:
+        """Network discovery scan metadata."""
+        return self.db.discovery_scans
+
+    @property
+    def discovered_nodes(self) -> AsyncIOMotorCollection[Any]:
+        """Discovered devices from network scans."""
+        return self.db.discovered_nodes
 
 
 _mongodb: MongoDB | None = None

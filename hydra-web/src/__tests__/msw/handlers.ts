@@ -247,6 +247,24 @@ function sanitizeId(input: string) {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
+function toDashboardSummary(board: (typeof mockState.dashboards)[number]) {
+  return {
+    boardId: board.boardId,
+    name: board.name,
+    description: board.description,
+    icon: board.icon,
+    ownerId: board.ownerId,
+    boardType: board.boardType,
+    visibility: board.visibility,
+    widgetCount: board.widgets.length,
+    tags: board.tags,
+    isHome: board.isHome,
+    version: board.version,
+    createdAt: board.createdAt,
+    updatedAt: board.updatedAt,
+  };
+}
+
 function stripGraphIfNeeded(topology: (typeof mockState.topologies)[number], includeGraph: boolean) {
   if (includeGraph) {
     return topology;
@@ -524,6 +542,221 @@ export const handlers = [
       return errorResponse('SERVICE_NOT_FOUND', 'Service not found', 404);
     }
     return HttpResponse.json(apiResponse(service));
+  }),
+
+  http.get(`${BASE_URL}/dashboards`, ({ request }) => {
+    const summaries = mockState.dashboards.map(toDashboardSummary);
+    const { items, total, limit, offset } = paginate(summaries, request, 50);
+    return HttpResponse.json(apiResponse(items, { total, limit, offset }));
+  }),
+
+  http.get(`${BASE_URL}/dashboards/widgets/registry`, ({ request }) => {
+    const url = new URL(request.url);
+    const category = url.searchParams.get('category');
+
+    const allWidgets = [
+      { widgetType: 'hydra::stats-cards', displayName: 'Stats Overview', description: 'Key infrastructure metrics at a glance.', category: 'data-display', icon: 'bar-chart-3', source: 'hydra', defaultSize: { w: 12, h: 2 }, minSize: { w: 6, h: 2 }, maxSize: { w: 12, h: 4 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
+      { widgetType: 'hydra::capacity-overview', displayName: 'Capacity Overview', description: 'Resource utilization and capacity planning for your fleet.', category: 'infrastructure', icon: 'hard-drive', source: 'hydra', defaultSize: { w: 12, h: 4 }, minSize: { w: 6, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
+      { widgetType: 'hydra::service-summary', displayName: 'Service Summary', description: 'Overview of service health and operational status.', category: 'status', icon: 'activity', source: 'hydra', defaultSize: { w: 6, h: 4 }, minSize: { w: 4, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
+      { widgetType: 'hydra::recent-activity', displayName: 'Recent Activity', description: 'Latest infrastructure events and state changes.', category: 'activity', icon: 'clock', source: 'hydra', defaultSize: { w: 6, h: 4 }, minSize: { w: 4, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
+      { widgetType: 'hydra::mini-topology', displayName: 'Infrastructure Topology', description: 'Visual map of the current topology snapshot.', category: 'infrastructure', icon: 'network', source: 'hydra', defaultSize: { w: 12, h: 4 }, minSize: { w: 6, h: 3 }, maxSize: { w: 12, h: 8 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
+      { widgetType: 'hydra::node-status-grid', displayName: 'Node Status Grid', description: 'Grid view of node health, reachability, and role.', category: 'status', icon: 'server', source: 'hydra', defaultSize: { w: 12, h: 4 }, minSize: { w: 6, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
+    ];
+
+    const widgets = category ? allWidgets.filter((w) => w.category === category) : allWidgets;
+
+    const catCounts: Record<string, number> = {};
+    for (const w of allWidgets) {
+      catCounts[w.category] = (catCounts[w.category] ?? 0) + 1;
+    }
+    const categories = Object.entries(catCounts)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([id, count]) => ({ id, name: id.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), count }));
+
+    return HttpResponse.json(apiResponse({ widgets, categories, total: widgets.length }));
+  }),
+
+  http.get(`${BASE_URL}/dashboards/:dashboardId`, ({ params }) => {
+    const board = mockState.dashboards.find((item) => item.boardId === params.dashboardId);
+    if (!board) {
+      return errorResponse('DASHBOARD_NOT_FOUND', 'Dashboard not found', 404);
+    }
+    return HttpResponse.json(apiResponse(board));
+  }),
+
+  http.post(`${BASE_URL}/dashboards`, async ({ request }) => {
+    const payload = (await request.json()) as Partial<(typeof mockState.dashboards)[number]>;
+    const now = new Date().toISOString();
+    const boardId = nextId('board', mockState.dashboards.length);
+    const widgets = payload.widgets ?? [];
+    const board = {
+      boardId,
+      name: payload.name || 'New Dashboard',
+      description: payload.description ?? null,
+      icon: payload.icon ?? null,
+      ownerId: 'user-001',
+      boardType: payload.boardType ?? 'custom',
+      visibility: payload.visibility ?? 'private',
+      widgetCount: widgets.length,
+      tags: payload.tags ?? [],
+      isHome: payload.isHome ?? false,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+      layout: payload.layout ?? {
+        columns: 12,
+        rowHeight: 80,
+        breakpoints: {
+          lg: { columns: 12, width: 1200 },
+          md: { columns: 8, width: 996 },
+          sm: { columns: 4, width: 768 },
+        },
+      },
+      widgets,
+      settings: payload.settings ?? {
+        theme: 'inherit',
+        autoRefresh: true,
+        refreshInterval: 30,
+        showHeader: true,
+        kioskMode: false,
+      },
+      clonedFrom: null,
+      archivedAt: null,
+    };
+    mockState.dashboards.unshift(board);
+    return HttpResponse.json(apiResponse(board), { status: 201 });
+  }),
+
+  http.put(`${BASE_URL}/dashboards/:dashboardId`, async ({ request, params }) => {
+    const updates = (await request.json()) as Partial<(typeof mockState.dashboards)[number]>;
+    const index = mockState.dashboards.findIndex((item) => item.boardId === params.dashboardId);
+    if (index === -1) {
+      return errorResponse('DASHBOARD_NOT_FOUND', 'Dashboard not found', 404);
+    }
+
+    const current = mockState.dashboards[index];
+    const updatedBoard = {
+      ...current,
+      ...updates,
+      widgetCount: updates.widgets?.length ?? current.widgets.length,
+      updatedAt: new Date().toISOString(),
+      version: current.version + 1,
+    };
+    mockState.dashboards[index] = updatedBoard;
+    return HttpResponse.json(apiResponse(updatedBoard));
+  }),
+
+  http.delete(`${BASE_URL}/dashboards/:dashboardId`, ({ params }) => {
+    const index = mockState.dashboards.findIndex((item) => item.boardId === params.dashboardId);
+    if (index === -1) {
+      return errorResponse('DASHBOARD_NOT_FOUND', 'Dashboard not found', 404);
+    }
+    mockState.dashboards.splice(index, 1);
+    return HttpResponse.json(apiResponse({ deleted: true }));
+  }),
+
+  http.post(`${BASE_URL}/dashboards/:dashboardId/clone`, ({ params }) => {
+    const source = mockState.dashboards.find((item) => item.boardId === params.dashboardId);
+    if (!source) {
+      return errorResponse('DASHBOARD_NOT_FOUND', 'Dashboard not found', 404);
+    }
+    const now = new Date().toISOString();
+    const boardId = nextId('board', mockState.dashboards.length);
+    const cloned = {
+      ...source,
+      boardId,
+      name: `${source.name} (Copy)`,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+      clonedFrom: source.boardId,
+      isHome: false,
+    };
+    mockState.dashboards.unshift(cloned);
+    return HttpResponse.json(apiResponse(cloned), { status: 201 });
+  }),
+
+  http.post(`${BASE_URL}/dashboards/:dashboardId/widgets`, async ({ request, params }) => {
+    const payload = (await request.json()) as {
+      widgetType: string;
+      position: { x: number; y: number; w: number; h: number };
+      config?: Record<string, unknown>;
+      dataBinding?: unknown;
+    };
+    const index = mockState.dashboards.findIndex((item) => item.boardId === params.dashboardId);
+    if (index === -1) {
+      return errorResponse('DASHBOARD_NOT_FOUND', 'Dashboard not found', 404);
+    }
+    const board = mockState.dashboards[index];
+    const newWidget = {
+      instanceId: `wi_${Date.now()}`,
+      widgetType: payload.widgetType,
+      position: payload.position,
+      config: payload.config ?? {},
+      dataBinding: (payload.dataBinding as { source: string; query: Record<string, unknown> } | null) ?? null,
+    };
+    const updatedBoard = {
+      ...board,
+      widgets: [...board.widgets, newWidget],
+      widgetCount: board.widgets.length + 1,
+      updatedAt: new Date().toISOString(),
+      version: board.version + 1,
+    };
+    mockState.dashboards[index] = updatedBoard;
+    return HttpResponse.json(apiResponse(updatedBoard), { status: 201 });
+  }),
+
+  http.put(`${BASE_URL}/dashboards/:dashboardId/widgets/:widgetId`, async ({ request, params }) => {
+    const updates = (await request.json()) as Record<string, unknown>;
+    const boardIndex = mockState.dashboards.findIndex((item) => item.boardId === params.dashboardId);
+    if (boardIndex === -1) {
+      return errorResponse('DASHBOARD_NOT_FOUND', 'Dashboard not found', 404);
+    }
+    const board = mockState.dashboards[boardIndex];
+    const widgetIndex = board.widgets.findIndex((w) => w.instanceId === params.widgetId);
+    if (widgetIndex === -1) {
+      return errorResponse('WIDGET_NOT_FOUND', 'Widget not found', 404);
+    }
+    const updatedWidgets = [...board.widgets];
+    const current = updatedWidgets[widgetIndex];
+    updatedWidgets[widgetIndex] = {
+      ...current,
+      widgetType: (updates.widgetType as string) ?? current.widgetType,
+      position: (updates.position as typeof current.position) ?? current.position,
+      config: (updates.config as typeof current.config) ?? current.config,
+      dataBinding: updates.dataBinding !== undefined
+        ? (updates.dataBinding as typeof current.dataBinding)
+        : current.dataBinding,
+    };
+    const updatedBoard = {
+      ...board,
+      widgets: updatedWidgets,
+      updatedAt: new Date().toISOString(),
+      version: board.version + 1,
+    };
+    mockState.dashboards[boardIndex] = updatedBoard;
+    return HttpResponse.json(apiResponse(updatedBoard));
+  }),
+
+  http.delete(`${BASE_URL}/dashboards/:dashboardId/widgets/:widgetId`, ({ params }) => {
+    const boardIndex = mockState.dashboards.findIndex((item) => item.boardId === params.dashboardId);
+    if (boardIndex === -1) {
+      return errorResponse('DASHBOARD_NOT_FOUND', 'Dashboard not found', 404);
+    }
+    const board = mockState.dashboards[boardIndex];
+    const filtered = board.widgets.filter((w) => w.instanceId !== params.widgetId);
+    if (filtered.length === board.widgets.length) {
+      return errorResponse('WIDGET_NOT_FOUND', 'Widget not found', 404);
+    }
+    const updatedBoard = {
+      ...board,
+      widgets: filtered,
+      widgetCount: filtered.length,
+      updatedAt: new Date().toISOString(),
+      version: board.version + 1,
+    };
+    mockState.dashboards[boardIndex] = updatedBoard;
+    return HttpResponse.json(apiResponse(updatedBoard));
   }),
 
   http.get(`${BASE_URL}/networks`, ({ request }) => {

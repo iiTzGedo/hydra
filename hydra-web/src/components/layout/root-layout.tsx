@@ -74,6 +74,13 @@ export function RootLayout({ children }: RootLayoutProps) {
       description: 'Go to Networks',
     },
     {
+      key: 'd',
+      ctrl: true,
+      shift: true,
+      handler: () => navigate(ROUTES.DISCOVERY),
+      description: 'Go to Discovery',
+    },
+    {
       key: 't',
       ctrl: true,
       shift: true,

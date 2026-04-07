@@ -22,6 +22,7 @@ from hydra.api.v1.models.topologies import (
     TopologyMode,
     TopologyScope,
 )
+from hydra.api.v1.services.docs import DocsService
 from hydra.api.v1.services.notifications import emit_notification
 from hydra.api.v1.services.query import log_audit
 from hydra.db.mongodb import MongoDB
@@ -34,6 +35,7 @@ class TopologiesService:
 
     def __init__(self, mongodb: MongoDB):
         self.db = mongodb
+        self.docs = DocsService(mongodb)
 
     async def get_topology(self, topology_id: str, include_graph: bool = True) -> dict[str, Any]:
         """Retrieve a topology by its identifier.
@@ -256,6 +258,35 @@ class TopologiesService:
             },
             audit_entry_id=audit_id,
         ))
+
+        refresh_entities: list[tuple[str, str]] = []
+        for graph_node in graph_nodes:
+            node_id = graph_node.data.get("nodeId")
+            service_id = graph_node.data.get("serviceId")
+            network_id = graph_node.data.get("networkId")
+
+            if isinstance(node_id, str) and node_id:
+                refresh_entities.append(("node", node_id))
+            if isinstance(service_id, str) and service_id:
+                refresh_entities.append(("service", service_id))
+            if isinstance(network_id, str) and network_id:
+                refresh_entities.append(("network", network_id))
+
+        unique_refresh_entities = list(dict.fromkeys(refresh_entities))
+
+        if unique_refresh_entities:
+            try:
+                await self.docs.refresh_documents_for_entities(
+                    unique_refresh_entities,
+                    user_id="topology_generator",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "topology_docs_refresh_failed",
+                    topology_id=topology_id,
+                    entity_count=len(unique_refresh_entities),
+                    error=str(exc),
+                )
 
         return self._format_topology(topology_doc)
 

@@ -18,6 +18,7 @@ import type {
   MCPServerResponse,
   MCPToolInfo,
 } from '@/api/mcp';
+import type { DashboardBoard } from '@/types/dashboard';
 import type { GroupMembersResponse } from '@/types/group';
 import type { Profile, ProfileDiff, ProfileSummary } from '@/types/profile';
 import type { SystemSettingsResponse, UserSettingsResponse } from '@/types/settings';
@@ -46,6 +47,7 @@ export interface MockState {
   profileSummaries: Record<string, ProfileSummary[]>;
   profiles: Record<string, Profile>;
   profileDiffs: Record<string, ProfileDiff>;
+  dashboards: DashboardBoard[];
   topologies: Topology[];
   topologyDiff: TopologyDiffResponse;
   subgraphs: Record<string, SubgraphResponse>;
@@ -774,6 +776,86 @@ function createInitialState(): MockState {
     },
   };
 
+  const dashboards: DashboardBoard[] = [
+    {
+      boardId: 'board-001',
+      name: 'Operations Overview',
+      description: 'Primary infrastructure dashboard',
+      icon: 'layout-dashboard',
+      ownerId: 'user-001',
+      boardType: 'home',
+      visibility: 'private',
+      widgetCount: 6,
+      tags: ['starter'],
+      isHome: true,
+      version: 1,
+      createdAt: ISO_NOW,
+      updatedAt: ISO_NOW,
+      layout: {
+        columns: 12,
+        rowHeight: 80,
+        breakpoints: {
+          lg: { columns: 12, width: 1200 },
+          md: { columns: 8, width: 996 },
+          sm: { columns: 4, width: 768 },
+        },
+      },
+      widgets: [
+        {
+          instanceId: 'wi_stats',
+          widgetType: 'hydra::stats-cards',
+          position: { x: 0, y: 0, w: 12, h: 2 },
+          config: { hidden: false },
+          dataBinding: null,
+        },
+        {
+          instanceId: 'wi_services',
+          widgetType: 'hydra::service-summary',
+          position: { x: 0, y: 2, w: 6, h: 4 },
+          config: { hidden: false },
+          dataBinding: null,
+        },
+        {
+          instanceId: 'wi_notifications',
+          widgetType: 'hydra::recent-activity',
+          position: { x: 6, y: 2, w: 6, h: 4 },
+          config: { hidden: false },
+          dataBinding: null,
+        },
+        {
+          instanceId: 'wi_capacity',
+          widgetType: 'hydra::capacity-overview',
+          position: { x: 0, y: 6, w: 12, h: 4 },
+          config: { hidden: false },
+          dataBinding: null,
+        },
+        {
+          instanceId: 'wi_topology',
+          widgetType: 'hydra::mini-topology',
+          position: { x: 0, y: 10, w: 12, h: 4 },
+          config: { hidden: false },
+          dataBinding: null,
+        },
+        {
+          instanceId: 'wi_activity',
+          widgetType: 'hydra::node-status-grid',
+          position: { x: 0, y: 14, w: 12, h: 4 },
+          config: { hidden: false },
+          dataBinding: null,
+        },
+      ],
+      settings: {
+        theme: 'inherit',
+        autoRefresh: true,
+        refreshInterval: 30,
+        showHeader: true,
+        kioskMode: false,
+      },
+      clonedFrom: null,
+      archivedAt: null,
+    },
+  ];
+
   const userSettings: UserSettingsResponse = {
     userId: 'user-001',
     ui: {
@@ -917,6 +999,7 @@ function createInitialState(): MockState {
       'proxmox-01::': profileDiff,
       'proxmox-01:E0-0.0.1.0:E0-0.0.1.1': profileDiff,
     },
+    dashboards,
     topologies,
     topologyDiff,
     subgraphs,
@@ -994,4 +1077,3 @@ export const mockState: MockState = createInitialState();
 export function resetMockState() {
   Object.assign(mockState, clone(createInitialState()));
 }
-

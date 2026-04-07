@@ -16,6 +16,7 @@ import {
   User,
   History,
   Bell,
+  Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/constants';
@@ -39,6 +40,7 @@ const mainNavItems: NavItem[] = [
   { icon: Server, label: 'Nodes', path: ROUTES.NODES, permission: 'nodes:read' },
   { icon: Boxes, label: 'Services', path: ROUTES.SERVICES, permission: 'services:read' },
   { icon: Network, label: 'Networks', path: ROUTES.NETWORKS, permission: 'networks:read' },
+  { icon: Search, label: 'Discovery', path: ROUTES.DISCOVERY, permission: 'discovery:read' },
   { icon: FolderTree, label: 'Groups', path: ROUTES.GROUPS, permission: 'groups:read' },
   { icon: GitBranch, label: 'Topology', path: ROUTES.TOPOLOGY, permission: 'topologies:read' },
   { icon: History, label: 'Time Machine', path: ROUTES.TIME_MACHINE, permission: 'topologies:read' },

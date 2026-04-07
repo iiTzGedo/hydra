@@ -42,6 +42,8 @@ class CommandResponse(BaseModel):
     requested_by: Annotated[RequestedBy | None, Field(default=None, alias="requestedBy")]
     timeout_seconds: Annotated[int, Field(alias="timeoutSeconds")]
     retry_count: Annotated[int, Field(default=0, alias="retryCount")]
+    max_retries: Annotated[int, Field(default=0, alias="maxRetries")]
+    retried_from: Annotated[str | None, Field(default=None, alias="retriedFrom")]
     queue_position: Annotated[int | None, Field(default=None, alias="queuePosition")]
     chain: ChainReference | None = None
     created_at: Annotated[datetime, Field(alias="createdAt")]
@@ -127,6 +129,44 @@ class CommandResultSubmittedResponse(BaseModel):
     completed_at: Annotated[datetime, Field(alias="completedAt")]
 
     model_config = {"populate_by_name": True}
+
+
+class CommandRetriedResponse(BaseModel):
+    """Response when a command retry is created."""
+
+    command_id: Annotated[str, Field(alias="commandId", description="New retry command ID")]
+    original_command_id: Annotated[
+        str, Field(alias="originalCommandId", description="Original command being retried")
+    ]
+    retry_count: Annotated[int, Field(alias="retryCount", description="Current retry count")]
+    max_retries: Annotated[int, Field(alias="maxRetries", description="Maximum retries allowed")]
+    status: CommandStatus = CommandStatus.QUEUED
+
+    model_config = {"populate_by_name": True}
+
+
+class DryRunResponse(BaseModel):
+    """Response for a dry-run command preview."""
+
+    model_config = {"populate_by_name": True}
+
+    would_require_confirmation: Annotated[
+        bool, Field(alias="wouldRequireConfirmation")
+    ]
+    estimated_delivery_mode: Annotated[
+        str, Field(alias="estimatedDeliveryMode")
+    ]
+    target_node_tier: Annotated[
+        str | None, Field(default=None, alias="targetNodeTier")
+    ]
+    permission_check_passed: Annotated[
+        bool, Field(alias="permissionCheckPassed")
+    ]
+    rate_limit_ok: Annotated[bool, Field(alias="rateLimitOk")]
+    cooldown_ok: Annotated[bool, Field(alias="cooldownOk")]
+    danger_level: Annotated[str, Field(alias="dangerLevel")]
+    registry_id: Annotated[str, Field(alias="registryId")]
+    target_node_id: Annotated[str, Field(alias="targetNodeId")]
 
 
 class QueueStats(BaseModel):

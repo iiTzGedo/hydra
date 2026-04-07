@@ -250,6 +250,43 @@ export const queryKeys = {
       [...queryKeys.notifications.all, 'detail', notificationId] as const,
   },
 
+  dashboards: {
+    all: ['dashboards'] as const,
+    list: <T extends object = Record<string, unknown>>(params?: T) => {
+      if (params) {
+        return [...queryKeys.dashboards.all, 'list', params] as const;
+      }
+      return [...queryKeys.dashboards.all, 'list'] as const;
+    },
+    detail: (boardId: string) =>
+      [...queryKeys.dashboards.all, 'detail', boardId] as const,
+    widgetRegistry: (category?: string) => {
+      if (category) {
+        return [...queryKeys.dashboards.all, 'widget-registry', category] as const;
+      }
+      return [...queryKeys.dashboards.all, 'widget-registry'] as const;
+    },
+  },
+
+  discovery: {
+    all: ['discovery'] as const,
+    scans: <T extends object = Record<string, unknown>>(params?: T) => {
+      if (params) {
+        return [...queryKeys.discovery.all, 'scans', params] as const;
+      }
+      return [...queryKeys.discovery.all, 'scans'] as const;
+    },
+    scan: (scanId: string) => [...queryKeys.discovery.all, 'scan', scanId] as const,
+    devices: <T extends object = Record<string, unknown>>(params?: T) => {
+      if (params) {
+        return [...queryKeys.discovery.all, 'devices', params] as const;
+      }
+      return [...queryKeys.discovery.all, 'devices'] as const;
+    },
+    device: (discoveryId: string) =>
+      [...queryKeys.discovery.all, 'device', discoveryId] as const,
+  },
+
   ai: {
     all: ['ai'] as const,
     models: () => [...queryKeys.ai.all, 'models'] as const,

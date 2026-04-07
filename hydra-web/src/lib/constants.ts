@@ -18,6 +18,7 @@ export const ROUTES = {
   SERVICE_DETAIL: '/services/:serviceId',
   NETWORKS: '/networks',
   NETWORK_DETAIL: '/networks/:networkId',
+  DISCOVERY: '/discovery',
   GROUPS: '/groups',
   GROUP_NEW: '/groups/new',
   GROUP_DETAIL: '/groups/:groupId',

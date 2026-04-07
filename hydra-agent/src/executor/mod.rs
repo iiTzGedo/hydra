@@ -7,6 +7,7 @@
 //! by only routing to known handler functions.
 
 pub mod agent_handler;
+pub mod network_handler;
 pub mod node_handler;
 pub mod process;
 pub mod service_handler;
@@ -99,6 +100,14 @@ impl CommandExecutor {
         let result = match cmd.command_type.as_str() {
             "service" => service_handler::execute(&cmd.action, &cmd.parameters, timeout_secs).await,
             "node" => node_handler::execute(&cmd.action, &cmd.parameters, timeout_secs).await,
+            "agent" if cmd.action == "network-scan" => {
+                network_handler::execute(
+                    &cmd.parameters,
+                    timeout_secs,
+                    self.config.clone(),
+                )
+                .await
+            }
             "agent" => {
                 agent_handler::execute(
                     &cmd.action,

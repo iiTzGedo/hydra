@@ -1,6 +1,6 @@
 """Built-in command definitions for the command registry.
 
-These 17 commands are seeded into the command_definitions collection on startup.
+These 18 commands are seeded into the command_definitions collection on startup.
 They match the spec in Phase 2 Technical Specification §4.2.2 and §5 (Controls).
 """
 
@@ -327,7 +327,7 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
         "audit": {"logLevel": "standard", "captureOutput": True, "sensitiveParameters": []},
         "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
     },
-    # ── Agent commands (6) ───────────────────────────────────────────────
+    # ── Agent commands (7) ───────────────────────────────────────────────
     {
         "registryId": "reg::agent::restart",
         "category": "agent",
@@ -457,6 +457,53 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
         "execution": {
             "handler": "agent_probe_network",
             "timeout": 120,
+            "deliveryMode": "poll_only",
+            "retryable": False,
+            "maxRetries": 0,
+        },
+        "rbac": {
+            "minimumRole": "operator",
+            "requiresConfirmation": False,
+            "confirmationMessage": None,
+            "dangerLevel": "low",
+            "controlPermission": "agent:control:probe-network",
+        },
+        "audit": {"logLevel": "standard", "captureOutput": True, "sensitiveParameters": []},
+        "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
+    },
+    {
+        "registryId": "reg::agent::network-scan",
+        "category": "agent",
+        "action": "network-scan",
+        "displayName": "Delegated Network Scan",
+        "description": "Execute a delegated discovery scan and return enriched host evidence",
+        "targetSchema": {"required": ["nodeId"]},
+        "parametersSchema": {
+            "properties": {
+                "scanId": {"type": "string", "description": "Discovery scan identifier"},
+                "targets": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "One or more CIDR targets to scan",
+                },
+                "methods": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Requested scan methods (arp, tcp_port, mdns, ssdp, snmp)",
+                },
+                "portTier": {
+                    "type": "string",
+                    "description": "Port tier to scan (tier1 or tier2)",
+                },
+                "includeIoTProtocols": {
+                    "type": "boolean",
+                    "description": "Include IoT-centric protocol hints in the results",
+                },
+            }
+        },
+        "execution": {
+            "handler": "agent_network_scan",
+            "timeout": 180,
             "deliveryMode": "poll_only",
             "retryable": False,
             "maxRetries": 0,

@@ -34,6 +34,11 @@ class CreateCommandRequest(BaseModel):
             description="Command timeout in seconds (overrides registry default)",
         ),
     ]
+    dry_run: bool = Field(
+        default=False,
+        alias="dryRun",
+        description="When true, validate and preview the command without executing it",
+    )
 
     model_config = {"populate_by_name": True}
 

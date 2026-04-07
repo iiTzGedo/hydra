@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { createTestQueryClient } from './msw/test-utils';
 import { useAuthStore } from '@/stores/auth-store';
 import { useChatCacheStore } from '@/stores/chat-cache-store';
+import { useDashboardStore } from '@/stores/dashboard-store';
 import { useTopologyStore } from '@/stores/topology-store';
 import { useUiStore } from '@/stores/ui-store';
 import type { User } from '@/types/auth';
@@ -31,6 +32,13 @@ export function resetTestStores() {
   useChatCacheStore.setState({
     messageCache: {},
     contextCache: {},
+  });
+
+  useDashboardStore.setState({
+    timeRange: 'last24h',
+    customTimeRange: null,
+    activeBoardId: null,
+    isEditMode: false,
   });
 
   useUiStore.setState({

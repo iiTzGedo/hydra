@@ -31,11 +31,13 @@ from hydra.api.v1.models.commands import (
     CommandResponse,
     CommandResult,
     CommandResultSubmittedResponse,
+    CommandRetriedResponse,
     CommandSource,
     CommandStatus,
     CommandSummary,
     CommandType,
     CreateCommandRequest,
+    DryRunResponse,
     QueueFlushRequest,
     QueueFlushResponse,
     QueueStats,
@@ -160,7 +162,7 @@ async def get_command_definition(
 
 @router.post(
     "",
-    response_model=SuccessResponse[CommandQueuedResponse],
+    response_model=SuccessResponse[CommandQueuedResponse | DryRunResponse],
     response_model_by_alias=True,
     summary="Execute Command",
     description="""Submit a command for execution on a target node.
@@ -170,7 +172,8 @@ Dispatch is tier-aware:
 - **Normal tier**: Queued for poll-based execution (202 Accepted).
 - **Max tier**: Attempted via direct HTTP call; falls back to queue on failure.
 
-Returns 200 for synchronous direct execution, 202 for queued execution.
+Set `dryRun=true` to validate the full execution path and receive a non-persisting preview.
+Returns 200 for dry-run previews or synchronous direct execution, 202 for queued execution.
 """,
     dependencies=[
         Depends(require_permission("commands:execute")),
@@ -188,6 +191,22 @@ async def create_command(
     user_role = get_authenticated_role(current_user)
     user_permissions = get_authenticated_permissions(current_user)
     client_id = get_authenticated_client_id(current_user)
+
+    # Dry-run: validate and preview without executing
+    if request.dry_run:
+        preview = await commands_service.dry_run_command(
+            request,
+            user_id=user_id,
+            user_role=user_role,
+            user_permissions=user_permissions,
+            source=source,
+            client_id=client_id,
+        )
+        dry_run_wrapped = SuccessResponse(data=preview)
+        return JSONResponse(
+            content=dry_run_wrapped.model_dump(by_alias=True, mode="json"),
+            status_code=200,
+        )
 
     command = await commands_service.create_command(
         request,
@@ -388,6 +407,8 @@ async def get_command(
             requested_by=command.get("requestedBy"),
             timeout_seconds=command["timeoutSeconds"],
             retry_count=command.get("retryCount", 0),
+            max_retries=command.get("maxRetries", 0),
+            retried_from=command.get("retriedFrom"),
             queue_position=command.get("queuePosition"),
             chain=command.get("chain"),
             created_at=command["createdAt"],
@@ -484,6 +505,54 @@ async def cancel_command(
             cancelled_at=result["cancelledAt"],
             cancelled_by=result.get("cancelledBy"),
         )
+    )
+
+
+@router.post(
+    "/{command_id}/retry",
+    response_model=SuccessResponse[CommandRetriedResponse],
+    response_model_by_alias=True,
+    status_code=202,
+    summary="Retry Command",
+    description="Retry a failed or timed-out command. Creates a new command linked to the original.",
+    dependencies=[
+        Depends(require_permission("commands:execute")),
+        Depends(require_trusted_write_origin()),
+    ],
+)
+async def retry_command(
+    command_id: str,
+    commands_service: CommandsServiceDep,
+    current_user: CurrentUser,
+) -> JSONResponse:
+    """Retry a failed or timed-out command."""
+    user_id = get_authenticated_user_id(current_user)
+    user_role = get_authenticated_role(current_user)
+    user_permissions = get_authenticated_permissions(current_user)
+    source = CommandSource(get_command_request_source(current_user))
+    client_id = get_authenticated_client_id(current_user)
+
+    result = await commands_service.retry_command(
+        command_id,
+        user_id=user_id,
+        user_role=user_role,
+        user_permissions=user_permissions,
+        source=source,
+        client_id=client_id,
+    )
+
+    response_data = CommandRetriedResponse(
+        command_id=result["commandId"],
+        original_command_id=result["retriedFrom"],
+        retry_count=result["retryCount"],
+        max_retries=result["maxRetries"],
+        status=CommandStatus(result["status"]),
+    )
+
+    wrapped = SuccessResponse(data=response_data)
+    return JSONResponse(
+        content=wrapped.model_dump(by_alias=True, mode="json"),
+        status_code=202,
     )
 
 

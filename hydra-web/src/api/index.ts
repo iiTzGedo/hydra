@@ -11,5 +11,7 @@ export * from './query';
 export * from './health';
 export * from './settings';
 export * from './commands';
+export * from './discovery';
+export * from './dashboards';
 export * from './ai';
 export * from './client';

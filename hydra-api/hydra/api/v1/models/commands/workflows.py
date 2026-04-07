@@ -62,6 +62,15 @@ class WorkflowStep(BaseModel):
     condition: str | None = Field(
         default=None, description="Optional condition expression"
     )
+    parallel_group: str | None = Field(
+        default=None,
+        alias="parallelGroup",
+        description="Steps with the same parallelGroup run concurrently",
+    )
+    compensation: dict[str, Any] | None = Field(
+        default=None,
+        description="Compensation command (registryId + parameters) to run on workflow abort",
+    )
 
     @field_validator("step_id")
     @classmethod

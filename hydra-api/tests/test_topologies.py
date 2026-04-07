@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import AsyncClient
 
+from hydra.api.v1.services.docs import DocsService
 from tests.utils import create_mock_cursor
 
 
@@ -320,6 +321,69 @@ async def test_generate_topology(
     )
 
     assert response.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_generate_topology_refreshes_linked_docs(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+    monkeypatch,
+):
+    """Topology generation refreshes docs for entities present in the graph."""
+    refresh_mock = AsyncMock(
+        return_value={
+            "flagged": 2,
+            "regenerated": 2,
+            "warningCount": 0,
+            "errors": 0,
+            "entityCount": 2,
+        }
+    )
+    monkeypatch.setattr(DocsService, "refresh_documents_for_entities", refresh_mock)
+
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.nodes.find.return_value = create_mock_cursor([
+        {
+            "nodeId": "node-01",
+            "class": "compute",
+            "type": "vm",
+            "displayName": "Node 01",
+            "status": "active",
+        }
+    ])
+    mock_mongodb.services.find.return_value = create_mock_cursor([
+        {
+            "serviceId": "svc-01",
+            "nodeId": "node-01",
+            "name": "nginx",
+            "displayName": "Nginx",
+            "runtime": "container",
+            "status": "running",
+        }
+    ])
+    mock_mongodb.networks.find.return_value = create_mock_cursor([])
+    mock_mongodb.topologies.find_one = AsyncMock(side_effect=[None, None])
+    mock_mongodb.topologies.insert_one = AsyncMock()
+    mock_mongodb.topologies.update_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/topologies/generate",
+        json={
+            "mode": "infrastructure",
+            "force": True,
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 201
+    refresh_mock.assert_awaited_once_with(
+        [("node", "node-01"), ("service", "svc-01")],
+        user_id="topology_generator",
+    )
 
 
 @pytest.mark.asyncio

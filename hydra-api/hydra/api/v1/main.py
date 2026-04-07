@@ -19,6 +19,8 @@ from hydra.api.v1.routers import (
     auth,
     chat,
     commands,
+    dashboards,
+    discovery,
     docs,
     groups,
     ha,
@@ -212,6 +214,7 @@ def create_app() -> FastAPI:
     app.include_router(commands.catalog_router)
     app.include_router(commands.nodes_commands_router)
     app.include_router(workflows.router)
+    app.include_router(dashboards.router)
     app.include_router(docs.router)
     app.include_router(query.router)
     app.include_router(ha.router)
@@ -221,6 +224,7 @@ def create_app() -> FastAPI:
     # Note: chat_ws.router and notifications_ws.router are included at root app level for WebSocket compatibility
     app.include_router(mcp.router)
     app.include_router(notifications.router)
+    app.include_router(discovery.router)
     app.include_router(search.router)
     app.include_router(settings_router.router)
 

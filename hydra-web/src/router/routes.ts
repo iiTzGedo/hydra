@@ -20,6 +20,7 @@ const ServiceDetailPage = lazy(() => import('@/pages/services/[serviceId]'));
 
 const NetworksPage = lazy(() => import('@/pages/networks'));
 const NetworkDetailPage = lazy(() => import('@/pages/networks/[networkId]'));
+const DiscoveryPage = lazy(() => import('@/pages/discovery'));
 
 const GroupsPage = lazy(() => import('@/pages/groups'));
 const GroupDetailPage = lazy(() => import('@/pages/groups/[groupId]'));
@@ -154,6 +155,15 @@ export const appRoutes: RouteConfig[] = [
     title: 'Network Details',
     requiresAuth: true,
     permissions: ['networks:read'],
+  },
+  {
+    path: ROUTES.DISCOVERY,
+    element: DiscoveryPage,
+    title: 'Discovery',
+    requiresAuth: true,
+    permissions: ['discovery:read'],
+    showInNav: true,
+    navIcon: 'Search',
   },
   {
     path: ROUTES.GROUPS,

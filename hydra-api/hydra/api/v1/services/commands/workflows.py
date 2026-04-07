@@ -1,9 +1,12 @@
 """Workflow service for managing command chain definitions and executions."""
 
+import ast
 import asyncio
 import contextlib
+import re
 from collections import defaultdict
 from datetime import UTC, datetime
+from itertools import groupby
 from typing import Any
 from uuid import uuid4
 
@@ -33,6 +36,240 @@ from hydra.db.mongodb import MongoDB
 logger = structlog.get_logger(__name__)
 
 
+# ── Safe Condition Evaluator ────────────────────────────────────────────
+
+
+# Whitelisted AST node types for condition expressions
+_ALLOWED_AST_NODES = (
+    ast.Expression,
+    ast.BoolOp,
+    ast.And,
+    ast.Or,
+    ast.UnaryOp,
+    ast.Not,
+    ast.Compare,
+    ast.Eq,
+    ast.NotEq,
+    ast.Lt,
+    ast.LtE,
+    ast.Gt,
+    ast.GtE,
+    ast.Constant,
+    ast.Attribute,
+    ast.Name,
+    # Context nodes attached to Name/Attribute by the parser
+    ast.Load,
+)
+
+
+def _validate_condition_ast(node: ast.AST) -> None:
+    """Recursively validate that all AST nodes are whitelisted.
+
+    Raises ValidationError for any disallowed node type (function calls,
+    imports, subscripts, assignments, lambdas, etc.).
+    """
+    if not isinstance(node, _ALLOWED_AST_NODES):
+        raise ValidationError(
+            f"Unsafe expression node type '{type(node).__name__}' in condition. "
+            "Only comparisons, boolean operators, literals, and "
+            "steps.<stepId>.status / steps.<stepId>.output.<field> are allowed."
+        )
+    for child in ast.iter_child_nodes(node):
+        _validate_condition_ast(child)
+
+
+def _resolve_attribute_chain(node: ast.AST) -> list[str]:
+    """Resolve a dotted attribute chain like ``steps.step1.status`` into
+    ``['steps', 'step1', 'status']``.
+
+    Returns an empty list for non-attribute / non-name nodes so the caller
+    can decide whether to reject.
+    """
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    parts.reverse()
+    return parts
+
+
+def _resolve_value(parts: list[str], context: dict[str, Any]) -> Any:
+    """Resolve a dotted path against the step-results context.
+
+    Supported patterns:
+    - ``steps.<stepId>.status``   -> str
+    - ``steps.<stepId>.output.<field>`` -> Any
+    """
+    if len(parts) < 3 or parts[0] != "steps":
+        raise ValidationError(
+            f"Invalid variable reference '{ '.'.join(parts)}'. "
+            "Only 'steps.<stepId>.status' and 'steps.<stepId>.output.<field>' are allowed."
+        )
+    step_id = parts[1]
+    step_data = context.get(step_id)
+    if step_data is None:
+        # Step has not executed yet – treat as None
+        return None
+    remainder = parts[2:]
+    if remainder == ["status"]:
+        return step_data.get("status")
+    if len(remainder) >= 2 and remainder[0] == "output":
+        output = step_data.get("output", {}) or {}
+        cur: Any = output
+        for key in remainder[1:]:
+            if isinstance(cur, dict):
+                cur = cur.get(key)
+            else:
+                return None
+        return cur
+    raise ValidationError(
+        f"Invalid variable reference '{ '.'.join(parts)}'. "
+        "Only 'steps.<stepId>.status' and 'steps.<stepId>.output.<field>' are allowed."
+    )
+
+
+def _safe_ordered_compare(left: Any, right: Any, operator: str) -> bool:
+    """Evaluate ordered comparisons and fail closed on runtime type issues."""
+    try:
+        if operator == "<":
+            return bool(left < right)
+        if operator == "<=":
+            return bool(left <= right)
+        if operator == ">":
+            return bool(left > right)
+        if operator == ">=":
+            return bool(left >= right)
+    except TypeError:
+        return False
+    raise ValidationError(f"Unsupported comparison operator: {operator}")
+
+
+def _eval_node(node: ast.AST, context: dict[str, Any]) -> Any:
+    """Evaluate a single AST node against the step-results context."""
+    if isinstance(node, ast.Expression):
+        return _eval_node(node.body, context)
+
+    if isinstance(node, ast.Constant):
+        return node.value
+
+    if isinstance(node, ast.Name):
+        # Bare name – must be part of an attribute chain, but if we get
+        # here it's a standalone reference like ``True`` / ``False`` /
+        # ``None`` which Python parses as Constant in 3.12+.  For safety,
+        # treat unknown bare names as references.
+        parts = [node.id]
+        return _resolve_value(parts, context)
+
+    if isinstance(node, ast.Attribute):
+        parts = _resolve_attribute_chain(node)
+        return _resolve_value(parts, context)
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return not _eval_node(node.operand, context)
+
+    if isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            return all(_eval_node(v, context) for v in node.values)
+        if isinstance(node.op, ast.Or):
+            return any(_eval_node(v, context) for v in node.values)
+
+    if isinstance(node, ast.Compare):
+        left = _eval_node(node.left, context)
+        for op, comparator in zip(node.ops, node.comparators, strict=False):
+            right = _eval_node(comparator, context)
+            if isinstance(op, ast.Eq):
+                if left != right:
+                    return False
+            elif isinstance(op, ast.NotEq):
+                if left == right:
+                    return False
+            elif isinstance(op, ast.Lt):
+                if not _safe_ordered_compare(left, right, "<"):
+                    return False
+            elif isinstance(op, ast.LtE):
+                if not _safe_ordered_compare(left, right, "<="):
+                    return False
+            elif isinstance(op, ast.Gt):
+                if not _safe_ordered_compare(left, right, ">"):
+                    return False
+            elif isinstance(op, ast.GtE):
+                if not _safe_ordered_compare(left, right, ">="):
+                    return False
+            else:
+                raise ValidationError(f"Unsupported comparison operator: {type(op).__name__}")
+            left = right
+        return True
+
+    raise ValidationError(f"Unsupported AST node: {type(node).__name__}")
+
+
+# Regex to find step ID references like ``steps.<stepId>.`` where stepId may
+# contain hyphens, dots, or other characters that are invalid in Python identifiers.
+_STEP_REF_RE = re.compile(r"steps\.([a-zA-Z0-9_\-]+)\.")
+
+
+def _normalize_expression(
+    expression: str, context: dict[str, Any]
+) -> tuple[str, dict[str, Any]]:
+    """Rewrite step IDs that contain non-identifier characters so the
+    expression is valid Python syntax.
+
+    Returns the rewritten expression and a new context dict keyed by the
+    normalized step IDs.
+    """
+    mapping: dict[str, str] = {}  # original -> normalized
+
+    def _replacer(m: re.Match[str]) -> str:
+        original_id = m.group(1)
+        if original_id.isidentifier():
+            return m.group(0)
+        safe_id = original_id.replace("-", "_h_").replace(".", "_d_")
+        if not safe_id.isidentifier():
+            safe_id = f"_s_{safe_id}"
+        mapping[original_id] = safe_id
+        return f"steps.{safe_id}."
+
+    normalized_expr = _STEP_REF_RE.sub(_replacer, expression)
+
+    # Build a normalized context
+    normalized_ctx: dict[str, Any] = {}
+    for key, value in context.items():
+        normalized_key = mapping.get(key, key)
+        normalized_ctx[normalized_key] = value
+
+    return normalized_expr, normalized_ctx
+
+
+def evaluate_condition(expression: str, context: dict[str, Any]) -> bool:
+    """Parse and safely evaluate a workflow condition expression.
+
+    Args:
+        expression: A condition string, e.g.
+            ``steps.step1.status == 'completed'`` or
+            ``steps.step-1.status == 'completed'``
+        context: A dict mapping step IDs to their result dicts,
+            each containing at minimum ``{"status": ..., "output": ...}``.
+
+    Returns:
+        True if the condition is met, False otherwise.
+
+    Raises:
+        ValidationError: If the expression contains disallowed constructs.
+    """
+    normalized_expr, normalized_ctx = _normalize_expression(expression, context)
+
+    try:
+        tree = ast.parse(normalized_expr, mode="eval")
+    except SyntaxError as exc:
+        raise ValidationError(f"Invalid condition syntax: {exc}") from exc
+
+    _validate_condition_ast(tree)
+    result = _eval_node(tree, normalized_ctx)
+    return bool(result)
+
+
 class WorkflowService:
     """Service for managing workflow definitions and executions."""
 
@@ -43,17 +280,24 @@ class WorkflowService:
         self.commands_service = CommandsService(mongodb)
 
     def _validate_unsupported_step_features(self, steps: list[Any]) -> None:
-        """Reject workflow features that are still explicitly out of scope."""
+        """Validate advanced step features (conditions, compensation).
+
+        Conditions are parsed through the safe AST evaluator at definition
+        time so that obviously invalid expressions are rejected early.
+        """
         for step in steps:
             condition = step.condition if hasattr(step, "condition") else step.get("condition")
-            step_id = step.step_id if hasattr(step, "step_id") else step.get("stepId")
             if condition is not None:
-                raise ValidationError(
-
-                        f"Workflow step '{step_id}' uses unsupported 'condition' logic. "
-                        "Conditional workflow execution is not implemented in this phase."
-
-                )
+                # Validate the expression is parseable and safe at definition time
+                normalized_expr, _ = _normalize_expression(condition, {})
+                try:
+                    tree = ast.parse(normalized_expr, mode="eval")
+                except SyntaxError as exc:
+                    step_id = step.step_id if hasattr(step, "step_id") else step.get("stepId")
+                    raise ValidationError(
+                        f"Workflow step '{step_id}' has invalid condition syntax: {exc}"
+                    ) from exc
+                _validate_condition_ast(tree)
 
     # ── Workflow CRUD ────────────────────────────────────────────────────
 
@@ -103,6 +347,8 @@ class WorkflowService:
                     "onFailure": s.on_failure.value,
                     "maxRetries": s.max_retries,
                     "condition": s.condition,
+                    "parallelGroup": s.parallel_group,
+                    "compensation": s.compensation,
                 }
                 for s in request.steps
             ],
@@ -187,6 +433,8 @@ class WorkflowService:
                     "onFailure": s.on_failure.value,
                     "maxRetries": s.max_retries,
                     "condition": s.condition,
+                    "parallelGroup": s.parallel_group,
+                    "compensation": s.compensation,
                 }
                 for s in request.steps
             ]
@@ -398,15 +646,31 @@ class WorkflowService:
         client_id: str | None,
         request: ExecuteWorkflowRequest | None,  # noqa: ARG002
     ) -> None:
-        """Orchestrate workflow step execution in topological order."""
+        """Orchestrate workflow step execution in topological order.
+
+        Supports:
+        - Conditional branching via ``condition`` expressions
+        - Parallel execution of steps sharing the same ``parallelGroup``
+        - Compensation handlers executed on abort in reverse completion order
+        """
         chain_id = workflow["chainId"]
         steps = workflow["steps"]
         execution_order = self._topological_sort(steps)
+        step_map = {s["stepId"]: s for s in steps}
         step_index_map = {sid: i for i, sid in enumerate(execution_order)}
         completed_steps: dict[str, bool] = {}  # step_id -> success
+        # Track successful step IDs in completion order for compensation
+        successful_step_ids: list[str] = []
+        # Track step results for condition evaluation context
+        step_results: dict[str, dict[str, Any]] = {}
         has_failure = False
 
-        for step_id in execution_order:
+        # Group topological order into batches: consecutive steps with the
+        # same parallelGroup are grouped together; steps with None group
+        # form single-step batches.
+        batches = self._build_execution_batches(execution_order, step_map)
+
+        for batch in batches:
             # Re-check execution status (may have been cancelled)
             execution = await self.workflow_executions.find_one(
                 {"executionId": execution_id}
@@ -414,99 +678,69 @@ class WorkflowService:
             if not execution or execution["status"] == WorkflowExecutionStatus.CANCELLED.value:
                 return
 
-            step = next(s for s in steps if s["stepId"] == step_id)
-
-            # Check if dependencies are met
-            deps_ok = all(
-                completed_steps.get(dep, False) for dep in step.get("dependsOn", [])
-            )
-
-            on_failure = step.get("onFailure", "abort")
-
-            if not deps_ok and on_failure == "abort":
-                # Skip this step and mark as failed
-                await self._update_step_status(
-                    execution_id, step_id, "failed",
-                    error="Dependency step failed",
+            if len(batch) == 1:
+                # Single step – execute sequentially
+                step_id = batch[0]
+                abort = await self._execute_single_step(
+                    execution_id=execution_id,
+                    chain_id=chain_id,
+                    step_id=step_id,
+                    step_map=step_map,
+                    step_index_map=step_index_map,
+                    completed_steps=completed_steps,
+                    successful_step_ids=successful_step_ids,
+                    step_results=step_results,
+                    has_failure_ref=[has_failure],
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_permissions=user_permissions,
+                    source=source,
+                    client_id=client_id,
+                    steps=steps,
                 )
-                completed_steps[step_id] = False
-                has_failure = True
-                continue
-            elif not deps_ok and on_failure == "continue":
-                await self._update_step_status(
-                    execution_id, step_id, "skipped",
-                    error="Dependency step failed (continue policy)",
-                )
-                completed_steps[step_id] = False
-                continue
-
-            # Execute the step
-            outcome = await self._execute_step(
-                execution_id,
-                chain_id,
-                step,
-                step_index_map[step_id],
-                user_id,
-                user_role,
-                user_permissions,
-                source,
-                client_id,
-            )
-            if outcome == "cancelled":
-                return
-
-            success = outcome == "completed"
-            completed_steps[step_id] = success
-
-            if not success:
-                has_failure = True
-                max_retries = step.get("maxRetries", 0)
-                retry_count = 0
-
-                # Retry logic
-                if on_failure == "retry" and max_retries > 0:
-                    while retry_count < max_retries and not success:
-                        retry_count += 1
-                        logger.info(
-                            "workflow_step_retry",
-                            execution_id=execution_id,
-                            step_id=step_id,
-                            attempt=retry_count,
-                        )
-                        await self._update_step_retry(
-                            execution_id, step_id, retry_count
-                        )
-                        outcome = await self._execute_step(
-                            execution_id,
-                            chain_id,
-                            step,
-                            step_index_map[step_id],
-                            user_id,
-                            user_role,
-                            user_permissions,
-                            source,
-                            client_id,
-                        )
-                        if outcome == "cancelled":
-                            return
-                        success = outcome == "completed"
-                        completed_steps[step_id] = success
-
-                if not success and on_failure == "abort":
-                    # Mark remaining steps as cancelled and fail the workflow
-                    remaining = [
-                        s["stepId"]
-                        for s in steps
-                        if s["stepId"] not in completed_steps
-                    ]
-                    for rem_id in remaining:
-                        await self._update_step_status(
-                            execution_id, rem_id, "cancelled"
-                        )
-
+                has_failure = abort.get("has_failure", has_failure)
+                if abort.get("cancelled"):
+                    return
+                if abort.get("abort"):
+                    await self._run_compensation(
+                        execution_id, chain_id, successful_step_ids,
+                        step_map, step_index_map, user_id, user_role,
+                        user_permissions, source, client_id,
+                    )
                     await self._finish_execution(
-                        execution_id,
-                        WorkflowExecutionStatus.FAILED,
+                        execution_id, WorkflowExecutionStatus.FAILED,
+                    )
+                    return
+            else:
+                # Parallel group – execute concurrently
+                abort_result = await self._execute_parallel_batch(
+                    execution_id=execution_id,
+                    chain_id=chain_id,
+                    batch=batch,
+                    step_map=step_map,
+                    step_index_map=step_index_map,
+                    completed_steps=completed_steps,
+                    successful_step_ids=successful_step_ids,
+                    step_results=step_results,
+                    has_failure_ref=[has_failure],
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_permissions=user_permissions,
+                    source=source,
+                    client_id=client_id,
+                    steps=steps,
+                )
+                has_failure = abort_result.get("has_failure", has_failure)
+                if abort_result.get("cancelled"):
+                    return
+                if abort_result.get("abort"):
+                    await self._run_compensation(
+                        execution_id, chain_id, successful_step_ids,
+                        step_map, step_index_map, user_id, user_role,
+                        user_permissions, source, client_id,
+                    )
+                    await self._finish_execution(
+                        execution_id, WorkflowExecutionStatus.FAILED,
                     )
                     return
 
@@ -523,6 +757,289 @@ class WorkflowService:
             return
 
         await self._finish_execution(execution_id, final_status)
+
+    async def _execute_single_step(
+        self,
+        *,
+        execution_id: str,
+        chain_id: str,
+        step_id: str,
+        step_map: dict[str, dict[str, Any]],
+        step_index_map: dict[str, int],
+        completed_steps: dict[str, bool],
+        successful_step_ids: list[str],
+        step_results: dict[str, dict[str, Any]],
+        has_failure_ref: list[bool],
+        user_id: str | None,
+        user_role: str | None,
+        user_permissions: list[str] | None,
+        source: CommandSource,
+        client_id: str | None,
+        steps: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Execute a single step with condition evaluation, dependency checks,
+        retry logic, and abort handling.
+
+        Returns a dict with keys: ``cancelled``, ``abort``, ``has_failure``.
+        """
+        step = step_map[step_id]
+        has_failure = has_failure_ref[0]
+
+        # Check dependencies
+        deps_ok = all(
+            completed_steps.get(dep, False) for dep in step.get("dependsOn", [])
+        )
+        on_failure = step.get("onFailure", "abort")
+
+        if not deps_ok and on_failure == "abort":
+            await self._update_step_status(
+                execution_id, step_id, "failed",
+                error="Dependency step failed",
+            )
+            completed_steps[step_id] = False
+            return {"cancelled": False, "abort": False, "has_failure": True}
+        elif not deps_ok and on_failure == "continue":
+            await self._update_step_status(
+                execution_id, step_id, "skipped",
+                error="Dependency step failed (continue policy)",
+            )
+            completed_steps[step_id] = False
+            return {"cancelled": False, "abort": False, "has_failure": True}
+
+        # Evaluate condition (if present)
+        condition = step.get("condition")
+        if condition is not None:
+            try:
+                condition_met = evaluate_condition(condition, step_results)
+            except Exception:
+                logger.warning(
+                    "workflow_condition_failed_closed",
+                    execution_id=execution_id,
+                    step_id=step_id,
+                    condition=condition,
+                    exc_info=True,
+                )
+                condition_met = False
+            if not condition_met:
+                await self._update_step_status(
+                    execution_id, step_id, "skipped",
+                    error="Condition not met",
+                )
+                step_results[step_id] = {"status": "skipped", "output": None}
+                completed_steps[step_id] = True  # Skipped is not a failure
+                return {"cancelled": False, "abort": False, "has_failure": has_failure}
+
+        # Execute
+        outcome = await self._execute_step(
+            execution_id, chain_id, step, step_index_map[step_id],
+            user_id, user_role, user_permissions, source, client_id,
+        )
+        if outcome == "cancelled":
+            return {"cancelled": True, "abort": False, "has_failure": has_failure}
+
+        success = outcome == "completed"
+        completed_steps[step_id] = success
+
+        # Build result context for conditions
+        exec_doc = await self.workflow_executions.find_one({"executionId": execution_id})
+        step_exec = next(
+            (s for s in (exec_doc or {}).get("steps", []) if s["stepId"] == step_id),
+            None,
+        )
+        step_results[step_id] = {
+            "status": step_exec["status"] if step_exec else outcome,
+            "output": step_exec.get("result") if step_exec else None,
+        }
+
+        if success:
+            successful_step_ids.append(step_id)
+
+        if not success:
+            has_failure = True
+            max_retries = step.get("maxRetries", 0)
+            retry_count = 0
+
+            if on_failure == "retry" and max_retries > 0:
+                while retry_count < max_retries and not success:
+                    retry_count += 1
+                    logger.info(
+                        "workflow_step_retry",
+                        execution_id=execution_id,
+                        step_id=step_id,
+                        attempt=retry_count,
+                    )
+                    await self._update_step_retry(execution_id, step_id, retry_count)
+                    outcome = await self._execute_step(
+                        execution_id, chain_id, step, step_index_map[step_id],
+                        user_id, user_role, user_permissions, source, client_id,
+                    )
+                    if outcome == "cancelled":
+                        return {"cancelled": True, "abort": False, "has_failure": has_failure}
+                    success = outcome == "completed"
+                    completed_steps[step_id] = success
+                    if success:
+                        successful_step_ids.append(step_id)
+
+            if not success and on_failure == "abort":
+                remaining = [
+                    s["stepId"] for s in steps if s["stepId"] not in completed_steps
+                ]
+                for rem_id in remaining:
+                    await self._update_step_status(execution_id, rem_id, "cancelled")
+                return {"cancelled": False, "abort": True, "has_failure": True}
+
+        return {"cancelled": False, "abort": False, "has_failure": has_failure}
+
+    async def _execute_parallel_batch(
+        self,
+        *,
+        execution_id: str,
+        chain_id: str,
+        batch: list[str],
+        step_map: dict[str, dict[str, Any]],
+        step_index_map: dict[str, int],
+        completed_steps: dict[str, bool],
+        successful_step_ids: list[str],
+        step_results: dict[str, dict[str, Any]],
+        has_failure_ref: list[bool],
+        user_id: str | None,
+        user_role: str | None,
+        user_permissions: list[str] | None,
+        source: CommandSource,
+        client_id: str | None,
+        steps: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Execute a batch of parallel steps concurrently via asyncio.gather.
+
+        Returns a dict with keys: ``cancelled``, ``abort``, ``has_failure``.
+        """
+        has_failure = has_failure_ref[0]
+
+        async def _run_one(sid: str) -> dict[str, Any]:
+            return await self._execute_single_step(
+                execution_id=execution_id,
+                chain_id=chain_id,
+                step_id=sid,
+                step_map=step_map,
+                step_index_map=step_index_map,
+                completed_steps=completed_steps,
+                successful_step_ids=successful_step_ids,
+                step_results=step_results,
+                has_failure_ref=has_failure_ref,
+                user_id=user_id,
+                user_role=user_role,
+                user_permissions=user_permissions,
+                source=source,
+                client_id=client_id,
+                steps=steps,
+            )
+
+        results = await asyncio.gather(*[_run_one(sid) for sid in batch])
+
+        any_cancelled = any(r.get("cancelled") for r in results)
+        any_abort = any(r.get("abort") for r in results)
+        any_failure = any(r.get("has_failure") for r in results)
+
+        return {
+            "cancelled": any_cancelled,
+            "abort": any_abort,
+            "has_failure": has_failure or any_failure,
+        }
+
+    def _build_execution_batches(
+        self,
+        execution_order: list[str],
+        step_map: dict[str, dict[str, Any]],
+    ) -> list[list[str]]:
+        """Group the topological execution order into batches.
+
+        Consecutive steps with the same non-None ``parallelGroup`` are
+        grouped together.  Steps without a ``parallelGroup`` (or with a
+        unique group) form single-element batches.
+        """
+        batches: list[list[str]] = []
+        for key, group_iter in groupby(
+            execution_order,
+            key=lambda sid: step_map[sid].get("parallelGroup"),
+        ):
+            group_list = list(group_iter)
+            if key is None:
+                # No parallel group – each step is its own batch
+                for sid in group_list:
+                    batches.append([sid])
+            else:
+                # All steps in this run share a parallelGroup
+                batches.append(group_list)
+        return batches
+
+    async def _run_compensation(
+        self,
+        execution_id: str,
+        chain_id: str,
+        successful_step_ids: list[str],
+        step_map: dict[str, dict[str, Any]],
+        step_index_map: dict[str, int],
+        user_id: str | None,
+        user_role: str | None,
+        user_permissions: list[str] | None,
+        source: CommandSource,
+        client_id: str | None,
+    ) -> None:
+        """Run compensation handlers in reverse completion order.
+
+        Only steps that completed successfully AND have a ``compensation``
+        field are compensated.  Compensation failures are logged but do
+        not block the compensation chain.
+        """
+        # Reverse order – most recently completed first
+        for step_id in reversed(successful_step_ids):
+            step = step_map.get(step_id, {})
+            compensation = step.get("compensation")
+            if not compensation:
+                continue
+
+            registry_id = compensation.get("registryId")
+            if not registry_id:
+                continue
+
+            logger.info(
+                "workflow_compensation_start",
+                execution_id=execution_id,
+                step_id=step_id,
+                registry_id=registry_id,
+            )
+
+            try:
+                comp_target = step.get("target", {})
+                comp_step = {
+                    "stepId": f"comp_{step_id}",
+                    "registryId": registry_id,
+                    "target": comp_target,
+                    "parameters": compensation.get("parameters"),
+                }
+                await self._execute_step(
+                    execution_id=execution_id,
+                    chain_id=chain_id,
+                    step=comp_step,
+                    step_index=step_index_map.get(step_id, 0),
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_permissions=user_permissions,
+                    source=source,
+                    client_id=client_id,
+                )
+                logger.info(
+                    "workflow_compensation_completed",
+                    execution_id=execution_id,
+                    step_id=step_id,
+                )
+            except Exception:
+                logger.warning(
+                    "workflow_compensation_failed",
+                    execution_id=execution_id,
+                    step_id=step_id,
+                    exc_info=True,
+                )
 
     async def _execute_step(
         self,
@@ -788,6 +1305,32 @@ class WorkflowService:
 
         for step in steps:
             dfs(step.step_id)
+
+        # Validate that no step depends on another step within the same
+        # parallelGroup.  Steps sharing a parallel group execute concurrently
+        # via asyncio.gather, so intra-group dependencies would be violated.
+        parallel_groups: dict[str, set[str]] = defaultdict(set)
+        for step in steps:
+            pg = step.parallel_group if hasattr(step, "parallel_group") else step.get("parallelGroup")
+            if pg is not None:
+                sid = step.step_id if hasattr(step, "step_id") else step.get("stepId")
+                parallel_groups[pg].add(sid)
+
+        for step in steps:
+            pg = step.parallel_group if hasattr(step, "parallel_group") else step.get("parallelGroup")
+            if pg is None:
+                continue
+            sid = step.step_id if hasattr(step, "step_id") else step.get("stepId")
+            deps = step.depends_on if hasattr(step, "depends_on") else step.get("dependsOn", [])
+            group_members = parallel_groups[pg]
+            conflicting = set(deps) & group_members
+            if conflicting:
+                raise ValidationError(
+                    f"Step '{sid}' depends on {sorted(conflicting)} which are in "
+                    f"the same parallelGroup '{pg}'. Steps in the same parallel "
+                    f"group execute concurrently, so intra-group dependencies "
+                    f"are not allowed."
+                )
 
     def _topological_sort(self, steps: list[dict[str, Any]]) -> list[str]:
         """Return step IDs in topological execution order."""

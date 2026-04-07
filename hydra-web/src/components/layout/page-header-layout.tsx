@@ -81,7 +81,7 @@ export function PageHeaderLayout({
 
   // Check if we're on a top-level page (no need for back button on dashboard, nodes list, etc.)
   const isTopLevelPage = typeof window !== 'undefined' && 
-    ['/', '/dashboard', '/nodes', '/services', '/networks', '/groups', '/topology', '/time-machine', '/timemachine', '/chat', '/notifications', '/settings', '/profile'].includes(window.location.pathname);
+    ['/', '/dashboard', '/nodes', '/services', '/networks', '/discovery', '/groups', '/topology', '/time-machine', '/timemachine', '/chat', '/notifications', '/settings', '/profile'].includes(window.location.pathname);
 
   const shouldShowBackButton = showBackButton && !isTopLevelPage;
 
