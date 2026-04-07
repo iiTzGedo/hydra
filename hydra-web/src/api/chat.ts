@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-client';
 import { useChatCacheStore } from '@/stores/chat-cache-store';
 
 export interface ChatProjectResponse {
@@ -125,20 +126,7 @@ export interface ChatBulkUpsertResponse {
   sessionId: string;
 }
 
-const chatKeys = {
-  all: ['chat'] as const,
-  projects: () => [...chatKeys.all, 'projects'] as const,
-  projectDetail: (id: string) => [...chatKeys.all, 'project', id] as const,
-  sessions: (projectId?: string) => {
-    if (projectId) {
-      return [...chatKeys.all, 'sessions', projectId] as const;
-    }
-    return [...chatKeys.all, 'sessions'] as const;
-  },
-  sessionDetail: (id: string) => [...chatKeys.all, 'session', id] as const,
-  sessionContext: (id: string) => [...chatKeys.all, 'session-context', id] as const,
-  messages: (sessionId: string) => [...chatKeys.all, 'messages', sessionId] as const,
-};
+const chatKeys = queryKeys.chat;
 
 export function useChatProjects(params?: { limit?: number; offset?: number }) {
   return useQuery({

@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class QueryCollection(StrEnum):
@@ -76,7 +76,7 @@ class CapacitySummary(BaseModel):
     total_memory_gb: Annotated[float, Field(alias="totalMemoryGB")]
     total_storage_tb: Annotated[float, Field(alias="totalStorageTB")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ClassCapacity(BaseModel):
@@ -87,7 +87,7 @@ class ClassCapacity(BaseModel):
     memory_gb: Annotated[float | None, Field(default=None, alias="memoryGB")]
     storage_tb: Annotated[float | None, Field(default=None, alias="storageTB")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LocationCapacity(BaseModel):
@@ -97,7 +97,7 @@ class LocationCapacity(BaseModel):
     cores: int | None = None
     memory_gb: Annotated[float | None, Field(default=None, alias="memoryGB")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CapacityResponse(BaseModel):
@@ -107,7 +107,7 @@ class CapacityResponse(BaseModel):
     by_class: Annotated[dict[str, ClassCapacity] | None, Field(default=None, alias="byClass")]
     by_location: Annotated[dict[str, LocationCapacity] | None, Field(default=None, alias="byLocation")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class AuditResource(BaseModel):
@@ -143,7 +143,7 @@ class AuditEntry(BaseModel):
     details: dict[str, Any] | None = None
     result: AuditResult
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class AuditListParams(BaseModel):
@@ -155,7 +155,7 @@ class AuditListParams(BaseModel):
     actor_id: str | None = Field(default=None, alias="actorId")
     since: datetime | None = None
     until: datetime | None = None
-    limit: int = Field(default=100, ge=1, le=500)
+    limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

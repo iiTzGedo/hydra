@@ -47,7 +47,6 @@ export function useRegister() {
 
 export function useLogout() {
   const logout = useAuthStore((state) => state.logout);
-  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async () => {
@@ -55,7 +54,6 @@ export function useLogout() {
     },
     onSuccess: () => {
       logout();
-      queryClient.clear();
     },
   });
 }

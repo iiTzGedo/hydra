@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from hydra.api.v1.core.validators import (
     NODE_ID_PATTERN_NEW,
@@ -29,7 +29,7 @@ class RefreshTokenRequest(BaseModel):
 
     refresh_token: str = Field(alias="refreshToken")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UserRegistrationRequest(BaseModel):
@@ -50,7 +50,7 @@ class UserRegistrationRequest(BaseModel):
         description="Admin-provided token for instant activation",
     )
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     @model_validator(mode="after")
     def validate_registration_fields(self) -> "UserRegistrationRequest":
@@ -106,7 +106,7 @@ class CreateRegistrationTokenRequest(BaseModel):
         description="Restrict token to specific roles (only for user scope)",
     )
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("allowed_roles")
     @classmethod
@@ -136,7 +136,7 @@ class NodeRegistrationRequest(BaseModel):
     server_port: int | None = Field(default=None, alias="serverPort", ge=1, le=65535)
     server_tls_enabled: bool | None = Field(default=None, alias="serverTlsEnabled")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("node_id")
     @classmethod
@@ -203,7 +203,7 @@ class CreateApiKeyRequest(BaseModel):
     permissions: list[str] = Field(default_factory=list)
     expires_at: datetime | None = Field(default=None, alias="expiresAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CreateUserRequest(BaseModel):
@@ -216,7 +216,7 @@ class CreateUserRequest(BaseModel):
     permissions: list[str] = Field(default_factory=list)
     preferences: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("role")
     @classmethod
@@ -232,7 +232,7 @@ class ApproveUserRequest(BaseModel):
     user_id: str | None = Field(default=None, alias="userId")
     username: str | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("username")
     @classmethod
@@ -248,7 +248,7 @@ class ElevateRoleRequest(BaseModel):
 
     new_role: Role = Field(alias="newRole")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("new_role")
     @classmethod
@@ -265,7 +265,7 @@ class GrantTemporaryRoleRequest(BaseModel):
     expires_at: datetime = Field(alias="expiresAt")
     reason: str | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("role")
     @classmethod
@@ -288,7 +288,7 @@ class SubAccountLinkRequest(BaseModel):
         description="If true, reset sub-account password to match parent password",
     )
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -303,7 +303,7 @@ class ResetPasswordRequest(BaseModel):
     token: str = Field(min_length=10)
     new_password: str = Field(min_length=8, alias="newPassword")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChangePasswordRequest(BaseModel):
@@ -312,4 +312,4 @@ class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, alias="currentPassword")
     new_password: str = Field(min_length=8, alias="newPassword")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

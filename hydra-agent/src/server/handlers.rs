@@ -14,6 +14,22 @@ use crate::executor::CommandExecutor;
 use super::models::*;
 use super::state::AppState;
 
+/// Serialize a value to JSON, returning a 500 error response on failure.
+fn json_response<T: serde::Serialize>(
+    status: StatusCode,
+    value: &T,
+) -> (StatusCode, Json<serde_json::Value>) {
+    match serde_json::to_value(value) {
+        Ok(v) => (status, Json(v)),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": { "code": "SERIALIZATION_ERROR", "message": e.to_string() }
+            })),
+        ),
+    }
+}
+
 // =============================================================================
 // GET /health — Full implementation
 // =============================================================================
@@ -113,10 +129,7 @@ pub async fn execute(
         duration_ms,
     };
 
-    (
-        StatusCode::OK,
-        Json(serde_json::to_value(response).unwrap()),
-    )
+    json_response(StatusCode::OK, &response)
 }
 
 // =============================================================================
@@ -132,27 +145,22 @@ pub async fn probe(Json(request): Json<ProbeRequest>) -> impl IntoResponse {
     )
     .await
     {
-        Ok(result) => (
-            StatusCode::OK,
-            Json(
-                serde_json::to_value(ProbeResponse {
-                    probe_type: request.probe_type,
-                    status: "completed".to_string(),
-                    results: result
-                        .hosts
-                        .into_iter()
-                        .map(|host| serde_json::to_value(host).unwrap_or(serde_json::Value::Null))
-                        .collect(),
-                    duration_ms: result.duration_ms,
-                })
-                .unwrap(),
-            ),
-        ),
-        Err(error) => (
+        Ok(result) => {
+            let response = ProbeResponse {
+                probe_type: request.probe_type,
+                status: "completed".to_string(),
+                results: result
+                    .hosts
+                    .into_iter()
+                    .map(|host| serde_json::to_value(host).unwrap_or(serde_json::Value::Null))
+                    .collect(),
+                duration_ms: result.duration_ms,
+            };
+            json_response(StatusCode::OK, &response)
+        }
+        Err(error) => json_response(
             StatusCode::BAD_REQUEST,
-            Json(
-                serde_json::to_value(ErrorResponse::new("PROBE_VALIDATION_ERROR", &error)).unwrap(),
-            ),
+            &ErrorResponse::new("PROBE_VALIDATION_ERROR", &error),
         ),
     }
 }
@@ -395,14 +403,11 @@ pub async fn update(
     Json(request): Json<UpdateRequest>,
 ) -> impl IntoResponse {
     let Some(vault) = state.vault.clone() else {
-        return (
+        return json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                serde_json::to_value(ErrorResponse::new(
-                    "VAULT_UNAVAILABLE",
-                    "Agent update requires vault access on the control server",
-                ))
-                .unwrap(),
+            &ErrorResponse::new(
+                "VAULT_UNAVAILABLE",
+                "Agent update requires vault access on the control server",
             ),
         );
     };
@@ -416,26 +421,20 @@ pub async fn update(
     )
     .await
     {
-        Ok(accepted) => (
+        Ok(accepted) => json_response(
             StatusCode::ACCEPTED,
-            Json(
-                serde_json::to_value(UpdateResponse {
-                    status: "accepted".to_string(),
-                    current_version: accepted.current_version,
-                    target_version: accepted.target_version,
-                    message: accepted.message,
-                })
-                .unwrap(),
-            ),
+            &UpdateResponse {
+                status: "accepted".to_string(),
+                current_version: accepted.current_version,
+                target_version: accepted.target_version,
+                message: accepted.message,
+            },
         ),
-        Err(error) => (
+        Err(error) => json_response(
             StatusCode::CONFLICT,
-            Json(
-                serde_json::to_value(ErrorResponse::new(
-                    "UPDATE_REJECTED",
-                    &format!("Unable to schedule agent update: {}", error),
-                ))
-                .unwrap(),
+            &ErrorResponse::new(
+                "UPDATE_REJECTED",
+                &format!("Unable to schedule agent update: {}", error),
             ),
         ),
     }

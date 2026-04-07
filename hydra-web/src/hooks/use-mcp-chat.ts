@@ -232,7 +232,7 @@ export function useMCPChat(options: UseMCPChatOptions): UseMCPChatReturn {
         break;
 
       default:
-        console.warn('Unknown WebSocket message type:', type);
+        wsDebug.log('Unknown WebSocket message type:', type);
     }
   }, []);
 

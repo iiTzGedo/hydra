@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import Role, TokenScope, UserStatus
 
@@ -17,7 +17,7 @@ class TemporaryRole(BaseModel):
     granted_at: datetime = Field(alias="grantedAt")
     reason: str | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SubAccountInfo(BaseModel):
@@ -28,7 +28,7 @@ class SubAccountInfo(BaseModel):
     role: Role
     created_at: datetime = Field(alias="createdAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class TokenResponse(BaseModel):
@@ -39,7 +39,7 @@ class TokenResponse(BaseModel):
     expires_in: int = Field(alias="expiresIn", description="Access token expiry in seconds")
     token_type: str = Field(default="Bearer", alias="tokenType")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UserInfo(BaseModel):
@@ -52,7 +52,7 @@ class UserInfo(BaseModel):
     permissions: list[str] = Field(default_factory=list)
     temporary_roles: list[TemporaryRole] = Field(default_factory=list, alias="temporaryRoles")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LoginResponse(TokenResponse):
@@ -67,7 +67,7 @@ class SessionLoginResponse(BaseModel):
     user: UserInfo
     expires_in: int = Field(alias="expiresIn", description="Access token expiry in seconds")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SessionRefreshResponse(BaseModel):
@@ -75,7 +75,7 @@ class SessionRefreshResponse(BaseModel):
 
     expires_in: int = Field(alias="expiresIn", description="Access token expiry in seconds")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LogoutResponse(BaseModel):
@@ -83,7 +83,7 @@ class LogoutResponse(BaseModel):
 
     logged_out: bool = Field(alias="loggedOut")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UserRegistrationResponse(BaseModel):
@@ -103,7 +103,7 @@ class UserRegistrationResponse(BaseModel):
     api_key_id: str | None = Field(default=None, alias="apiKeyId")
     api_key_expires_at: datetime | None = Field(default=None, alias="apiKeyExpiresAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class NodeRegistrationResponse(BaseModel):
@@ -121,7 +121,7 @@ class NodeRegistrationResponse(BaseModel):
         description="Control server secret for max-tier agents (shown once)",
     )
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class NodeApiKeyRefreshResponse(BaseModel):
@@ -133,7 +133,7 @@ class NodeApiKeyRefreshResponse(BaseModel):
     previous_key_revoked: bool = Field(alias="previousKeyRevoked")
     refreshed_at: datetime = Field(alias="refreshedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class RegistrationTokenResponse(BaseModel):
@@ -147,7 +147,7 @@ class RegistrationTokenResponse(BaseModel):
     allowed_roles: list[Role] | None = Field(default=None, alias="allowedRoles")
     created_by: str = Field(alias="createdBy")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class RegistrationTokenUsage(BaseModel):
@@ -157,7 +157,7 @@ class RegistrationTokenUsage(BaseModel):
     entity_type: str = Field(alias="entityType")
     used_at: datetime = Field(alias="usedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class RegistrationTokenListItem(BaseModel):
@@ -175,7 +175,7 @@ class RegistrationTokenListItem(BaseModel):
     created_at: datetime = Field(alias="createdAt")
     is_active: bool = Field(alias="isActive", description="Whether token is still usable")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class RegistrationTokenListResponse(BaseModel):
@@ -186,7 +186,7 @@ class RegistrationTokenListResponse(BaseModel):
     limit: int
     offset: int
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ApiKeyResponse(BaseModel):
@@ -201,7 +201,7 @@ class ApiKeyResponse(BaseModel):
     created_by: str = Field(alias="createdBy")
     created_at: datetime = Field(alias="createdAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ApiKeyListItem(BaseModel):
@@ -218,7 +218,7 @@ class ApiKeyListItem(BaseModel):
     usage_count: int = Field(default=0, alias="usageCount")
     created_at: datetime = Field(alias="createdAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ApiKeyListResponse(BaseModel):
@@ -227,7 +227,7 @@ class ApiKeyListResponse(BaseModel):
     api_keys: list[ApiKeyListItem] = Field(alias="apiKeys")
     total: int
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ApiKeyRevokeResponse(BaseModel):
@@ -237,7 +237,7 @@ class ApiKeyRevokeResponse(BaseModel):
     revoked: bool = True
     revoked_at: datetime = Field(alias="revokedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SubAccountLinkResponse(BaseModel):
@@ -250,7 +250,7 @@ class SubAccountLinkResponse(BaseModel):
     linked_at: datetime = Field(alias="linkedAt")
     password_reset: bool = Field(alias="passwordReset")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SubAccountListResponse(BaseModel):
@@ -260,7 +260,7 @@ class SubAccountListResponse(BaseModel):
     sub_accounts: list[SubAccountInfo] = Field(alias="subAccounts")
     total: int
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PendingUserInfo(BaseModel):
@@ -272,7 +272,7 @@ class PendingUserInfo(BaseModel):
     role: Role
     requested_at: datetime = Field(alias="requestedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PendingUsersListResponse(BaseModel):
@@ -283,7 +283,7 @@ class PendingUsersListResponse(BaseModel):
     limit: int
     offset: int
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ApprovalResponse(BaseModel):
@@ -297,7 +297,7 @@ class ApprovalResponse(BaseModel):
     approved_by: str = Field(alias="approvedBy")
     approved_at: datetime = Field(alias="approvedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class RejectionResponse(BaseModel):
@@ -308,7 +308,7 @@ class RejectionResponse(BaseModel):
     rejected_by: str = Field(alias="rejectedBy")
     rejected_at: datetime = Field(alias="rejectedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class RoleElevationResponse(BaseModel):
@@ -320,7 +320,7 @@ class RoleElevationResponse(BaseModel):
     elevated_by: str = Field(alias="elevatedBy")
     elevated_at: datetime = Field(alias="elevatedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class TemporaryRoleGrantResponse(BaseModel):
@@ -330,7 +330,7 @@ class TemporaryRoleGrantResponse(BaseModel):
     base_role: Role = Field(alias="baseRole")
     temporary_roles: list[TemporaryRole] = Field(alias="temporaryRoles")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class TemporaryRoleRevokeResponse(BaseModel):
@@ -341,7 +341,7 @@ class TemporaryRoleRevokeResponse(BaseModel):
     revoked_by: str = Field(alias="revokedBy")
     revoked_at: datetime = Field(alias="revokedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CurrentUserResponse(BaseModel):
@@ -355,7 +355,7 @@ class CurrentUserResponse(BaseModel):
     role: Role | None = None
     permissions: list[str] = Field(default_factory=list)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UserDetailResponse(BaseModel):
@@ -380,7 +380,7 @@ class UserDetailResponse(BaseModel):
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UserListItem(BaseModel):
@@ -394,7 +394,7 @@ class UserListItem(BaseModel):
     last_login: datetime | None = Field(alias="lastLogin")
     created_at: datetime = Field(alias="createdAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UserListResponse(BaseModel):
@@ -405,7 +405,7 @@ class UserListResponse(BaseModel):
     limit: int
     offset: int
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ForgotPasswordResponse(BaseModel):
@@ -414,7 +414,7 @@ class ForgotPasswordResponse(BaseModel):
     message: str = "If an account with that email exists, a reset link has been sent."
     email_sent: bool = Field(alias="emailSent")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ResetPasswordResponse(BaseModel):
@@ -423,7 +423,7 @@ class ResetPasswordResponse(BaseModel):
     message: str = "Password has been reset successfully."
     reset_at: datetime = Field(alias="resetAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChangePasswordResponse(BaseModel):
@@ -432,7 +432,7 @@ class ChangePasswordResponse(BaseModel):
     message: str = "Password has been changed successfully."
     changed_at: datetime = Field(alias="changedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # Rebuild forward references

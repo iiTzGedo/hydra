@@ -104,7 +104,7 @@ async def list_nodes(
     Raises:
         HTTPException 403: Insufficient permissions.
     """
-    params = NodeListParams(  # type: ignore[call-arg]
+    params = NodeListParams(
         node_class=node_class,
         node_type=node_type,
         kind=kind,

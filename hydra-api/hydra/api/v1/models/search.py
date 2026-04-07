@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SearchEntityType(StrEnum):
@@ -24,7 +24,7 @@ class SearchResultItem(BaseModel):
     tags: list[str] = Field(default_factory=list)
     score: float | None = Field(default=None, description="Search relevance score")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SearchResultGroup(BaseModel):
@@ -34,7 +34,7 @@ class SearchResultGroup(BaseModel):
     items: list[SearchResultItem]
     total: int
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SearchResponse(BaseModel):
@@ -44,4 +44,4 @@ class SearchResponse(BaseModel):
     results: list[SearchResultGroup]
     total: int
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

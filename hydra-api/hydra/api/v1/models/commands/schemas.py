@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hydra.api.v1.core.validators import (
     NODE_ID_PATTERN_NEW,
@@ -23,7 +23,7 @@ class CommandTarget(BaseModel):
         Field(default=None, alias="serviceId", description="Target service ID (for service commands)"),
     ]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("node_id")
     @classmethod
@@ -51,7 +51,7 @@ class CommandResult(BaseModel):
     error: str | None = Field(default=None, description="Error message if failed")
     data: dict[str, Any] | None = Field(default=None, description="Structured result data")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CommandError(BaseModel):
@@ -61,7 +61,7 @@ class CommandError(BaseModel):
     message: str = Field(description="Human-readable error message")
     details: dict[str, Any] | None = Field(default=None, description="Additional error details")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class RequestedBy(BaseModel):
@@ -71,7 +71,7 @@ class RequestedBy(BaseModel):
     source: CommandSource = Field(default=CommandSource.API)
     client_id: Annotated[str | None, Field(default=None, alias="clientId")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChainReference(BaseModel):
@@ -81,4 +81,4 @@ class ChainReference(BaseModel):
     sequence: int = Field(description="Step sequence number in the chain")
     depends_on: list[str] = Field(default_factory=list, alias="dependsOn")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

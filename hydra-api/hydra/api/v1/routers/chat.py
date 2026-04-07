@@ -73,6 +73,8 @@ async def list_projects(
     return ChatProjectListResponse(
         projects=[ChatProjectResponse(**p) for p in projects],
         total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -234,7 +236,7 @@ async def delete_project(
 async def list_sessions(
     current_user: CurrentUser,
     chat_service: ChatService = Depends(get_chat_service),
-    projectId: str | None = Query(default=None, description="Filter by project ID"),
+    project_id: str | None = Query(default=None, alias="projectId", description="Filter by project ID"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> ChatSessionListResponse:
@@ -243,7 +245,7 @@ async def list_sessions(
     Args:
         current_user: Authenticated user making the request.
         chat_service: Chat service instance.
-        projectId: Filter sessions by project.
+        project_id: Filter sessions by project.
         limit: Maximum number of results to return.
         offset: Number of results to skip.
 
@@ -257,7 +259,7 @@ async def list_sessions(
 
     sessions, total = await chat_service.list_sessions(
         user_id=current_user["user_id"],
-        project_id=projectId,
+        project_id=project_id,
         limit=limit,
         offset=offset,
     )
@@ -265,6 +267,8 @@ async def list_sessions(
     return ChatSessionListResponse(
         sessions=[ChatSessionResponse(**s) for s in sessions],
         total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -502,6 +506,8 @@ async def list_messages(
     return ChatMessageListResponse(
         messages=[ChatMessageResponse(**m) for m in messages],
         total=total,
+        limit=limit,
+        offset=offset,
         has_more=offset + len(messages) < total,
     )
 

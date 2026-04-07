@@ -31,6 +31,7 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     """Standard error response."""
+    model_config = ConfigDict(populate_by_name=True)
 
     error: ErrorDetail
     request_id: str = Field(alias="requestId", description="Request correlation ID")

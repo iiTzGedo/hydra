@@ -179,6 +179,8 @@ async def list_servers(
     return MCPServerListResponse(
         servers=[MCPServerResponse(**s) for s in result["servers"]],
         total=result["total"],
+        limit=limit,
+        offset=offset,
     )
 
 

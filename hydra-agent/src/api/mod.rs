@@ -223,37 +223,45 @@ fn save_profile_meta(path: &Path, meta: &ProfileMeta) -> Result<()> {
     Ok(())
 }
 
-fn canonical_json(value: &Value) -> String {
+fn canonical_json(value: &Value) -> Result<String> {
     match value {
         Value::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();
             keys.sort();
             let mut entries = Vec::new();
             for key in keys {
-                let key_json = serde_json::to_string(key).unwrap_or_else(|_| "\"\"".to_string());
-                let value_json = canonical_json(&map[key]);
+                let key_json = serde_json::to_string(key)?;
+                let value_json = canonical_json(&map[key])?;
                 entries.push(format!("{}:{}", key_json, value_json));
             }
-            format!("{{{}}}", entries.join(","))
+            Ok(format!("{{{}}}", entries.join(",")))
         }
         Value::Array(values) => {
-            let items: Vec<String> = values.iter().map(canonical_json).collect();
-            format!("[{}]", items.join(","))
+            let items: Vec<String> = values
+                .iter()
+                .map(canonical_json)
+                .collect::<Result<Vec<_>>>()?;
+            Ok(format!("[{}]", items.join(",")))
         }
-        _ => serde_json::to_string(value).unwrap_or_else(|_| "null".to_string()),
+        _ => Ok(serde_json::to_string(value)?),
     }
 }
 
 fn sha256_hex(input: &str) -> String {
+    use std::fmt::Write;
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     let digest = hasher.finalize();
-    digest.iter().map(|b| format!("{:02x}", b)).collect()
+    let mut hex = String::with_capacity(64);
+    for b in digest.iter() {
+        let _ = write!(hex, "{:02x}", b);
+    }
+    hex
 }
 
 fn hash_section<T: Serialize>(section: &T) -> Result<String> {
     let value = serde_json::to_value(section)?;
-    let json = canonical_json(&value);
+    let json = canonical_json(&value)?;
     let hex = sha256_hex(&json);
     Ok(hex.chars().take(16).collect())
 }
@@ -366,33 +374,29 @@ fn compute_profile_version(
 
     let prev_meta = previous.expect("previous is guaranteed Some after is_none() check above");
     let mut total_diff = 0.0;
+    let empty_vec: Vec<String> = Vec::new();
 
-    let mut all_sections: HashSet<String> = HashSet::new();
-    all_sections.extend(prev_meta.section_fingerprints.keys().cloned());
-    all_sections.extend(current_fingerprints.keys().cloned());
+    let mut all_sections: HashSet<&String> = HashSet::new();
+    all_sections.extend(prev_meta.section_fingerprints.keys());
+    all_sections.extend(current_fingerprints.keys());
 
     for section in all_sections {
         let prev_hashes = prev_meta
             .section_fingerprints
-            .get(&section)
-            .cloned()
-            .unwrap_or_default();
+            .get(section)
+            .unwrap_or(&empty_vec);
         let curr_hashes = current_fingerprints
-            .get(&section)
-            .cloned()
-            .unwrap_or_default();
+            .get(section)
+            .unwrap_or(&empty_vec);
 
-        let prev_set: HashSet<String> = prev_hashes.into_iter().collect();
-        let curr_set: HashSet<String> = curr_hashes.into_iter().collect();
-
-        if prev_set != curr_set {
-            let union: HashSet<String> = prev_set.union(&curr_set).cloned().collect();
-            let intersection: HashSet<String> = prev_set.intersection(&curr_set).cloned().collect();
-            let union_size = union.len() as f64;
-            let intersection_size = intersection.len() as f64;
-            if union_size > 0.0 {
-                let jaccard = 1.0 - (intersection_size / union_size);
-                total_diff += jaccard * section_weight(&section);
+        if prev_hashes != curr_hashes {
+            let prev_set: HashSet<&String> = prev_hashes.iter().collect();
+            let curr_set: HashSet<&String> = curr_hashes.iter().collect();
+            let intersection_size = prev_set.intersection(&curr_set).count();
+            let union_size = prev_set.len() + curr_set.len() - intersection_size;
+            if union_size > 0 {
+                let jaccard = 1.0 - (intersection_size as f64 / union_size as f64);
+                total_diff += jaccard * section_weight(section);
             }
         }
     }

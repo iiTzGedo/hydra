@@ -1,4 +1,4 @@
-import { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode, useState } from 'react';
 import { AlertTriangle, RefreshCw, Home, Bug } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -172,9 +172,6 @@ function ErrorFallback({
     </div>
   );
 }
-
-// Import useState for the ErrorFallback component
-import { useState } from 'react';
 
 /**
  * withErrorBoundary - HOC to wrap components with ErrorBoundary

@@ -24,6 +24,7 @@ interface DashboardState {
   setCustomTimeRange: (range: CustomTimeRange) => void;
   setActiveBoardId: (id: string | null) => void;
   setEditMode: (editing: boolean) => void;
+  reset: () => void;
 
   // Computed helpers
   getTimeRangeLabel: () => string;
@@ -46,6 +47,14 @@ export const useDashboardStore = create<DashboardState>()(
       setActiveBoardId: (id) => set({ activeBoardId: id }),
 
       setEditMode: (editing) => set({ isEditMode: editing }),
+
+      reset: () =>
+        set({
+          timeRange: 'last24h',
+          customTimeRange: null,
+          activeBoardId: null,
+          isEditMode: false,
+        }),
 
       getTimeRangeLabel: () => {
         const { timeRange, customTimeRange } = get();

@@ -134,8 +134,8 @@ export default function NotificationsPage() {
   const deleteSingle = useDeleteNotification();
   const deleteMany = useDeleteNotifications();
 
-  const notifications = useMemo(() => data?.data ?? [], [data?.data]);
-  const total = data?.meta?.total ?? 0;
+  const notifications = useMemo(() => data?.items ?? [], [data?.items]);
+  const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / pageSize);
 
   const handleRefresh = () => {

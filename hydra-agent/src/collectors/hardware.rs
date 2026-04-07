@@ -9,14 +9,14 @@ use std::process::Command;
 use sysinfo::System;
 use tracing::debug;
 
-/// System info tuple: (manufacturer, model, serial, bios_vendor, bios_version).
-type SystemInfo = (
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
+/// System identification information gathered from platform-specific sources.
+struct SystemInfo {
+    manufacturer: Option<String>,
+    model: Option<String>,
+    serial: Option<String>,
+    bios_vendor: Option<String>,
+    bios_version: Option<String>,
+}
 
 /// Hardware profile containing system identification, CPU, memory, and GPU information.
 #[derive(Debug, Serialize, Clone)]
@@ -169,15 +169,14 @@ impl HardwareCollector {
 
         let gpus = Self::detect_gpus();
 
-        let (system_manufacturer, system_model, system_serial, bios_vendor, bios_version) =
-            Self::get_system_info();
+        let sys = Self::get_system_info();
 
         Ok(HardwareProfile {
-            system_manufacturer,
-            system_model,
-            system_serial,
-            bios_vendor,
-            bios_version,
+            system_manufacturer: sys.manufacturer,
+            system_model: sys.model,
+            system_serial: sys.serial,
+            bios_vendor: sys.bios_vendor,
+            bios_version: sys.bios_version,
             cpu: cpu_info,
             memory: memory_info,
             gpus,
@@ -481,12 +480,13 @@ impl HardwareCollector {
             }
         };
 
-        let manufacturer = read_dmi("/sys/class/dmi/id/sys_vendor");
-        let model = read_dmi("/sys/class/dmi/id/product_name");
-        let serial = read_dmi("/sys/class/dmi/id/product_serial");
-        let bios_vendor = read_dmi("/sys/class/dmi/id/bios_vendor");
-        let bios_version = read_dmi("/sys/class/dmi/id/bios_version");
-        (manufacturer, model, serial, bios_vendor, bios_version)
+        SystemInfo {
+            manufacturer: read_dmi("/sys/class/dmi/id/sys_vendor"),
+            model: read_dmi("/sys/class/dmi/id/product_name"),
+            serial: read_dmi("/sys/class/dmi/id/product_serial"),
+            bios_vendor: read_dmi("/sys/class/dmi/id/bios_vendor"),
+            bios_version: read_dmi("/sys/class/dmi/id/bios_version"),
+        }
     }
 
     #[cfg(target_os = "windows")]
@@ -528,7 +528,7 @@ impl HardwareCollector {
             }
         }
 
-        (manufacturer, model, serial, bios_vendor, bios_version)
+        SystemInfo { manufacturer, model, serial, bios_vendor, bios_version }
     }
 
     #[cfg(target_os = "macos")]
@@ -553,7 +553,7 @@ impl HardwareCollector {
             }
         }
 
-        (manufacturer, model, serial, None, None)
+        SystemInfo { manufacturer, model, serial, bios_vendor: None, bios_version: None }
     }
 
     #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
@@ -570,7 +570,7 @@ impl HardwareCollector {
             .ok()
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-        (manufacturer, model, None, None, None)
+        SystemInfo { manufacturer, model, serial: None, bios_vendor: None, bios_version: None }
     }
 
     #[cfg(not(any(
@@ -582,7 +582,13 @@ impl HardwareCollector {
         target_os = "netbsd"
     )))]
     fn get_system_info() -> SystemInfo {
-        (System::name(), System::host_name(), None, None, None)
+        SystemInfo {
+            manufacturer: System::name(),
+            model: System::host_name(),
+            serial: None,
+            bios_vendor: None,
+            bios_version: None,
+        }
     }
 
     #[cfg(target_os = "linux")]

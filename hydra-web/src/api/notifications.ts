@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
-import type { ApiResponse } from '@/types/api';
+import type { ApiResponse, PaginatedResponse } from '@/types/api';
 import type {
   Notification,
   NotificationBulkActionRequest,
@@ -23,7 +23,13 @@ export function useNotifications(params?: NotificationListParams) {
         '/notifications',
         { params }
       );
-      return response.data;
+      const result: PaginatedResponse<Notification & { id: string }> = {
+        items: response.data.data.map(n => ({ ...n, id: n.notificationId })),
+        total: response.data.meta?.total ?? response.data.data.length,
+        limit: response.data.meta?.limit ?? (params?.limit ?? 50),
+        offset: response.data.meta?.offset ?? (params?.offset ?? 0),
+      };
+      return result;
     },
     refetchInterval: 30_000,
   });
@@ -57,7 +63,8 @@ export function useNotification(notificationId: string | undefined) {
       const response = await apiClient.get<ApiResponse<Notification>>(
         `/notifications/${notificationId}`
       );
-      return response.data.data;
+      const notification = response.data.data;
+      return { ...notification, id: notification.notificationId };
     },
     enabled: !!notificationId,
   });

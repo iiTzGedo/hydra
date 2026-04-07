@@ -36,7 +36,7 @@ export function useNodeChildren(nodeId: string) {
       const response = await apiClient.get<ApiResponse<NodeSummary[]>>(
         `/nodes/${nodeId}/children`
       );
-      return response.data.data;
+      return response.data.data.map(item => ({ ...item, id: item.nodeId }));
     },
     enabled: !!nodeId,
   });

@@ -50,7 +50,7 @@ class LinkedEntity(BaseModel):
     entity_type: Annotated[EntityType, Field(alias="entityType")]
     entity_id: Annotated[str, Field(alias="entityId")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # ── Section-Aware Document Model ────────────────────────────────────────
@@ -241,7 +241,7 @@ class CreateDocRequest(BaseModel):
     category: str | None = Field(default=None, max_length=64, description="Document category")
     tags: list[str] | None = Field(default=None, description="Document tags")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     @model_validator(mode="after")
     def validate_content_or_sections(self) -> "CreateDocRequest":
@@ -264,7 +264,7 @@ class UpdateDocRequest(BaseModel):
     tags: list[str] | None = None
     status: DocStatus | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DocSummary(BaseModel):
@@ -317,7 +317,7 @@ class DocCreatedResponse(BaseModel):
     version: int
     created_at: Annotated[datetime, Field(alias="createdAt")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DocUpdatedResponse(BaseModel):
@@ -327,7 +327,7 @@ class DocUpdatedResponse(BaseModel):
     version: int
     updated_at: Annotated[datetime, Field(alias="updatedAt")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DocDeletedResponse(BaseModel):
@@ -336,7 +336,7 @@ class DocDeletedResponse(BaseModel):
     doc_id: Annotated[str, Field(alias="docId")]
     status: DocStatus
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DocListParams(BaseModel):
@@ -349,10 +349,10 @@ class DocListParams(BaseModel):
     entity_id: str | None = Field(default=None, alias="entityId")
     tags: list[str] | None = None
     search: str | None = None
-    limit: int = Field(default=20, ge=1, le=200)
+    limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # ── Auto-Generation Pipeline Models ───────────────────────────────────

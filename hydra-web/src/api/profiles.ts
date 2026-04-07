@@ -9,7 +9,8 @@ export function useProfile(profileId: string) {
     queryKey: queryKeys.profiles.detail(profileId),
     queryFn: async () => {
       const response = await apiClient.get<ApiResponse<Profile>>(`/profiles/${profileId}`);
-      return response.data.data;
+      const profile = response.data.data;
+      return { ...profile, id: profile.profileId };
     },
     enabled: !!profileId,
   });
@@ -29,7 +30,7 @@ export function useNodeProfiles(nodeId: string, params?: ProfileListParams) {
         }
       );
       return {
-        items: response.data.data,
+        items: response.data.data.map(item => ({ ...item, id: item.profileId })),
         total: response.data.meta?.total ?? response.data.data.length,
         limit: response.data.meta?.limit ?? params?.limit ?? 50,
         offset: response.data.meta?.offset ?? params?.offset ?? 0,
@@ -46,7 +47,8 @@ export function useLatestProfile(nodeId: string) {
       const response = await apiClient.get<ApiResponse<Profile>>(
         `/nodes/${nodeId}/profiles/latest`
       );
-      return response.data.data;
+      const profile = response.data.data;
+      return { ...profile, id: profile.profileId };
     },
     enabled: !!nodeId,
   });

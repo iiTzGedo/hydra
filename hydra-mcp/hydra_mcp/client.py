@@ -1,5 +1,6 @@
 """Hydra API client wrapper for MCP service."""
 
+import asyncio
 from datetime import datetime
 from typing import Any, TypeVar, cast
 
@@ -43,17 +44,11 @@ class HydraClient:
         settings: Optional Settings instance. If not provided, uses the
             default settings from get_settings().
 
-    Example:
-        Basic usage::
+    Example::
 
-            client = HydraClient()
-            nodes, _ = await client.list_nodes(node_class="compute")
-            await client.close()
-
-        As async context manager::
-
-            async with HydraClient() as client:
-                node = await client.get_node("proxmox-01")
+        client = HydraClient()
+        nodes, _ = await client.list_nodes(node_class="compute")
+        await client.close()
     """
 
     def __init__(self, settings: Settings | None = None):
@@ -72,6 +67,11 @@ class HydraClient:
             )
         return self._client
 
+    # Retry configuration for transient failures
+    _MAX_RETRIES = 3
+    _RETRY_BACKOFF_BASE = 0.5  # seconds; delays: 0.5, 1.0, 2.0
+    _RETRYABLE_STATUS_CODES = {502, 503, 504}
+
     async def _request(
         self,
         method: str,
@@ -85,6 +85,9 @@ class HydraClient:
         When auth_headers are provided they are merged on top of the
         client's default headers for this single request, allowing
         user credentials to be forwarded from the MCP auth context.
+
+        Retries up to 3 times on transient failures (502, 503, 504,
+        connection errors) with exponential backoff.
         """
         client = await self._get_client()
         merged_auth_headers = dict(auth_headers or {})
@@ -96,27 +99,66 @@ class HydraClient:
                 "UNAUTHORIZED",
                 "MCP request context is missing forward auth headers",
             )
-        try:
-            response = await client.request(
-                method,
-                endpoint,
-                params=params,
-                json=json_data,
-                headers=merged_auth_headers or None,
-            )
-            data = response.json()
-            if response.status_code >= 400:
-                error = data.get("error", {})
-                raise HydraAPIError(
-                    code=error.get("code", "UNKNOWN_ERROR"),
-                    message=error.get("message", "Unknown error"),
-                    details=error.get("details"),
+
+        last_exception: Exception | None = None
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                response = await client.request(
+                    method,
+                    endpoint,
+                    params=params,
+                    json=json_data,
+                    headers=merged_auth_headers or None,
                 )
-            result: dict[str, Any] = data.get("data", data)
-            return result
-        except httpx.RequestError as e:
-            logger.error("api_request_error", error=str(e), endpoint=endpoint)
-            raise HydraAPIError("CONNECTION_ERROR", f"Failed to connect to API: {e}")
+                data = response.json()
+                if response.status_code >= 400:
+                    if response.status_code in self._RETRYABLE_STATUS_CODES:
+                        last_exception = HydraAPIError(
+                            code="TRANSIENT_ERROR",
+                            message=f"Server returned {response.status_code}",
+                        )
+                        if attempt < self._MAX_RETRIES - 1:
+                            delay = self._RETRY_BACKOFF_BASE * (2 ** attempt)
+                            logger.warning(
+                                "api_request_retrying",
+                                endpoint=endpoint,
+                                status=response.status_code,
+                                attempt=attempt + 1,
+                                delay=delay,
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                    error = data.get("error", {})
+                    raise HydraAPIError(
+                        code=error.get("code", "UNKNOWN_ERROR"),
+                        message=error.get("message", "Unknown error"),
+                        details=error.get("details"),
+                    )
+                result: dict[str, Any] = data.get("data", data)
+                return result
+            except httpx.RequestError as e:
+                last_exception = e
+                if attempt < self._MAX_RETRIES - 1:
+                    delay = self._RETRY_BACKOFF_BASE * (2 ** attempt)
+                    logger.warning(
+                        "api_request_retrying",
+                        endpoint=endpoint,
+                        error=str(e),
+                        attempt=attempt + 1,
+                        delay=delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error("api_request_error", error=str(e), endpoint=endpoint)
+                raise HydraAPIError(
+                    "CONNECTION_ERROR", f"Failed to connect to API: {e}"
+                ) from e
+
+        # Should only reach here after exhausting retries on transient HTTP errors
+        raise HydraAPIError(
+            "CONNECTION_ERROR",
+            f"API request failed after {self._MAX_RETRIES} attempts",
+        ) from last_exception
 
     async def close(self) -> None:
         """Close the HTTP client and release resources."""

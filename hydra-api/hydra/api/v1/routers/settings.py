@@ -29,6 +29,7 @@ async def get_settings_service(mongodb: MongoDB = Depends(get_mongodb)) -> Setti
     response_model_by_alias=True,
     summary="Get User Settings",
     description="Get settings for the current user.",
+    dependencies=[Depends(require_permission("settings:read"))],
 )
 async def get_user_settings(
     current_user: CurrentUser,
@@ -61,6 +62,7 @@ async def get_user_settings(
     response_model_by_alias=True,
     summary="Update User Settings",
     description="Update settings for the current user.",
+    dependencies=[Depends(require_permission("settings:write"))],
 )
 async def update_user_settings(
     request: UserSettingsUpdate,

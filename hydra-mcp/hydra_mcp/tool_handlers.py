@@ -373,12 +373,13 @@ async def list_command_catalog(args: dict[str, Any]) -> str:
                 "enum": ["pending", "rejected", "queued", "executing", "completed", "failed", "timeout", "cancelled"],
                 "description": "Filter by command status",
             },
+            # Lower default: command history is typically reviewed in small batches
             "limit": {"type": "integer", "default": 20, "description": "Maximum results"},
         },
     },
     required_permission="commands:read",
 )
-async def list_commands_tool(args: dict[str, Any]) -> str:
+async def list_commands(args: dict[str, Any]) -> str:
     """List command execution history with optional filters."""
     commands = await client.list_commands(
         node_id=args.get("nodeId"),
@@ -585,6 +586,7 @@ async def get_topology(args: dict[str, Any]) -> str:
                 "items": {"type": "string", "enum": ["node", "service", "network", "group"]},
                 "description": "Entity types to search",
             },
+            # Lower default: search results are targeted, fewer results keeps context focused
             "limit": {
                 "type": "integer",
                 "default": 20,
@@ -920,7 +922,7 @@ async def service_dependency_map(args: dict[str, Any]) -> str:
     },
     required_permission="notifications:read",
 )
-async def list_notifications_tool(args: dict[str, Any]) -> str:
+async def list_notifications(args: dict[str, Any]) -> str:
     """List notifications with filtering."""
     notifications, _ = await client.list_notifications(
         tier=args.get("tier"),
@@ -945,7 +947,7 @@ async def list_notifications_tool(args: dict[str, Any]) -> str:
     },
     required_permission="notifications:read",
 )
-async def get_notification_stats_tool(_args: dict[str, Any]) -> str:
+async def get_notification_stats(_args: dict[str, Any]) -> str:
     """Get notification statistics."""
     stats = await client.get_notification_stats()
     return toon.format(stats)
@@ -987,6 +989,7 @@ async def get_notification_stats_tool(_args: dict[str, Any]) -> str:
                 "format": "date-time",
                 "description": "ISO timestamp for end of time range",
             },
+            # Higher default: audit log review typically needs broader history window
             "limit": {
                 "type": "integer",
                 "minimum": 1,
@@ -1002,7 +1005,7 @@ async def get_notification_stats_tool(_args: dict[str, Any]) -> str:
     },
     required_permission="audit:read",
 )
-async def list_audit_entries_tool(args: dict[str, Any]) -> str:
+async def list_audit_entries(args: dict[str, Any]) -> str:
     """List audit log entries with optional filtering."""
     entries = await client.list_audit_entries(
         action=args.get("action"),
@@ -1040,7 +1043,7 @@ async def list_audit_entries_tool(args: dict[str, Any]) -> str:
     },
     required_permission="audit:delete",
 )
-async def delete_audit_entries_tool(args: dict[str, Any]) -> str:
+async def delete_audit_entries(args: dict[str, Any]) -> str:
     """Delete audit log entries within a time range."""
     result = await client.delete_audit_entries(
         since=args["since"],

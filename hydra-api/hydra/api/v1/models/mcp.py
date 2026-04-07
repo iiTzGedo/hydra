@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MCPServerCategory(StrEnum):
@@ -50,7 +50,7 @@ class MCPServerCreate(BaseModel):
     enabled: bool = Field(default=True)
     docs_url: str | None = Field(default=None, alias="docsUrl")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class MCPServerUpdate(BaseModel):
@@ -65,7 +65,7 @@ class MCPServerUpdate(BaseModel):
     enabled: bool | None = None
     docs_url: str | None = Field(default=None, alias="docsUrl")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class MCPServerResponse(BaseModel):
@@ -86,7 +86,7 @@ class MCPServerResponse(BaseModel):
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class MCPServerListResponse(BaseModel):
@@ -94,6 +94,8 @@ class MCPServerListResponse(BaseModel):
 
     servers: list[MCPServerResponse]
     total: int
+    limit: int
+    offset: int
 
 
 class MCPHealthResponse(BaseModel):
@@ -106,7 +108,7 @@ class MCPHealthResponse(BaseModel):
     tools: list[str] | None = Field(default=None, description="Available tools if healthy")
     resources: list[str] | None = Field(default=None, description="Available resources if healthy")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class MCPToolInfo(BaseModel):
@@ -122,7 +124,7 @@ class MCPToolsResponse(BaseModel):
     server_id: str = Field(alias="serverId")
     tools: list[MCPToolInfo]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class MCPResourceInfo(BaseModel):
@@ -133,7 +135,7 @@ class MCPResourceInfo(BaseModel):
     description: str | None = None
     mime_type: str | None = Field(default=None, alias="mimeType")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class MCPResourcesResponse(BaseModel):
@@ -142,7 +144,7 @@ class MCPResourcesResponse(BaseModel):
     server_id: str = Field(alias="serverId")
     resources: list[MCPResourceInfo]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class MCPPromptArgument(BaseModel):
@@ -167,7 +169,7 @@ class MCPPromptsResponse(BaseModel):
     server_id: str = Field(alias="serverId")
     prompts: list[MCPPromptInfo]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HydraMCPHealthResponse(BaseModel):
@@ -183,4 +185,4 @@ class HydraMCPHealthResponse(BaseModel):
     resources_count: int = Field(default=0, alias="resourcesCount")
     endpoint: str | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

@@ -67,11 +67,11 @@ export function NotificationPanel({
   // - Tier 3+: already filtered by acknowledged=false from the API
   // - Tier 1-2: also filter out already-read ones client-side
   const notifications = useMemo(() => {
-    return (data?.data ?? [])
+    return (data?.items ?? [])
       .filter(n => n.tier >= 3 || !n.readAt)
       .slice(0, mobile ? 20 : 10);
   }, [data, mobile]);
-  const total = data?.meta?.total ?? 0;
+  const total = data?.total ?? 0;
   const hasUnreadLowTier = notifications.some(n => n.tier <= 2 && !n.readAt);
 
   // Handle mark single notification as read

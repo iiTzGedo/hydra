@@ -104,7 +104,7 @@ export default function MCPMarketplacePage() {
     {
       id: 'default',
       name: 'Hydra Registry',
-      url: 'https://registry.hydra.io/mcp',
+      url: import.meta.env.VITE_MCP_REGISTRY_URL || '/mcp/registry',
       status: 'connected',
       lastSync: new Date(),
       serverCount: 24,

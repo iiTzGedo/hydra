@@ -10,11 +10,17 @@ use super::process::{run_command, validate_service_name};
 use super::CommandResult;
 
 fn validate_image_reference(image: &str) -> Result<(), String> {
+    use std::sync::OnceLock;
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9._/@:\-]{0,254}$")
+            .expect("valid image reference regex")
+    });
+
     if image.is_empty() || image.len() > 255 {
         return Err("Image reference must be 1-255 characters".to_string());
     }
 
-    let re = regex::Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9._/@:\-]{0,254}$").unwrap();
     if !re.is_match(image) {
         return Err(format!(
             "Invalid image reference '{}': must match [a-zA-Z0-9._/@:-]",
@@ -88,6 +94,7 @@ async fn execute_systemd(
                 .get("lines")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(100)
+                .min(10_000)
                 .to_string();
 
             run_command(
@@ -123,6 +130,7 @@ async fn execute_docker(
                 .get("lines")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(100)
+                .min(10_000)
                 .to_string();
 
             run_command(
@@ -173,6 +181,7 @@ async fn execute_podman(
                 .get("lines")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(100)
+                .min(10_000)
                 .to_string();
 
             run_command(

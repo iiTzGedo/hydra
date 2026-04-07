@@ -139,7 +139,7 @@ class AgentInfo(BaseModel):
     is_healthy: bool = Field(alias="isHealthy", description="True if seen within last 24 hours")
     agent_tier: AgentTier | None = Field(default=None, alias="agentTier")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class AgentListResponse(BaseModel):
@@ -151,11 +151,12 @@ class AgentListResponse(BaseModel):
     limit: int
     offset: int
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UpdateNodeRequest(BaseModel):
     """Update node metadata."""
+    model_config = ConfigDict(populate_by_name=True)
 
     display_name: str | None = Field(default=None, alias="displayName", max_length=128)
     description: str | None = Field(default=None, max_length=1024)
@@ -180,6 +181,7 @@ class UpdateNodeRequest(BaseModel):
 
 class NodeListParams(BaseModel):
     """Query parameters for listing nodes."""
+    model_config = ConfigDict(populate_by_name=True)
 
     node_class: NodeClass | None = Field(default=None, alias="class")
     node_type: NodeType | None = Field(default=None, alias="type")

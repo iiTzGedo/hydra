@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from hydra_mcp.client import HydraAPIError
 from hydra_mcp.server import get_prompt
 
 pytestmark = pytest.mark.asyncio
@@ -278,16 +279,32 @@ class TestMigrationPlanningPrompt:
         assert "Rollback plan" in text
         mock_client.get_node.assert_called_once_with("source-node")
 
-    async def test_migration_planning_handles_api_error(self, mock_client):
+    async def test_migration_planning_handles_not_found(self, mock_client):
         """Test migration_planning prompt when source node not found."""
-        mock_client.get_node = AsyncMock(side_effect=Exception("Node not found"))
+        mock_client.get_node = AsyncMock(
+            side_effect=HydraAPIError("NOT_FOUND", "Node not found")
+        )
 
         args = {"source": "nonexistent-node", "target": "target-node"}
         result = await get_prompt("migration_planning", args)
 
         text = result.messages[0].content.text
         assert "nonexistent-node" in text
-        assert "details unavailable" in text or "nonexistent-node" in text
+        assert "not found" in text
+        assert "target-node" in text
+
+    async def test_migration_planning_handles_api_error(self, mock_client):
+        """Test migration_planning prompt when API returns non-404 error."""
+        mock_client.get_node = AsyncMock(
+            side_effect=HydraAPIError("CONNECTION_ERROR", "API unreachable")
+        )
+
+        args = {"source": "failing-node", "target": "target-node"}
+        result = await get_prompt("migration_planning", args)
+
+        text = result.messages[0].content.text
+        assert "failing-node" in text
+        assert "API error" in text
         assert "target-node" in text
 
     async def test_migration_planning_message_structure(self, mock_client):

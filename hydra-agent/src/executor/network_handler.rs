@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use tokio::net::TcpStream;
 use tokio::sync::{RwLock, Semaphore};
 use tokio::time::{timeout, Duration};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::AgentConfig;
 
@@ -83,12 +83,23 @@ pub async fn execute(
     }
 
     let mut results = Vec::new();
+    let mut failed_hosts = 0u64;
     for task in tasks {
         match timeout(Duration::from_secs(request.timeout_seconds), task).await {
             Ok(Ok(Some(result))) => results.push(result),
             Ok(Ok(None)) => {}
-            Ok(Err(_)) | Err(_) => {}
+            Ok(Err(e)) => {
+                warn!("Network scan task failed: {}", e);
+                failed_hosts += 1;
+            }
+            Err(_) => {
+                warn!("Network scan task timed out after {}s", request.timeout_seconds);
+                failed_hosts += 1;
+            }
         }
+    }
+    if failed_hosts > 0 {
+        warn!(failed_hosts, "Network scan completed with failed/timed-out hosts");
     }
 
     let hosts_scanned = expanded_hosts_count(&request.targets);
@@ -284,7 +295,7 @@ async fn scan_host(
     open_ports.sort_unstable();
     let protocols = infer_protocols(&open_ports, methods);
     let banners = collect_banners(ip, &open_ports).await;
-    let dns_names = reverse_dns_names(ip);
+    let dns_names = reverse_dns_names(ip).await;
     let signals = build_signals(&open_ports, &protocols, &banners);
     let primary_method = if protocols.iter().any(|protocol| protocol == "snmp") {
         "snmp"
@@ -366,8 +377,20 @@ async fn collect_banners(ip: &str, open_ports: &[u16]) -> HashMap<String, String
     banners
 }
 
-fn reverse_dns_names(_ip: &str) -> Vec<String> {
-    Vec::new()
+async fn reverse_dns_names(ip: &str) -> Vec<String> {
+    let ip = ip.to_string();
+    let result = tokio::task::spawn_blocking(move || -> Vec<String> {
+        let addr: std::net::IpAddr = match ip.parse() {
+            Ok(a) => a,
+            Err(_) => return Vec::new(),
+        };
+        match dns_lookup::lookup_addr(&addr) {
+            Ok(hostname) if hostname != ip => vec![hostname],
+            _ => Vec::new(),
+        }
+    })
+    .await;
+    result.unwrap_or_default()
 }
 
 fn infer_protocols(open_ports: &[u16], requested_methods: &[String]) -> Vec<String> {

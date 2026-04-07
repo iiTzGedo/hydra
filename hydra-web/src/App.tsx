@@ -3,6 +3,7 @@ import { Toaster } from 'sonner';
 import { useMe } from '@/api/auth';
 import { AppRouter } from '@/router';
 import { ThemeProvider } from '@/components/theme-provider';
+import { ErrorBoundary } from '@/components/error-boundary';
 
 function AuthBootstrap() {
   useMe();
@@ -15,7 +16,9 @@ function App() {
     <ThemeProvider defaultTheme="system">
       <BrowserRouter>
         <AuthBootstrap />
-        <AppRouter />
+        <ErrorBoundary>
+          <AppRouter />
+        </ErrorBoundary>
         <Toaster
           position="top-right"
           toastOptions={{

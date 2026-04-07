@@ -287,6 +287,21 @@ export const queryKeys = {
       [...queryKeys.discovery.all, 'device', discoveryId] as const,
   },
 
+  chat: {
+    all: ['chat'] as const,
+    projects: () => [...queryKeys.chat.all, 'projects'] as const,
+    projectDetail: (id: string) => [...queryKeys.chat.all, 'project', id] as const,
+    sessions: (projectId?: string) => {
+      if (projectId) {
+        return [...queryKeys.chat.all, 'sessions', projectId] as const;
+      }
+      return [...queryKeys.chat.all, 'sessions'] as const;
+    },
+    sessionDetail: (id: string) => [...queryKeys.chat.all, 'session', id] as const,
+    sessionContext: (id: string) => [...queryKeys.chat.all, 'session-context', id] as const,
+    messages: (sessionId: string) => [...queryKeys.chat.all, 'messages', sessionId] as const,
+  },
+
   ai: {
     all: ['ai'] as const,
     models: () => [...queryKeys.ai.all, 'models'] as const,

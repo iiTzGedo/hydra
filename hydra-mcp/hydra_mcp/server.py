@@ -754,8 +754,12 @@ Please identify:
         try:
             source_node = await client.get_node(source_id)
             source_info = toon.format(source_node)
-        except Exception:
-            source_info = f"Source: {source_id} (details unavailable)"
+        except HydraAPIError as exc:
+            if exc.code == "NOT_FOUND":
+                source_info = f"Source: {source_id} (node not found)"
+            else:
+                logger.warning("migration_prompt_source_fetch_failed", node=source_id, error=str(exc))
+                source_info = f"Source: {source_id} (details unavailable — API error)"
 
         return GetPromptResult(
             description="Plan infrastructure migration",

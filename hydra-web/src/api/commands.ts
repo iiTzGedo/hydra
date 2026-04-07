@@ -233,7 +233,7 @@ export function useCommands(params?: {
       const response = await apiClient.get<ApiResponse<CommandSummary[]>>('/commands', {
         params,
       });
-      return response.data.data;
+      return response.data.data.map(cmd => ({ ...cmd, id: cmd.commandId }));
     },
     refetchInterval: (query) => {
       const data = query.state.data;
@@ -257,7 +257,8 @@ export function useCommand(commandId: string | undefined) {
       const response = await apiClient.get<ApiResponse<CommandResponse>>(
         `/commands/${commandId}`
       );
-      return response.data.data;
+      const command = response.data.data;
+      return { ...command, id: command.commandId };
     },
     enabled: !!commandId,
     refetchInterval: (query) => {

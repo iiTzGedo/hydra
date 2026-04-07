@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ThemeMode(StrEnum):
@@ -37,7 +37,7 @@ class UISettings(BaseModel):
     sidebar_collapsed: bool = Field(default=False, alias="sidebarCollapsed")
     animations_enabled: bool = Field(default=True, alias="animationsEnabled")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class EntityViewSettings(BaseModel):
@@ -49,7 +49,7 @@ class EntityViewSettings(BaseModel):
     page_size: int = Field(default=20, alias="pageSize", ge=10, le=100)
     filters: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ViewSettings(BaseModel):
@@ -61,7 +61,7 @@ class ViewSettings(BaseModel):
     groups: EntityViewSettings = Field(default_factory=EntityViewSettings)
     topology: EntityViewSettings = Field(default_factory=EntityViewSettings)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class NotificationSettings(BaseModel):
@@ -96,7 +96,7 @@ class NotificationSettings(BaseModel):
     muted_types: list[str] = Field(default_factory=list, alias="mutedTypes")
     muted_group_keys: list[str] = Field(default_factory=list, alias="mutedGroupKeys")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UserSettingsUpdate(BaseModel):
@@ -106,7 +106,7 @@ class UserSettingsUpdate(BaseModel):
     views: ViewSettings | None = None
     notifications: NotificationSettings | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UserSettingsResponse(BaseModel):
@@ -118,7 +118,7 @@ class UserSettingsResponse(BaseModel):
     notifications: NotificationSettings
     updated_at: datetime = Field(alias="updatedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SmtpSettings(BaseModel):
@@ -132,7 +132,7 @@ class SmtpSettings(BaseModel):
     from_name: str = Field(default="Hydra", alias="fromName")
     use_tls: bool = Field(default=True, alias="useTls")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ObjectStorageSettings(BaseModel):
@@ -143,7 +143,7 @@ class ObjectStorageSettings(BaseModel):
     bucket: str = Field(default="hydra-bucket")
     region: str = Field(default="garage")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DefaultSettings(BaseModel):
@@ -153,7 +153,7 @@ class DefaultSettings(BaseModel):
     profile_retention_days: int = Field(default=90, alias="profileRetentionDays")
     session_timeout_minutes: int = Field(default=60, alias="sessionTimeoutMinutes")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SystemSettingsUpdate(BaseModel):
@@ -163,7 +163,7 @@ class SystemSettingsUpdate(BaseModel):
     object_storage: ObjectStorageSettings | None = Field(default=None, alias="objectStorage")
     defaults: DefaultSettings | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SystemSettingsResponse(BaseModel):
@@ -175,4 +175,4 @@ class SystemSettingsResponse(BaseModel):
     updated_at: datetime = Field(alias="updatedAt")
     updated_by: str | None = Field(default=None, alias="updatedBy")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

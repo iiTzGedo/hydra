@@ -41,7 +41,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "C4", "UP", "ARG", "SIM"]
-ignore = ["E501", "B008", "B904"]
+ignore = ["E501", "B008"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["hydra_mcp"]
@@ -52,7 +52,7 @@ known-first-party = ["hydra_mcp"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-v --cov=hydra_mcp --cov-report=term-missing --cov-fail-under=50"
+addopts = "-v --cov=hydra_mcp --cov-report=term-missing --cov-fail-under=65"
 
 [tool.mypy]
 python_version = "3.12"

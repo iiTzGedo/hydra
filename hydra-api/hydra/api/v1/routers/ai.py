@@ -81,6 +81,8 @@ async def list_configs(
     return LLMConfigListResponse(
         configs=[LLMConfigResponse(**c) for c in configs],
         total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -284,7 +286,7 @@ async def list_provider_models(
     current_user: CurrentUser,
     ai_service: AIService = Depends(get_ai_service),
     provider_type: LLMProviderType = Path(description="Provider type to fetch models for"),
-    configId: str | None = Query(
+    config_id: str | None = Query(
         default=None,
         alias="configId",
         description="Optional config ID to use its stored API key",
@@ -306,7 +308,7 @@ async def list_provider_models(
         current_user: Authenticated user making the request.
         ai_service: AI service instance.
         provider_type: The LLM provider type (anthropic, openai, ollama, openrouter).
-        configId: Optional ID of a stored config to use its API key.
+        config_id: Optional ID of a stored config to use its API key.
         tools_only: If true, filter to models that support tool/function calling.
 
     Returns:
@@ -322,7 +324,7 @@ async def list_provider_models(
     result = await ai_service.fetch_provider_models(
         provider_type=provider_type,
         user_id=current_user["user_id"],
-        config_id=configId,
+        config_id=config_id,
         tools_only=tools_only,
     )
 

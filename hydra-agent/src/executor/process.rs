@@ -135,11 +135,16 @@ async fn execute_process(program: &str, args: &[&str]) -> CommandResult {
 /// Prevents shell injection by only allowing alphanumeric characters,
 /// hyphens, dots, underscores, at-signs, and colons.
 pub fn validate_service_name(name: &str) -> Result<(), String> {
+    use std::sync::OnceLock;
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9._@:\-]{0,79}$").expect("valid service name regex")
+    });
+
     if name.is_empty() || name.len() > 80 {
         return Err("Service name must be 1-80 characters".to_string());
     }
 
-    let re = Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9._@:\-]{0,79}$").unwrap();
     if !re.is_match(name) {
         return Err(format!(
             "Invalid service name '{}': must match [a-zA-Z0-9._@:-]",
@@ -152,11 +157,17 @@ pub fn validate_service_name(name: &str) -> Result<(), String> {
 
 /// Validate a hostname against a safe pattern.
 pub fn validate_hostname(hostname: &str) -> Result<(), String> {
+    use std::sync::OnceLock;
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$")
+            .expect("valid hostname regex")
+    });
+
     if hostname.is_empty() || hostname.len() > 253 {
         return Err("Hostname must be 1-253 characters".to_string());
     }
 
-    let re = Regex::new(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$").unwrap();
     if !re.is_match(hostname) {
         return Err(format!("Invalid hostname '{}'", hostname));
     }

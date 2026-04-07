@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .enums import CommandStatus, CommandType
 from .schemas import CommandTarget
@@ -40,7 +40,7 @@ class CreateCommandRequest(BaseModel):
         description="When true, validate and preview the command without executing it",
     )
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     @field_validator("registry_id")
     @classmethod
@@ -61,7 +61,7 @@ class SubmitCommandResultRequest(BaseModel):
     error: str | None = Field(default=None, description="Error message if failed")
     data: dict[str, Any] | None = Field(default=None, description="Structured result data")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CommandListParams(BaseModel):
@@ -76,7 +76,7 @@ class CommandListParams(BaseModel):
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class QueueFlushRequest(BaseModel):

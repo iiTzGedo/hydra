@@ -39,6 +39,8 @@ export function useNetworkNodes(networkId: string) {
       return {
         items: response.data.data,
         total: response.data.meta?.total ?? response.data.data.length,
+        limit: response.data.meta?.limit ?? response.data.data.length,
+        offset: response.data.meta?.offset ?? 0,
       };
     },
     enabled: !!networkId,

@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 
 import { CSRF_HEADER_NAME, getApiBaseUrl, getCsrfToken } from '@/lib/auth-session';
+import { queryClient } from '@/lib/query-client';
+import { useChatCacheStore } from '@/stores/chat-cache-store';
+import { useDashboardStore } from '@/stores/dashboard-store';
 import type { User, Role } from '@/types/auth';
 
 interface AuthState {
@@ -47,6 +50,11 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       credentials: 'include',
       headers: csrfToken ? { [CSRF_HEADER_NAME]: csrfToken } : undefined,
     }).catch(() => {});
+
+    // Clear all client-side state to prevent data leaking between sessions
+    queryClient.clear();
+    useChatCacheStore.getState().clearAllCache();
+    useDashboardStore.getState().reset();
 
     set({
       user: null,

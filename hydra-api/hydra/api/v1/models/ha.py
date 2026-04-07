@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class HASyncRequest(BaseModel):
@@ -18,7 +18,7 @@ class HASyncRequest(BaseModel):
         Field(default=True, alias="createNodes", description="Create Hydra nodes for HA devices"),
     ]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HAControlRequest(BaseModel):
@@ -28,7 +28,7 @@ class HAControlRequest(BaseModel):
     service: str = Field(description="Service to call (e.g., turn_on, set_temperature)")
     data: dict[str, Any] | None = Field(default=None, description="Service data")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HAStatusResponse(BaseModel):
@@ -41,7 +41,7 @@ class HAStatusResponse(BaseModel):
     entity_count: Annotated[int, Field(default=0, alias="entityCount")]
     mapped_nodes: Annotated[int, Field(default=0, alias="mappedNodes")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HydraNodeMapping(BaseModel):
@@ -50,7 +50,7 @@ class HydraNodeMapping(BaseModel):
     node_id: Annotated[str, Field(alias="nodeId")]
     display_name: Annotated[str, Field(alias="displayName")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HADevice(BaseModel):
@@ -65,7 +65,7 @@ class HADevice(BaseModel):
     hydra_node: Annotated[HydraNodeMapping | None, Field(default=None, alias="hydraNode")]
     last_updated: Annotated[datetime | None, Field(default=None, alias="lastUpdated")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HADeviceListResponse(BaseModel):
@@ -82,7 +82,7 @@ class HASyncResponse(BaseModel):
     status: str
     started_at: Annotated[datetime, Field(alias="startedAt")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HAControlResponse(BaseModel):
@@ -93,7 +93,7 @@ class HAControlResponse(BaseModel):
     success: bool
     new_state: Annotated[dict[str, Any] | None, Field(default=None, alias="newState")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HAArea(BaseModel):
@@ -104,7 +104,7 @@ class HAArea(BaseModel):
     device_count: Annotated[int, Field(alias="deviceCount")]
     entity_count: Annotated[int, Field(alias="entityCount")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class HAAreaListResponse(BaseModel):
@@ -123,4 +123,4 @@ class HADeviceListParams(BaseModel):
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import CommandExecutionMethod, CommandStatus, CommandType
 from .schemas import ChainReference, CommandError, CommandResult, CommandTarget, RequestedBy
@@ -20,7 +20,7 @@ class CommandSummary(BaseModel):
     status: CommandStatus
     created_at: Annotated[datetime, Field(alias="createdAt")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CommandResponse(BaseModel):
@@ -57,7 +57,7 @@ class CommandResponse(BaseModel):
     confirmation_message: Annotated[str | None, Field(default=None, alias="confirmationMessage")]
     confirmation_expires_at: Annotated[datetime | None, Field(default=None, alias="confirmationExpiresAt")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CommandQueuedResponse(BaseModel):
@@ -84,7 +84,7 @@ class CommandQueuedResponse(BaseModel):
     affected_nodes: Annotated[list[str], Field(default_factory=list, alias="affectedNodes")]
     confirmation_expires_at: Annotated[datetime | None, Field(default=None, alias="confirmationExpiresAt")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CommandCancelledResponse(BaseModel):
@@ -95,7 +95,7 @@ class CommandCancelledResponse(BaseModel):
     cancelled_at: Annotated[datetime, Field(alias="cancelledAt")]
     cancelled_by: Annotated[str | None, Field(default=None, alias="cancelledBy")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PolledCommand(BaseModel):
@@ -109,7 +109,7 @@ class PolledCommand(BaseModel):
     parameters: dict[str, Any] | None = None
     timeout_seconds: Annotated[int, Field(alias="timeoutSeconds")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CommandPollResponse(BaseModel):
@@ -128,7 +128,7 @@ class CommandResultSubmittedResponse(BaseModel):
     status: CommandStatus
     completed_at: Annotated[datetime, Field(alias="completedAt")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CommandRetriedResponse(BaseModel):
@@ -142,13 +142,13 @@ class CommandRetriedResponse(BaseModel):
     max_retries: Annotated[int, Field(alias="maxRetries", description="Maximum retries allowed")]
     status: CommandStatus = CommandStatus.QUEUED
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DryRunResponse(BaseModel):
     """Response for a dry-run command preview."""
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
     would_require_confirmation: Annotated[
         bool, Field(alias="wouldRequireConfirmation")
@@ -176,7 +176,7 @@ class QueueStats(BaseModel):
     total_executing: Annotated[int, Field(alias="totalExecuting")]
     oldest_queued_at: Annotated[datetime | None, Field(default=None, alias="oldestQueuedAt")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class QueueViewResponse(BaseModel):
@@ -191,4 +191,4 @@ class QueueFlushResponse(BaseModel):
 
     flushed_count: Annotated[int, Field(alias="flushedCount")]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

@@ -9,7 +9,7 @@ Terminology:
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LLMProviderType(StrEnum):
@@ -53,7 +53,7 @@ class LLMConfigCreate(BaseModel):
         description="Set as the default configuration",
     )
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LLMConfigUpdate(BaseModel):
@@ -65,7 +65,7 @@ class LLMConfigUpdate(BaseModel):
     model: str | None = Field(default=None, max_length=128)
     is_default: bool | None = Field(default=None, alias="isDefault")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LLMConfigResponse(BaseModel):
@@ -85,7 +85,7 @@ class LLMConfigResponse(BaseModel):
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LLMConfigListResponse(BaseModel):
@@ -93,6 +93,8 @@ class LLMConfigListResponse(BaseModel):
 
     configs: list[LLMConfigResponse]
     total: int
+    limit: int
+    offset: int
 
 
 class LLMConfigValidateResponse(BaseModel):
@@ -104,7 +106,7 @@ class LLMConfigValidateResponse(BaseModel):
     validated_at: datetime = Field(alias="validatedAt")
     models: list[str] | None = Field(default=None, description="Available models if validation succeeded")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # =============================================================================
@@ -124,7 +126,7 @@ class LLMModel(BaseModel):
     cost_per_1k_input: float | None = Field(default=None, alias="costPer1kInput", description="Cost per 1K input tokens in USD")
     cost_per_1k_output: float | None = Field(default=None, alias="costPer1kOutput", description="Cost per 1K output tokens in USD")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LLMModelsResponse(BaseModel):
@@ -135,7 +137,7 @@ class LLMModelsResponse(BaseModel):
     fetched_at: datetime = Field(alias="fetchedAt")
     cached: bool = Field(default=False, description="Whether response was served from cache")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # =============================================================================
@@ -160,7 +162,7 @@ class GlobalAPIKeyCreate(BaseModel):
         description="Scopes this key should be used for",
     )
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class GlobalAPIKeyResponse(BaseModel):
@@ -175,7 +177,7 @@ class GlobalAPIKeyResponse(BaseModel):
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class GlobalAPIKeysResponse(BaseModel):
@@ -192,4 +194,4 @@ class GlobalKeyValidateResponse(BaseModel):
     message: str
     validated_at: datetime = Field(alias="validatedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)

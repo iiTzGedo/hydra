@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatSessionStatus(StrEnum):
@@ -44,7 +44,7 @@ class ToolCall(BaseModel):
     error: str | None = Field(default=None)
     status: ToolCallStatus = Field(default=ToolCallStatus.PENDING)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatProjectCreate(BaseModel):
@@ -53,7 +53,7 @@ class ChatProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=1024)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatProjectUpdate(BaseModel):
@@ -62,7 +62,7 @@ class ChatProjectUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=128)
     description: str | None = Field(default=None, max_length=1024)
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatProjectResponse(BaseModel):
@@ -76,7 +76,7 @@ class ChatProjectResponse(BaseModel):
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatProjectListResponse(BaseModel):
@@ -84,6 +84,8 @@ class ChatProjectListResponse(BaseModel):
 
     projects: list[ChatProjectResponse]
     total: int
+    limit: int
+    offset: int
 
 
 class ChatSessionCreate(BaseModel):
@@ -94,7 +96,7 @@ class ChatSessionCreate(BaseModel):
     llm_provider_id: str | None = Field(default=None, alias="llmProviderId")
     mcp_server_ids: list[str] = Field(default_factory=list, alias="mcpServerIds")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatSessionUpdate(BaseModel):
@@ -106,7 +108,7 @@ class ChatSessionUpdate(BaseModel):
     llm_provider_id: str | None = Field(default=None, alias="llmProviderId")
     mcp_server_ids: list[str] | None = Field(default=None, alias="mcpServerIds")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SessionContext(BaseModel):
@@ -122,7 +124,7 @@ class SessionContext(BaseModel):
     provider_type: str | None = Field(default=None, alias="providerType", description="LLM provider type")
     thread: list[str] = Field(default_factory=list, description="Ordered list of messageIds - source of truth for message ordering")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SessionContextResponse(BaseModel):
@@ -133,7 +135,7 @@ class SessionContextResponse(BaseModel):
     llm_config_locked: bool = Field(alias="llmConfigLocked")
     last_updated: datetime = Field(alias="lastUpdated")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatSessionResponse(BaseModel):
@@ -153,7 +155,7 @@ class ChatSessionResponse(BaseModel):
     updated_at: datetime = Field(alias="updatedAt")
     last_message_at: datetime | None = Field(default=None, alias="lastMessageAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatSessionListResponse(BaseModel):
@@ -161,6 +163,8 @@ class ChatSessionListResponse(BaseModel):
 
     sessions: list[ChatSessionResponse]
     total: int
+    limit: int
+    offset: int
 
 
 class ChatMessageCreate(BaseModel):
@@ -170,7 +174,7 @@ class ChatMessageCreate(BaseModel):
     content: str = Field(min_length=1)
     tool_calls: list[ToolCall] | None = Field(default=None, alias="toolCalls")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatMessageBulkCreate(BaseModel):
@@ -178,7 +182,7 @@ class ChatMessageBulkCreate(BaseModel):
 
     messages: list["ChatMessageUpsert"]
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatMessageUpsert(BaseModel):
@@ -190,7 +194,7 @@ class ChatMessageUpsert(BaseModel):
     tool_calls: list[ToolCall] | None = Field(default=None, alias="toolCalls")
     order: int | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatMessageResponse(BaseModel):
@@ -204,7 +208,7 @@ class ChatMessageResponse(BaseModel):
     order: int
     created_at: datetime = Field(alias="createdAt")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatMessageListResponse(BaseModel):
@@ -212,9 +216,11 @@ class ChatMessageListResponse(BaseModel):
 
     messages: list[ChatMessageResponse]
     total: int
+    limit: int
+    offset: int
     has_more: bool = Field(alias="hasMore")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatBulkUpsertResponse(BaseModel):
@@ -223,7 +229,7 @@ class ChatBulkUpsertResponse(BaseModel):
     upserted_count: int = Field(alias="upsertedCount")
     session_id: str = Field(alias="sessionId")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # Rebuild models with forward references

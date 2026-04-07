@@ -24,14 +24,37 @@ impl FilePermissions for WindowsPermissions {
     }
 
     fn is_secure(&self, path: &Path) -> Result<bool> {
-        // On Windows, we check if the file exists and is not world-readable
-        // Full ACL verification would require more complex Windows API calls
         if !path.exists() {
             return Ok(false);
         }
 
-        // For now, assume files in ProgramData\Hydra are secure if they exist
-        // Full implementation would use GetNamedSecurityInfo API
+        // Use icacls to inspect the ACL — only Administrators and SYSTEM should appear
+        let output = std::process::Command::new("icacls")
+            .arg(path.as_os_str())
+            .output()
+            .with_context(|| format!("Failed to run icacls on {:?}", path))?;
+
+        if !output.status.success() {
+            return Err(anyhow!("icacls failed for {:?}", path));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // icacls output lists one principal per line after the file path line.
+        // A secure file should only have entries for BUILTIN\Administrators,
+        // NT AUTHORITY\SYSTEM, or the machine-local Administrators SID.
+        let allowed = ["BUILTIN\\Administrators", "NT AUTHORITY\\SYSTEM"];
+        for line in stdout.lines().skip(1) {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("Successfully") {
+                continue;
+            }
+            let has_allowed = allowed.iter().any(|a| trimmed.contains(a));
+            if !has_allowed {
+                // An unexpected principal has permissions on this file
+                return Ok(false);
+            }
+        }
+
         Ok(true)
     }
 }

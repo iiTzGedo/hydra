@@ -114,7 +114,8 @@ impl Profile {
 /// # }
 /// ```
 pub async fn collect_profile(config: &AgentConfig) -> Result<Profile> {
-    let collectors = &config.collection.collectors;
+    let collectors: std::collections::HashSet<&str> =
+        config.collection.collectors.iter().map(|s| s.as_str()).collect();
     let mut profile = Profile {
         node_id: config.node.node_id.clone(),
         version: String::new(),
@@ -143,22 +144,22 @@ pub async fn collect_profile(config: &AgentConfig) -> Result<Profile> {
         json!(config.schedule.enabled),
     );
 
-    if collectors.contains(&"hardware".to_string()) {
+    if collectors.contains("hardware") {
         info!("Collecting hardware information...");
         profile.hardware = Some(HardwareCollector::collect()?);
     }
 
-    if collectors.contains(&"network".to_string()) {
+    if collectors.contains("network") {
         info!("Collecting network information...");
         profile.network = Some(NetworkCollector::collect()?);
     }
 
-    if collectors.contains(&"storage".to_string()) {
+    if collectors.contains("storage") {
         info!("Collecting storage information...");
         profile.storage = Some(StorageCollector::collect(config.node.kind.as_deref())?);
     }
 
-    if collectors.contains(&"software".to_string()) {
+    if collectors.contains("software") {
         info!("Collecting software information...");
         profile.software = Some(SoftwareCollector::collect(config)?);
     }

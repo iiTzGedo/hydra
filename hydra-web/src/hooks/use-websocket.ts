@@ -290,7 +290,7 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
 
           onMessageRef.current?.(data);
         } catch (e) {
-          console.error('[WebSocket] Failed to parse message:', e);
+          wsDebug.error('Failed to parse message:', e);
         }
       };
     } catch (error) {

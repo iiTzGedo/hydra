@@ -26,7 +26,7 @@ export function useTopologies(params?: TopologyListParams) {
         },
       });
       return {
-        items: response.data.data,
+        items: response.data.data.map(t => ({ ...t, id: t.topologyId })),
         total: response.data.meta?.total ?? response.data.data.length,
         limit: response.data.meta?.limit ?? params?.limit ?? 20,
         offset: response.data.meta?.offset ?? params?.offset ?? 0,
@@ -100,7 +100,7 @@ export function useTopologyDiff(fromId?: string, toId?: string, mode?: TopologyM
  */
 export function useTopologySubgraph(nodeId?: string, depth = 1) {
   return useQuery({
-    queryKey: ['topologies', 'subgraph', nodeId, depth],
+    queryKey: queryKeys.topologies.subgraph(nodeId ?? '', { depth }),
     queryFn: async () => {
       const response = await apiClient.get<ApiResponse<SubgraphResponse>>('/topologies/subgraph', {
         params: { nodeId, depth },

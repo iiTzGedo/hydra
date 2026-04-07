@@ -255,9 +255,11 @@ impl SoftwareCollector {
 
     #[cfg(target_os = "windows")]
     fn collect_packages() -> Result<Vec<Package>> {
+        use std::collections::HashSet;
         use std::process::Command;
 
         let mut packages = Vec::new();
+        let mut seen_names: HashSet<String> = HashSet::new();
 
         if let Ok(output) = Command::new("powershell")
             .args([
@@ -276,8 +278,10 @@ impl SoftwareCollector {
                 for line in stdout.lines() {
                     let parts: Vec<&str> = line.splitn(2, '|').collect();
                     if !parts.is_empty() && !parts[0].is_empty() {
+                        let name = parts[0].trim().to_string();
+                        seen_names.insert(name.clone());
                         packages.push(Package {
-                            name: parts[0].trim().to_string(),
+                            name,
                             version: parts.get(1).map(|v| v.trim().to_string()).filter(|v| !v.is_empty()),
                             manager: Some("windows".to_string()),
                         });
@@ -297,7 +301,7 @@ impl SoftwareCollector {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 2 {
                         let name = parts[0].to_string();
-                        if !packages.iter().any(|p| p.name == name) {
+                        if seen_names.insert(name.clone()) {
                             packages.push(Package {
                                 name,
                                 version: Some(parts[1].to_string()),
