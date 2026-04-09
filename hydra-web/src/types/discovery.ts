@@ -12,6 +12,8 @@ export type DiscoveryDeviceStatus =
   | 'approved'
   | 'rejected'
   | 'registered'
+  | 'installing'
+  | 'installed'
   | 'dismissed';
 
 export type DiscoveryScanMethod = 'arp' | 'tcp_port' | 'mdns' | 'ssdp' | 'snmp';
@@ -185,4 +187,69 @@ export interface DiscoveryScanListParams extends Omit<ListParams, 'search'> {
 export interface DiscoveryDeviceListParams extends ListParams {
   status?: DiscoveryDeviceStatus;
   networkId?: string;
+}
+
+// ── Installation Types ─────────────────────────────────────────────
+
+export type InstallationStatus =
+  | 'pending'
+  | 'connecting'
+  | 'transferring'
+  | 'configuring'
+  | 'registering'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface InstallationProgress {
+  phase: InstallationStatus;
+  percentComplete: number;
+  message: string;
+  startedAt?: string;
+  updatedAt: string;
+}
+
+export interface Installation {
+  installationId: string;
+  discoveryId?: string;
+  targetIp: string;
+  targetHostname?: string;
+  status: InstallationStatus;
+  progress: InstallationProgress;
+  nodeId?: string;
+  error?: string;
+  agentTier: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+export interface InstallationSummary {
+  installationId: string;
+  targetIp: string;
+  targetHostname?: string;
+  status: InstallationStatus;
+  phase: InstallationStatus;
+  nodeId?: string;
+  createdAt: string;
+}
+
+export interface StartInstallationRequest {
+  discoveryId?: string;
+  targetIp?: string;
+  credentials: {
+    host: string;
+    port?: number;
+    username: string;
+    password?: string;
+    privateKey?: string;
+    passphrase?: string;
+  };
+  agentTier?: string;
+  tags?: string[];
+}
+
+export interface InstallationListParams extends Omit<ListParams, 'search'> {
+  status?: InstallationStatus;
 }

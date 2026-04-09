@@ -54,6 +54,7 @@ pub fn build_app_state(
     vault: &Vault,
     api_client: Option<Arc<crate::api::ApiClient>>,
     start_time: Instant,
+    plugin_state: Arc<RwLock<crate::plugins::PluginState>>,
 ) -> Result<AppState> {
     let secret_data = vault.load_server_secret()?.ok_or_else(|| {
         anyhow!(
@@ -69,6 +70,7 @@ pub fn build_app_state(
         start_time,
         api_client,
         vault: Some(vault.clone()),
+        plugin_state,
     })
 }
 
@@ -253,6 +255,7 @@ ak58eJJ5Ro104TSDawOK1p40
             start_time: Instant::now(),
             api_client: None,
             vault: None,
+            plugin_state: Arc::new(RwLock::new(crate::plugins::PluginState::new())),
         };
 
         let result = timeout(

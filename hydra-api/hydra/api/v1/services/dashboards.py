@@ -14,6 +14,8 @@ from hydra.api.v1.models.dashboards import (
     AddWidgetRequest,
     CreateBoardRequest,
     DashboardListParams,
+    SaveAsTemplateRequest,
+    ShareBoardRequest,
     UpdateBoardRequest,
     UpdateWidgetRequest,
 )
@@ -337,11 +339,20 @@ class DashboardService:
             A tuple of (list of board summaries, total count).
         """
         # Base filter: not archived, and either owned by user or shared/public
+        # For shared boards, also match if user is in allowedUsers (or no allowedUsers set)
         filter_query: dict[str, Any] = {
             "archivedAt": None,
             "$or": [
                 {"ownerId": user_id},
-                {"visibility": {"$in": ["shared", "public"]}},
+                {"visibility": "public"},
+                {
+                    "visibility": "shared",
+                    "$or": [
+                        {"allowedUsers": {"$exists": False}},
+                        {"allowedUsers": {"$size": 0}},
+                        {"allowedUsers": user_id},
+                    ],
+                },
             ],
         }
 
@@ -782,20 +793,40 @@ class DashboardService:
         self,
         board_id: str,
         user_id: str,
+        user_role: str | None = None,
     ) -> dict[str, Any]:
         """Resolve a board visible to the requesting user.
 
         Private boards remain owner-only. Non-owners may resolve only
         shared or public boards. Invisible boards deliberately return 404
         so callers cannot infer private board existence.
+
+        Args:
+            board_id: Board identifier.
+            user_id: Requesting user's ID.
+            user_role: Requesting user's role (used for role-based sharing).
         """
+        shared_conditions: list[dict[str, Any]] = [
+            {"allowedUsers": {"$exists": False}},
+            {"allowedUsers": {"$size": 0}},
+            {"allowedUsers": user_id},
+            # Extended sharing: match by sharedWith.users
+            {"sharedWith.users": user_id},
+        ]
+        if user_role:
+            shared_conditions.append({"sharedWith.roles": user_role})
+
         doc = await self.collection.find_one(
             {
                 "boardId": board_id,
                 "archivedAt": None,
                 "$or": [
                     {"ownerId": user_id},
-                    {"visibility": {"$in": ["shared", "public"]}},
+                    {"visibility": "public"},
+                    {
+                        "visibility": "shared",
+                        "$or": shared_conditions,
+                    },
                 ],
             }
         )
@@ -890,4 +921,667 @@ class DashboardService:
             "version": doc.get("version", 1),
             "createdAt": doc["createdAt"],
             "updatedAt": doc["updatedAt"],
+        }
+
+    # ── Templates ───────────────────────────────────────────────────
+
+    async def save_as_template(
+        self,
+        board_id: str,
+        request: SaveAsTemplateRequest,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Save a board as a reusable template.
+
+        Strips user-specific data (ownerId, visibility, isHome) and preserves
+        only the layout, widgets, and settings so any user can instantiate it.
+
+        Args:
+            board_id: Source board identifier.
+            request: Template name, description, and tags.
+            user_id: The user creating the template.
+
+        Returns:
+            The created template document.
+        """
+        source = await self._get_visible_board(board_id, user_id)
+
+        now = datetime.now(UTC)
+        template_id = f"tmpl_{uuid4().hex[:12]}"
+
+        # Sanitize widgets: strip instance IDs (will be regenerated on instantiation)
+        sanitized_widgets = []
+        for widget in copy.deepcopy(source.get("widgets", [])):
+            widget.pop("instanceId", None)
+            sanitized_widgets.append(widget)
+
+        doc: dict[str, Any] = {
+            "templateId": template_id,
+            "name": request.name,
+            "description": request.description,
+            "boardType": source.get("boardType", "custom"),
+            "layout": source.get("layout", {"columns": 12, "rowHeight": 80, "breakpoints": {}}),
+            "widgets": sanitized_widgets,
+            "settings": source.get("settings", {}),
+            "tags": request.tags,
+            "widgetCount": len(sanitized_widgets),
+            "createdBy": user_id,
+            "sourceBoard": board_id,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+
+        templates_col = self.db.db["dashboard_templates"]
+        await templates_col.insert_one(doc)
+
+        logger.info("dashboard_template_saved", template_id=template_id, source_board=board_id)
+
+        await log_audit(
+            AuditAction.CREATE,
+            "dashboard_template",
+            template_id,
+            "user",
+            user_id,
+            True,
+            details={"name": request.name, "sourceBoard": board_id},
+        )
+
+        return self._format_template(doc)
+
+    async def list_templates(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        search: str | None = None,
+        tags: list[str] | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List available dashboard templates with optional filtering.
+
+        Args:
+            limit: Max results.
+            offset: Skip count.
+            search: Search by name or description.
+            tags: Filter by tags.
+
+        Returns:
+            A tuple of (list of template summaries, total count).
+        """
+        templates_col = self.db.db["dashboard_templates"]
+        filter_query: dict[str, Any] = {}
+
+        if tags:
+            filter_query["tags"] = {"$all": tags}
+        if search:
+            escaped = re.escape(search)
+            filter_query["$or"] = [
+                {"name": {"$regex": escaped, "$options": "i"}},
+                {"description": {"$regex": escaped, "$options": "i"}},
+            ]
+
+        total = await templates_col.count_documents(filter_query)
+
+        cursor = (
+            templates_col.find(filter_query)
+            .sort("createdAt", DESCENDING)
+            .skip(offset)
+            .limit(limit)
+        )
+
+        templates: list[dict[str, Any]] = []
+        async for doc in cursor:
+            templates.append(self._format_template_summary(doc))
+
+        return templates, total
+
+    async def get_template(self, template_id: str) -> dict[str, Any]:
+        """Retrieve a single template by its identifier.
+
+        Args:
+            template_id: Template identifier.
+
+        Returns:
+            The formatted template document.
+
+        Raises:
+            NotFoundError: If no template exists with the given ID.
+        """
+        templates_col = self.db.db["dashboard_templates"]
+        doc = await templates_col.find_one({"templateId": template_id})
+        if not doc:
+            raise NotFoundError("dashboard_template", template_id)
+        return self._format_template(doc)
+
+    async def instantiate_template(
+        self,
+        template_id: str,
+        user_id: str,
+        name: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new board from a template.
+
+        Args:
+            template_id: Source template identifier.
+            user_id: Owner of the new board.
+            name: Optional override name.
+
+        Returns:
+            The newly created board document.
+        """
+        templates_col = self.db.db["dashboard_templates"]
+        template = await templates_col.find_one({"templateId": template_id})
+        if not template:
+            raise NotFoundError("dashboard_template", template_id)
+
+        now = datetime.now(UTC)
+        board_id = f"board_{uuid4().hex[:12]}"
+
+        # Reconstitute widgets with fresh instance IDs
+        widgets: list[dict[str, Any]] = []
+        for widget in copy.deepcopy(template.get("widgets", [])):
+            widget["instanceId"] = f"wi_{uuid4().hex[:8]}"
+            widgets.append(widget)
+
+        doc: dict[str, Any] = {
+            "boardId": board_id,
+            "name": name or template["name"],
+            "description": template.get("description"),
+            "icon": None,
+            "ownerId": user_id,
+            "boardType": template.get("boardType", "custom"),
+            "visibility": "private",
+            "layout": template.get("layout", {"columns": 12, "rowHeight": 80, "breakpoints": {}}),
+            "widgets": widgets,
+            "settings": template.get("settings", {}),
+            "tags": [],
+            "isHome": False,
+            "version": 1,
+            "clonedFrom": None,
+            "templateId": template_id,
+            "createdAt": now,
+            "updatedAt": now,
+            "archivedAt": None,
+        }
+
+        await self.collection.insert_one(doc)
+
+        logger.info(
+            "dashboard_instantiated_from_template",
+            board_id=board_id,
+            template_id=template_id,
+            user_id=user_id,
+        )
+
+        await log_audit(
+            AuditAction.CREATE,
+            "dashboard",
+            board_id,
+            "user",
+            user_id,
+            True,
+            details={"templateId": template_id},
+        )
+
+        return self._format_board(doc)
+
+    async def delete_template(
+        self,
+        template_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Delete a dashboard template.
+
+        Only the creator can delete a template.
+
+        Args:
+            template_id: Template identifier.
+            user_id: The user requesting deletion.
+
+        Returns:
+            The deleted template document.
+
+        Raises:
+            NotFoundError: If the template does not exist.
+            ValidationError: If the user is not the creator.
+        """
+        templates_col = self.db.db["dashboard_templates"]
+        doc = await templates_col.find_one({"templateId": template_id})
+        if not doc:
+            raise NotFoundError("dashboard_template", template_id)
+        if doc["createdBy"] != user_id:
+            raise ValidationError(
+                f"Only the template creator can delete template '{template_id}'",
+                {"templateId": template_id, "createdBy": doc["createdBy"]},
+            )
+
+        await templates_col.delete_one({"templateId": template_id})
+
+        logger.info("dashboard_template_deleted", template_id=template_id, user_id=user_id)
+
+        await log_audit(
+            AuditAction.DELETE,
+            "dashboard_template",
+            template_id,
+            "user",
+            user_id,
+            True,
+        )
+
+        return self._format_template(doc)
+
+    # ── Sharing ─────────────────────────────────────────────────────
+
+    async def share_board(
+        self,
+        board_id: str,
+        request: ShareBoardRequest,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Update sharing settings for a board.
+
+        Args:
+            board_id: Board identifier.
+            request: New visibility and allowed users.
+            user_id: The user making the change (must be owner).
+
+        Returns:
+            Updated sharing settings.
+        """
+        await self._get_owned_board(board_id, user_id, "share")
+
+        now = datetime.now(UTC)
+        update_fields: dict[str, Any] = {
+            "visibility": request.visibility.value,
+            "updatedAt": now,
+        }
+
+        # allowedUsers only meaningful for shared visibility
+        if request.visibility == "shared":
+            update_fields["allowedUsers"] = request.allowed_users
+        else:
+            update_fields["allowedUsers"] = []
+
+        await self.collection.update_one(
+            {"boardId": board_id},
+            {"$set": update_fields},
+        )
+
+        logger.info(
+            "dashboard_sharing_updated",
+            board_id=board_id,
+            visibility=request.visibility.value,
+            allowed_users_count=len(request.allowed_users),
+        )
+
+        await log_audit(
+            AuditAction.UPDATE,
+            "dashboard",
+            board_id,
+            "user",
+            user_id,
+            True,
+            details={"action": "share", "visibility": request.visibility.value},
+        )
+
+        return {
+            "boardId": board_id,
+            "visibility": request.visibility.value,
+            "allowedUsers": request.allowed_users if request.visibility == "shared" else [],
+        }
+
+    async def get_shares(
+        self,
+        board_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Get sharing information for a board.
+
+        Args:
+            board_id: Board identifier.
+            user_id: The user requesting info (must be owner).
+
+        Returns:
+            Dict with sharedWith target (roles + users).
+        """
+        board = await self._get_owned_board(board_id, user_id, "view shares of")
+        shared_with = board.get("sharedWith", {})
+        return {
+            "roles": shared_with.get("roles", []),
+            "users": shared_with.get("users", []),
+        }
+
+    async def revoke_shares(
+        self,
+        board_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Revoke all shares on a board, resetting visibility to private.
+
+        Args:
+            board_id: Board identifier.
+            user_id: The user revoking shares (must be owner).
+
+        Returns:
+            The updated board document.
+        """
+        await self._get_owned_board(board_id, user_id, "revoke shares on")
+
+        now = datetime.now(UTC)
+        await self.collection.update_one(
+            {"boardId": board_id},
+            {
+                "$set": {
+                    "visibility": "private",
+                    "sharedWith": {"roles": [], "users": []},
+                    "allowedUsers": [],
+                    "updatedAt": now,
+                },
+            },
+        )
+
+        logger.info("dashboard_shares_revoked", board_id=board_id, user_id=user_id)
+
+        await log_audit(
+            AuditAction.UPDATE,
+            "dashboard",
+            board_id,
+            "user",
+            user_id,
+            True,
+            details={"action": "revoke_shares"},
+        )
+
+        return await self.get_board_for_user(board_id, user_id)
+
+    async def seed_builtin_templates(self) -> int:
+        """Seed built-in dashboard templates.
+
+        Upserts 9 built-in templates using existing widget types.
+        Returns the number of templates upserted.
+        """
+        templates_col = self.db.db["dashboard_templates"]
+        now = datetime.now(UTC)
+
+        def _widget(widget_type: str, x: int, y: int, w: int, h: int) -> dict[str, Any]:
+            return {
+                "widgetType": widget_type,
+                "position": {"x": x, "y": y, "w": w, "h": h},
+                "config": {},
+                "dataBinding": None,
+            }
+
+        builtin_templates: list[dict[str, Any]] = [
+            {
+                "templateId": "tmpl_infra_overview",
+                "name": "Infrastructure Overview",
+                "description": "A comprehensive view of your infrastructure with stats, node status, and capacity metrics.",
+                "boardType": "custom",
+                "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {"lg": {"columns": 12, "width": 1200}, "md": {"columns": 8, "width": 996}, "sm": {"columns": 4, "width": 768}}},
+                "widgets": [
+                    _widget("hydra::stats-cards", 0, 0, 12, 2),
+                    _widget("hydra::node-status-grid", 0, 2, 12, 4),
+                    _widget("hydra::capacity-overview", 0, 6, 12, 4),
+                ],
+                "settings": {"theme": "inherit", "autoRefresh": True, "refreshInterval": 30, "showHeader": True, "kioskMode": False},
+                "tags": ["infrastructure", "overview", "builtin"],
+            },
+            {
+                "templateId": "tmpl_service_health",
+                "name": "Service Health",
+                "description": "Monitor service health and key infrastructure metrics.",
+                "boardType": "custom",
+                "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {"lg": {"columns": 12, "width": 1200}, "md": {"columns": 8, "width": 996}, "sm": {"columns": 4, "width": 768}}},
+                "widgets": [
+                    _widget("hydra::service-summary", 0, 0, 6, 4),
+                    _widget("hydra::stats-cards", 6, 0, 6, 2),
+                ],
+                "settings": {"theme": "inherit", "autoRefresh": True, "refreshInterval": 30, "showHeader": True, "kioskMode": False},
+                "tags": ["services", "health", "builtin"],
+            },
+            {
+                "templateId": "tmpl_network_ops",
+                "name": "Network Operations",
+                "description": "Network topology and infrastructure metrics at a glance.",
+                "boardType": "custom",
+                "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {"lg": {"columns": 12, "width": 1200}, "md": {"columns": 8, "width": 996}, "sm": {"columns": 4, "width": 768}}},
+                "widgets": [
+                    _widget("hydra::mini-topology", 0, 0, 12, 4),
+                    _widget("hydra::stats-cards", 0, 4, 12, 2),
+                ],
+                "settings": {"theme": "inherit", "autoRefresh": True, "refreshInterval": 30, "showHeader": True, "kioskMode": False},
+                "tags": ["network", "topology", "builtin"],
+            },
+            {
+                "templateId": "tmpl_capacity",
+                "name": "Capacity Planning",
+                "description": "Resource utilization and capacity metrics for planning.",
+                "boardType": "custom",
+                "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {"lg": {"columns": 12, "width": 1200}, "md": {"columns": 8, "width": 996}, "sm": {"columns": 4, "width": 768}}},
+                "widgets": [
+                    _widget("hydra::capacity-overview", 0, 0, 12, 4),
+                    _widget("hydra::stats-cards", 0, 4, 12, 2),
+                ],
+                "settings": {"theme": "inherit", "autoRefresh": True, "refreshInterval": 30, "showHeader": True, "kioskMode": False},
+                "tags": ["capacity", "planning", "builtin"],
+            },
+            {
+                "templateId": "tmpl_activity",
+                "name": "Activity Monitor",
+                "description": "Track recent infrastructure events and key metrics.",
+                "boardType": "custom",
+                "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {"lg": {"columns": 12, "width": 1200}, "md": {"columns": 8, "width": 996}, "sm": {"columns": 4, "width": 768}}},
+                "widgets": [
+                    _widget("hydra::recent-activity", 0, 0, 6, 4),
+                    _widget("hydra::stats-cards", 6, 0, 6, 2),
+                ],
+                "settings": {"theme": "inherit", "autoRefresh": True, "refreshInterval": 30, "showHeader": True, "kioskMode": False},
+                "tags": ["activity", "events", "builtin"],
+            },
+            {
+                "templateId": "tmpl_minimal",
+                "name": "Minimal Home",
+                "description": "A clean, minimal dashboard with just the key stats.",
+                "boardType": "custom",
+                "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {"lg": {"columns": 12, "width": 1200}, "md": {"columns": 8, "width": 996}, "sm": {"columns": 4, "width": 768}}},
+                "widgets": [
+                    _widget("hydra::stats-cards", 0, 0, 12, 2),
+                ],
+                "settings": {"theme": "inherit", "autoRefresh": True, "refreshInterval": 30, "showHeader": True, "kioskMode": False},
+                "tags": ["minimal", "home", "builtin"],
+            },
+            {
+                "templateId": "tmpl_ops_center",
+                "name": "Operations Center",
+                "description": "Full operations view with all core widgets for comprehensive monitoring.",
+                "boardType": "custom",
+                "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {"lg": {"columns": 12, "width": 1200}, "md": {"columns": 8, "width": 996}, "sm": {"columns": 4, "width": 768}}},
+                "widgets": [
+                    _widget("hydra::stats-cards", 0, 0, 12, 2),
+                    _widget("hydra::service-summary", 0, 2, 6, 4),
+                    _widget("hydra::recent-activity", 6, 2, 6, 4),
+                    _widget("hydra::capacity-overview", 0, 6, 12, 4),
+                    _widget("hydra::mini-topology", 0, 10, 12, 4),
+                    _widget("hydra::node-status-grid", 0, 14, 12, 4),
+                ],
+                "settings": {"theme": "inherit", "autoRefresh": True, "refreshInterval": 30, "showHeader": True, "kioskMode": False},
+                "tags": ["operations", "full", "builtin"],
+            },
+            {
+                "templateId": "tmpl_iot",
+                "name": "IoT Dashboard",
+                "description": "Monitor IoT nodes and device status across your infrastructure.",
+                "boardType": "custom",
+                "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {"lg": {"columns": 12, "width": 1200}, "md": {"columns": 8, "width": 996}, "sm": {"columns": 4, "width": 768}}},
+                "widgets": [
+                    _widget("hydra::stats-cards", 0, 0, 12, 2),
+                    _widget("hydra::node-status-grid", 0, 2, 12, 4),
+                ],
+                "settings": {"theme": "inherit", "autoRefresh": True, "refreshInterval": 30, "showHeader": True, "kioskMode": False},
+                "tags": ["iot", "devices", "builtin"],
+            },
+            {
+                "templateId": "tmpl_security",
+                "name": "Security Overview",
+                "description": "Security-focused view with recent activity and key infrastructure metrics.",
+                "boardType": "custom",
+                "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {"lg": {"columns": 12, "width": 1200}, "md": {"columns": 8, "width": 996}, "sm": {"columns": 4, "width": 768}}},
+                "widgets": [
+                    _widget("hydra::stats-cards", 0, 0, 12, 2),
+                    _widget("hydra::recent-activity", 0, 2, 12, 4),
+                ],
+                "settings": {"theme": "inherit", "autoRefresh": True, "refreshInterval": 30, "showHeader": True, "kioskMode": False},
+                "tags": ["security", "audit", "builtin"],
+            },
+        ]
+
+        count = 0
+        for template in builtin_templates:
+            template["widgetCount"] = len(template["widgets"])
+            template["createdBy"] = "system"
+            template["createdAt"] = now
+            template["updatedAt"] = now
+
+            await templates_col.update_one(
+                {"templateId": template["templateId"]},
+                {"$set": template},
+                upsert=True,
+            )
+            count += 1
+
+        logger.info("builtin_templates_seeded", count=count)
+        return count
+
+    # ── Export / Import ─────────────────────────────────────────────
+
+    async def export_board(
+        self,
+        board_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Export a board as a portable JSON definition.
+
+        Strips user-specific data (ownerId, boardId, timestamps, instance IDs)
+        so the export can be imported by any user.
+
+        Args:
+            board_id: Board identifier.
+            user_id: Requesting user (visibility check).
+
+        Returns:
+            Portable board export dictionary.
+        """
+        board = await self._get_visible_board(board_id, user_id)
+
+        # Strip instance IDs from widgets (will be regenerated on import)
+        exported_widgets = []
+        for widget in copy.deepcopy(board.get("widgets", [])):
+            widget.pop("instanceId", None)
+            exported_widgets.append(widget)
+
+        return {
+            "exportVersion": 1,
+            "name": board["name"],
+            "description": board.get("description"),
+            "icon": board.get("icon"),
+            "boardType": board.get("boardType", "custom"),
+            "layout": board.get("layout", {"columns": 12, "rowHeight": 80, "breakpoints": {}}),
+            "widgets": exported_widgets,
+            "settings": board.get("settings", {}),
+            "tags": board.get("tags", []),
+        }
+
+    async def import_board(
+        self,
+        export_data: dict[str, Any],
+        user_id: str,
+        name: str | None = None,
+    ) -> dict[str, Any]:
+        """Import a board from an exported definition.
+
+        Args:
+            export_data: The exported board definition.
+            user_id: Owner for the new board.
+            name: Optional override name.
+
+        Returns:
+            The newly created board document.
+        """
+        now = datetime.now(UTC)
+        board_id = f"board_{uuid4().hex[:12]}"
+
+        # Validate widget types exist in registry (allow existing for forward compat)
+        widget_types = [w.get("widgetType", "") for w in export_data.get("widgets", [])]
+        self._validate_widget_types(widget_types)
+
+        # Reconstitute widgets with fresh instance IDs
+        widgets: list[dict[str, Any]] = []
+        for widget in copy.deepcopy(export_data.get("widgets", [])):
+            widget["instanceId"] = f"wi_{uuid4().hex[:8]}"
+            widgets.append(widget)
+
+        doc: dict[str, Any] = {
+            "boardId": board_id,
+            "name": name or export_data.get("name", "Imported Board"),
+            "description": export_data.get("description"),
+            "icon": export_data.get("icon"),
+            "ownerId": user_id,
+            "boardType": export_data.get("boardType", "custom"),
+            "visibility": "private",
+            "layout": export_data.get("layout", {"columns": 12, "rowHeight": 80, "breakpoints": {}}),
+            "widgets": widgets,
+            "settings": export_data.get("settings", {}),
+            "tags": export_data.get("tags", []),
+            "isHome": False,
+            "version": 1,
+            "clonedFrom": None,
+            "createdAt": now,
+            "updatedAt": now,
+            "archivedAt": None,
+        }
+
+        await self.collection.insert_one(doc)
+
+        logger.info("dashboard_imported", board_id=board_id, user_id=user_id)
+
+        await log_audit(
+            AuditAction.CREATE,
+            "dashboard",
+            board_id,
+            "user",
+            user_id,
+            True,
+            details={"action": "import"},
+        )
+
+        return self._format_board(doc)
+
+    # ── Template Formatters ─────────────────────────────────────────
+
+    def _format_template(self, doc: dict[str, Any]) -> dict[str, Any]:
+        """Format a template document for API response."""
+        return {
+            "templateId": doc["templateId"],
+            "name": doc["name"],
+            "description": doc.get("description"),
+            "boardType": doc.get("boardType", "custom"),
+            "layout": doc.get("layout", {"columns": 12, "rowHeight": 80, "breakpoints": {}}),
+            "widgets": doc.get("widgets", []),
+            "settings": doc.get("settings", {}),
+            "tags": doc.get("tags", []),
+            "widgetCount": doc.get("widgetCount", len(doc.get("widgets", []))),
+            "createdBy": doc["createdBy"],
+            "createdAt": doc["createdAt"],
+            "updatedAt": doc["updatedAt"],
+        }
+
+    def _format_template_summary(self, doc: dict[str, Any]) -> dict[str, Any]:
+        """Format a template document for list response."""
+        return {
+            "templateId": doc["templateId"],
+            "name": doc["name"],
+            "description": doc.get("description"),
+            "boardType": doc.get("boardType", "custom"),
+            "tags": doc.get("tags", []),
+            "widgetCount": doc.get("widgetCount", len(doc.get("widgets", []))),
+            "createdBy": doc["createdBy"],
+            "createdAt": doc["createdAt"],
         }

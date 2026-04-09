@@ -40,6 +40,52 @@ vi.mock('@/api/dashboards', () => ({
     mutate: deleteWidgetMock,
     isPending: false,
   }),
+  useUpdateWidget: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useExportDashboard: () => ({
+    data: null,
+    refetch: vi.fn().mockResolvedValue({ data: null }),
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  useImportDashboard: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useSaveAsTemplate: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useShareDashboard: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useDashboardShares: () => ({
+    data: null,
+    refetch: vi.fn(),
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  useRevokeDashboardShares: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useDashboardTemplates: () => ({
+    data: { items: [], total: 0, limit: 50, offset: 0 },
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  useDashboardTemplate: () => ({
+    data: null,
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
   useWidgetRegistry: () => ({
     data: {
       widgets: [

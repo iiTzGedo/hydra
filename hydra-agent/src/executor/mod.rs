@@ -21,6 +21,7 @@ use tracing::{info, warn};
 
 use crate::api::{ApiClient, PollCommand};
 use crate::config::AgentConfig;
+use crate::plugins::PluginState;
 use crate::vault::Vault;
 
 /// Result of a command execution.
@@ -58,6 +59,8 @@ pub struct CommandExecutor {
     config_path: Option<PathBuf>,
     /// Vault access for commands that need stored credentials or secrets.
     vault: Option<Vault>,
+    /// Shared plugin state with configurations received from the API.
+    plugin_state: Arc<RwLock<PluginState>>,
 }
 
 impl CommandExecutor {
@@ -68,6 +71,7 @@ impl CommandExecutor {
         api_client: Option<Arc<ApiClient>>,
         config_path: Option<PathBuf>,
         vault: Option<Vault>,
+        plugin_state: Arc<RwLock<PluginState>>,
     ) -> Self {
         Self {
             config,
@@ -75,6 +79,7 @@ impl CommandExecutor {
             api_client,
             config_path,
             vault,
+            plugin_state,
         }
     }
 
@@ -84,6 +89,7 @@ impl CommandExecutor {
     /// - `"service"` → service_handler
     /// - `"node"` → node_handler
     /// - `"agent"` → agent_handler
+    /// - `"plugin"` → plugin dispatch
     ///
     /// Unknown categories return an error result.
     pub async fn execute(&self, cmd: &PollCommand) -> CommandResult {
@@ -118,6 +124,16 @@ impl CommandExecutor {
                     self.api_client.as_ref(),
                     self.config_path.as_deref(),
                     self.vault.as_ref(),
+                )
+                .await
+            }
+            "plugin" => {
+                let state = self.plugin_state.read().await;
+                crate::plugins::execute(
+                    &cmd.action,
+                    &cmd.parameters,
+                    timeout_secs,
+                    &state,
                 )
                 .await
             }

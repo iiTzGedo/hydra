@@ -15,6 +15,13 @@ class CommandCategory(StrEnum):
     SERVICE = "service"
     NODE = "node"
     AGENT = "agent"
+    # Plugin-contributed categories
+    DOCKER = "docker"
+    PROXMOX = "proxmox"
+    HA = "ha"
+    PROMETHEUS = "prometheus"
+    ANSIBLE = "ansible"
+    TERRAFORM = "terraform"
 
 
 class AuditLogLevel(StrEnum):
@@ -30,6 +37,10 @@ class CommandDeliveryMode(StrEnum):
 
     DIRECT_OR_POLL = "direct_or_poll"
     POLL_ONLY = "poll_only"
+    # Plugin execution paths
+    PLUGIN_VIA_API_DIRECT = "plugin_via_api_direct"
+    PLUGIN_VIA_AGENT_DIRECT = "plugin_via_agent_direct"
+    PLUGIN_VIA_AGENT_POLL = "plugin_via_agent_poll"
 
 
 class ExecutionConfig(BaseModel):

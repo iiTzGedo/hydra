@@ -30,4 +30,6 @@ class DiscoveryStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     REGISTERED = "registered"
+    INSTALLING = "installing"
+    INSTALLED = "installed"
     DISMISSED = "dismissed"

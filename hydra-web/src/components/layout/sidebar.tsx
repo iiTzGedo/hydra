@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -11,12 +12,15 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   X,
   Shield,
   User,
   History,
   Bell,
   Search,
+  FileText,
+  Plug,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/constants';
@@ -27,7 +31,9 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 
-type NavItem = {
+// ── Types ─────────────────────────────────────────────────────────
+
+type NavItemDef = {
   icon: typeof LayoutDashboard;
   label: string;
   path: string;
@@ -35,45 +41,101 @@ type NavItem = {
   badge?: number;
 };
 
-const mainNavItems: NavItem[] = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: ROUTES.DASHBOARD },
-  { icon: Server, label: 'Nodes', path: ROUTES.NODES, permission: 'nodes:read' },
-  { icon: Boxes, label: 'Services', path: ROUTES.SERVICES, permission: 'services:read' },
-  { icon: Network, label: 'Networks', path: ROUTES.NETWORKS, permission: 'networks:read' },
-  { icon: Search, label: 'Discovery', path: ROUTES.DISCOVERY, permission: 'discovery:read' },
-  { icon: FolderTree, label: 'Groups', path: ROUTES.GROUPS, permission: 'groups:read' },
-  { icon: GitBranch, label: 'Topology', path: ROUTES.TOPOLOGY, permission: 'topologies:read' },
-  { icon: History, label: 'Time Machine', path: ROUTES.TIME_MACHINE, permission: 'topologies:read' },
-  { icon: MessageSquare, label: 'Chat', path: ROUTES.CHAT },
-  { icon: Terminal, label: 'Commands', path: ROUTES.COMMANDS, permission: 'commands:read' },
+type NavSection =
+  | { type: 'item'; item: NavItemDef }
+  | { type: 'group'; icon: typeof LayoutDashboard; label: string; permission?: string; children: NavItemDef[] };
+
+// ── Navigation Structure (matches spec § 25.3) ───────────────────
+
+const mainNavSections: NavSection[] = [
+  {
+    type: 'item',
+    item: { icon: LayoutDashboard, label: 'Dashboard', path: ROUTES.DASHBOARD },
+  },
+  {
+    type: 'group',
+    icon: Server,
+    label: 'Infrastructure',
+    children: [
+      { icon: Server, label: 'Nodes', path: ROUTES.NODES, permission: 'nodes:read' },
+      { icon: Boxes, label: 'Services', path: ROUTES.SERVICES, permission: 'services:read' },
+      { icon: Network, label: 'Networks', path: ROUTES.NETWORKS, permission: 'networks:read' },
+      { icon: FolderTree, label: 'Groups', path: ROUTES.GROUPS, permission: 'groups:read' },
+    ],
+  },
+  {
+    type: 'item',
+    item: { icon: GitBranch, label: 'Topology', path: ROUTES.TOPOLOGY, permission: 'topologies:read' },
+  },
+  {
+    type: 'item',
+    item: { icon: Search, label: 'Discovery', path: ROUTES.DISCOVERY, permission: 'discovery:read' },
+  },
+  {
+    type: 'item',
+    item: { icon: Terminal, label: 'Command Center', path: ROUTES.COMMANDS, permission: 'commands:read' },
+  },
+  {
+    type: 'item',
+    item: { icon: FileText, label: 'Documentation', path: ROUTES.DOCS, permission: 'docs:read' },
+  },
+  {
+    type: 'item',
+    item: { icon: History, label: 'Time Machine', path: ROUTES.TIME_MACHINE, permission: 'topologies:read' },
+  },
+  {
+    type: 'item',
+    item: { icon: Plug, label: 'Integrations', path: ROUTES.INTEGRATIONS, permission: 'plugins:read' },
+  },
+  {
+    type: 'item',
+    item: { icon: MessageSquare, label: 'Chat', path: ROUTES.CHAT },
+  },
 ];
 
-const utilityNavItems: NavItem[] = [
+const utilityNavItems: NavItemDef[] = [
   { icon: Bell, label: 'Notifications', path: ROUTES.NOTIFICATIONS },
 ];
+
+// ── Sidebar Component ─────────────────────────────────────────────
 
 export function Sidebar() {
   const location = useLocation();
   const { sidebarCollapsed, sidebarMobileOpen, toggleSidebar, setSidebarMobileOpen } = useUiStore();
   const { hasPermission } = useAuthStore();
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Infrastructure: true });
 
-  const filteredMainItems = mainNavItems.filter((item) => {
-    if (item.permission) {
-      return hasPermission(item.permission);
+  const isActive = (path: string) =>
+    location.pathname === path ||
+    (path !== ROUTES.DASHBOARD && location.pathname.startsWith(path));
+
+  const hasGroupPermission = (section: NavSection) => {
+    if (section.type === 'item') {
+      return !section.item.permission || hasPermission(section.item.permission);
     }
-    return true;
-  });
+    // Group: show if at least one child is permitted
+    if (section.permission && !hasPermission(section.permission)) return false;
+    return section.children.some((c) => !c.permission || hasPermission(c.permission));
+  };
 
-  const filteredUtilityItems = utilityNavItems.filter((item) => {
-    if (item.permission) {
-      return hasPermission(item.permission);
-    }
-    return true;
-  });
+  const isGroupExpanded = (label: string) => {
+    // Auto-expand if any child is active
+    const section = mainNavSections.find((s) => s.type === 'group' && s.label === label);
+    if (section?.type === 'group' && section.children.some((c) => isActive(c.path))) return true;
+    return expandedGroups[label] ?? false;
+  };
 
-  const NavItem = ({ item }: { item: NavItem }) => {
-    const isActive = location.pathname === item.path ||
-      (item.path !== ROUTES.DASHBOARD && location.pathname.startsWith(item.path));
+  const toggleGroup = (label: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [label]: !isGroupExpanded(label) }));
+  };
+
+  const filteredSections = mainNavSections.filter(hasGroupPermission);
+  const filteredUtilityItems = utilityNavItems.filter((item) => !item.permission || hasPermission(item.permission));
+
+  // ── Render Helpers ──────────────────────────────────────────────
+
+  const NavItemLink = ({ item }: { item: NavItemDef }) => {
+    const active = isActive(item.path);
     const Icon = item.icon;
 
     const linkContent = (
@@ -83,17 +145,16 @@ export function Sidebar() {
         className={cn(
           'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-200 relative',
           'hover:bg-sidebar-accent/80',
-          isActive
+          active
             ? 'bg-sidebar-accent text-sidebar-foreground'
             : 'text-sidebar-foreground/70 hover:text-sidebar-foreground',
           sidebarCollapsed && 'justify-center px-2'
         )}
       >
-        {/* Active indicator */}
-        {isActive && (
+        {active && (
           <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r-full" />
         )}
-        <Icon className={cn("h-5 w-5 shrink-0", isActive && "text-primary")} />
+        <Icon className={cn('h-5 w-5 shrink-0', active && 'text-primary')} />
         {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
         {!sidebarCollapsed && item.badge !== undefined && item.badge > 0 && (
           <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-medium text-primary-foreground">
@@ -124,6 +185,94 @@ export function Sidebar() {
 
     return linkContent;
   };
+
+  const NavGroup = ({ section }: { section: Extract<NavSection, { type: 'group' }> }) => {
+    const expanded = isGroupExpanded(section.label);
+    const GroupIcon = section.icon;
+    const hasActiveChild = section.children.some((c) => isActive(c.path));
+    const visibleChildren = section.children.filter((c) => !c.permission || hasPermission(c.permission));
+
+    if (sidebarCollapsed) {
+      // When collapsed, show group icon with tooltip listing children
+      return (
+        <Tooltip delayDuration={0}>
+          <TooltipTrigger asChild>
+            <button
+              className={cn(
+                'flex items-center justify-center rounded-md px-2 py-2.5 text-sm font-medium transition-all duration-200 w-full',
+                'hover:bg-sidebar-accent/80',
+                hasActiveChild
+                  ? 'bg-sidebar-accent text-sidebar-foreground'
+                  : 'text-sidebar-foreground/70 hover:text-sidebar-foreground'
+              )}
+            >
+              <GroupIcon className={cn('h-5 w-5 shrink-0', hasActiveChild && 'text-primary')} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent
+            side="right"
+            className="bg-popover text-popover-foreground border-border p-0"
+          >
+            <div className="py-1.5">
+              <p className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                {section.label}
+              </p>
+              {visibleChildren.map((child) => (
+                <Link
+                  key={child.path}
+                  to={child.path}
+                  onClick={() => setSidebarMobileOpen(false)}
+                  className={cn(
+                    'flex items-center gap-2 px-3 py-1.5 text-sm transition-colors',
+                    'hover:bg-accent',
+                    isActive(child.path)
+                      ? 'text-primary font-medium'
+                      : 'text-popover-foreground'
+                  )}
+                >
+                  <child.icon className="h-4 w-4" />
+                  {child.label}
+                </Link>
+              ))}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    return (
+      <div>
+        <button
+          onClick={() => toggleGroup(section.label)}
+          className={cn(
+            'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-200 w-full',
+            'hover:bg-sidebar-accent/80',
+            hasActiveChild
+              ? 'text-sidebar-foreground'
+              : 'text-sidebar-foreground/70 hover:text-sidebar-foreground'
+          )}
+        >
+          <GroupIcon className={cn('h-5 w-5 shrink-0', hasActiveChild && 'text-primary')} />
+          <span className="truncate flex-1 text-left">{section.label}</span>
+          <ChevronDown
+            className={cn(
+              'h-4 w-4 shrink-0 text-sidebar-foreground/50 transition-transform duration-200',
+              !expanded && '-rotate-90'
+            )}
+          />
+        </button>
+        {expanded && (
+          <div className="ml-4 mt-0.5 space-y-0.5 border-l border-sidebar-border/40 pl-2">
+            {visibleChildren.map((child) => (
+              <NavItemLink key={child.path} item={child} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── Sidebar Content ─────────────────────────────────────────────
 
   const sidebarContent = (
     <TooltipProvider>
@@ -158,9 +307,12 @@ export function Sidebar() {
         {/* Main Navigation */}
         <ScrollArea className="flex-1 px-3 py-4">
           <nav className="flex flex-col gap-1">
-            {filteredMainItems.map((item) => (
-              <NavItem key={item.path} item={item} />
-            ))}
+            {filteredSections.map((section) => {
+              if (section.type === 'item') {
+                return <NavItemLink key={section.item.path} item={section.item} />;
+              }
+              return <NavGroup key={section.label} section={section} />;
+            })}
           </nav>
 
           {/* Utility Navigation */}
@@ -169,7 +321,7 @@ export function Sidebar() {
               <Separator className="my-4 bg-sidebar-border/50" />
               <nav className="flex flex-col gap-1">
                 {filteredUtilityItems.map((item) => (
-                  <NavItem key={item.path} item={item} />
+                  <NavItemLink key={item.path} item={item} />
                 ))}
               </nav>
             </>

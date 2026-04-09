@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import { useAuthStore } from '@/stores/auth-store';
 import { useApiKeys, useCreateApiKey, useRevokeApiKey, useChangePassword } from '@/api/auth';
 import { formatRelativeTime, formatDateTime } from '@/lib/utils';
@@ -127,10 +128,11 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold text-foreground">Profile</h2>
-        <p className="text-sm text-muted-foreground">Manage your account settings and preferences</p>
-      </div>
+      <PageHeaderLayout
+        title="Profile"
+        subtitle="Manage your account settings and preferences"
+        showBackButton={false}
+      />
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card className="bg-card border-border">

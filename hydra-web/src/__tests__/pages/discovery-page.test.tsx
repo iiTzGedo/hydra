@@ -34,6 +34,11 @@ vi.mock('@/api/discovery', () => ({
     mutateAsync: dismissDiscoveryMock,
     isPending: false,
   }),
+  useInstallations: () => ({ data: undefined, isLoading: false }),
+  useInstallation: () => ({ data: undefined, isLoading: false }),
+  useStartInstallation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCancelInstallation: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRetryInstallation: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock('@/api/nodes', () => ({

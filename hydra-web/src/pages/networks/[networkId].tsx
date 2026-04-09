@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  ArrowLeft,
   Network,
   Server,
   Edit,
@@ -12,7 +11,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDeleteNetwork, useNetwork, useNetworkNodes, useUpdateNetwork } from '@/api/networks';
-import { PageHeader } from '@/components/layout/page-header';
+import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import { ROUTES, NETWORK_TYPE_LABELS, NODE_CLASS_COLORS } from '@/lib/constants';
 import { cn, formatDate } from '@/lib/utils';
 import { getErrorMessage } from '@/lib/api-client';
@@ -124,8 +123,8 @@ export default function NetworkDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
-        <div className="h-8 w-48 animate-pulse rounded bg-muted mb-6" />
+      <div className="space-y-6">
+        <PageHeaderLayout isLoading />
         <div className="space-y-6">
           <div className="h-32 animate-pulse rounded-xl bg-muted" />
           <div className="h-64 animate-pulse rounded-xl bg-muted" />
@@ -136,14 +135,8 @@ export default function NetworkDetailPage() {
 
   if (error || !network) {
     return (
-      <div className="p-6">
-        <Link
-          to={ROUTES.NETWORKS}
-          className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Networks
-        </Link>
+      <div className="space-y-6">
+        <PageHeaderLayout title="Network not found" />
         <div className="rounded-xl border bg-card p-8 text-center">
           <Network className="mx-auto h-12 w-12 text-muted-foreground" />
           <h3 className="mt-4 text-lg font-semibold">Network not found</h3>
@@ -158,18 +151,10 @@ export default function NetworkDetailPage() {
   const typeLabel = NETWORK_TYPE_LABELS[network.type] || network.type;
 
   return (
-    <div className="p-6">
-      <Link
-        to={ROUTES.NETWORKS}
-        className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Networks
-      </Link>
-
-      <PageHeader
+    <div className="space-y-6">
+      <PageHeaderLayout
         title={network.name || network.cidr || 'Network'}
-        description={`${typeLabel} network`}
+        subtitle={`${typeLabel} network`}
         actions={
           <div className="flex items-center gap-2">
             <button

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -218,14 +219,11 @@ export default function ServicesPage() {
   return (
     <TooltipProvider>
       <div className="space-y-6">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold text-foreground">Service Explorer</h2>
-            <p className="text-sm text-muted-foreground">
-              {data?.items?.length ?? 0} of {data?.total ?? 0} services
-            </p>
-          </div>
-        </div>
+        <PageHeaderLayout
+          title="Service Explorer"
+          subtitle={`${data?.items?.length ?? 0} of ${data?.total ?? 0} services`}
+          showBackButton={false}
+        />
 
                 <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
           <Card>

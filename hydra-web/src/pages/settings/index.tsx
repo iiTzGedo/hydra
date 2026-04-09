@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import { useSearchParams } from 'react-router-dom';
 import {
   Globe,
@@ -11,7 +12,6 @@ import {
   Lock,
   FileText,
   Bot,
-  Settings,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import type { Role } from '@/types/user';
@@ -234,22 +234,11 @@ export default function SettingsPage() {
   return (
     <TooltipProvider>
       <div className="space-y-6">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-3"
-        >
-          <div className="p-3 rounded-xl bg-primary/10">
-            <Settings className="h-6 w-6 text-primary" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-semibold text-foreground">Settings</h2>
-            <p className="text-sm text-muted-foreground">
-              Configure system settings and manage your account
-            </p>
-          </div>
-        </motion.div>
+        <PageHeaderLayout
+          title="Settings"
+          subtitle="Configure system settings and manage your account"
+          showBackButton={false}
+        />
 
         {/* Main Content */}
         <div className="grid gap-6 lg:grid-cols-[280px,1fr]">

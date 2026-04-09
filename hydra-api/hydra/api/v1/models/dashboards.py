@@ -333,3 +333,170 @@ class DashboardListParams(BaseModel):
     offset: int = Field(default=0, ge=0)
     sort_by: Literal["name", "createdAt", "updatedAt"] = Field(default="updatedAt", alias="sortBy")
     sort_order: Literal["asc", "desc"] = Field(default="desc", alias="sortOrder")
+
+
+# ── Portable Widget (shared by templates + export) ──────────────────
+
+
+class PortableWidgetInstance(BaseModel):
+    """Widget instance for templates and export (instanceId is optional)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    instance_id: str | None = Field(default=None, alias="instanceId")
+    widget_type: str = Field(alias="widgetType")
+    position: WidgetPosition
+    config: dict[str, Any] = Field(default_factory=dict)
+    data_binding: DataBinding | None = Field(default=None, alias="dataBinding")
+
+
+# ── Template Models ─────────────────────────────────────────────────
+
+
+class SaveAsTemplateRequest(BaseModel):
+    """Save a board as a reusable template."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = Field(min_length=1, max_length=128, description="Template name")
+    description: str | None = Field(default=None, max_length=1024)
+    tags: list[str] = Field(default_factory=list)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str]) -> list[str]:
+        for tag in v:
+            if len(tag) > 64:
+                raise ValueError(f"Tag '{tag[:20]}...' exceeds maximum length of 64 characters")
+        return v
+
+
+class TemplateResponse(BaseModel):
+    """Dashboard template response."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    template_id: str = Field(alias="templateId")
+    name: str
+    description: str | None = None
+    board_type: BoardType = Field(alias="boardType")
+    layout: BoardLayout
+    widgets: list[PortableWidgetInstance] = Field(default_factory=list)
+    settings: BoardSettings = Field(default_factory=BoardSettings)
+    tags: list[str] = Field(default_factory=list)
+    widget_count: int = Field(default=0, alias="widgetCount")
+    created_by: str = Field(alias="createdBy")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+
+class TemplateSummary(BaseModel):
+    """Abbreviated template response for list endpoints."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    template_id: str = Field(alias="templateId")
+    name: str
+    description: str | None = None
+    board_type: BoardType = Field(alias="boardType")
+    tags: list[str] = Field(default_factory=list)
+    widget_count: int = Field(default=0, alias="widgetCount")
+    created_by: str = Field(alias="createdBy")
+    created_at: datetime = Field(alias="createdAt")
+
+
+class InstantiateTemplateRequest(BaseModel):
+    """Create a board from a template."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str | None = Field(default=None, min_length=1, max_length=128, description="Name for the new board")
+
+
+# ── Sharing Models ──────────────────────────────────────────────────
+
+
+class ShareBoardRequest(BaseModel):
+    """Update sharing settings for a board."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    visibility: BoardVisibility = Field(description="Board visibility scope")
+    allowed_users: list[str] = Field(
+        default_factory=list,
+        alias="allowedUsers",
+        description="User IDs allowed to view the board (only for shared visibility)",
+    )
+
+
+class ShareBoardResponse(BaseModel):
+    """Response after updating sharing settings."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    board_id: str = Field(alias="boardId")
+    visibility: BoardVisibility
+    allowed_users: list[str] = Field(default_factory=list, alias="allowedUsers")
+
+
+# ── Export/Import Models ────────────────────────────────────────────
+
+
+class BoardExport(BaseModel):
+    """Exported board definition for import/export round-tripping."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    export_version: int = Field(default=1, alias="exportVersion")
+    name: str
+    description: str | None = None
+    icon: str | None = None
+    board_type: BoardType = Field(alias="boardType")
+    layout: BoardLayout
+    widgets: list[PortableWidgetInstance] = Field(default_factory=list)
+    settings: BoardSettings = Field(default_factory=BoardSettings)
+    tags: list[str] = Field(default_factory=list)
+
+
+class ImportBoardRequest(BaseModel):
+    """Import a board from an exported definition."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    board: BoardExport = Field(description="Exported board definition to import")
+    name: str | None = Field(default=None, min_length=1, max_length=128, description="Override name for imported board")
+
+
+# ── Extended Sharing Models ────────────────────────────────────────
+
+
+class ShareTarget(BaseModel):
+    """Target audience for board sharing — roles and/or specific users."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    roles: list[str] = Field(default_factory=list, alias="roles")
+    users: list[str] = Field(default_factory=list, alias="users")
+
+
+class ShareInfo(BaseModel):
+    """Full sharing information for a board."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    shared_with: ShareTarget = Field(alias="sharedWith")
+    shared_at: datetime = Field(alias="sharedAt")
+    shared_by: str = Field(alias="sharedBy")
+
+
+class TemplateListParams(BaseModel):
+    """Query parameters for listing dashboard templates."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    search: str | None = Field(default=None, max_length=256)
+    tags: list[str] | None = None
+    sort_by: Literal["name", "createdAt", "updatedAt"] = Field(default="createdAt", alias="sortBy")
+    sort_order: Literal["asc", "desc"] = Field(default="desc", alias="sortOrder")
+    limit: int = Field(default=50, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)

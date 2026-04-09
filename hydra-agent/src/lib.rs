@@ -19,6 +19,7 @@ pub mod collectors;
 pub mod config;
 pub mod executor;
 pub mod instance_lock;
+pub mod plugins;
 pub mod platform;
 pub mod server;
 pub mod utils;

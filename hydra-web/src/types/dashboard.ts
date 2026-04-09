@@ -158,3 +158,69 @@ export interface WidgetRegistryResponse {
   categories: WidgetCategoryInfo[];
   total: number;
 }
+
+// ── Template & Sharing Types ────────────────────────────────────────
+
+export interface ShareTarget {
+  roles: string[];
+  users: string[];
+}
+
+export interface ShareBoardRequest {
+  sharedWith: ShareTarget;
+}
+
+export interface ShareInfo {
+  sharedWith: ShareTarget;
+  sharedAt: string;
+  sharedBy: string;
+}
+
+export interface SaveAsTemplateRequest {
+  name?: string;
+  description?: string;
+  tags?: string[];
+}
+
+export interface ExportedBoard {
+  name: string;
+  description?: string;
+  icon?: string;
+  boardType: DashboardBoardType;
+  layout?: DashboardBoardLayout;
+  widgets?: DashboardWidgetInstance[];
+  settings?: DashboardBoardSettings;
+  tags?: string[];
+}
+
+export interface ImportBoardRequest {
+  board: ExportedBoard;
+  name?: string;
+}
+
+export interface TemplateListParams {
+  search?: string;
+  tags?: string[];
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+}
+
+export interface DashboardTemplateSummary {
+  templateId: string;
+  name: string;
+  description?: string | null;
+  boardType: DashboardBoardType;
+  tags: string[];
+  widgetCount: number;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface DashboardTemplate extends DashboardTemplateSummary {
+  layout: DashboardBoardLayout;
+  widgets: DashboardWidgetInstance[];
+  settings: DashboardBoardSettings;
+  updatedAt: string;
+}

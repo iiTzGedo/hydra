@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 
 use crate::api::ApiClient;
 use crate::config::AgentConfig;
+use crate::plugins::PluginState;
 use crate::vault::Vault;
 
 /// Shared state accessible by all server handlers.
@@ -24,4 +25,6 @@ pub struct AppState {
     pub api_client: Option<Arc<ApiClient>>,
     /// Vault access for update execution and other credential-backed operations.
     pub vault: Option<Vault>,
+    /// Shared plugin state for plugin configuration received from the API.
+    pub plugin_state: Arc<RwLock<PluginState>>,
 }

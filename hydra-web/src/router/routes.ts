@@ -31,6 +31,8 @@ const TimeMachinePage = lazy(() => import('@/pages/timemachine'));
 const ChatPage = lazy(() => import('@/pages/chat'));
 const CommandsPage = lazy(() => import('@/pages/commands'));
 const CommandDetailPage = lazy(() => import('@/pages/commands/[commandId]'));
+const DocsPage = lazy(() => import('@/pages/docs'));
+const IntegrationsPage = lazy(() => import('@/pages/integrations'));
 const MCPMarketplacePage = lazy(() => import('@/pages/mcp/marketplace'));
 const NotificationsPage = lazy(() => import('@/pages/notifications'));
 const ProfilePage = lazy(() => import('@/pages/profile'));
@@ -229,6 +231,24 @@ export const appRoutes: RouteConfig[] = [
     title: 'Command Details',
     requiresAuth: true,
     permissions: ['commands:read'],
+  },
+  {
+    path: ROUTES.DOCS,
+    element: DocsPage,
+    title: 'Documentation',
+    requiresAuth: true,
+    permissions: ['docs:read'],
+    showInNav: true,
+    navIcon: 'FileText',
+  },
+  {
+    path: ROUTES.INTEGRATIONS,
+    element: IntegrationsPage,
+    title: 'Integrations',
+    requiresAuth: true,
+    permissions: ['plugins:read'],
+    showInNav: true,
+    navIcon: 'Plug',
   },
   {
     path: ROUTES.MCP_MARKETPLACE,

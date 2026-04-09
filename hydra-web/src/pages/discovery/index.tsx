@@ -5,6 +5,7 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle2,
+  Download,
   Loader2,
   Radar,
   Search,
@@ -19,9 +20,12 @@ import {
   useDiscoveryScan,
   useDiscoveryScans,
   useDismissDiscovery,
+  useInstallations,
   useRejectDiscovery,
   useStartDiscoveryScan,
 } from '@/api/discovery';
+import { InstallDialog } from './components/install-dialog';
+import { InstallProgress } from './components/install-progress';
 import { useNodes } from '@/api/nodes';
 import { PermissionGate } from '@/components/auth/permission-gate';
 import { PageHeaderLayout } from '@/components/layout/page-header-layout';
@@ -83,6 +87,8 @@ const DEVICE_STATUS_OPTIONS: Array<{
   { value: 'pending', label: 'Pending review' },
   { value: 'approved', label: 'Approved' },
   { value: 'registered', label: 'Registered' },
+  { value: 'installing', label: 'Installing' },
+  { value: 'installed', label: 'Installed' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'dismissed', label: 'Dismissed' },
 ];
@@ -186,6 +192,9 @@ export default function DiscoveryPage() {
       snmp: true,
     } as Record<DiscoveryScanMethod, boolean>,
   });
+  const [installDialogOpen, setInstallDialogOpen] = useState(false);
+  const [installDeviceId, setInstallDeviceId] = useState<string | null>(null);
+  const [activeInstallationId, setActiveInstallationId] = useState<string | null>(null);
   const [reviewForm, setReviewForm] = useState({
     nodeId: '',
     nodeClass: '',
@@ -242,6 +251,21 @@ export default function DiscoveryPage() {
       setSelectedDeviceId(devices[0].discoveryId);
     }
   }, [devices, selectedDeviceId]);
+
+  const { data: installationsResponse } = useInstallations({
+    limit: 5,
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+  });
+  const recentInstallations = useMemo(
+    () => installationsResponse?.items ?? [],
+    [installationsResponse?.items]
+  );
+
+  const installDevice = useMemo(
+    () => devices.find((d) => d.discoveryId === installDeviceId) ?? null,
+    [devices, installDeviceId]
+  );
 
   const { data: selectedScan } = useDiscoveryScan(selectedScanId);
   const { data: selectedDevice } = useDiscoveryDevice(selectedDeviceId);
@@ -969,6 +993,17 @@ export default function DiscoveryPage() {
                           >
                             Dismiss
                           </Button>
+                          <Button
+                            variant="secondary"
+                            onClick={() => {
+                              setInstallDeviceId(selectedDevice.discoveryId);
+                              setInstallDialogOpen(true);
+                            }}
+                            disabled={selectedDevice.status !== 'approved'}
+                          >
+                            <Download className="mr-2 h-4 w-4" />
+                            Install Agent
+                          </Button>
                         </div>
                       </div>
                     </div>
@@ -989,6 +1024,68 @@ export default function DiscoveryPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Recent Installations */}
+      {(recentInstallations.length > 0 || activeInstallationId) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Installations</CardTitle>
+            <CardDescription>
+              Track remote agent installations deployed via SSH.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {activeInstallationId && (
+              <InstallProgress installationId={activeInstallationId} />
+            )}
+            {recentInstallations.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Target</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Phase</TableHead>
+                    <TableHead>Created</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentInstallations.map((inst) => (
+                    <TableRow
+                      key={inst.installationId}
+                      className="cursor-pointer"
+                      data-state={inst.installationId === activeInstallationId ? 'selected' : undefined}
+                      onClick={() => setActiveInstallationId(inst.installationId)}
+                    >
+                      <TableCell>
+                        <div className="font-medium">
+                          {inst.targetHostname || inst.targetIp}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{inst.installationId}</div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={inst.status} />
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {inst.phase}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatRelativeTime(inst.createdAt)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <InstallDialog
+        open={installDialogOpen}
+        onOpenChange={setInstallDialogOpen}
+        device={installDevice}
+        onSuccess={(id) => setActiveInstallationId(id)}
+      />
 
       <Dialog open={scanDialogOpen} onOpenChange={setScanDialogOpen}>
         <DialogContent className="sm:max-w-2xl">

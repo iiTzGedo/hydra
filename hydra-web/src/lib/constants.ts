@@ -27,6 +27,8 @@ export const ROUTES = {
   CHAT: '/chat',
   COMMANDS: '/commands',
   COMMAND_DETAIL: '/commands/:commandId',
+  DOCS: '/docs',
+  INTEGRATIONS: '/integrations',
   MCP_MARKETPLACE: '/mcp-marketplace',
   NOTIFICATIONS: '/notifications',
   PROFILE: '/profile',

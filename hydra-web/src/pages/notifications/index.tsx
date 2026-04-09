@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
+import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import {
-  Bell,
   CheckCheck,
   CheckCircle,
   Filter,
@@ -276,31 +276,25 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Bell className="h-6 w-6 text-muted-foreground" />
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Notifications</h1>
-            <p className="text-sm text-muted-foreground">
-              {stats ? `${stats.total} active, ${stats.unread} unread` : 'Loading...'}
-            </p>
+      <PageHeaderLayout
+        title="Notifications"
+        subtitle={stats ? `${stats.total} active, ${stats.unread} unread` : 'Loading...'}
+        showBackButton={false}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={isFetching}
+            >
+              <RefreshCw className={`mr-1.5 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            {renderBulkAction()}
           </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={isFetching}
-          >
-            <RefreshCw className={`mr-1.5 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          {renderBulkAction()}
-        </div>
-      </div>
+        }
+      />
 
       {/* Level summary badges */}
       <div className="flex flex-wrap gap-2">

@@ -165,6 +165,9 @@ async fn run_agent(config_path: &std::path::Path, vault: &Vault, once: bool) -> 
 
     let api_client_arc = std::sync::Arc::new(api::ApiClient::new(&config, vault)?);
     let shared_config = std::sync::Arc::new(tokio::sync::RwLock::new(config.clone()));
+    let shared_plugin_state = std::sync::Arc::new(tokio::sync::RwLock::new(
+        hydra_agent::plugins::PluginState::new(),
+    ));
     let agent_start_time = std::time::Instant::now();
 
     // Collect profile, reporting failures to notification system
@@ -258,6 +261,7 @@ async fn run_agent(config_path: &std::path::Path, vault: &Vault, once: bool) -> 
                 vault,
                 Some(api_client_arc.clone()),
                 agent_start_time,
+                shared_plugin_state.clone(),
             )?;
 
             let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -291,6 +295,7 @@ async fn run_agent(config_path: &std::path::Path, vault: &Vault, once: bool) -> 
             Some(api_client_arc.clone()),
             Some(config_path.to_path_buf()),
             Some(vault.clone()),
+            shared_plugin_state.clone(),
         );
         let node_id = config.node.node_id.clone();
         // Rebind client reference for the rest of the function

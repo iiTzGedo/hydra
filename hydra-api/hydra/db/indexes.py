@@ -184,6 +184,23 @@ INDEXES: dict[str, list[IndexModel]] = {
         ),
         IndexModel([("userId", ASCENDING), ("readAt", DESCENDING)]),
     ],
+    "plugins": [
+        IndexModel([("pluginId", ASCENDING)], unique=True),
+        IndexModel([("status", ASCENDING)]),
+        IndexModel([("manifest.classification", ASCENDING), ("status", ASCENDING)]),
+        IndexModel([("manifest.category", ASCENDING)]),
+        IndexModel([("nodeBindings.nodeId", ASCENDING)]),
+    ],
+    "installations": [
+        IndexModel([("installationId", ASCENDING)], unique=True),
+        IndexModel([("status", ASCENDING), ("createdAt", DESCENDING)]),
+        IndexModel([("discoveryId", ASCENDING)], sparse=True),
+        IndexModel([("targetIp", ASCENDING)]),
+    ],
+    "dashboard_versions": [
+        IndexModel([("versionId", ASCENDING)], unique=True),
+        IndexModel([("boardId", ASCENDING), ("version", DESCENDING)]),
+    ],
 }
 
 

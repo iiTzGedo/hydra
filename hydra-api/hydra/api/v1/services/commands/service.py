@@ -303,6 +303,21 @@ class CommandsService:
         # Step 3: Rate limiting
         await self._check_rate_limits(user_id, request.target.node_id, definition)
 
+        # Step 3b: Plugin execution resolution
+        from hydra.api.v1.services.plugins.resolver import PluginResolver
+
+        plugin_resolver = PluginResolver(self.mongodb)
+        plugin_path = await plugin_resolver.resolve_execution_path(
+            request.registry_id, request.target.node_id
+        )
+        if plugin_path is not None:
+            logger.info(
+                "plugin_execution_path_resolved",
+                registry_id=request.registry_id,
+                node_id=request.target.node_id,
+                plugin_path=plugin_path.value,
+            )
+
         # Step 4: Two-phase confirmation for dangerous commands
         if requires_confirmation:
             return await self._create_pending_confirmation(
@@ -327,10 +342,12 @@ class CommandsService:
                 chain,
             )
             if direct_result is not None:
+                if plugin_path is not None:
+                    await self._store_plugin_context(direct_result, plugin_path)
                 return direct_result
 
         # Normal tier or max-tier fallback: queue for poll-based execution
-        return await self._queue_command(
+        result = await self._queue_command(
             request,
             definition,
             category,
@@ -342,6 +359,9 @@ class CommandsService:
             client_id,
             chain,
         )
+        if plugin_path is not None:
+            await self._store_plugin_context(result, plugin_path)
+        return result
 
     async def dry_run_command(
         self,
@@ -536,6 +556,25 @@ class CommandsService:
         )
 
         return command_doc
+
+    async def _store_plugin_context(
+        self,
+        command_doc: dict[str, Any],
+        plugin_path: Any,
+    ) -> None:
+        """Store plugin execution context on an existing command document.
+
+        Args:
+            command_doc: The command document to annotate (mutated in place).
+            plugin_path: An ExecutionPathType enum value from the plugin resolver.
+        """
+        command_id = command_doc.get("commandId")
+        if command_id:
+            await self.commands.update_one(
+                {"commandId": command_id},
+                {"$set": {"executionContext.pluginPath": plugin_path.value}},
+            )
+            command_doc.setdefault("executionContext", {})["pluginPath"] = plugin_path.value
 
     async def _queue_command(
         self,

@@ -11,8 +11,12 @@ import type {
   DiscoveryScanListParams,
   DiscoveryScanSummary,
   DismissDiscoveryRequest,
+  Installation,
+  InstallationListParams,
+  InstallationSummary,
   RejectDiscoveryRequest,
   StartDiscoveryScanRequest,
+  StartInstallationRequest,
 } from '@/types/discovery';
 
 export function useDiscoveryScans(params?: DiscoveryScanListParams) {
@@ -185,6 +189,137 @@ export function useDismissDiscovery(discoveryId: string | null | undefined) {
     },
     onSuccess: () => {
       invalidateDiscovery(queryClient);
+    },
+  });
+}
+
+// ── Installation Hooks ──────────────────────────────────────────────
+
+const installationKeys = {
+  all: ['installations'] as const,
+  list: <T extends object = Record<string, unknown>>(params?: T) => {
+    if (params) {
+      return [...installationKeys.all, 'list', params] as const;
+    }
+    return [...installationKeys.all, 'list'] as const;
+  },
+  detail: (installationId: string) =>
+    [...installationKeys.all, 'detail', installationId] as const,
+};
+
+const ACTIVE_INSTALLATION_STATUSES = new Set([
+  'pending',
+  'connecting',
+  'transferring',
+  'configuring',
+  'registering',
+  'running',
+]);
+
+export function useInstallations(params?: InstallationListParams) {
+  return useQuery({
+    queryKey: installationKeys.list(params),
+    queryFn: async (): Promise<PaginatedResponse<InstallationSummary>> => {
+      const response = await apiClient.get<ApiResponse<InstallationSummary[]>>(
+        '/installations',
+        {
+          params: {
+            status: params?.status,
+            limit: params?.limit,
+            offset: params?.offset,
+            sortBy: params?.sortBy,
+            sortOrder: params?.sortOrder,
+          },
+        }
+      );
+      const items = response.data.data;
+      return {
+        items,
+        total: response.data.meta?.total ?? items.length,
+        limit: response.data.meta?.limit ?? params?.limit ?? 50,
+        offset: response.data.meta?.offset ?? params?.offset ?? 0,
+      };
+    },
+    refetchInterval: (query) => {
+      const installs = query.state.data?.items ?? [];
+      if (installs.some((inst) => ACTIVE_INSTALLATION_STATUSES.has(inst.status))) {
+        return 3000;
+      }
+      return false;
+    },
+  });
+}
+
+export function useInstallation(installationId: string | null | undefined) {
+  return useQuery({
+    queryKey: installationKeys.detail(installationId ?? ''),
+    queryFn: async (): Promise<Installation> => {
+      const response = await apiClient.get<ApiResponse<Installation>>(
+        `/installations/${installationId}`
+      );
+      return response.data.data;
+    },
+    enabled: Boolean(installationId),
+    refetchInterval: (query) => {
+      const inst = query.state.data;
+      if (inst && ACTIVE_INSTALLATION_STATUSES.has(inst.status)) {
+        return 3000;
+      }
+      return false;
+    },
+  });
+}
+
+export function useStartInstallation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (request: StartInstallationRequest): Promise<Installation> => {
+      const response = await apiClient.post<ApiResponse<Installation>>(
+        '/installations',
+        request
+      );
+      return response.data.data;
+    },
+    onSuccess: (installation) => {
+      queryClient.invalidateQueries({ queryKey: installationKeys.all });
+      queryClient.setQueryData(
+        installationKeys.detail(installation.installationId),
+        installation
+      );
+      invalidateDiscovery(queryClient);
+    },
+  });
+}
+
+export function useCancelInstallation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (installationId: string): Promise<Installation> => {
+      const response = await apiClient.post<ApiResponse<Installation>>(
+        `/installations/${installationId}/cancel`
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: installationKeys.all });
+    },
+  });
+}
+
+export function useRetryInstallation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (installationId: string): Promise<Installation> => {
+      const response = await apiClient.post<ApiResponse<Installation>>(
+        `/installations/${installationId}/retry`
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: installationKeys.all });
     },
   });
 }

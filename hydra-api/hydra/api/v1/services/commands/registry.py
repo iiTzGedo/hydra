@@ -97,3 +97,69 @@ class CommandRegistryService:
         definitions = await cursor.to_list(length=limit)
 
         return definitions, total
+
+    async def list_definitions_with_plugins(
+        self,
+        category: str | None = None,
+        include_deprecated: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List command definitions including plugin-contributed commands.
+
+        Combines built-in definitions from the command_definitions collection
+        with contributed commands from active plugins.
+
+        Args:
+            category: Filter by command category.
+            include_deprecated: Include deprecated commands.
+            limit: Maximum results.
+            offset: Pagination offset.
+
+        Returns:
+            Tuple of (combined definitions list, total count).
+        """
+        # Get built-in definitions
+        definitions, builtin_total = await self.list_definitions(
+            category=category,
+            include_deprecated=include_deprecated,
+            limit=limit,
+            offset=offset,
+        )
+
+        # Query active plugins for contributed commands
+        plugins_collection = self.mongodb.db["plugins"]
+        plugin_cursor = plugins_collection.find({
+            "status": "active",
+            "manifest.contributedCommands": {"$exists": True, "$ne": []},
+            "uninstalledAt": {"$exists": False},
+        })
+
+        plugin_commands: list[dict[str, Any]] = []
+        async for plugin in plugin_cursor:
+            manifest = plugin.get("manifest", {})
+            plugin_id = plugin.get("pluginId", "")
+            contributed = manifest.get("contributedCommands", [])
+
+            for registry_id in contributed:
+                # Only include if not already in builtin definitions
+                if any(d.get("registryId") == registry_id for d in definitions):
+                    continue
+
+                # Apply category filter if specified
+                if category and not registry_id.startswith(f"reg::{category}::"):
+                    continue
+
+                plugin_commands.append({
+                    "registryId": registry_id,
+                    "source": "plugin",
+                    "pluginId": plugin_id,
+                    "pluginName": manifest.get("name", ""),
+                    "category": registry_id.split("::")[1] if "::" in registry_id else "custom",
+                    "action": registry_id.split("::")[-1] if "::" in registry_id else registry_id,
+                })
+
+        combined = definitions + plugin_commands
+        total = builtin_total + len(plugin_commands)
+
+        return combined, total

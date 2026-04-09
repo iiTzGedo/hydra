@@ -832,3 +832,368 @@ async def test_search_escapes_regex_chars(
         assert regex_value == escaped, (
             f"Expected escaped regex {escaped!r} but got {regex_value!r}"
         )
+
+
+# ── Template & Sharing & Export/Import Tests ───────────────────────
+
+
+@pytest.fixture
+def sample_template():
+    """Sample dashboard template document."""
+    now = datetime.now(UTC)
+    return {
+        "templateId": "tmpl_test123abc",
+        "name": "Test Template",
+        "description": "A test template",
+        "boardType": "custom",
+        "layout": {
+            "columns": 12,
+            "rowHeight": 80,
+            "breakpoints": {
+                "lg": {"columns": 12, "width": 1200},
+                "md": {"columns": 8, "width": 996},
+                "sm": {"columns": 4, "width": 768},
+            },
+        },
+        "widgets": [
+            {
+                "widgetType": "hydra::stats-cards",
+                "position": {"x": 0, "y": 0, "w": 12, "h": 2},
+                "config": {},
+                "dataBinding": None,
+            },
+            {
+                "widgetType": "hydra::node-status-grid",
+                "position": {"x": 0, "y": 2, "w": 12, "h": 4},
+                "config": {},
+                "dataBinding": None,
+            },
+        ],
+        "settings": {
+            "theme": "inherit",
+            "autoRefresh": True,
+            "refreshInterval": 30,
+            "showHeader": True,
+            "kioskMode": False,
+        },
+        "tags": ["infrastructure", "builtin"],
+        "widgetCount": 2,
+        "createdBy": "user_admin123",
+        "createdAt": now,
+        "updatedAt": now,
+    }
+
+
+@pytest.fixture
+def mock_templates_collection():
+    """Create a separate mock for the dashboard_templates collection."""
+    return create_mock_collection()
+
+
+@pytest.fixture(autouse=False)
+def _patch_templates_collection(mock_mongodb, mock_templates_collection):
+    """Patch mock_mongodb.db to also return the templates collection."""
+    original_getitem = mock_mongodb.db.__getitem__
+
+    def _getitem(key):
+        if key == "dashboard_templates":
+            return mock_templates_collection
+        return original_getitem(key)
+
+    mock_mongodb.db.__getitem__ = MagicMock(side_effect=_getitem)
+
+
+@pytest.mark.asyncio
+async def test_list_templates(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_dashboards_collection,
+    mock_templates_collection,
+    _patch_templates_collection,
+    admin_token,
+    sample_user,
+    sample_template,
+):
+    """Test listing dashboard templates."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_templates_collection.count_documents = AsyncMock(return_value=1)
+    mock_templates_collection.find.return_value = create_mock_cursor([sample_template])
+
+    response = await client.get(
+        "/api/v1/dashboards/templates",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "data" in data
+    assert len(data["data"]) == 1
+    assert data["data"][0]["templateId"] == sample_template["templateId"]
+    assert data["data"][0]["name"] == "Test Template"
+    assert data["meta"]["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_save_as_template(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_dashboards_collection,
+    mock_templates_collection,
+    _patch_templates_collection,
+    admin_token,
+    sample_user,
+    sample_board,
+):
+    """Test saving a board as a template. New templateId must start with 'tmpl_'."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_dashboards_collection.find_one = AsyncMock(return_value=sample_board)
+    mock_templates_collection.insert_one = AsyncMock()
+
+    response = await client.post(
+        f"/api/v1/dashboards/{sample_board['boardId']}/save-as-template",
+        json={"name": "My Template", "description": "Saved from board", "tags": ["test"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 201
+    data = response.json()["data"]
+    assert data["templateId"].startswith("tmpl_")
+    assert data["name"] == "My Template"
+    assert data["boardType"] == sample_board["boardType"]
+    mock_templates_collection.insert_one.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_share_board(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_dashboards_collection,
+    admin_token,
+    sample_user,
+    sample_board,
+):
+    """Test sharing a board updates visibility and allowedUsers."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_dashboards_collection.find_one = AsyncMock(return_value=sample_board)
+    mock_dashboards_collection.update_one = AsyncMock()
+
+    response = await client.post(
+        f"/api/v1/dashboards/{sample_board['boardId']}/share",
+        json={"visibility": "shared", "allowedUsers": ["user_viewer123"]},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["visibility"] == "shared"
+    assert "user_viewer123" in data["allowedUsers"]
+    mock_dashboards_collection.update_one.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_revoke_shares(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_dashboards_collection,
+    admin_token,
+    sample_user,
+    sample_board,
+):
+    """Test revoking shares resets visibility to private."""
+    shared_board = {
+        **sample_board,
+        "visibility": "shared",
+        "allowedUsers": ["user_viewer123"],
+        "sharedWith": {"roles": ["viewer"], "users": ["user_viewer123"]},
+    }
+    revoked_board = {
+        **sample_board,
+        "visibility": "private",
+        "allowedUsers": [],
+        "sharedWith": {"roles": [], "users": []},
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    # First find_one for ownership check, second for update_one, third for get_board_for_user
+    mock_dashboards_collection.find_one = AsyncMock(
+        side_effect=[shared_board, revoked_board]
+    )
+    mock_dashboards_collection.update_one = AsyncMock()
+
+    response = await client.delete(
+        f"/api/v1/dashboards/{sample_board['boardId']}/shares",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["visibility"] == "private"
+    mock_dashboards_collection.update_one.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_export_board(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_dashboards_collection,
+    admin_token,
+    sample_user,
+    sample_board,
+):
+    """Test exporting a board strips boardId, ownerId, and timestamps."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_dashboards_collection.find_one = AsyncMock(return_value=sample_board)
+
+    response = await client.get(
+        f"/api/v1/dashboards/{sample_board['boardId']}/export",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["name"] == sample_board["name"]
+    assert data["boardType"] == sample_board["boardType"]
+    # Exported data should NOT contain user-specific fields
+    assert "boardId" not in data
+    assert "ownerId" not in data
+    assert "createdAt" not in data
+    assert "updatedAt" not in data
+    assert "archivedAt" not in data
+    # Widgets should have instanceId stripped
+    for widget in data.get("widgets", []):
+        assert "instanceId" not in widget or widget.get("instanceId") is None
+
+
+@pytest.mark.asyncio
+async def test_import_board(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_dashboards_collection,
+    admin_token,
+    sample_user,
+    sample_board,
+):
+    """Test importing a board generates new boardId and sets ownership."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_dashboards_collection.insert_one = AsyncMock()
+
+    export_payload = {
+        "board": {
+            "exportVersion": 1,
+            "name": "Imported Board",
+            "description": "From export",
+            "boardType": "custom",
+            "layout": sample_board["layout"],
+            "widgets": [
+                {
+                    "widgetType": "hydra::stats-cards",
+                    "position": {"x": 0, "y": 0, "w": 12, "h": 2},
+                    "config": {},
+                }
+            ],
+            "settings": sample_board["settings"],
+            "tags": ["imported"],
+        }
+    }
+
+    response = await client.post(
+        "/api/v1/dashboards/import",
+        json=export_payload,
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 201
+    data = response.json()["data"]
+    assert data["boardId"].startswith("board_")
+    assert data["name"] == "Imported Board"
+    assert data["ownerId"] == "user_admin123"
+    assert data["visibility"] == "private"
+    mock_dashboards_collection.insert_one.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_export_import_roundtrip(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_dashboards_collection,
+    admin_token,
+    sample_user,
+    sample_board,
+):
+    """Test that exporting a board and then importing preserves structure."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_dashboards_collection.find_one = AsyncMock(return_value=sample_board)
+
+    # Export
+    export_response = await client.get(
+        f"/api/v1/dashboards/{sample_board['boardId']}/export",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert export_response.status_code == 200
+    exported = export_response.json()["data"]
+
+    # Import the exported data
+    mock_dashboards_collection.insert_one = AsyncMock()
+
+    import_response = await client.post(
+        "/api/v1/dashboards/import",
+        json={"board": exported, "name": "Re-imported"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert import_response.status_code == 201
+    imported = import_response.json()["data"]
+    assert imported["name"] == "Re-imported"
+    assert imported["boardType"] == exported["boardType"]
+    assert len(imported["widgets"]) == len(exported["widgets"])
+    # Widget types should match
+    imported_types = [w["widgetType"] for w in imported["widgets"]]
+    exported_types = [w["widgetType"] for w in exported["widgets"]]
+    assert imported_types == exported_types
+
+
+@pytest.mark.asyncio
+async def test_get_shares(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_dashboards_collection,
+    admin_token,
+    sample_user,
+    sample_board,
+):
+    """Test getting share information for a board."""
+    board_with_shares = {
+        **sample_board,
+        "sharedWith": {
+            "roles": ["viewer", "operator"],
+            "users": ["user_viewer123"],
+        },
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_dashboards_collection.find_one = AsyncMock(return_value=board_with_shares)
+
+    response = await client.get(
+        f"/api/v1/dashboards/{sample_board['boardId']}/shares",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert "viewer" in data["roles"]
+    assert "operator" in data["roles"]
+    assert "user_viewer123" in data["users"]

@@ -959,6 +959,65 @@ class DiscoveryService:
             ),
         )
 
+    # ── Installation Bridge ─────────────────────────────────────────────
+
+    async def trigger_installation(
+        self,
+        discovery_id: str,
+        credentials_dict: dict[str, Any],
+        agent_tier: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Trigger an agent installation for a discovered device.
+
+        Validates the device is in APPROVED status, transitions it to
+        INSTALLING, then delegates to the InstallationService.
+
+        Args:
+            discovery_id: The discovery device to install on.
+            credentials_dict: SSH credentials dict.
+            agent_tier: Agent tier to install (lite/normal/max).
+            user_id: ID of the initiating user.
+
+        Returns:
+            The installation document.
+
+        Raises:
+            DiscoveryNotFoundError: If the device does not exist.
+            DiscoveryNotPendingError: If the device is not in approved status.
+        """
+        device = await self.get_discovery(discovery_id)
+
+        if device["status"] != DiscoveryStatus.APPROVED:
+            raise DiscoveryNotPendingError(discovery_id, device["status"])
+
+        now = datetime.now(UTC)
+        await self.devices.update_one(
+            {"discoveryId": discovery_id},
+            {"$set": {"status": DiscoveryStatus.INSTALLING, "updatedAt": now}},
+        )
+
+        from hydra.api.v1.models.installations import (
+            SSHCredentials,
+            StartInstallationRequest,
+        )
+        from hydra.api.v1.services.installations import InstallationService
+
+        install_service = InstallationService(self.db)
+        request = StartInstallationRequest(
+            discovery_id=discovery_id,
+            credentials=SSHCredentials(**credentials_dict),
+            agent_tier=agent_tier,
+        )
+        result = await install_service.start_installation(request, user_id)
+
+        logger.info(
+            "discovery.installation_triggered",
+            discovery_id=discovery_id,
+            installation_id=result.get("installationId"),
+        )
+        return result
+
     # ── Helpers ────────────────────────────────────────────────────────
 
     @staticmethod

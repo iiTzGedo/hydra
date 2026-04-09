@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
@@ -52,6 +53,58 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     registry_service = CommandRegistryService(mongodb)
     await registry_service.seed_builtin_commands()
 
+    # Seed built-in dashboard templates
+    from hydra.api.v1.services.dashboards import DashboardService
+    dashboard_service = DashboardService(mongodb)
+    await dashboard_service.seed_builtin_templates()
+
+    # Seed core plugin manifests and their contributed commands
+    from hydra.api.v1.models.plugins import PluginManifest
+    from hydra.api.v1.services.plugins import PLUGIN_REGISTRY
+    if PLUGIN_REGISTRY:
+        plugins_col = mongodb.plugins
+        cmd_defs_col = mongodb.command_definitions
+        seeded = 0
+        for plugin_id, handler_cls in PLUGIN_REGISTRY.items():
+            # Validate manifest through Pydantic and serialize with camelCase aliases
+            manifest_model = PluginManifest(**handler_cls.MANIFEST)
+            manifest = manifest_model.model_dump(by_alias=True)
+            now = datetime.now(UTC)
+            # Upsert plugin manifest (idempotent, starts as "installed")
+            result = await plugins_col.update_one(
+                {"pluginId": plugin_id},
+                {
+                    "$set": {"manifest": manifest, "updatedAt": now},
+                    "$setOnInsert": {
+                        "pluginId": plugin_id,
+                        "status": "installed",
+                        "config": {},
+                        "nodeBindings": [],
+                        "health": {
+                            "status": "unknown",
+                            "lastCheck": None,
+                            "consecutiveFailures": 0,
+                            "lastError": None,
+                            "responseTimeMs": None,
+                        },
+                        "createdAt": now,
+                    },
+                },
+                upsert=True,
+            )
+            if result.upserted_id or result.modified_count:
+                seeded += 1
+            # Upsert contributed command definitions with plugin source markers
+            for cmd_def in handler_cls.COMMAND_DEFINITIONS:
+                enriched = {**cmd_def, "source": "plugin", "pluginId": plugin_id}
+                await cmd_defs_col.update_one(
+                    {"registryId": enriched["registryId"]},
+                    {"$set": enriched},
+                    upsert=True,
+                )
+        if seeded:
+            logger.info("core_plugins_seeded", total=len(PLUGIN_REGISTRY), upserted=seeded)
+
     # Set startup time for uptime tracking
     health.set_startup_time()
 
@@ -80,12 +133,31 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 
     timeout_task = asyncio.create_task(command_timeout_loop())
 
+    async def auto_retry_loop() -> None:
+        """Periodically schedule retries for failed commands with auto-retry."""
+        while True:
+            try:
+                await asyncio.sleep(60)
+                svc = CommandsService(mongodb)
+                count = await svc.schedule_auto_retries()
+                if count > 0:
+                    logger.info("auto_retries_scheduled_background", count=count)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("auto_retry_loop_error", error=str(e))
+
+    auto_retry_task = asyncio.create_task(auto_retry_loop())
+
     yield
 
     # Shutdown
     logger.info("shutting_down_hydra_api")
+    auto_retry_task.cancel()
     timeout_task.cancel()
     scanner_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await auto_retry_task
     with contextlib.suppress(asyncio.CancelledError):
         await timeout_task
     with contextlib.suppress(asyncio.CancelledError):

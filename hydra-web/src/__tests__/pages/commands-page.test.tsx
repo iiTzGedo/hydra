@@ -23,6 +23,26 @@ vi.mock('@/api/commands', async () => {
   };
 });
 
+vi.mock('@/api/workflows', () => ({
+  useWorkflows: () => ({
+    data: { items: [] },
+    isLoading: false,
+    error: null,
+  }),
+  useExecuteWorkflow: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useUpdateWorkflow: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useDeleteWorkflow: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+}));
+
 import CommandsPage from '@/pages/commands';
 import { renderWithRoute } from '../page-test-utils';
 

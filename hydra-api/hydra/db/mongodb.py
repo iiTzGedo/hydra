@@ -207,6 +207,11 @@ class MongoDB:
         return self.db.doc_templates
 
     @property
+    def dashboard_templates(self) -> AsyncIOMotorCollection[Any]:
+        """Dashboard templates collection."""
+        return self.db.dashboard_templates
+
+    @property
     def ai_models(self) -> AsyncIOMotorCollection[Any]:
         """AI/LLM provider configurations collection."""
         return self.db.ai_models
@@ -265,6 +270,21 @@ class MongoDB:
     def discovered_nodes(self) -> AsyncIOMotorCollection[Any]:
         """Discovered devices from network scans."""
         return self.db.discovered_nodes
+
+    @property
+    def plugins(self) -> AsyncIOMotorCollection[Any]:
+        """Plugin registry collection."""
+        return self.db.plugins
+
+    @property
+    def installations(self) -> AsyncIOMotorCollection[Any]:
+        """Agent installation jobs collection."""
+        return self.db.installations
+
+    @property
+    def dashboard_versions(self) -> AsyncIOMotorCollection[Any]:
+        """Dashboard version snapshots collection."""
+        return self.db.dashboard_versions
 
 
 _mongodb: MongoDB | None = None

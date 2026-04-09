@@ -106,6 +106,7 @@ pub async fn execute(
         state.api_client.clone(),
         Some(state.config_path.clone()),
         state.vault.clone(),
+        state.plugin_state.clone(),
     );
     let result = executor.execute(&poll_cmd).await;
     let duration_ms = start.elapsed().as_millis() as u64;
@@ -499,6 +500,7 @@ node_id = "testnode"
             start_time: Instant::now(),
             api_client: None,
             vault: None,
+            plugin_state: Arc::new(RwLock::new(crate::plugins::PluginState::new())),
         }
     }
 

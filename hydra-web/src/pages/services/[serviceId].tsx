@@ -1,7 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  ArrowLeft,
   Boxes,
   Server,
   Tag,
@@ -9,7 +8,7 @@ import {
   Container,
 } from 'lucide-react';
 import { useService } from '@/api/services';
-import { PageHeader } from '@/components/layout/page-header';
+import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import { ROUTES, STATUS_COLORS, SERVICE_RUNTIME_LABELS } from '@/lib/constants';
 import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
 import { ServiceControlPanel } from '@/components/commands/service-control-panel';
@@ -23,8 +22,8 @@ export default function ServiceDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
-        <div className="h-8 w-48 animate-pulse rounded bg-muted mb-6" />
+      <div className="space-y-6">
+        <PageHeaderLayout isLoading />
         <div className="space-y-6">
           <div className="h-32 animate-pulse rounded-xl bg-muted" />
           <div className="h-64 animate-pulse rounded-xl bg-muted" />
@@ -35,14 +34,8 @@ export default function ServiceDetailPage() {
 
   if (error || !service) {
     return (
-      <div className="p-6">
-        <Link
-          to={ROUTES.SERVICES}
-          className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Services
-        </Link>
+      <div className="space-y-6">
+        <PageHeaderLayout title="Service not found" />
         <div className="rounded-xl border bg-card p-8 text-center">
           <Boxes className="mx-auto h-12 w-12 text-muted-foreground" />
           <h3 className="mt-4 text-lg font-semibold">Service not found</h3>
@@ -60,18 +53,10 @@ export default function ServiceDetailPage() {
   const exposureEndpoints = service.exposure?.endpoints ?? [];
 
   return (
-    <div className="p-6">
-      <Link
-        to={ROUTES.SERVICES}
-        className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to Services
-      </Link>
-
-      <PageHeader
+    <div className="space-y-6">
+      <PageHeaderLayout
         title={service.displayName || service.name}
-        description={`${runtimeLabel} service on ${service.nodeId}`}
+        subtitle={`${runtimeLabel} service on ${service.nodeId}`}
       />
 
       <motion.div

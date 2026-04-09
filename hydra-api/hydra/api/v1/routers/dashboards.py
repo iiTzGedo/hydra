@@ -13,6 +13,7 @@ from hydra.api.v1.core.deps import (
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.dashboards import (
     AddWidgetRequest,
+    BoardExport,
     BoardResponse,
     BoardSummary,
     BoardType,
@@ -20,6 +21,14 @@ from hydra.api.v1.models.dashboards import (
     CloneBoardRequest,
     CreateBoardRequest,
     DashboardListParams,
+    ImportBoardRequest,
+    InstantiateTemplateRequest,
+    SaveAsTemplateRequest,
+    ShareBoardRequest,
+    ShareBoardResponse,
+    ShareTarget,
+    TemplateResponse,
+    TemplateSummary,
     UpdateBoardRequest,
     UpdateWidgetRequest,
     WidgetRegistryResponse,
@@ -153,6 +162,116 @@ async def get_widget_registry(
     """
     registry = dashboard_service.get_widget_registry(category)
     return SuccessResponse(data=WidgetRegistryResponse(**registry))
+
+
+# ── Template Endpoints ──────────────────────────────────────────────
+
+
+@router.get(
+    "/templates",
+    response_model=SuccessResponse[list[TemplateSummary]],
+    response_model_by_alias=True,
+    summary="List Dashboard Templates",
+    description="List available dashboard templates with optional filtering.",
+    dependencies=[Depends(require_permission("dashboards:read"))],
+)
+async def list_templates(
+    dashboard_service: DashboardServiceDep,
+    search: str | None = None,
+    tags: list[str] | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> SuccessResponse[list[TemplateSummary]]:
+    """List available dashboard templates."""
+    templates, total = await dashboard_service.list_templates(
+        limit=limit, offset=offset, search=search, tags=tags,
+    )
+    return SuccessResponse(
+        data=[TemplateSummary(**t) for t in templates],
+        meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@router.get(
+    "/templates/{template_id}",
+    response_model=SuccessResponse[TemplateResponse],
+    response_model_by_alias=True,
+    summary="Get Dashboard Template",
+    description="Get detailed information about a dashboard template.",
+    dependencies=[Depends(require_permission("dashboards:read"))],
+)
+async def get_template(
+    dashboard_service: DashboardServiceDep,
+    template_id: str = Path(description="Dashboard template ID"),
+) -> SuccessResponse[TemplateResponse]:
+    """Retrieve a single dashboard template by its identifier."""
+    template = await dashboard_service.get_template(template_id)
+    return SuccessResponse(data=TemplateResponse(**template))
+
+
+@router.post(
+    "/templates/{template_id}/instantiate",
+    response_model=SuccessResponse[BoardResponse],
+    response_model_by_alias=True,
+    status_code=201,
+    summary="Instantiate Template",
+    description="Create a new dashboard board from a template.",
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def instantiate_template(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    template_id: str = Path(description="Dashboard template ID"),
+    request: InstantiateTemplateRequest | None = None,
+) -> SuccessResponse[BoardResponse]:
+    """Create a new board from a dashboard template."""
+    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    name = request.name if request else None
+    board = await dashboard_service.instantiate_template(template_id, user_id, name)
+    return SuccessResponse(data=BoardResponse(**board))
+
+
+@router.delete(
+    "/templates/{template_id}",
+    response_model=SuccessResponse[TemplateResponse],
+    response_model_by_alias=True,
+    summary="Delete Dashboard Template",
+    description="Delete a dashboard template. Only the creator can delete.",
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def delete_template(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    template_id: str = Path(description="Dashboard template ID"),
+) -> SuccessResponse[TemplateResponse]:
+    """Delete a dashboard template."""
+    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    template = await dashboard_service.delete_template(template_id, user_id)
+    return SuccessResponse(data=TemplateResponse(**template))
+
+
+# ── Import Endpoint ─────────────────────────────────────────────────
+
+
+@router.post(
+    "/import",
+    response_model=SuccessResponse[BoardResponse],
+    response_model_by_alias=True,
+    status_code=201,
+    summary="Import Dashboard",
+    description="Import a dashboard from an exported JSON definition.",
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def import_dashboard(
+    request: ImportBoardRequest,
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+) -> SuccessResponse[BoardResponse]:
+    """Import a board from an exported definition."""
+    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    export_data = request.board.model_dump(by_alias=True)
+    board = await dashboard_service.import_board(export_data, user_id, request.name)
+    return SuccessResponse(data=BoardResponse(**board))
 
 
 @router.get(
@@ -368,3 +487,107 @@ async def delete_widget(
     user_id = current_user.get("user_id") or current_user.get("userId", "")
     board = await dashboard_service.delete_widget(dashboard_id, widget_id, user_id)
     return SuccessResponse(data=BoardResponse(**board))
+
+
+# ── Per-Board Actions (template, share, export) ────────────────────
+
+
+@router.post(
+    "/{dashboard_id}/save-as-template",
+    response_model=SuccessResponse[TemplateResponse],
+    response_model_by_alias=True,
+    status_code=201,
+    summary="Save As Template",
+    description="Save a dashboard as a reusable template.",
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def save_as_template(
+    request: SaveAsTemplateRequest,
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+) -> SuccessResponse[TemplateResponse]:
+    """Save a board as a reusable template.
+
+    Strips user-specific data and preserves layout, widgets, and settings.
+    """
+    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    template = await dashboard_service.save_as_template(dashboard_id, request, user_id)
+    return SuccessResponse(data=TemplateResponse(**template))
+
+
+@router.post(
+    "/{dashboard_id}/share",
+    response_model=SuccessResponse[ShareBoardResponse],
+    response_model_by_alias=True,
+    summary="Share Dashboard",
+    description="Update sharing settings for a dashboard.",
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def share_dashboard(
+    request: ShareBoardRequest,
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+) -> SuccessResponse[ShareBoardResponse]:
+    """Update sharing settings (visibility and allowed users) for a board."""
+    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    result = await dashboard_service.share_board(dashboard_id, request, user_id)
+    return SuccessResponse(data=ShareBoardResponse(**result))
+
+
+@router.get(
+    "/{dashboard_id}/shares",
+    response_model=SuccessResponse[ShareTarget],
+    response_model_by_alias=True,
+    summary="Get Dashboard Shares",
+    description="Get sharing information for a dashboard.",
+    dependencies=[Depends(require_permission("dashboards:read"))],
+)
+async def get_shares(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+) -> SuccessResponse[ShareTarget]:
+    """Get sharing target (roles + users) for a board."""
+    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    result = await dashboard_service.get_shares(dashboard_id, user_id)
+    return SuccessResponse(data=ShareTarget(**result))
+
+
+@router.delete(
+    "/{dashboard_id}/shares",
+    response_model=SuccessResponse[BoardResponse],
+    response_model_by_alias=True,
+    summary="Revoke Dashboard Shares",
+    description="Revoke all shares on a dashboard, resetting to private.",
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def revoke_shares(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+) -> SuccessResponse[BoardResponse]:
+    """Revoke all shares, clearing shared users/roles and setting visibility to private."""
+    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    board = await dashboard_service.revoke_shares(dashboard_id, user_id)
+    return SuccessResponse(data=BoardResponse(**board))
+
+
+@router.get(
+    "/{dashboard_id}/export",
+    response_model=SuccessResponse[BoardExport],
+    response_model_by_alias=True,
+    summary="Export Dashboard",
+    description="Export a dashboard as a portable JSON definition.",
+    dependencies=[Depends(require_permission("dashboards:read"))],
+)
+async def export_dashboard(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+) -> SuccessResponse[BoardExport]:
+    """Export a board as portable JSON for backup or sharing."""
+    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    export_data = await dashboard_service.export_board(dashboard_id, user_id)
+    return SuccessResponse(data=BoardExport(**export_data))

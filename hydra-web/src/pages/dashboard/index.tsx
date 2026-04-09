@@ -6,14 +6,18 @@ import {
   Bell,
   Boxes,
   Copy,
+  Download,
   History,
   LayoutGrid,
+  LayoutTemplate,
   Maximize2,
   MessageSquare,
   Network,
   PanelsTopLeft,
   Plus,
+  Share2,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -25,9 +29,13 @@ import {
   useDashboards,
   useDeleteDashboard,
   useDeleteWidget,
+  useExportDashboard,
+  useImportDashboard,
   useUpdateDashboard,
   useWidgetRegistry,
 } from '@/api/dashboards';
+import { BoardTemplates } from '@/components/dashboard/board-templates';
+import { ShareDialog } from '@/components/dashboard/share-dialog';
 import { TimeRangeSelector } from '@/components/dashboard/time-range-selector';
 import { getWidgetComponent } from '@/components/dashboard/widgets';
 import {
@@ -297,6 +305,8 @@ export default function DashboardPage() {
   } = useDashboardStore();
   const [configWidgetId, setConfigWidgetId] = useState<string | null>(null);
   const [widgetConfigDraft, setWidgetConfigDraft] = useState<Record<string, unknown>>({});
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   const dashboardsQuery = useDashboards({ limit: 50, sortBy: 'updatedAt', sortOrder: 'desc' });
   const widgetRegistry = useWidgetRegistry().data;
@@ -345,6 +355,8 @@ export default function DashboardPage() {
   const cloneDashboard = useCloneDashboard(selectedBoardId);
   const addWidget = useAddWidget(selectedBoardId);
   const deleteWidget = useDeleteWidget(selectedBoardId);
+  const exportQuery = useExportDashboard(selectedBoardId);
+  const importDashboard = useImportDashboard();
 
   const isMutating =
     createDashboard.isPending ||
@@ -352,7 +364,8 @@ export default function DashboardPage() {
     deleteDashboard.isPending ||
     cloneDashboard.isPending ||
     addWidget.isPending ||
-    deleteWidget.isPending;
+    deleteWidget.isPending ||
+    importDashboard.isPending;
 
   // Track whether a layout-change save is in-flight to debounce
   const layoutSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -544,6 +557,40 @@ export default function DashboardPage() {
     }
   }, [selectedBoard, updateDashboard]);
 
+  const handleExportBoard = useCallback(async () => {
+    if (!selectedBoardId) return;
+    try {
+      const { data } = await exportQuery.refetch();
+      if (!data) return;
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dashboard-${selectedBoard?.name?.replace(/\s+/g, '-').toLowerCase() ?? 'export'}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success('Dashboard exported');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to export dashboard'));
+    }
+  }, [selectedBoardId, selectedBoard, exportQuery]);
+
+  const handleImportBoard = useCallback(async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const board = await importDashboard.mutateAsync({ board: parsed });
+      setActiveBoardId(board.boardId);
+      toast.success('Dashboard imported');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to import dashboard'));
+    }
+  }, [importDashboard, setActiveBoardId]);
+
+  const handleTemplateUsed = useCallback((boardId: string) => {
+    setActiveBoardId(boardId);
+  }, [setActiveBoardId]);
+
   const handleConfigureWidget = useCallback(
     (instanceId: string) => {
       if (!selectedBoard) return;
@@ -679,6 +726,42 @@ export default function DashboardPage() {
                     </Button>
                     <Button
                       size="sm"
+                      variant="outline"
+                      onClick={() => setShowShare(true)}
+                      disabled={isMutating || !selectedBoardId}
+                    >
+                      <Share2 className="mr-2 h-4 w-4" />
+                      Share
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleExportBoard()}
+                      disabled={isMutating || !selectedBoardId}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Export
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = '.json';
+                        input.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) void handleImportBoard(file);
+                        };
+                        input.click();
+                      }}
+                      disabled={isMutating}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Import
+                    </Button>
+                    <Button
+                      size="sm"
                       variant="destructive"
                       onClick={() => void handleDeleteBoard()}
                       disabled={isMutating}
@@ -688,6 +771,15 @@ export default function DashboardPage() {
                     </Button>
                   </>
                 )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowTemplates(true)}
+                  disabled={isMutating}
+                >
+                  <LayoutTemplate className="mr-2 h-4 w-4" />
+                  Templates
+                </Button>
                 <Button size="sm" onClick={() => void handleCreateBoard()} disabled={isMutating}>
                   {createDashboard.isPending ? (
                     <LoadingSpinner size="sm" className="mr-2 text-current" />
@@ -814,6 +906,21 @@ export default function DashboardPage() {
             </motion.div>
           )}
         </>
+      )}
+
+      <BoardTemplates
+        open={showTemplates}
+        onOpenChange={setShowTemplates}
+        onTemplateUsed={handleTemplateUsed}
+      />
+
+      {selectedBoardId && selectedBoard && (
+        <ShareDialog
+          open={showShare}
+          onOpenChange={setShowShare}
+          boardId={selectedBoardId}
+          boardName={selectedBoard.name}
+        />
       )}
 
       <Dialog

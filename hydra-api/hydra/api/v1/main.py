@@ -26,10 +26,12 @@ from hydra.api.v1.routers import (
     ha,
     health,
     install,
+    installations,
     mcp,
     networks,
     nodes,
     notifications,
+    plugins,
     profiles,
     query,
     search,
@@ -225,6 +227,8 @@ def create_app() -> FastAPI:
     app.include_router(mcp.router)
     app.include_router(notifications.router)
     app.include_router(discovery.router)
+    app.include_router(plugins.router)
+    app.include_router(installations.router)
     app.include_router(search.router)
     app.include_router(settings_router.router)
 
