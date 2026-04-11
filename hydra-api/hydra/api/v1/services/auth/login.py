@@ -39,6 +39,7 @@ from hydra.api.v1.models.notifications import (
 from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.services.notifications import emit_notification
 from hydra.api.v1.services.query import log_audit
+from hydra.api.v1.services.users._roles import RolesMixin
 from hydra.core.config import Settings
 from hydra.db.mongodb import MongoDB
 from hydra.db.redis import RedisClient
@@ -80,6 +81,27 @@ class LoginMixin:
             return None
         seed = f"{ip or 'unknown'}|{user_agent or 'unknown'}".strip().lower()
         return hashlib.sha256(seed.encode()).hexdigest()[:16]
+
+    def _get_effective_permissions(
+        self,
+        user: dict[str, Any],
+        temp_roles: list[dict[str, Any]] | None = None,
+    ) -> list[str]:
+        """Resolve role-derived and explicitly assigned permissions for a user."""
+        active_temp_roles = (
+            temp_roles
+            if temp_roles is not None
+            else get_active_temporary_roles(user.get("temporaryRoles", []))
+        )
+
+        effective_permissions = RolesMixin._get_role_permissions(self, user["role"])
+        for temp_role in active_temp_roles:
+            effective_permissions.extend(
+                RolesMixin._get_role_permissions(self, temp_role["role"])
+            )
+        effective_permissions.extend(user.get("permissions", []))
+
+        return list(dict.fromkeys(effective_permissions))
 
     async def _record_failed_login(
         self,
@@ -493,6 +515,7 @@ class LoginMixin:
                 )
 
         temp_roles = get_active_temporary_roles(user.get("temporaryRoles", []))
+        effective_permissions = self._get_effective_permissions(user, temp_roles)
 
         token_bundle = await self._issue_token_bundle(
             subject=user["userId"],
@@ -500,7 +523,7 @@ class LoginMixin:
             additional_claims={
                 "sub_type": "user",
                 "role": user["role"],
-                "permissions": user.get("permissions", []),
+                "permissions": effective_permissions,
             },
         )
 
@@ -512,7 +535,7 @@ class LoginMixin:
                 "email": user["email"],
                 "role": user["role"],
                 "temporary_roles": temp_roles,
-                "permissions": user.get("permissions", []),
+                "permissions": effective_permissions,
             },
         }
 
@@ -549,13 +572,16 @@ class LoginMixin:
             if not user:
                 raise UserNotFoundError(subject)
 
+            temp_roles = get_active_temporary_roles(user.get("temporaryRoles", []))
+            effective_permissions = self._get_effective_permissions(user, temp_roles)
+
             token_bundle = await self._issue_token_bundle(
                 subject=subject,
                 sub_type="user",
                 additional_claims={
                     "sub_type": "user",
                     "role": user["role"],
-                    "permissions": user.get("permissions", []),
+                    "permissions": effective_permissions,
                 },
                 session_id=session_id,
                 csrf_token=csrf_token,
@@ -581,6 +607,19 @@ class LoginMixin:
             refresh_record,
             ttl_seconds,
         )
+
+        if sub_type == "user":
+            return {
+                **token_bundle,
+                "user": {
+                    "user_id": user["userId"],
+                    "username": user["username"],
+                    "email": user["email"],
+                    "role": user["role"],
+                    "temporary_roles": temp_roles,
+                    "permissions": effective_permissions,
+                },
+            }
 
         return {
             **token_bundle,

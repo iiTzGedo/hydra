@@ -3,8 +3,6 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Server,
-  Network,
-  Cpu,
   MoreVertical,
   Eye,
   Edit,
@@ -20,6 +18,7 @@ import { useNodes } from '@/api/nodes';
 import { NodeSummary } from '@/types/node';
 import { NodeFilterState } from './node-filters';
 import { NodeCard } from './node-card';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import { ROUTES, NODE_CLASS_COLORS, NODE_KIND_LABELS, STATUS_COLORS } from '@/lib/constants';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
@@ -30,12 +29,6 @@ type NodeListItem = NodeSummary & { id: string };
 interface NodeListProps {
   filters: NodeFilterState;
 }
-
-const classIcons = {
-  compute: Server,
-  networking: Network,
-  iot: Cpu,
-};
 
 const layoutOptions: { value: ViewLayout; label: string; icon: typeof List }[] = [
   { value: 'list', label: 'List', icon: List },
@@ -250,7 +243,6 @@ function LayoutToggle({
 function NodeRow({ node }: { node: NodeListItem }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const Icon = classIcons[node.class] || Server;
   const colors = NODE_CLASS_COLORS[node.class];
   const statusColors = STATUS_COLORS[node.status] || STATUS_COLORS.inactive;
   const kindLabel = NODE_KIND_LABELS[node.kind as keyof typeof NODE_KIND_LABELS] || node.kind;
@@ -261,8 +253,13 @@ function NodeRow({ node }: { node: NodeListItem }) {
       layout
       className="group flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
     >
-      <div className={cn('rounded-lg p-2.5', colors?.bg || 'bg-muted')}>
-        <Icon className="h-5 w-5 text-white" />
+      <div className={cn('flex items-center justify-center rounded-lg p-2.5', colors?.bg || 'bg-muted')}>
+        <HydraIcon
+          icon={node.icon}
+          fallback={node.kind ?? node.class}
+          size={20}
+          className="text-white"
+        />
       </div>
 
       <div className="flex-1 min-w-0">
@@ -371,7 +368,6 @@ function NodeRow({ node }: { node: NodeListItem }) {
 }
 
 function CompactNodeRow({ node }: { node: NodeListItem }) {
-  const Icon = classIcons[node.class] || Server;
   const colors = NODE_CLASS_COLORS[node.class];
   const statusColors = STATUS_COLORS[node.status] || STATUS_COLORS.inactive;
 
@@ -383,8 +379,13 @@ function CompactNodeRow({ node }: { node: NodeListItem }) {
       >
         <span className={cn('h-2 w-2 rounded-full shrink-0', statusColors.dot)} />
 
-        <div className={cn('rounded p-1.5', colors?.bg || 'bg-muted')}>
-          <Icon className="h-3.5 w-3.5 text-white" />
+        <div className={cn('flex items-center justify-center rounded p-1.5', colors?.bg || 'bg-muted')}>
+          <HydraIcon
+            icon={node.icon}
+            fallback={node.kind ?? node.class}
+            size={14}
+            className="text-white"
+          />
         </div>
 
         <span className="font-medium truncate flex-1">

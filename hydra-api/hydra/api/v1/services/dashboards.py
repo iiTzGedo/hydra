@@ -67,6 +67,9 @@ def _widget_definition(
     default_size: dict[str, int],
     min_size: dict[str, int],
     max_size: dict[str, int],
+    source: str = "hydra",
+    config_schema: list[dict[str, object]] | None = None,
+    repeatable: bool = False,
 ) -> dict[str, object]:
     return {
         "widgetType": widget_type,
@@ -74,15 +77,15 @@ def _widget_definition(
         "description": description,
         "category": category,
         "icon": icon,
-        "source": "hydra",
+        "source": source,
         "defaultSize": default_size,
         "minSize": min_size,
         "maxSize": max_size,
-        "configSchema": copy.deepcopy(COMMON_WIDGET_CONFIG_SCHEMA),
+        "configSchema": copy.deepcopy(config_schema or COMMON_WIDGET_CONFIG_SCHEMA),
         "capabilities": {
             "configurable": True,
             "supportsVisibilityToggle": True,
-            "repeatable": False,
+            "repeatable": repeatable,
         },
     }
 
@@ -147,6 +150,156 @@ WIDGET_REGISTRY: list[dict[str, object]] = [
         default_size={"w": 12, "h": 4},
         min_size={"w": 6, "h": 3},
         max_size={"w": 12, "h": 6},
+    ),
+    _widget_definition(
+        widget_type="hydra::clock",
+        display_name="Clock",
+        description="Minimal time and timezone display for glanceable boards.",
+        category="utility",
+        icon="clock-3",
+        default_size={"w": 3, "h": 2},
+        min_size={"w": 2, "h": 2},
+        max_size={"w": 4, "h": 3},
+        source="external",
+        config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
+            {
+                "key": "timezone",
+                "label": "Timezone",
+                "fieldType": "text",
+                "description": "IANA timezone identifier, for example Europe/London.",
+                "placeholder": "Europe/London",
+            }
+        ],
+        repeatable=True,
+    ),
+    _widget_definition(
+        widget_type="hydra::rss-feed",
+        display_name="RSS Feed",
+        description="Render headlines from an RSS or Atom feed.",
+        category="content",
+        icon="rss",
+        default_size={"w": 6, "h": 4},
+        min_size={"w": 4, "h": 3},
+        max_size={"w": 12, "h": 8},
+        source="external",
+        config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
+            {
+                "key": "feedUrl",
+                "label": "Feed URL",
+                "fieldType": "text",
+                "description": "Public RSS or Atom feed URL.",
+                "placeholder": "https://example.com/feed.xml",
+            },
+            {
+                "key": "maxItems",
+                "label": "Items",
+                "fieldType": "number",
+                "description": "Maximum number of entries to show.",
+                "minValue": 1,
+                "maxValue": 20,
+            },
+        ],
+        repeatable=True,
+    ),
+    _widget_definition(
+        widget_type="hydra::bookmark-grid",
+        display_name="Bookmark Grid",
+        description="Pinned links for internal tools and external dashboards.",
+        category="content",
+        icon="bookmark",
+        default_size={"w": 6, "h": 4},
+        min_size={"w": 4, "h": 3},
+        max_size={"w": 12, "h": 8},
+        source="external",
+        config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
+            {
+                "key": "linksMarkdown",
+                "label": "Links",
+                "fieldType": "text",
+                "description": "One link per line in Markdown format: [Label](https://example.com).",
+                "placeholder": "[Glance](https://github.com/glanceapp/glance)",
+            }
+        ],
+        repeatable=True,
+    ),
+    _widget_definition(
+        widget_type="hydra::iframe",
+        display_name="Embed / Iframe",
+        description="Embed a trusted external dashboard or panel.",
+        category="content",
+        icon="app-window",
+        default_size={"w": 12, "h": 6},
+        min_size={"w": 6, "h": 4},
+        max_size={"w": 12, "h": 12},
+        source="external",
+        config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
+            {
+                "key": "src",
+                "label": "Source URL",
+                "fieldType": "text",
+                "description": "Trusted URL to render in an iframe.",
+                "placeholder": "https://grafana.example.com/d/overview",
+            },
+            {
+                "key": "allowFullscreen",
+                "label": "Allow fullscreen",
+                "fieldType": "boolean",
+                "description": "Allow the embedded content to request fullscreen mode.",
+            },
+        ],
+        repeatable=True,
+    ),
+    _widget_definition(
+        widget_type="hydra::markdown",
+        display_name="Markdown Block",
+        description="Freeform manual notes, runbooks, or callouts rendered inline.",
+        category="content",
+        icon="square-pen",
+        default_size={"w": 6, "h": 4},
+        min_size={"w": 4, "h": 3},
+        max_size={"w": 12, "h": 10},
+        source="external",
+        config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
+            {
+                "key": "markdown",
+                "label": "Markdown",
+                "fieldType": "text",
+                "description": "Markdown content rendered inside the widget body.",
+                "placeholder": "## Notes\\n\\nRemember to rotate backups on Friday.",
+            }
+        ],
+        repeatable=True,
+    ),
+    _widget_definition(
+        widget_type="hydra::weather",
+        display_name="Weather",
+        description="Provider-backed weather snapshot for a configured location.",
+        category="utility",
+        icon="cloud-sun",
+        default_size={"w": 4, "h": 3},
+        min_size={"w": 3, "h": 2},
+        max_size={"w": 6, "h": 4},
+        source="external",
+        config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
+            {
+                "key": "location",
+                "label": "Location",
+                "fieldType": "text",
+                "description": "City or provider-specific location query.",
+                "placeholder": "London, UK",
+            },
+            {
+                "key": "units",
+                "label": "Units",
+                "fieldType": "select",
+                "description": "Preferred temperature units.",
+                "options": [
+                    {"label": "Metric", "value": "metric"},
+                    {"label": "Imperial", "value": "imperial"},
+                ],
+            },
+        ],
+        repeatable=True,
     ),
 ]
 
@@ -250,13 +403,9 @@ class DashboardService:
             instance_id = f"wi_{uuid4().hex[:8]}"
             widget_doc: dict[str, Any] = {
                 "instanceId": instance_id,
-                "widgetType": widget_req.widget_type,
-                "position": widget_req.position.model_dump(by_alias=True),
-                "config": widget_req.config,
+                **widget_req.model_dump(by_alias=True, exclude_none=True),
             }
-            if widget_req.data_binding is not None:
-                widget_doc["dataBinding"] = widget_req.data_binding.model_dump(by_alias=True)
-            else:
+            if "dataBinding" not in widget_doc:
                 widget_doc["dataBinding"] = None
             widgets.append(widget_doc)
 
@@ -268,7 +417,7 @@ class DashboardService:
             "ownerId": owner_id,
             "boardType": request.board_type.value,
             "visibility": request.visibility.value,
-            "layout": request.layout.model_dump(by_alias=True),
+            "layout": request.layout.model_dump(by_alias=True, exclude_none=True),
             "widgets": widgets,
             "settings": request.settings.model_dump(by_alias=True),
             "tags": request.tags,
@@ -453,7 +602,7 @@ class DashboardService:
         if request.visibility is not None:
             update_fields["visibility"] = request.visibility.value
         if request.layout is not None:
-            update_fields["layout"] = request.layout.model_dump(by_alias=True)
+            update_fields["layout"] = request.layout.model_dump(by_alias=True, exclude_none=True)
         if request.widgets is not None:
             self._validate_widget_types(
                 [widget.widget_type for widget in request.widgets],
@@ -463,7 +612,7 @@ class DashboardService:
                     if widget.get("widgetType") is not None
                 ],
             )
-            update_fields["widgets"] = [w.model_dump(by_alias=True) for w in request.widgets]
+            update_fields["widgets"] = [w.model_dump(by_alias=True, exclude_none=True) for w in request.widgets]
         if request.settings is not None:
             update_fields["settings"] = request.settings.model_dump(by_alias=True)
         if request.tags is not None:
@@ -631,13 +780,9 @@ class DashboardService:
         instance_id = f"wi_{uuid4().hex[:8]}"
         widget_doc: dict[str, Any] = {
             "instanceId": instance_id,
-            "widgetType": request.widget_type,
-            "position": request.position.model_dump(by_alias=True),
-            "config": request.config,
+            **request.model_dump(by_alias=True, exclude_none=True),
         }
-        if request.data_binding is not None:
-            widget_doc["dataBinding"] = request.data_binding.model_dump(by_alias=True)
-        else:
+        if "dataBinding" not in widget_doc:
             widget_doc["dataBinding"] = None
 
         now = datetime.now(UTC)
@@ -709,6 +854,15 @@ class DashboardService:
 
         if request.position is not None:
             update_set[f"widgets.{widget_index}.position"] = request.position.model_dump(by_alias=True)
+        if request.placements is not None:
+            update_set[f"widgets.{widget_index}.placements"] = {
+                key: value.model_dump(by_alias=True)
+                for key, value in request.placements.items()
+            }
+        if request.column is not None:
+            update_set[f"widgets.{widget_index}.column"] = request.column
+        if request.order is not None:
+            update_set[f"widgets.{widget_index}.order"] = request.order
         if request.config is not None:
             update_set[f"widgets.{widget_index}.config"] = request.config
         if request.data_binding is not None:

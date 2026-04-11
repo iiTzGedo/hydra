@@ -73,6 +73,7 @@ class SessionLoginResponse(BaseModel):
 class SessionRefreshResponse(BaseModel):
     """Browser session refresh response."""
 
+    user: UserInfo
     expires_in: int = Field(alias="expiresIn", description="Access token expiry in seconds")
 
     model_config = ConfigDict(populate_by_name=True)

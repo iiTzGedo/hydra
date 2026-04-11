@@ -1,15 +1,9 @@
 import { memo } from 'react';
 import { Handle, Position, NodeProps, Node } from '@xyflow/react';
-import { Server, Network, Cpu } from 'lucide-react';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import { NODE_CLASS_COLORS, STATUS_COLORS } from '@/lib/constants';
-import { NODE_KIND_ICONS } from '@/components/icons/node-icons';
 import { cn } from '@/lib/utils';
-
-const classIcons = {
-  compute: Server,
-  networking: Network,
-  iot: Cpu,
-};
+import type { IconDescriptor } from '@/types/icons';
 
 export interface TopologyNodeData {
   label: string;
@@ -17,6 +11,7 @@ export interface TopologyNodeData {
   type?: string;
   kind?: string;
   status?: string;
+  icon?: IconDescriptor | null;
   nodeId?: string;
   networkId?: string;
   serviceId?: string;
@@ -31,10 +26,6 @@ export const TopologyNodeComponent = memo(({ data, selected }: NodeProps<Topolog
   const nodeStatus = data.status as string | undefined;
   const isHighlighted = data.isHighlighted as boolean | undefined;
 
-  // Use kind-specific icon if available, otherwise fall back to class icon
-  const KindIcon = nodeKind ? NODE_KIND_ICONS[nodeKind] : undefined;
-  const ClassIcon = classIcons[nodeClass as keyof typeof classIcons] || Server;
-  const Icon = KindIcon || ClassIcon;
   const colors = NODE_CLASS_COLORS[nodeClass as keyof typeof NODE_CLASS_COLORS];
   const statusColors = STATUS_COLORS[nodeStatus as keyof typeof STATUS_COLORS] || STATUS_COLORS.inactive;
 
@@ -55,7 +46,12 @@ export const TopologyNodeComponent = memo(({ data, selected }: NodeProps<Topolog
         )}
       >
         <div className={cn('flex items-center gap-2 rounded-t-lg px-3 py-2', colors?.bg || 'bg-muted')}>
-          <Icon size={16} className="h-4 w-4 text-white" />
+          <HydraIcon
+            icon={data.icon as IconDescriptor | null | undefined}
+            fallback={nodeKind || nodeClass || 'server'}
+            className="text-white"
+            size={16}
+          />
           <span className="text-xs font-medium text-white capitalize">{nodeKind || nodeClass}</span>
         </div>
 

@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hydra.api.v1.core.validators import TAG_PATTERN, validate_tag
+from hydra.api.v1.models.icons import IconDescriptor
 
 
 class ServiceRuntime(StrEnum):
@@ -130,6 +131,7 @@ class ServiceResponse(BaseModel):
     tags: list[str] = Field(default_factory=list)
     first_seen: datetime = Field(alias="firstSeen")
     last_seen: datetime = Field(alias="lastSeen")
+    icon: IconDescriptor | None = None
 
 
 class ServiceSummary(BaseModel):
@@ -145,6 +147,7 @@ class ServiceSummary(BaseModel):
     version: str | None = None
     node_id: str = Field(alias="nodeId")
     last_seen: datetime = Field(alias="lastSeen")
+    icon: IconDescriptor | None = None
 
 
 class UpdateServiceRequest(BaseModel):

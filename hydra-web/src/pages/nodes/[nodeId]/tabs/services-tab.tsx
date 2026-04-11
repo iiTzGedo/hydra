@@ -5,6 +5,7 @@ import { ROUTES } from '@/lib/constants';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/common/empty-state';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 
 interface ServicesTabProps {
   nodeId: string;
@@ -64,8 +65,13 @@ export function ServicesTab({ nodeId }: ServicesTabProps) {
             to={ROUTES.SERVICES + '/' + encodeURIComponent(service.id)}
             className="flex items-center gap-3 rounded-lg border bg-card p-4 hover:bg-muted/50 transition-colors group"
           >
-            <div className="rounded-lg bg-muted p-2">
-              <Boxes className="h-5 w-5 text-muted-foreground" />
+            <div className="flex items-center justify-center rounded-lg bg-muted p-2">
+              <HydraIcon
+                icon={service.icon}
+                fallback={service.runtime ?? 'boxes'}
+                size={20}
+                className="text-muted-foreground"
+              />
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-medium truncate group-hover:text-primary transition-colors">

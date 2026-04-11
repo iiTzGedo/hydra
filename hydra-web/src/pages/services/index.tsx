@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { PageHeaderLayout } from '@/components/layout/page-header-layout';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -190,6 +191,13 @@ export default function ServicesPage() {
   const totalPages = data ? Math.ceil(data.total / limit) : 0;
   const hasActiveFilters = filters.runtime !== 'all' || filters.status !== 'all' || filters.nodeId;
   const visibleColumnCount = Object.values(visibleColumns).filter(Boolean).length;
+  const pristineEmpty =
+    !isLoading &&
+    !error &&
+    data !== undefined &&
+    (data.items?.length ?? 0) === 0 &&
+    !hasActiveFilters &&
+    !filters.search;
 
   const clearFilters = () => {
     setFilters({ search: '', runtime: 'all', status: 'all', nodeId: '' });
@@ -225,46 +233,49 @@ export default function ServicesPage() {
           showBackButton={false}
         />
 
-                <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
-          <Card>
-            <CardContent className="flex items-center justify-between p-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Running</p>
-                <p className="text-xl font-semibold text-success">{stats.running}</p>
-              </div>
-              <CheckCircle2 className="h-5 w-5 text-success" />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="flex items-center justify-between p-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Stopped</p>
-                <p className="text-xl font-semibold text-muted-foreground">{stats.stopped}</p>
-              </div>
-              <Square className="h-5 w-5 text-muted-foreground" />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="flex items-center justify-between p-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Restarting</p>
-                <p className="text-xl font-semibold text-warning">{stats.restarting}</p>
-              </div>
-              <RotateCcw className="h-5 w-5 text-warning" />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="flex items-center justify-between p-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Error</p>
-                <p className="text-xl font-semibold text-destructive">{stats.error}</p>
-              </div>
-              <AlertCircle className="h-5 w-5 text-destructive" />
-            </CardContent>
-          </Card>
-        </div>
+                {!pristineEmpty && (
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+            <Card>
+              <CardContent className="flex items-center justify-between p-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Running</p>
+                  <p className="text-xl font-semibold text-success">{stats.running}</p>
+                </div>
+                <CheckCircle2 className="h-5 w-5 text-success" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="flex items-center justify-between p-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Stopped</p>
+                  <p className="text-xl font-semibold text-muted-foreground">{stats.stopped}</p>
+                </div>
+                <Square className="h-5 w-5 text-muted-foreground" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="flex items-center justify-between p-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Restarting</p>
+                  <p className="text-xl font-semibold text-warning">{stats.restarting}</p>
+                </div>
+                <RotateCcw className="h-5 w-5 text-warning" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="flex items-center justify-between p-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Error</p>
+                  <p className="text-xl font-semibold text-destructive">{stats.error}</p>
+                </div>
+                <AlertCircle className="h-5 w-5 text-destructive" />
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-                <Card>
+                {!pristineEmpty && (
+        <Card>
           <CardContent className="p-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
               <FilterBar
@@ -401,6 +412,7 @@ export default function ServicesPage() {
             </div>
           </CardContent>
         </Card>
+        )}
 
                 {error && (
           <Card className="border-destructive/40">
@@ -535,11 +547,16 @@ export default function ServicesPage() {
                     <TableRow key={service.serviceId} className="group border-border hover:bg-muted/60">
                       {visibleColumns.service && (
                         <TableCell>
-                          <Link to={`${ROUTES.SERVICES}/${encodeURIComponent(service.serviceId)}`} className="flex flex-col">
-                            <span className="text-foreground font-medium hover:text-primary">
-                              {service.displayName || service.name}
-                            </span>
-                            <span className="text-xs text-muted-foreground font-mono">{service.serviceId}</span>
+                          <Link to={`${ROUTES.SERVICES}/${encodeURIComponent(service.serviceId)}`} className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded bg-muted">
+                              <HydraIcon icon={service.icon} fallback={service.runtime || service.name || 'boxes'} size={16} />
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-foreground font-medium hover:text-primary">
+                                {service.displayName || service.name}
+                              </span>
+                              <span className="text-xs text-muted-foreground font-mono">{service.serviceId}</span>
+                            </div>
                           </Link>
                         </TableCell>
                       )}

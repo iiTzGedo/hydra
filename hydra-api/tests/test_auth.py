@@ -1,6 +1,7 @@
 """Tests for authentication endpoints."""
 
 import asyncio
+import hashlib
 import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
@@ -291,6 +292,93 @@ async def test_get_current_user(
     data = response.json()
     assert data["type"] == "user"
     assert data["role"] == "admin"
+
+
+@pytest.mark.asyncio
+async def test_session_login_returns_effective_role_permissions(
+    client: AsyncClient,
+    mock_mongodb,
+    sample_user,
+):
+    """Test browser session login returns effective permissions for the authenticated role."""
+    from hydra.api.v1.core.security import hash_password
+
+    device_id = hashlib.sha256(b"10.0.0.1|pytest").hexdigest()[:16]
+    admin_user = sample_user.copy()
+    admin_user.update(
+        {
+            "userId": "user_admin123",
+            "username": "system_admin",
+            "email": "admin@example.com",
+            "passwordHash": hash_password("system12345"),
+            "role": "admin",
+            "permissions": [],
+            "loginDevices": [{"deviceId": device_id}],
+        }
+    )
+
+    mock_mongodb.users_pending.find_one = AsyncMock(return_value=None)
+    mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
+    mock_mongodb.users.update_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/auth/session/login",
+        json={"username": "system_admin", "password": "system12345"},
+        headers={"x-forwarded-for": "10.0.0.1", "user-agent": "pytest"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user"]["role"] == "admin"
+    assert data["user"]["permissions"] == ["*:*"]
+
+
+@pytest.mark.asyncio
+async def test_session_refresh_returns_effective_role_permissions(
+    client: AsyncClient,
+    mock_mongodb,
+    sample_user,
+):
+    """Test browser session refresh keeps effective permissions in sync with auth/me."""
+    from hydra.api.v1.core.security import hash_password
+
+    device_id = hashlib.sha256(b"10.0.0.1|pytest").hexdigest()[:16]
+    admin_user = sample_user.copy()
+    admin_user.update(
+        {
+            "userId": "user_admin123",
+            "username": "system_admin",
+            "email": "admin@example.com",
+            "passwordHash": hash_password("system12345"),
+            "role": "admin",
+            "permissions": [],
+            "loginDevices": [{"deviceId": device_id}],
+        }
+    )
+
+    mock_mongodb.users_pending.find_one = AsyncMock(return_value=None)
+    mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
+    mock_mongodb.users.update_one = AsyncMock()
+
+    login_response = await client.post(
+        "/api/v1/auth/session/login",
+        json={"username": "system_admin", "password": "system12345"},
+        headers={"x-forwarded-for": "10.0.0.1", "user-agent": "pytest"},
+    )
+
+    assert login_response.status_code == 200
+    csrf_cookie = client.cookies.get("hydra_csrf")
+    assert csrf_cookie
+
+    refresh_response = await client.post(
+        "/api/v1/auth/session/refresh",
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+
+    assert refresh_response.status_code == 200
+    data = refresh_response.json()
+    assert data["user"]["role"] == "admin"
+    assert data["user"]["permissions"] == ["*:*"]
 
 
 @pytest.mark.asyncio

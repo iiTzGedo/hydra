@@ -45,11 +45,17 @@ export interface NotificationSettings {
   quietHoursMinTier: number;
 }
 
+export interface DashboardPreferences {
+  pinnedBoardIds: string[];
+  lastOpenedBoardId?: string | null;
+}
+
 export interface UserSettingsResponse {
   userId: string;
   ui: UISettings;
   views: ViewSettings;
   notifications: NotificationSettings;
+  dashboard: DashboardPreferences;
   updatedAt: string;
 }
 
@@ -57,6 +63,7 @@ export interface UserSettingsUpdate {
   ui?: Partial<UISettings>;
   views?: Partial<ViewSettings>;
   notifications?: Partial<NotificationSettings>;
+  dashboard?: Partial<DashboardPreferences>;
 }
 
 export interface SmtpSettings {

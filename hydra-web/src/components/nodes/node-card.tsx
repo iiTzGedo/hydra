@@ -11,6 +11,7 @@ import {
   Clock,
   Tag,
 } from 'lucide-react';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -93,7 +94,6 @@ const statusConfig: Record<string, { color: string; bg: string; label: string; p
  * - Tag overflow handling
  */
 export function NodeCard({ node, onEdit, onArchive }: NodeCardProps) {
-  const NodeIcon = nodeClassIcons[node.class] || Server;
   const classConfig = nodeClassConfig[node.class] || nodeClassConfig.compute;
   const status = statusConfig[node.status] || statusConfig.inactive;
 
@@ -118,7 +118,12 @@ export function NodeCard({ node, onEdit, onArchive }: NodeCardProps) {
                       'border'
                     )}
                   >
-                    <NodeIcon className={cn('h-6 w-6', classConfig.color)} />
+                    <HydraIcon
+                      icon={node.icon}
+                      fallback={node.kind || node.class || 'server'}
+                      className={classConfig.color}
+                      size={24}
+                    />
                   </div>
                 </div>
 

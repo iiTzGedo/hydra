@@ -1,3 +1,5 @@
+import type { IconDescriptor } from '@/types/icons';
+
 // ── Plugin Enums ──────────────────────────────────────────────────
 
 export type PluginStatus =
@@ -65,6 +67,7 @@ export interface PluginResponse {
   pluginId: string;
   manifest: PluginManifest;
   status: PluginStatus;
+  icon?: IconDescriptor | null;
   config: Record<string, unknown>;
   nodeBindings: NodeBinding[];
   health: PluginHealthStatus;
@@ -76,6 +79,7 @@ export interface PluginSummary {
   pluginId: string;
   name: string;
   status: PluginStatus;
+  icon?: IconDescriptor | null;
   classification: PluginClassification;
   category: PluginCategory;
   healthStatus: string;

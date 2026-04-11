@@ -20,15 +20,45 @@ import type {
   ApiKeyListResponse,
   SessionLoginResponse,
   SessionRefreshResponse,
+  User,
 } from '@/types/auth';
 
+function meToUser(data: MeResponse): User {
+  if (data.type !== 'user' || !data.userId || !data.username || !data.email || !data.role) {
+    throw new Error('Authenticated session did not return a user identity');
+  }
+
+  return {
+    userId: data.userId,
+    username: data.username,
+    email: data.email,
+    role: data.role,
+    permissions: data.permissions,
+    temporaryRoles: [],
+  };
+}
+
+async function fetchCurrentIdentity(): Promise<MeResponse> {
+  const response = await apiClient.get<MeResponse>('/auth/me');
+  return response.data;
+}
+
 export function useLogin() {
+  const queryClient = useQueryClient();
   const login = useAuthStore((state) => state.login);
 
   return useMutation({
     mutationFn: async (data: LoginRequest) => {
       const response = await apiClient.post<SessionLoginResponse>('/auth/session/login', data);
-      return response.data;
+      const currentIdentity = await fetchCurrentIdentity();
+      const user = meToUser(currentIdentity);
+
+      queryClient.setQueryData(queryKeys.auth.me(), currentIdentity);
+
+      return {
+        ...response.data,
+        user,
+      };
     },
     onSuccess: (data) => {
       login(data.user);
@@ -65,10 +95,7 @@ export function useMe() {
 
   const query = useQuery({
     queryKey: queryKeys.auth.me(),
-    queryFn: async () => {
-      const response = await apiClient.get<MeResponse>('/auth/me');
-      return response.data;
-    },
+    queryFn: fetchCurrentIdentity,
     retry: false,
     staleTime: 1000 * 60 * 5,
   });
@@ -134,10 +161,26 @@ export function useChangePassword() {
 }
 
 export function useRefreshToken() {
+  const queryClient = useQueryClient();
+  const setUser = useAuthStore((state) => state.setUser);
+
   return useMutation({
     mutationFn: async () => {
       const response = await apiClient.post<SessionRefreshResponse>('/auth/session/refresh');
       return response.data;
+    },
+    onSuccess: (data) => {
+      const currentIdentity: MeResponse = {
+        type: 'user',
+        userId: data.user.userId,
+        username: data.user.username,
+        email: data.user.email,
+        role: data.user.role,
+        permissions: data.user.permissions,
+      };
+
+      queryClient.setQueryData(queryKeys.auth.me(), currentIdentity);
+      setUser(data.user);
     },
   });
 }

@@ -34,11 +34,11 @@ function getNavigationContext(pathname: string, search: string): NavigationConte
 
   // Single level - link back to dashboard
   if (segments.length === 1) {
-    return {
-      label: 'Dashboard',
-      path: ROUTES.DASHBOARD,
-      type: 'home',
-    };
+      return {
+        label: 'Dashboard',
+        path: ROUTES.DASHBOARDS,
+        type: 'home',
+      };
   }
 
   const [section, id, subSection, subId] = segments;

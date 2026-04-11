@@ -189,14 +189,14 @@ export function MiniTopology() {
   // Loading state
   if (isLoading) {
     return (
-      <div className="h-[300px] animate-pulse rounded-lg bg-muted" />
+      <div className="h-full min-h-[220px] animate-pulse rounded-lg bg-muted" />
     );
   }
 
   // Error state
   if (error) {
     return (
-      <div className="flex h-[300px] items-center justify-center rounded-lg bg-muted/60 border border-dashed border-border">
+      <div className="flex h-full min-h-[220px] items-center justify-center rounded-lg bg-muted/60 border border-dashed border-border">
         <div className="text-center">
           <p className="text-sm text-muted-foreground">Failed to load topology</p>
           <p className="text-xs text-muted-foreground/70 mt-1">
@@ -210,7 +210,7 @@ export function MiniTopology() {
   // Empty state
   if (!totalNodes) {
     return (
-      <div className="flex h-[300px] items-center justify-center rounded-lg bg-muted/60 border border-dashed border-border">
+      <div className="flex h-full min-h-[220px] items-center justify-center rounded-lg bg-muted/60 border border-dashed border-border">
         <div className="text-center">
           <Server className="h-10 w-10 text-muted-foreground/50 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">No topology data available</p>
@@ -223,11 +223,11 @@ export function MiniTopology() {
   }
 
   return (
-    <div>
+    <div className="flex h-full min-h-0 flex-col">
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="h-[300px] rounded-lg overflow-hidden border border-border"
+          className="h-full min-h-[220px] flex-1 rounded-lg overflow-hidden border border-border"
         >
           <ReactFlow
             nodes={nodes}

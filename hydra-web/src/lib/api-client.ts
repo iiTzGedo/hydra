@@ -1,6 +1,7 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/auth-store';
 import { CSRF_HEADER_NAME, getApiBaseUrl, getCsrfToken, isMutationMethod } from '@/lib/auth-session';
+import type { SessionRefreshResponse } from '@/types/auth';
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -29,6 +30,14 @@ const processQueue = (error: unknown | null) => {
   });
   failedQueue = [];
 };
+
+function syncRefreshedSessionUser(payload: SessionRefreshResponse) {
+  if (!payload.user) {
+    return;
+  }
+
+  useAuthStore.getState().setUser(payload.user);
+}
 
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
@@ -72,7 +81,7 @@ apiClient.interceptors.response.use(
 
       try {
         const csrfToken = getCsrfToken();
-        await axios.post(
+        const refreshResponse = await axios.post<SessionRefreshResponse>(
           `${API_BASE_URL}/auth/session/refresh`,
           undefined,
           {
@@ -80,6 +89,7 @@ apiClient.interceptors.response.use(
             headers: csrfToken ? { [CSRF_HEADER_NAME]: csrfToken } : undefined,
           }
         );
+        syncRefreshedSessionUser(refreshResponse.data);
         processQueue(null);
 
         return apiClient(originalRequest);

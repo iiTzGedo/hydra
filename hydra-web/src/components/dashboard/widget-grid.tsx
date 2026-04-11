@@ -6,8 +6,7 @@ import {
   type LayoutItem,
   type ResponsiveLayouts,
 } from 'react-grid-layout';
-import { Settings2, Eye, EyeOff, RotateCcw, Maximize2, Minimize2, X, LucideIcon } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { Settings2, Eye, EyeOff, RotateCcw, Maximize2, Minimize2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -17,7 +16,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import type { DashboardWidgetInstance } from '@/types/dashboard';
+import { normalizeDashboardLayout, type DashboardBoardLayout, type DashboardWidgetInstance } from '@/types/dashboard';
 
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -29,6 +28,12 @@ const WIDGET_TYPE_LABELS: Record<string, string> = {
   'hydra::node-status-grid': 'Node Status Grid',
   'hydra::mini-topology': 'Mini Topology',
   'hydra::service-summary': 'Service Summary',
+  'hydra::clock': 'Clock',
+  'hydra::rss-feed': 'RSS Feed',
+  'hydra::bookmark-grid': 'Bookmark Grid',
+  'hydra::iframe': 'Embed',
+  'hydra::markdown': 'Markdown',
+  'hydra::weather': 'Weather',
 };
 
 export function widgetTypeLabel(widgetType: string): string {
@@ -39,10 +44,10 @@ export function widgetTypeLabel(widgetType: string): string {
 export function widgetsToLayout(widgets: DashboardWidgetInstance[]): LayoutItem[] {
   return widgets.map((w) => ({
     i: w.instanceId,
-    x: w.position.x,
-    y: w.position.y,
-    w: w.position.w,
-    h: w.position.h,
+    x: w.placements?.lg?.x ?? w.position?.x ?? 0,
+    y: w.placements?.lg?.y ?? w.position?.y ?? 0,
+    w: w.placements?.lg?.w ?? w.position?.w ?? 12,
+    h: w.placements?.lg?.h ?? w.position?.h ?? 4,
   }));
 }
 
@@ -60,12 +65,17 @@ export function applyLayoutToWidgets(
     return {
       ...widget,
       position: pos,
+      placements: {
+        ...(widget.placements ?? {}),
+        lg: pos,
+      },
     };
   });
 }
 
 interface WidgetGridProps {
   widgets: DashboardWidgetInstance[];
+  layout: DashboardBoardLayout;
   isEditMode: boolean;
   onLayoutChange?: (layout: Layout) => void;
   onRemoveWidget?: (instanceId: string) => void;
@@ -75,6 +85,7 @@ interface WidgetGridProps {
 
 export function WidgetGrid({
   widgets,
+  layout,
   isEditMode,
   onLayoutChange,
   onRemoveWidget,
@@ -82,6 +93,8 @@ export function WidgetGrid({
   children,
 }: WidgetGridProps) {
   const { width, containerRef, mounted } = useContainerWidth({ initialWidth: 1200 });
+  const childArray = React.Children.toArray(children);
+  const normalizedLayout = normalizeDashboardLayout(layout);
 
   const layouts: ResponsiveLayouts = useMemo(
     () => ({ lg: widgetsToLayout(widgets) }),
@@ -99,19 +112,64 @@ export function WidgetGrid({
 
   return (
     <div ref={containerRef as React.RefObject<HTMLDivElement>} className={cn('widget-grid', isEditMode && 'widget-grid--editing')}>
-      {mounted && (
+      {normalizedLayout.mode === 'columns' ? (
+        <div
+          className="grid gap-4"
+          style={{
+            gridTemplateColumns: normalizedLayout.columnsLayout.columns.map((column) => `${column.ratio}fr`).join(' '),
+          }}
+        >
+          {normalizedLayout.columnsLayout.columns.map((column) => {
+            const columnWidgets = widgets
+              .filter((widget) => (widget.column ?? normalizedLayout.columnsLayout.columns[0]?.id) === column.id)
+              .sort((left, right) => (left.order ?? 0) - (right.order ?? 0));
+
+            return (
+              <div key={column.id} className="space-y-4">
+                {column.title ? (
+                  <div className="px-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    {column.title}
+                  </div>
+                ) : null}
+                {columnWidgets.map((widget) => {
+                  const childIndex = widgets.findIndex((entry) => entry.instanceId === widget.instanceId);
+                  return (
+                    <div key={widget.instanceId} className="relative">
+                      {isEditMode && onRemoveWidget ? (
+                        <button
+                          type="button"
+                          className="absolute -right-2 -top-2 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-md transition-colors hover:bg-destructive/90"
+                          onClick={() => onRemoveWidget(widget.instanceId)}
+                          aria-label={`Remove ${widgetTypeLabel(widget.widgetType)}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                      {childArray[childIndex] ?? null}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      ) : mounted ? (
         <ResponsiveGridLayout
           className="layout"
           width={width}
           layouts={layouts}
-          breakpoints={{ lg: 1200, md: 996, sm: 768 }}
-          cols={{ lg: 12, md: 8, sm: 4 }}
+          breakpoints={Object.fromEntries(
+            Object.entries(normalizedLayout.grid.breakpoints).map(([key, value]) => [key, value.width])
+          )}
+          cols={Object.fromEntries(
+            Object.entries(normalizedLayout.grid.breakpoints).map(([key, value]) => [key, value.columns])
+          )}
           rowHeight={rowHeight}
           dragConfig={{ enabled: isEditMode, handle: '.widget-drag-handle' }}
           resizeConfig={{ enabled: isEditMode }}
           onLayoutChange={handleLayoutChange}
-          margin={[16, 16]}
-          containerPadding={[0, 0]}
+          margin={normalizedLayout.grid.margin}
+          containerPadding={normalizedLayout.grid.padding}
         >
           {widgets.map((widget, index) => (
             <div key={widget.instanceId} className="relative">
@@ -131,11 +189,11 @@ export function WidgetGrid({
               {/* Render the corresponding child by index.
                  INVARIANT: parent must pass children in the same order as
                  the `widgets` array so that index-based lookup is correct. */}
-              {Array.isArray(children) ? children[index] : index === 0 ? children : null}
+              {childArray[index] ?? null}
             </div>
           ))}
         </ResponsiveGridLayout>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -146,7 +204,7 @@ interface WidgetProps {
   className?: string;
   title?: string;
   description?: string;
-  icon?: LucideIcon;
+  icon?: ReactNode;
   actions?: ReactNode;
   collapsible?: boolean;
   defaultCollapsed?: boolean;
@@ -159,7 +217,7 @@ export function Widget({
   className = '',
   title,
   description,
-  icon: Icon,
+  icon,
   actions,
   collapsible = false,
   defaultCollapsed = false,
@@ -167,37 +225,35 @@ export function Widget({
 }: WidgetProps) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
 
+  const hasHeader = Boolean(title || icon || collapsible || actions);
+
   return (
     <div
       className={cn(
-        'relative h-full rounded-xl border border-border bg-card overflow-hidden',
+        'relative flex h-full min-h-0 flex-col rounded-xl border border-border bg-card overflow-hidden',
         isEditMode && 'ring-2 ring-dashed ring-muted-foreground/30',
         className
       )}
     >
-      {/* Widget Header */}
-      {(title || Icon || isEditMode) && (
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-          <div className="flex items-center gap-2">
-            {Icon && (
+      {hasHeader && (
+        <div className="flex flex-none items-center justify-between px-4 py-3 border-b border-border/50">
+          <div className="flex min-w-0 items-center gap-2">
+            {icon ? (
               <div className="p-1.5 rounded-lg bg-muted">
-                <Icon className="h-4 w-4 text-primary" />
+                {icon}
               </div>
-            )}
-            <div>
+            ) : null}
+            <div className="min-w-0">
               {title && (
-                <h3 className="font-semibold text-sm text-foreground">{title}</h3>
+                <h3 className="truncate font-semibold text-sm text-foreground">{title}</h3>
               )}
               {description && (
-                <p className="text-xs text-muted-foreground">{description}</p>
+                <p className="truncate text-xs text-muted-foreground">{description}</p>
               )}
             </div>
-            {isEditMode && !title && (
-              <span className="text-xs text-muted-foreground">{id}</span>
-            )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-none items-center gap-2">
             {actions}
             {collapsible && (
               <Button
@@ -205,6 +261,7 @@ export function Widget({
                 size="icon"
                 className="h-7 w-7 text-muted-foreground hover:text-foreground"
                 onClick={() => setIsCollapsed(!isCollapsed)}
+                aria-label={isCollapsed ? 'Expand widget' : 'Collapse widget'}
               >
                 {isCollapsed ? (
                   <Maximize2 className="h-3.5 w-3.5" />
@@ -217,28 +274,17 @@ export function Widget({
         </div>
       )}
 
-      {/* Edit Mode Label (when no header) */}
-      {isEditMode && !title && !Icon && (
-        <div className="absolute -top-3 left-2 bg-card px-2 py-0.5 text-xs text-muted-foreground rounded border border-border z-10">
+      {isEditMode && !title && !icon && (
+        <div className="pointer-events-none absolute top-1 left-1 z-10 rounded border border-border bg-card/90 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
           {id}
         </div>
       )}
 
-      {/* Widget Content */}
-      <AnimatePresence initial={false}>
-        {!isCollapsed && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <div className="p-4">
-              {children}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {!isCollapsed && (
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
+          {children}
+        </div>
+      )}
     </div>
   );
 }

@@ -284,6 +284,38 @@ class DocSummary(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DocTreeNode(BaseModel):
+    """Navigation tree node for the documentation portal."""
+
+    node_id: Annotated[str, Field(alias="nodeId")]
+    title: str
+    path: str
+    kind: Literal["category", "document"] = "document"
+    category: str | None = None
+    doc_id: Annotated[str | None, Field(default=None, alias="docId")]
+    doc_type: Annotated[DocType | None, Field(default=None, alias="docType")]
+    status: DocStatus | None = None
+    updated_at: Annotated[datetime | None, Field(default=None, alias="updatedAt")]
+    children: list["DocTreeNode"] = Field(default_factory=list)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DocSearchResult(BaseModel):
+    """Dedicated documentation search result for portal queries."""
+
+    doc_id: Annotated[str, Field(alias="docId")]
+    title: str
+    type: DocType
+    status: DocStatus
+    category: str | None = None
+    excerpt: str | None = None
+    linked_entities: Annotated[list[LinkedEntity] | None, Field(default=None, alias="linkedEntities")]
+    updated_at: Annotated[datetime, Field(alias="updatedAt")]
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class DocResponse(BaseModel):
     """Full documentation response."""
 
@@ -436,3 +468,6 @@ class RevertSectionResponse(BaseModel):
     section_id: Annotated[str, Field(alias="sectionId")]
     source: str  # will be "generated" after revert
     content: str  # regenerated content
+
+
+DocTreeNode.model_rebuild()

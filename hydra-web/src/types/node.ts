@@ -1,4 +1,5 @@
 import { ListParams } from './api';
+import type { IconDescriptor } from './icons';
 
 // Node class
 export type NodeClass = 'compute' | 'networking' | 'iot';
@@ -60,6 +61,7 @@ export interface NodeSummary {
   lastSeenAt?: string;
   registeredBy?: string;
   agentTier?: AgentTier;
+  icon?: IconDescriptor | null;
 }
 
 // Full node details

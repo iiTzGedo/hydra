@@ -1,237 +1,236 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard,
-  Server,
+  Bell,
   Boxes,
-  Network,
-  FolderTree,
-  GitBranch,
-  MessageSquare,
-  Terminal,
-  Settings,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  X,
-  Shield,
-  User,
-  History,
-  Bell,
-  Search,
   FileText,
+  FolderTree,
+  GitFork,
+  History,
+  LayoutDashboard,
+  MenuSquare,
+  MessageSquare,
+  Network,
   Plug,
+  Search,
+  Server,
+  Settings,
+  Shield,
+  Terminal,
+  User,
+  X,
+  type LucideIcon,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { ROUTES } from '@/lib/constants';
-import { useUiStore } from '@/stores/ui-store';
-import { useAuthStore } from '@/stores/auth-store';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { useDashboards } from '@/api/dashboards';
+import { useUserSettings } from '@/api/settings';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ROUTES } from '@/lib/constants';
+import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/auth-store';
+import { useUiStore } from '@/stores/ui-store';
+import { getPrimaryNavGroups, getRouteConfig, getUtilityRoutes, type RouteConfig } from '@/router/routes';
 
-// ── Types ─────────────────────────────────────────────────────────
-
-type NavItemDef = {
-  icon: typeof LayoutDashboard;
-  label: string;
-  path: string;
-  permission?: string;
-  badge?: number;
+const NAV_ICONS: Record<string, LucideIcon> = {
+  Bell,
+  Boxes,
+  FileText,
+  FolderTree,
+  GitFork,
+  History,
+  LayoutDashboard,
+  MessageSquare,
+  Network,
+  Plug,
+  Search,
+  Server,
+  Settings,
+  Terminal,
+  User,
 };
 
-type NavSection =
-  | { type: 'item'; item: NavItemDef }
-  | { type: 'group'; icon: typeof LayoutDashboard; label: string; permission?: string; children: NavItemDef[] };
+interface SidebarNavItem {
+  label: string;
+  path: string;
+  icon: LucideIcon;
+  permission?: string;
+  isPinnedBoard?: boolean;
+}
 
-// ── Navigation Structure (matches spec § 25.3) ───────────────────
+function routeToNavItem(route: RouteConfig): SidebarNavItem {
+  return {
+    label: route.navLabel ?? route.title,
+    path: route.path.endsWith('/*') ? route.path.slice(0, -2) : route.path,
+    icon: NAV_ICONS[route.navIcon ?? 'MenuSquare'] ?? MenuSquare,
+    permission: route.permissions?.[0],
+  };
+}
 
-const mainNavSections: NavSection[] = [
-  {
-    type: 'item',
-    item: { icon: LayoutDashboard, label: 'Dashboard', path: ROUTES.DASHBOARD },
-  },
-  {
-    type: 'group',
-    icon: Server,
-    label: 'Infrastructure',
-    children: [
-      { icon: Server, label: 'Nodes', path: ROUTES.NODES, permission: 'nodes:read' },
-      { icon: Boxes, label: 'Services', path: ROUTES.SERVICES, permission: 'services:read' },
-      { icon: Network, label: 'Networks', path: ROUTES.NETWORKS, permission: 'networks:read' },
-      { icon: FolderTree, label: 'Groups', path: ROUTES.GROUPS, permission: 'groups:read' },
-    ],
-  },
-  {
-    type: 'item',
-    item: { icon: GitBranch, label: 'Topology', path: ROUTES.TOPOLOGY, permission: 'topologies:read' },
-  },
-  {
-    type: 'item',
-    item: { icon: Search, label: 'Discovery', path: ROUTES.DISCOVERY, permission: 'discovery:read' },
-  },
-  {
-    type: 'item',
-    item: { icon: Terminal, label: 'Command Center', path: ROUTES.COMMANDS, permission: 'commands:read' },
-  },
-  {
-    type: 'item',
-    item: { icon: FileText, label: 'Documentation', path: ROUTES.DOCS, permission: 'docs:read' },
-  },
-  {
-    type: 'item',
-    item: { icon: History, label: 'Time Machine', path: ROUTES.TIME_MACHINE, permission: 'topologies:read' },
-  },
-  {
-    type: 'item',
-    item: { icon: Plug, label: 'Integrations', path: ROUTES.INTEGRATIONS, permission: 'plugins:read' },
-  },
-  {
-    type: 'item',
-    item: { icon: MessageSquare, label: 'Chat', path: ROUTES.CHAT },
-  },
-];
-
-const utilityNavItems: NavItemDef[] = [
-  { icon: Bell, label: 'Notifications', path: ROUTES.NOTIFICATIONS },
-];
-
-// ── Sidebar Component ─────────────────────────────────────────────
+function getBoardDisplayLabel(board: { isHome?: boolean; name: string }) {
+  return board.isHome ? 'Dashboard' : board.name;
+}
 
 export function Sidebar() {
   const location = useLocation();
   const { sidebarCollapsed, sidebarMobileOpen, toggleSidebar, setSidebarMobileOpen } = useUiStore();
   const { hasPermission } = useAuthStore();
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Infrastructure: true });
+  const dashboards = useDashboards({ limit: 50, sortBy: 'updatedAt', sortOrder: 'desc' });
+  const userSettings = useUserSettings();
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
+    Dashboard: true,
+    Infrastructure: true,
+    Operations: true,
+    Knowledge: true,
+  });
 
-  const isActive = (path: string) =>
-    location.pathname === path ||
-    (path !== ROUTES.DASHBOARD && location.pathname.startsWith(path));
+  const currentRoute = getRouteConfig(location.pathname);
 
-  const hasGroupPermission = (section: NavSection) => {
-    if (section.type === 'item') {
-      return !section.item.permission || hasPermission(section.item.permission);
+  const primaryGroups = getPrimaryNavGroups()
+    .map((group) => ({
+      ...group,
+      items: group.routes
+        .map(routeToNavItem)
+        .filter((item) => !item.permission || hasPermission(item.permission)),
+    }))
+    .filter((group) => group.items.length > 0);
+
+  const utilityItems = getUtilityRoutes()
+    .map(routeToNavItem)
+    .filter((item) => !item.permission || hasPermission(item.permission));
+
+  const dashboardNavItems = useMemo(() => {
+    const boardItems = dashboards.data?.items ?? [];
+    const pinnedBoardIds = userSettings.data?.dashboard?.pinnedBoardIds ?? [];
+    const homeBoard = boardItems.find((board) => board.isHome) ?? null;
+    const pinnedBoards = pinnedBoardIds
+      .map((id) => boardItems.find((board) => board.boardId === id))
+      .filter((board): board is NonNullable<typeof board> => Boolean(board) && board?.boardId !== homeBoard?.boardId);
+
+    const visibleBoards = [homeBoard, ...pinnedBoards]
+      .filter((board): board is NonNullable<typeof board> => Boolean(board))
+      .slice(0, 5)
+      .map((board) => ({
+        label: getBoardDisplayLabel(board),
+        path: ROUTES.DASHBOARD_BOARD.replace(':boardId', board.boardId),
+        icon: LayoutDashboard,
+        isPinnedBoard: true,
+      }));
+
+    return [
+      {
+        label: 'All Dashboards',
+        path: ROUTES.DASHBOARDS,
+        icon: LayoutDashboard,
+      },
+      ...visibleBoards,
+    ];
+  }, [dashboards.data?.items, userSettings.data?.dashboard?.pinnedBoardIds]);
+
+  const isActive = (path: string) => {
+    if (path === ROUTES.DASHBOARDS) {
+      return location.pathname.startsWith('/dashboards') || location.pathname === ROUTES.DASHBOARD;
     }
-    // Group: show if at least one child is permitted
-    if (section.permission && !hasPermission(section.permission)) return false;
-    return section.children.some((c) => !c.permission || hasPermission(c.permission));
-  };
-
-  const isGroupExpanded = (label: string) => {
-    // Auto-expand if any child is active
-    const section = mainNavSections.find((s) => s.type === 'group' && s.label === label);
-    if (section?.type === 'group' && section.children.some((c) => isActive(c.path))) return true;
-    return expandedGroups[label] ?? false;
+    if (path.startsWith('/docs')) {
+      return location.pathname.startsWith('/docs');
+    }
+    return location.pathname === path;
   };
 
   const toggleGroup = (label: string) => {
-    setExpandedGroups((prev) => ({ ...prev, [label]: !isGroupExpanded(label) }));
+    setExpandedGroups((current) => ({ ...current, [label]: !current[label] }));
   };
 
-  const filteredSections = mainNavSections.filter(hasGroupPermission);
-  const filteredUtilityItems = utilityNavItems.filter((item) => !item.permission || hasPermission(item.permission));
-
-  // ── Render Helpers ──────────────────────────────────────────────
-
-  const NavItemLink = ({ item }: { item: NavItemDef }) => {
-    const active = isActive(item.path);
+  const NavLink = ({ item }: { item: SidebarNavItem }) => {
     const Icon = item.icon;
+    const active = isActive(item.path);
 
-    const linkContent = (
+    const content = (
       <Link
         to={item.path}
+        aria-label={sidebarCollapsed ? item.label : undefined}
         onClick={() => setSidebarMobileOpen(false)}
         className={cn(
-          'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-200 relative',
-          'hover:bg-sidebar-accent/80',
+          'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
           active
             ? 'bg-sidebar-accent text-sidebar-foreground'
-            : 'text-sidebar-foreground/70 hover:text-sidebar-foreground',
-          sidebarCollapsed && 'justify-center px-2'
+            : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
+          sidebarCollapsed && 'justify-center px-2',
         )}
       >
-        {active && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r-full" />
-        )}
-        <Icon className={cn('h-5 w-5 shrink-0', active && 'text-primary')} />
-        {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
-        {!sidebarCollapsed && item.badge !== undefined && item.badge > 0 && (
-          <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-medium text-primary-foreground">
-            {item.badge > 99 ? '99+' : item.badge}
-          </span>
-        )}
+        {active ? (
+          <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary" />
+        ) : null}
+        <Icon className={cn('h-4 w-4 shrink-0', active && 'text-primary')} />
+        {!sidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
       </Link>
     );
 
-    if (sidebarCollapsed) {
-      return (
-        <Tooltip delayDuration={0}>
-          <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-          <TooltipContent
-            side="right"
-            className="bg-popover text-popover-foreground border-border flex items-center gap-2"
-          >
-            {item.label}
-            {item.badge !== undefined && item.badge > 0 && (
-              <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-primary-foreground">
-                {item.badge}
-              </span>
-            )}
-          </TooltipContent>
-        </Tooltip>
-      );
+    if (!sidebarCollapsed) {
+      return content;
     }
 
-    return linkContent;
+    return (
+      <Tooltip delayDuration={0}>
+        <TooltipTrigger asChild>{content}</TooltipTrigger>
+        <TooltipContent side="right">{item.label}</TooltipContent>
+      </Tooltip>
+    );
   };
 
-  const NavGroup = ({ section }: { section: Extract<NavSection, { type: 'group' }> }) => {
-    const expanded = isGroupExpanded(section.label);
-    const GroupIcon = section.icon;
-    const hasActiveChild = section.children.some((c) => isActive(c.path));
-    const visibleChildren = section.children.filter((c) => !c.permission || hasPermission(c.permission));
+  const NavGroup = ({
+    label,
+    icon,
+    items,
+  }: {
+    label: string;
+    icon: LucideIcon;
+    items: SidebarNavItem[];
+  }) => {
+    const Icon = icon;
+    const expanded = expandedGroups[label] ?? true;
+    const hasActiveChild = items.some((item) => isActive(item.path));
 
     if (sidebarCollapsed) {
-      // When collapsed, show group icon with tooltip listing children
       return (
         <Tooltip delayDuration={0}>
           <TooltipTrigger asChild>
             <button
+              type="button"
+              aria-label={label}
               className={cn(
-                'flex items-center justify-center rounded-md px-2 py-2.5 text-sm font-medium transition-all duration-200 w-full',
-                'hover:bg-sidebar-accent/80',
+                'flex w-full items-center justify-center rounded-xl px-2 py-2.5 transition-colors',
                 hasActiveChild
                   ? 'bg-sidebar-accent text-sidebar-foreground'
-                  : 'text-sidebar-foreground/70 hover:text-sidebar-foreground'
+                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
               )}
             >
-              <GroupIcon className={cn('h-5 w-5 shrink-0', hasActiveChild && 'text-primary')} />
+              <Icon className={cn('h-4 w-4', hasActiveChild && 'text-primary')} />
             </button>
           </TooltipTrigger>
-          <TooltipContent
-            side="right"
-            className="bg-popover text-popover-foreground border-border p-0"
-          >
-            <div className="py-1.5">
-              <p className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {section.label}
-              </p>
-              {visibleChildren.map((child) => (
+          <TooltipContent side="right" className="w-56 p-2">
+            <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {label}
+            </div>
+            <div className="space-y-1">
+              {items.map((item) => (
                 <Link
-                  key={child.path}
-                  to={child.path}
+                  key={item.path}
+                  to={item.path}
                   onClick={() => setSidebarMobileOpen(false)}
                   className={cn(
-                    'flex items-center gap-2 px-3 py-1.5 text-sm transition-colors',
-                    'hover:bg-accent',
-                    isActive(child.path)
-                      ? 'text-primary font-medium'
-                      : 'text-popover-foreground'
+                    'flex items-center gap-2 rounded-lg px-2 py-2 text-sm',
+                    isActive(item.path)
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                   )}
                 >
-                  <child.icon className="h-4 w-4" />
-                  {child.label}
+                  <item.icon className="h-4 w-4" />
+                  <span className="truncate">{item.label}</span>
                 </Link>
               ))}
             </div>
@@ -241,183 +240,151 @@ export function Sidebar() {
     }
 
     return (
-      <div>
+      <div className="space-y-1">
         <button
-          onClick={() => toggleGroup(section.label)}
+          type="button"
+          onClick={() => toggleGroup(label)}
           className={cn(
-            'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-200 w-full',
-            'hover:bg-sidebar-accent/80',
+            'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
             hasActiveChild
               ? 'text-sidebar-foreground'
-              : 'text-sidebar-foreground/70 hover:text-sidebar-foreground'
+              : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
           )}
         >
-          <GroupIcon className={cn('h-5 w-5 shrink-0', hasActiveChild && 'text-primary')} />
-          <span className="truncate flex-1 text-left">{section.label}</span>
-          <ChevronDown
-            className={cn(
-              'h-4 w-4 shrink-0 text-sidebar-foreground/50 transition-transform duration-200',
-              !expanded && '-rotate-90'
-            )}
-          />
+          <Icon className={cn('h-4 w-4 shrink-0', hasActiveChild && 'text-primary')} />
+          <span className="flex-1 truncate text-left">{label}</span>
+          <ChevronDown className={cn('h-4 w-4 transition-transform', !expanded && '-rotate-90')} />
         </button>
-        {expanded && (
-          <div className="ml-4 mt-0.5 space-y-0.5 border-l border-sidebar-border/40 pl-2">
-            {visibleChildren.map((child) => (
-              <NavItemLink key={child.path} item={child} />
+        {expanded ? (
+          <div className="ml-5 space-y-1 border-l border-sidebar-border/50 pl-3">
+            {items.map((item) => (
+              <NavLink key={item.path} item={item} />
             ))}
           </div>
-        )}
+        ) : null}
       </div>
     );
   };
 
-  // ── Sidebar Content ─────────────────────────────────────────────
+  const FooterActionLink = ({
+    path,
+    label,
+    icon,
+  }: {
+    path: string;
+    label: string;
+    icon: LucideIcon;
+  }) => {
+    const Icon = icon;
+    const active = isActive(path);
+
+    if (sidebarCollapsed) {
+      return (
+        <Tooltip delayDuration={0}>
+          <TooltipTrigger asChild>
+            <Link
+              to={path}
+              aria-label={label}
+              onClick={() => setSidebarMobileOpen(false)}
+              className={cn(
+                'flex items-center justify-center rounded-xl px-2 py-2.5 transition-colors',
+                active
+                  ? 'bg-sidebar-accent text-sidebar-foreground'
+                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
+              )}
+            >
+              <Icon className={cn('h-4 w-4', active && 'text-primary')} />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent side="right">{label}</TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    return (
+      <Link
+        to={path}
+        onClick={() => setSidebarMobileOpen(false)}
+        className={cn(
+          'flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm transition-colors',
+          active
+            ? 'bg-sidebar-accent text-sidebar-foreground'
+            : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
+        )}
+      >
+        <Icon className={cn('h-4 w-4', active && 'text-primary')} />
+        <span>{label}</span>
+      </Link>
+    );
+  };
 
   const sidebarContent = (
     <TooltipProvider>
-      <>
-        {/* Logo Section */}
-        <div
-          className={cn(
-            'flex h-16 items-center border-b border-sidebar-border px-4 shrink-0',
-            sidebarCollapsed && 'justify-center px-2'
-          )}
-        >
-          <Link to={ROUTES.DASHBOARD} className="flex items-center gap-3 group">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-lg shadow-primary/20 shrink-0 transition-transform duration-200 group-hover:scale-105">
+      <div className="flex h-full flex-col">
+        <div className={cn('flex h-16 items-center border-b border-sidebar-border px-4', sidebarCollapsed && 'justify-center px-2')}>
+          <Link to={ROUTES.DASHBOARD} className="group flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-lg shadow-primary/20">
               <Shield className="h-5 w-5" />
             </div>
-            {!sidebarCollapsed && (
-              <div className="flex flex-col">
-                <span className="text-lg font-bold text-sidebar-foreground leading-tight">Hydra</span>
-                <span className="text-[10px] text-sidebar-foreground/50 uppercase tracking-wider">Infrastructure</span>
+            {!sidebarCollapsed ? (
+              <div className="min-w-0">
+                <div className="truncate text-lg font-semibold text-sidebar-foreground">Hydra</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-sidebar-foreground/50">Phase 2</div>
               </div>
-            )}
+            ) : null}
           </Link>
 
           <button
-            className="ml-auto md:hidden text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors"
+            type="button"
+            aria-label="Close sidebar"
+            className="ml-auto text-sidebar-foreground/70 transition-colors hover:text-sidebar-foreground md:hidden"
             onClick={() => setSidebarMobileOpen(false)}
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Main Navigation */}
         <ScrollArea className="flex-1 px-3 py-4">
-          <nav className="flex flex-col gap-1">
-            {filteredSections.map((section) => {
-              if (section.type === 'item') {
-                return <NavItemLink key={section.item.path} item={section.item} />;
-              }
-              return <NavGroup key={section.label} section={section} />;
-            })}
-          </nav>
+          <nav className="space-y-4">
+            <NavGroup label="Dashboard" icon={LayoutDashboard} items={dashboardNavItems} />
 
-          {/* Utility Navigation */}
-          {filteredUtilityItems.length > 0 && (
-            <>
-              <Separator className="my-4 bg-sidebar-border/50" />
-              <nav className="flex flex-col gap-1">
-                {filteredUtilityItems.map((item) => (
-                  <NavItemLink key={item.path} item={item} />
-                ))}
-              </nav>
-            </>
-          )}
+            {primaryGroups.map((group) => (
+              <NavGroup
+                key={group.id}
+                label={group.label}
+                icon={group.id === 'infrastructure' ? Server : group.id === 'operations' ? Terminal : FileText}
+                items={group.items}
+              />
+            ))}
+
+            {utilityItems.length > 0 ? (
+              <>
+                <Separator className="bg-sidebar-border/60" />
+                <nav aria-label="Sidebar utility" className="space-y-1">
+                  {utilityItems.map((item) => (
+                    <NavLink key={item.path} item={item} />
+                  ))}
+                </nav>
+              </>
+            ) : null}
+          </nav>
         </ScrollArea>
 
-        {/* Bottom Actions */}
-        <div className="border-t border-sidebar-border p-3 shrink-0 space-y-3">
-          {/* Settings & Profile Row */}
-          <div className={cn('flex gap-1', sidebarCollapsed ? 'flex-col' : 'flex-row')}>
-            {sidebarCollapsed ? (
-              <>
-                <Tooltip delayDuration={0}>
-                  <TooltipTrigger asChild>
-                    <Link
-                      to={ROUTES.SETTINGS}
-                      onClick={() => setSidebarMobileOpen(false)}
-                      className={cn(
-                        'flex items-center justify-center rounded-md px-2 py-2.5 text-sm font-medium transition-all duration-200',
-                        'hover:bg-sidebar-accent hover:text-sidebar-foreground',
-                        location.pathname === ROUTES.SETTINGS
-                          ? 'bg-sidebar-accent text-sidebar-foreground'
-                          : 'text-sidebar-foreground/70'
-                      )}
-                    >
-                      <Settings className="h-5 w-5" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="bg-popover text-popover-foreground border-border">
-                    Settings
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip delayDuration={0}>
-                  <TooltipTrigger asChild>
-                    <Link
-                      to={ROUTES.PROFILE}
-                      onClick={() => setSidebarMobileOpen(false)}
-                      className={cn(
-                        'flex items-center justify-center rounded-md px-2 py-2.5 text-sm font-medium transition-all duration-200',
-                        'hover:bg-sidebar-accent hover:text-sidebar-foreground',
-                        location.pathname === ROUTES.PROFILE
-                          ? 'bg-sidebar-accent text-sidebar-foreground'
-                          : 'text-sidebar-foreground/70'
-                      )}
-                    >
-                      <User className="h-5 w-5" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="bg-popover text-popover-foreground border-border">
-                    Profile
-                  </TooltipContent>
-                </Tooltip>
-              </>
-            ) : (
-              <>
-                <Link
-                  to={ROUTES.SETTINGS}
-                  onClick={() => setSidebarMobileOpen(false)}
-                  className={cn(
-                    'flex-1 flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-200',
-                    'hover:bg-sidebar-accent hover:text-sidebar-foreground',
-                    location.pathname === ROUTES.SETTINGS
-                      ? 'bg-sidebar-accent text-sidebar-foreground'
-                      : 'text-sidebar-foreground/70'
-                  )}
-                >
-                  <Settings className="h-4 w-4" />
-                  <span>Settings</span>
-                </Link>
-                <Link
-                  to={ROUTES.PROFILE}
-                  onClick={() => setSidebarMobileOpen(false)}
-                  className={cn(
-                    'flex-1 flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-200',
-                    'hover:bg-sidebar-accent hover:text-sidebar-foreground',
-                    location.pathname === ROUTES.PROFILE
-                      ? 'bg-sidebar-accent text-sidebar-foreground'
-                      : 'text-sidebar-foreground/70'
-                  )}
-                >
-                  <User className="h-4 w-4" />
-                  <span>Profile</span>
-                </Link>
-              </>
-            )}
-          </div>
+        <div className="border-t border-sidebar-border p-3">
+          <nav
+            aria-label="Sidebar account actions"
+            className={cn('mb-3 flex gap-1', sidebarCollapsed ? 'flex-col' : 'flex-row')}
+          >
+            <FooterActionLink path={ROUTES.SETTINGS} label="Settings" icon={Settings} />
+            <FooterActionLink path={ROUTES.PROFILE} label="Profile" icon={User} />
+          </nav>
 
-          {/* Collapse Toggle */}
           <Button
             variant="ghost"
             size="sm"
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             onClick={toggleSidebar}
-            className={cn(
-              'w-full text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-all duration-200',
-              sidebarCollapsed && 'px-2'
-            )}
+            className={cn('w-full text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground', sidebarCollapsed && 'px-2')}
           >
             {sidebarCollapsed ? (
               <ChevronRight className="h-4 w-4" />
@@ -429,41 +396,42 @@ export function Sidebar() {
             )}
           </Button>
         </div>
-      </>
+      </div>
     </TooltipProvider>
   );
 
   return (
     <>
-      {/* Mobile overlay */}
-      {sidebarMobileOpen && (
+      {sidebarMobileOpen ? (
         <div
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden animate-in fade-in duration-200"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
           role="button"
           tabIndex={-1}
           aria-label="Close sidebar"
           onClick={() => setSidebarMobileOpen(false)}
-          onKeyDown={(e) => { if (e.key === 'Escape') setSidebarMobileOpen(false); }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setSidebarMobileOpen(false);
+            }
+          }}
         />
-      )}
+      ) : null}
 
-      {/* Mobile sidebar */}
       <div
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-sidebar border-r border-sidebar-border md:hidden',
-          'transform transition-transform duration-300 ease-out',
-          sidebarMobileOpen ? 'translate-x-0' : '-translate-x-full'
+          'fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 md:hidden',
+          sidebarMobileOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
         {sidebarContent}
       </div>
 
-      {/* Desktop sidebar */}
       <aside
         className={cn(
-          'hidden h-screen flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300 ease-out shrink-0 md:flex',
-          sidebarCollapsed ? 'w-20' : 'w-72'
+          'hidden h-screen shrink-0 border-r border-sidebar-border bg-sidebar transition-all duration-300 md:flex',
+          sidebarCollapsed ? 'w-20' : 'w-72',
         )}
+        aria-label={currentRoute?.title ? `${currentRoute.title} navigation` : 'Primary navigation'}
       >
         {sidebarContent}
       </aside>

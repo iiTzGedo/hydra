@@ -1,5 +1,5 @@
 import { expect, test as setup } from '@playwright/test';
-import { login } from './helpers/app';
+import { login, waitForAppShell } from './helpers/app';
 
 setup('authenticate', async ({ page }) => {
   if (process.env.E2E_SKIP_AUTH_SETUP === '1') {
@@ -8,7 +8,7 @@ setup('authenticate', async ({ page }) => {
   }
 
   await login(page);
-  await page.waitForLoadState('networkidle');
+  await waitForAppShell(page);
   await expect(page.locator('#main-content')).toBeVisible();
 
   // Save authenticated state

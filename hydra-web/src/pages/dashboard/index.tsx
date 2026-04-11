@@ -1,23 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { Layout } from 'react-grid-layout';
 import {
+  ArrowLeft,
   ArrowRight,
-  Bell,
-  Boxes,
   Copy,
   Download,
-  History,
+  Home,
   LayoutGrid,
   LayoutTemplate,
   Maximize2,
-  MessageSquare,
-  Network,
+  MoreHorizontal,
   PanelsTopLeft,
+  Pin,
+  PinOff,
   Plus,
+  Save,
   Share2,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -34,6 +37,7 @@ import {
   useUpdateDashboard,
   useWidgetRegistry,
 } from '@/api/dashboards';
+import { useUpdateUserSettings, useUserSettings } from '@/api/settings';
 import { BoardTemplates } from '@/components/dashboard/board-templates';
 import { ShareDialog } from '@/components/dashboard/share-dialog';
 import { TimeRangeSelector } from '@/components/dashboard/time-range-selector';
@@ -45,8 +49,27 @@ import {
   applyLayoutToWidgets,
   widgetTypeLabel,
 } from '@/components/dashboard/widget-grid';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import { PageHeaderLayout } from '@/components/layout/page-header-layout';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -55,6 +78,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -69,11 +100,14 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { apiClient } from '@/lib/api-client';
 import { getErrorMessage } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import { useDashboardStore } from '@/stores/dashboard-store';
+import { normalizeDashboardLayout } from '@/types/dashboard';
 import type {
   CreateDashboardRequest,
+  DashboardBoard,
   DashboardBoardLayout,
   DashboardBoardSettings,
   DashboardCreateWidgetRequest,
@@ -106,12 +140,18 @@ const itemVariants = {
 };
 
 const DEFAULT_BOARD_LAYOUT: DashboardBoardLayout = {
-  columns: 12,
-  rowHeight: 80,
-  breakpoints: {
-    lg: { columns: 12, width: 1200 },
-    md: { columns: 8, width: 996 },
-    sm: { columns: 4, width: 768 },
+  mode: 'grid',
+  grid: {
+    columns: 12,
+    rowHeight: 80,
+    breakpoints: {
+      lg: { columns: 12, width: 1200 },
+      md: { columns: 8, width: 996 },
+      sm: { columns: 4, width: 768 },
+    },
+    compaction: 'vertical',
+    margin: [16, 16],
+    padding: [0, 0],
   },
 };
 
@@ -123,10 +163,15 @@ const DEFAULT_BOARD_SETTINGS: DashboardBoardSettings = {
   kioskMode: false,
 };
 
-function buildStarterBoardRequest(
-  name: string,
-  isHome: boolean
-): CreateDashboardRequest {
+function getBoardDisplayName(board?: { isHome?: boolean; name: string } | null) {
+  if (!board) {
+    return 'Dashboard';
+  }
+
+  return board.isHome ? 'Dashboard' : board.name;
+}
+
+function buildStarterBoardRequest(name: string, isHome: boolean): CreateDashboardRequest {
   return {
     name,
     description: 'Overview of your infrastructure',
@@ -145,6 +190,10 @@ function buildStarterBoardRequest(
       { widgetType: 'hydra::node-status-grid', position: { x: 0, y: 14, w: 12, h: 4 }, config: {}, dataBinding: null },
     ],
   };
+}
+
+function cloneBoardState<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function getTextConfig(config: Record<string, unknown>, key: string): string | undefined {
@@ -218,7 +267,6 @@ function sanitizeWidgetConfig(
   return nextConfig;
 }
 
-/** Render the inner content of a widget based on its type */
 function WidgetContent({
   widgetType,
   config,
@@ -231,27 +279,12 @@ function WidgetContent({
     return <Component config={{ ...config, __widgetType: widgetType }} />;
   }
   return (
-    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
       Unknown widget: {widgetType}
     </div>
   );
 }
 
-/** Icon for a widget type */
-function widgetIcon(widgetType: string): typeof LayoutGrid {
-  switch (widgetType) {
-    case 'hydra::service-summary':
-      return Boxes;
-    case 'hydra::mini-topology':
-      return Network;
-    case 'hydra::recent-activity':
-      return Bell;
-    default:
-      return LayoutGrid;
-  }
-}
-
-/** Extra link actions per widget type */
 function widgetActions(widgetType: string) {
   switch (widgetType) {
     case 'hydra::service-summary':
@@ -284,7 +317,7 @@ function widgetActions(widgetType: string) {
       return (
         <Link to={ROUTES.NODES}>
           <Button variant="outline" size="sm" className="group/btn">
-            View All
+            View all
             <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover/btn:translate-x-0.5" />
           </Button>
         </Link>
@@ -295,7 +328,11 @@ function widgetActions(widgetType: string) {
 }
 
 export default function DashboardPage() {
-  useDocumentTitle('Dashboard');
+  const navigate = useNavigate();
+  const location = useLocation();
+  const queryClient = useQueryClient();
+  const { boardId: routeBoardId } = useParams<{ boardId?: string }>();
+  const isInlineLegacyDashboard = location.pathname === ROUTES.DASHBOARD && !routeBoardId;
 
   const {
     activeBoardId,
@@ -305,58 +342,112 @@ export default function DashboardPage() {
   } = useDashboardStore();
   const [configWidgetId, setConfigWidgetId] = useState<string | null>(null);
   const [widgetConfigDraft, setWidgetConfigDraft] = useState<Record<string, unknown>>({});
+  const [draftBoard, setDraftBoard] = useState<DashboardBoard | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const dashboardsQuery = useDashboards({ limit: 50, sortBy: 'updatedAt', sortOrder: 'desc' });
+  const settingsQuery = useUserSettings();
   const widgetRegistry = useWidgetRegistry().data;
-  const dashboardItems = dashboardsQuery.data?.items;
-  const dashboards = dashboardItems ?? [];
+
+  const createDashboard = useCreateDashboard();
+  const updateSettings = useUpdateUserSettings();
+
+  const boards = useMemo(() => dashboardsQuery.data?.items ?? [], [dashboardsQuery.data?.items]);
+  const settings = settingsQuery.data;
+  const pinnedBoardIds = useMemo(
+    () => settings?.dashboard?.pinnedBoardIds ?? [],
+    [settings?.dashboard?.pinnedBoardIds],
+  );
+  const lastOpenedBoardId = settings?.dashboard?.lastOpenedBoardId ?? null;
+  const resolvedLegacyBoardId = useMemo(() => {
+    if (!isInlineLegacyDashboard) {
+      return null;
+    }
+
+    if (activeBoardId && boards.some((board) => board.boardId === activeBoardId)) {
+      return activeBoardId;
+    }
+
+    const homeBoard = boards.find((board) => board.isHome);
+    if (homeBoard) {
+      return homeBoard.boardId;
+    }
+
+    if (lastOpenedBoardId && boards.some((board) => board.boardId === lastOpenedBoardId)) {
+      return lastOpenedBoardId;
+    }
+
+    const pinnedBoard = boards.find((board) => pinnedBoardIds.includes(board.boardId));
+    return pinnedBoard?.boardId ?? boards[0]?.boardId ?? null;
+  }, [activeBoardId, boards, isInlineLegacyDashboard, lastOpenedBoardId, pinnedBoardIds]);
+  const effectiveBoardId = routeBoardId ?? resolvedLegacyBoardId ?? undefined;
+  const isBoardBrowser = !effectiveBoardId && !isInlineLegacyDashboard;
+
+  const selectedBoardQuery = useDashboard(effectiveBoardId ?? '');
+  const selectedBoard = effectiveBoardId ? selectedBoardQuery.data : null;
+  const workingBoard = isEditMode ? draftBoard ?? selectedBoard ?? null : selectedBoard ?? null;
+  const normalizedWorkingLayout = useMemo(
+    () => normalizeDashboardLayout(workingBoard?.layout as DashboardBoardLayout | undefined),
+    [workingBoard?.layout],
+  );
+  useDocumentTitle(
+    isBoardBrowser
+      ? 'Dashboards'
+      : getBoardDisplayName(selectedBoard),
+  );
+
+  const updateDashboard = useUpdateDashboard(effectiveBoardId ?? '');
+  const deleteDashboard = useDeleteDashboard();
+  const cloneDashboard = useCloneDashboard(effectiveBoardId ?? '');
+  const addWidget = useAddWidget(effectiveBoardId ?? '');
+  const deleteWidget = useDeleteWidget(effectiveBoardId ?? '');
+  const exportQuery = useExportDashboard(effectiveBoardId ?? '');
+  const importDashboard = useImportDashboard();
+
   const widgetDefinitions = useMemo(
     () =>
       new Map<string, WidgetTypeDefinition>(
-        (widgetRegistry?.widgets ?? []).map((widget) => [widget.widgetType, widget])
+        (widgetRegistry?.widgets ?? []).map((widget) => [widget.widgetType, widget]),
       ),
-    [widgetRegistry]
+    [widgetRegistry],
   );
 
-  // Resolve selected board ID: prefer store's activeBoardId, fall back to first board
-  const selectedBoardId = useMemo(() => {
-    if (!dashboardItems?.length) return '';
-    if (activeBoardId && dashboardItems.some((b) => b.boardId === activeBoardId)) {
-      return activeBoardId;
-    }
-    return dashboardItems[0].boardId;
-  }, [dashboardItems, activeBoardId]);
-
-  // Sync store when selectedBoardId resolves differently from activeBoardId
   useEffect(() => {
-    if (selectedBoardId && selectedBoardId !== activeBoardId) {
-      setActiveBoardId(selectedBoardId);
+    if (effectiveBoardId) {
+      if (activeBoardId !== effectiveBoardId) {
+        setActiveBoardId(effectiveBoardId);
+      }
+      if (lastOpenedBoardId !== effectiveBoardId) {
+        updateSettings.mutate({ dashboard: { lastOpenedBoardId: effectiveBoardId } });
+      }
     }
-  }, [selectedBoardId, activeBoardId, setActiveBoardId]);
+  }, [activeBoardId, effectiveBoardId, lastOpenedBoardId, setActiveBoardId, updateSettings]);
 
-  const selectedBoardQuery = useDashboard(selectedBoardId);
-  const selectedBoard = selectedBoardQuery.data;
+  useEffect(() => {
+    if (!isEditMode) {
+      setDraftBoard(null);
+      setConfigWidgetId(null);
+    }
+  }, [isEditMode]);
+
   const configWidget = useMemo(
-    () =>
-      selectedBoard?.widgets.find((widget) => widget.instanceId === configWidgetId) ?? null,
-    [selectedBoard, configWidgetId]
+    () => workingBoard?.widgets.find((widget) => widget.instanceId === configWidgetId) ?? null,
+    [configWidgetId, workingBoard],
   );
   const configWidgetDefinition = useMemo(
-    () =>
-      configWidget ? widgetDefinitions.get(configWidget.widgetType) ?? null : null,
-    [configWidget, widgetDefinitions]
+    () => (configWidget ? widgetDefinitions.get(configWidget.widgetType) ?? null : null),
+    [configWidget, widgetDefinitions],
   );
 
-  const createDashboard = useCreateDashboard();
-  const updateDashboard = useUpdateDashboard(selectedBoardId);
-  const deleteDashboard = useDeleteDashboard();
-  const cloneDashboard = useCloneDashboard(selectedBoardId);
-  const addWidget = useAddWidget(selectedBoardId);
-  const deleteWidget = useDeleteWidget(selectedBoardId);
-  const exportQuery = useExportDashboard(selectedBoardId);
-  const importDashboard = useImportDashboard();
+  useEffect(() => {
+    if (!configWidget) {
+      setWidgetConfigDraft({});
+      return;
+    }
+    setWidgetConfigDraft({ ...(configWidget.config ?? {}) });
+  }, [configWidget]);
 
   const isMutating =
     createDashboard.isPending ||
@@ -365,110 +456,97 @@ export default function DashboardPage() {
     cloneDashboard.isPending ||
     addWidget.isPending ||
     deleteWidget.isPending ||
-    importDashboard.isPending;
+    importDashboard.isPending ||
+    updateSettings.isPending;
 
-  // Track whether a layout-change save is in-flight to debounce
-  const layoutSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visibleWidgets = useMemo(
+    () =>
+      (workingBoard?.widgets ?? []).filter((widget) => !(widget.config as { hidden?: boolean })?.hidden),
+    [workingBoard],
+  );
 
-  // Clean up debounce timer on unmount to prevent stale mutations
-  useEffect(() => {
-    return () => {
-      if (layoutSaveRef.current) {
-        clearTimeout(layoutSaveRef.current);
+  const boardPath = useCallback(
+    (boardId: string) => ROUTES.DASHBOARD_BOARD.replace(':boardId', boardId),
+    [],
+  );
+
+  const openBoard = useCallback(
+    (boardId: string) => {
+      setEditMode(false);
+      setDraftBoard(null);
+      setActiveBoardId(boardId);
+      if (isInlineLegacyDashboard) {
+        return;
       }
-    };
-  }, []);
+      navigate(boardPath(boardId));
+    },
+    [boardPath, isInlineLegacyDashboard, navigate, setActiveBoardId, setEditMode],
+  );
 
-  useEffect(() => {
-    if (!configWidget) {
-      setWidgetConfigDraft({});
+  const beginEditing = useCallback(() => {
+    if (!selectedBoard) {
       return;
     }
+    setDraftBoard({
+      ...cloneBoardState(selectedBoard),
+      layout: normalizeDashboardLayout(selectedBoard.layout as DashboardBoardLayout | undefined),
+    });
+    setEditMode(true);
+  }, [selectedBoard, setEditMode]);
 
-    setWidgetConfigDraft({ ...(configWidget.config ?? {}) });
-  }, [configWidget]);
-
-  const handleBoardChange = useCallback(
-    (boardId: string) => {
-      setActiveBoardId(boardId);
-      setEditMode(false);
-    },
-    [setActiveBoardId, setEditMode]
-  );
+  const exitEditing = useCallback(() => {
+    setDraftBoard(null);
+    setEditMode(false);
+  }, [setEditMode]);
 
   const handleLayoutChange = useCallback(
     (layout: Layout) => {
-      if (!selectedBoard) return;
-
-      // Debounce saves: react-grid-layout fires this frequently during drags
-      if (layoutSaveRef.current) {
-        clearTimeout(layoutSaveRef.current);
+      if (!isEditMode || !workingBoard) {
+        return;
       }
 
-      layoutSaveRef.current = setTimeout(() => {
-        const updatedWidgets = applyLayoutToWidgets(selectedBoard.widgets, layout);
-
-        // If lengths differ the grid changed structurally — always save
-        if (updatedWidgets.length !== selectedBoard.widgets.length) {
-          updateDashboard.mutate(
-            { widgets: updatedWidgets },
-            {
-              onError: (error) => {
-                toast.error(getErrorMessage(error, 'Failed to save layout'));
-              },
-            }
-          );
-          return;
-        }
-
-        // Only save if positions actually changed
-        const changed = updatedWidgets.some((w, i) => {
-          const orig = selectedBoard.widgets[i];
-          if (!orig) return true;
-          return (
-            w.position.x !== orig.position.x ||
-            w.position.y !== orig.position.y ||
-            w.position.w !== orig.position.w ||
-            w.position.h !== orig.position.h
-          );
-        });
-
-        if (changed) {
-          updateDashboard.mutate(
-            { widgets: updatedWidgets },
-            {
-              onError: (error) => {
-                toast.error(getErrorMessage(error, 'Failed to save layout'));
-              },
-            }
-          );
-        }
-      }, 500);
+      setDraftBoard({
+        ...workingBoard,
+        widgets: applyLayoutToWidgets(workingBoard.widgets, layout),
+      });
     },
-    [selectedBoard, updateDashboard]
+    [isEditMode, workingBoard],
   );
 
   const handleRemoveWidget = useCallback(
     (instanceId: string) => {
+      if (!workingBoard) {
+        return;
+      }
+
+      if (isEditMode) {
+        setDraftBoard({
+          ...workingBoard,
+          widgets: workingBoard.widgets.filter((widget) => widget.instanceId !== instanceId),
+        });
+        return;
+      }
+
       deleteWidget.mutate(instanceId, {
         onError: (error) => {
           toast.error(getErrorMessage(error, 'Failed to remove widget'));
         },
       });
     },
-    [deleteWidget]
+    [deleteWidget, isEditMode, workingBoard],
   );
 
   const handleAddWidget = useCallback(
     (widgetType: string, defaultSize?: WidgetSize) => {
       const size = defaultSize ?? widgetDefinitions.get(widgetType)?.defaultSize;
-      if (!size) return;
+      if (!size || !workingBoard) {
+        return;
+      }
 
-      // Place at the bottom of the current grid
-      const maxY = selectedBoard?.widgets.reduce(
-        (max, w) => Math.max(max, w.position.y + w.position.h),
-        0
-      ) ?? 0;
+      const maxY = workingBoard.widgets.reduce((max, widget) => {
+        const position = widget.position ?? widget.placements?.lg;
+        return Math.max(max, (position?.y ?? 0) + (position?.h ?? 0));
+      }, 0);
 
       const request: DashboardCreateWidgetRequest = {
         widgetType,
@@ -477,147 +555,125 @@ export default function DashboardPage() {
         dataBinding: null,
       };
 
+      if (isEditMode) {
+        setDraftBoard({
+          ...workingBoard,
+          widgets: [
+            ...workingBoard.widgets,
+            {
+              instanceId: `draft_${Date.now()}`,
+              widgetType,
+              position: request.position,
+              placements: request.position ? { lg: request.position } : null,
+              config: {},
+              dataBinding: null,
+            },
+          ],
+        });
+        return;
+      }
+
       addWidget.mutate(request, {
         onError: (error) => {
           toast.error(getErrorMessage(error, 'Failed to add widget'));
         },
       });
     },
-    [selectedBoard, addWidget, widgetDefinitions]
+    [addWidget, isEditMode, widgetDefinitions, workingBoard],
   );
-
-  const handleCreateBoard = useCallback(async () => {
-    try {
-      const board = await createDashboard.mutateAsync(
-        buildStarterBoardRequest(
-          dashboards.length === 0 ? 'My Dashboard' : `Dashboard ${dashboards.length + 1}`,
-          dashboards.length === 0
-        )
-      );
-      setActiveBoardId(board.boardId);
-      setEditMode(false);
-      toast.success('Dashboard board created');
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to create dashboard board'));
-    }
-  }, [dashboards.length, createDashboard, setActiveBoardId, setEditMode]);
-
-  const handleCloneBoard = useCallback(async () => {
-    try {
-      const board = await cloneDashboard.mutateAsync();
-      setActiveBoardId(board.boardId);
-      toast.success('Dashboard board cloned');
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to clone dashboard board'));
-    }
-  }, [cloneDashboard, setActiveBoardId]);
-
-  const handleDeleteBoard = useCallback(async () => {
-    if (!selectedBoardId) return;
-    try {
-      await deleteDashboard.mutateAsync(selectedBoardId);
-      setActiveBoardId(null);
-      setEditMode(false);
-      toast.success('Dashboard board deleted');
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to delete dashboard board'));
-    }
-  }, [selectedBoardId, deleteDashboard, setActiveBoardId, setEditMode]);
 
   const handleToggleWidget = useCallback(
     async (instanceId: string) => {
-      if (!selectedBoard) return;
-      const widget = selectedBoard.widgets.find((w) => w.instanceId === instanceId);
-      if (!widget) return;
+      if (!workingBoard) {
+        return;
+      }
 
-      const isHidden = (widget.config as { hidden?: boolean })?.hidden ?? false;
-      const updatedWidgets = selectedBoard.widgets.map((w) =>
-        w.instanceId === instanceId
-          ? { ...w, config: { ...w.config, hidden: !isHidden } }
-          : w
-      );
+      const nextWidgets = workingBoard.widgets.map((widget) => {
+        if (widget.instanceId !== instanceId) {
+          return widget;
+        }
+        const hidden = Boolean((widget.config as { hidden?: boolean })?.hidden);
+        return { ...widget, config: { ...widget.config, hidden: !hidden } };
+      });
+
+      if (isEditMode) {
+        setDraftBoard({ ...workingBoard, widgets: nextWidgets });
+        return;
+      }
 
       try {
-        await updateDashboard.mutateAsync({ widgets: updatedWidgets });
+        await updateDashboard.mutateAsync({ widgets: nextWidgets });
       } catch (error) {
-        toast.error(getErrorMessage(error, 'Failed to update widget'));
+        toast.error(getErrorMessage(error, 'Failed to update widget visibility'));
       }
     },
-    [selectedBoard, updateDashboard]
+    [isEditMode, updateDashboard, workingBoard],
   );
-
-  const handleResetLayout = useCallback(async () => {
-    if (!selectedBoard) return;
-    const request = buildStarterBoardRequest(selectedBoard.name, selectedBoard.isHome);
-    try {
-      await updateDashboard.mutateAsync({ widgets: request.widgets as DashboardWidgetInstance[] });
-      toast.success('Layout reset to default');
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to reset layout'));
-    }
-  }, [selectedBoard, updateDashboard]);
-
-  const handleExportBoard = useCallback(async () => {
-    if (!selectedBoardId) return;
-    try {
-      const { data } = await exportQuery.refetch();
-      if (!data) return;
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `dashboard-${selectedBoard?.name?.replace(/\s+/g, '-').toLowerCase() ?? 'export'}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-      toast.success('Dashboard exported');
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to export dashboard'));
-    }
-  }, [selectedBoardId, selectedBoard, exportQuery]);
-
-  const handleImportBoard = useCallback(async (file: File) => {
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      const board = await importDashboard.mutateAsync({ board: parsed });
-      setActiveBoardId(board.boardId);
-      toast.success('Dashboard imported');
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to import dashboard'));
-    }
-  }, [importDashboard, setActiveBoardId]);
-
-  const handleTemplateUsed = useCallback((boardId: string) => {
-    setActiveBoardId(boardId);
-  }, [setActiveBoardId]);
 
   const handleConfigureWidget = useCallback(
     (instanceId: string) => {
-      if (!selectedBoard) return;
-
-      const widget = selectedBoard.widgets.find((entry) => entry.instanceId === instanceId);
-      if (!widget) return;
+      const widget = workingBoard?.widgets.find((entry) => entry.instanceId === instanceId);
+      if (!widget) {
+        return;
+      }
 
       const definition = widgetDefinitions.get(widget.widgetType);
-      if (!definition?.capabilities.configurable) return;
+      if (!definition?.capabilities.configurable) {
+        return;
+      }
 
       setConfigWidgetId(instanceId);
     },
-    [selectedBoard, widgetDefinitions]
+    [widgetDefinitions, workingBoard],
   );
 
-  const handleSaveWidgetConfig = useCallback(async () => {
-    if (!selectedBoard || !configWidget || !configWidgetDefinition) return;
+  const handleResetLayout = useCallback(() => {
+    if (!workingBoard) {
+      return;
+    }
 
-    const nextConfig = sanitizeWidgetConfig(
-      widgetConfigDraft,
-      configWidgetDefinition.configSchema
-    );
-    const updatedWidgets = selectedBoard.widgets.map((widget) =>
+    const starter = buildStarterBoardRequest(workingBoard.name, workingBoard.isHome);
+    setDraftBoard({
+      ...workingBoard,
+      layout: starter.layout ?? DEFAULT_BOARD_LAYOUT,
+      widgets: (starter.widgets ?? []) as DashboardWidgetInstance[],
+    });
+  }, [workingBoard]);
+
+  const handleSaveBoard = useCallback(async () => {
+    if (!effectiveBoardId || !draftBoard) {
+      return;
+    }
+
+    try {
+      await updateDashboard.mutateAsync({
+        layout: draftBoard.layout,
+        widgets: draftBoard.widgets,
+      });
+      toast.success('Dashboard saved');
+      exitEditing();
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to save dashboard'));
+    }
+  }, [draftBoard, effectiveBoardId, exitEditing, updateDashboard]);
+
+  const handleSaveWidgetConfig = useCallback(async () => {
+    if (!workingBoard || !configWidget || !configWidgetDefinition) {
+      return;
+    }
+
+    const nextConfig = sanitizeWidgetConfig(widgetConfigDraft, configWidgetDefinition.configSchema);
+    const updatedWidgets = workingBoard.widgets.map((widget) =>
       widget.instanceId === configWidget.instanceId
         ? { ...widget, config: nextConfig }
-        : widget
+        : widget,
     );
+
+    if (isEditMode) {
+      setDraftBoard({ ...workingBoard, widgets: updatedWidgets });
+      setConfigWidgetId(null);
+      return;
+    }
 
     try {
       await updateDashboard.mutateAsync({ widgets: updatedWidgets });
@@ -629,248 +685,401 @@ export default function DashboardPage() {
   }, [
     configWidget,
     configWidgetDefinition,
-    selectedBoard,
+    isEditMode,
     updateDashboard,
     widgetConfigDraft,
+    workingBoard,
   ]);
 
-  // Build the customizer widget list from the board's actual widgets
+  const handleCreateBoard = useCallback(async () => {
+    try {
+      const board = await createDashboard.mutateAsync(
+        buildStarterBoardRequest(
+          boards.length === 0 ? 'Dashboard' : `Dashboard ${boards.length + 1}`,
+          boards.length === 0,
+        ),
+      );
+      toast.success('Dashboard board created');
+      openBoard(board.boardId);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to create dashboard board'));
+    }
+  }, [boards.length, createDashboard, openBoard]);
+
+  const handleCloneBoard = useCallback(async () => {
+    try {
+      const board = await cloneDashboard.mutateAsync();
+      toast.success('Dashboard board cloned');
+      openBoard(board.boardId);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to clone dashboard board'));
+    }
+  }, [cloneDashboard, openBoard]);
+
+  const handleDeleteBoard = useCallback(async () => {
+    if (!effectiveBoardId) {
+      return;
+    }
+    try {
+      await deleteDashboard.mutateAsync(effectiveBoardId);
+      exitEditing();
+      setShowDeleteConfirm(false);
+      toast.success('Dashboard board deleted');
+      navigate(ROUTES.DASHBOARDS);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to delete dashboard board'));
+    }
+  }, [deleteDashboard, effectiveBoardId, exitEditing, navigate]);
+
+  const handleExportBoard = useCallback(async () => {
+    if (!effectiveBoardId) {
+      return;
+    }
+    try {
+      const { data } = await exportQuery.refetch();
+      if (!data) {
+        return;
+      }
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dashboard-${selectedBoard?.name?.replace(/\s+/g, '-').toLowerCase() ?? 'export'}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success('Dashboard exported');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to export dashboard'));
+    }
+  }, [effectiveBoardId, exportQuery, selectedBoard?.name]);
+
+  const handleImportBoard = useCallback(async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const board = await importDashboard.mutateAsync({ board: parsed });
+      toast.success('Dashboard imported');
+      openBoard(board.boardId);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to import dashboard'));
+    }
+  }, [importDashboard, openBoard]);
+
+  const handleTemplateUsed = useCallback((boardId: string) => {
+    openBoard(boardId);
+  }, [openBoard]);
+
+  const handleTogglePin = useCallback(async (boardId: string) => {
+    const currentPins = pinnedBoardIds.includes(boardId)
+      ? pinnedBoardIds.filter((id) => id !== boardId)
+      : [...pinnedBoardIds, boardId].slice(0, 5);
+
+    try {
+      await updateSettings.mutateAsync({ dashboard: { pinnedBoardIds: currentPins } });
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to update pinned dashboards'));
+    }
+  }, [pinnedBoardIds, updateSettings]);
+
+  const handleMakeHome = useCallback(async (boardId: string) => {
+    const currentHome = boards.find((board) => board.isHome);
+    try {
+      if (currentHome && currentHome.boardId !== boardId) {
+        await apiClient.put(`/dashboards/${currentHome.boardId}`, { isHome: false });
+      }
+      await apiClient.put(`/dashboards/${boardId}`, { isHome: true });
+      await queryClient.invalidateQueries({ queryKey: ['dashboards'] });
+      toast.success('Home dashboard updated');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to update home dashboard'));
+    }
+  }, [boards, queryClient]);
+
   const customizerWidgets = useMemo(() => {
-    if (!selectedBoard) return [];
-    return selectedBoard.widgets.map((w) => ({
-      id: w.instanceId,
-      type: w.widgetType,
-      visible: !(w.config as { hidden?: boolean })?.hidden,
-      configurable: widgetDefinitions.get(w.widgetType)?.capabilities.configurable ?? false,
+    if (!workingBoard) {
+      return [];
+    }
+    return workingBoard.widgets.map((widget) => ({
+      id: widget.instanceId,
+      type: widget.widgetType,
+      visible: !(widget.config as { hidden?: boolean })?.hidden,
+      configurable: widgetDefinitions.get(widget.widgetType)?.capabilities.configurable ?? false,
       supportsVisibilityToggle:
-        widgetDefinitions.get(w.widgetType)?.capabilities.supportsVisibilityToggle ?? true,
+        widgetDefinitions.get(widget.widgetType)?.capabilities.supportsVisibilityToggle ?? true,
     }));
-  }, [selectedBoard, widgetDefinitions]);
+  }, [widgetDefinitions, workingBoard]);
 
-  const hasBoards = dashboards.length > 0;
-  const isInitialLoading = dashboardsQuery.isLoading && !dashboardsQuery.data;
-  const isBoardLoading =
-    selectedBoardId !== '' && selectedBoardQuery.isLoading && !selectedBoardQuery.data;
-  const loadError = dashboardsQuery.error || selectedBoardQuery.error;
-
-  // Filter to visible widgets for rendering
-  const visibleWidgets = useMemo(() => {
-    if (!selectedBoard) return [];
-    return selectedBoard.widgets.filter(
-      (w) => !(w.config as { hidden?: boolean })?.hidden
-    );
-  }, [selectedBoard]);
+  const loadError = dashboardsQuery.error || (effectiveBoardId ? selectedBoardQuery.error : null);
+  const hasNoBoards = !dashboardsQuery.isLoading && boards.length === 0;
 
   return (
-    <motion.div
-      variants={containerVariants}
-      initial="hidden"
-      animate="visible"
-      className="space-y-6"
-    >
+    <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-6">
       <motion.div variants={itemVariants}>
         <PageHeaderLayout
-          title="Dashboard"
-          subtitle={
-            selectedBoard?.description ||
-            (hasBoards
-              ? `${dashboards.length} saved board${dashboards.length === 1 ? '' : 's'}`
-              : 'Create a starter board to persist your dashboard layout')
+          title={
+            isBoardBrowser
+              ? 'Dashboards'
+              : getBoardDisplayName(selectedBoard)
           }
-          showBreadcrumbs={false}
+          subtitle={
+            isBoardBrowser
+              ? 'Browse saved boards, manage pins, and choose your home dashboard.'
+              : workingBoard?.description ?? 'Editable board surface with persistent save and discard flow.'
+          }
           showBackButton={false}
           actions={
-            hasBoards ? (
+            isBoardBrowser ? (
               <>
-                <Select value={selectedBoardId} onValueChange={handleBoardChange}>
+                <Button size="sm" variant="outline" onClick={() => setShowTemplates(true)} disabled={isMutating}>
+                  <LayoutTemplate className="mr-2 h-4 w-4" />
+                  Templates
+                </Button>
+                <Button size="sm" onClick={() => void handleCreateBoard()} disabled={isMutating}>
+                  {createDashboard.isPending ? <LoadingSpinner size="sm" className="mr-2 text-current" /> : <Plus className="mr-2 h-4 w-4" />}
+                  New Board
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" size="sm" onClick={() => navigate(ROUTES.DASHBOARDS)}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  All Dashboards
+                </Button>
+                <Select value={effectiveBoardId} onValueChange={openBoard}>
                   <SelectTrigger className="w-[220px] bg-card border-border text-foreground">
                     <SelectValue placeholder="Select board" />
                   </SelectTrigger>
-                  <SelectContent className="bg-popover border-border">
-                    {dashboards.map((board) => (
+                  <SelectContent>
+                    {boards.map((board) => (
                       <SelectItem key={board.boardId} value={board.boardId}>
-                        {board.name}
+                        {getBoardDisplayName(board)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {/* Time range selector — persisted in store. Widgets will
-                    consume the selected range for data queries once data
-                    binding is implemented in a future wave. */}
                 <TimeRangeSelector />
-                <WidgetCustomizerContent
-                  widgetLayout={customizerWidgets}
-                  isEditMode={isEditMode}
-                  setEditMode={setEditMode}
-                  onToggleWidget={handleToggleWidget}
-                  onConfigureWidget={handleConfigureWidget}
-                  onResetLayout={() => void handleResetLayout()}
-                  isSaving={isMutating}
-                />
-
-                {isEditMode && (
+                {isEditMode ? (
                   <>
+                    <WidgetCustomizerContent
+                      widgetLayout={customizerWidgets}
+                      isEditMode={isEditMode}
+                      setEditMode={(editing) => {
+                        if (editing) {
+                          beginEditing();
+                        } else {
+                          exitEditing();
+                        }
+                      }}
+                      onToggleWidget={handleToggleWidget}
+                      onConfigureWidget={handleConfigureWidget}
+                      onResetLayout={handleResetLayout}
+                      isSaving={isMutating}
+                    />
                     <WidgetPicker
                       onSelect={handleAddWidget}
                       disabled={isMutating}
-                      existingTypes={selectedBoard?.widgets.map((w) => w.widgetType) ?? []}
+                      existingTypes={workingBoard?.widgets.map((widget) => widget.widgetType) ?? []}
                     />
+                    <Button variant="outline" size="sm" onClick={exitEditing} disabled={isMutating}>
+                      <X className="mr-2 h-4 w-4" />
+                      Discard
+                    </Button>
+                    <Button size="sm" onClick={() => void handleSaveBoard()} disabled={isMutating}>
+                      <Save className="mr-2 h-4 w-4" />
+                      Save Layout
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" onClick={beginEditing} disabled={!selectedBoard || isMutating}>
+                    <LayoutGrid className="mr-2 h-4 w-4" />
+                    Edit Board
+                  </Button>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
                     <Button
-                      size="sm"
                       variant="outline"
+                      size="icon"
+                      disabled={!selectedBoard || isMutating}
+                      aria-label="Board actions"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>Board actions</DropdownMenuLabel>
+                    <DropdownMenuItem
                       onClick={() => void handleCloneBoard()}
                       disabled={isMutating}
                     >
                       <Copy className="mr-2 h-4 w-4" />
                       Clone
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
                       onClick={() => setShowShare(true)}
-                      disabled={isMutating || !selectedBoardId}
+                      disabled={isMutating || isEditMode}
                     >
                       <Share2 className="mr-2 h-4 w-4" />
                       Share
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
                       onClick={() => void handleExportBoard()}
-                      disabled={isMutating || !selectedBoardId}
+                      disabled={isMutating || isEditMode}
                     >
                       <Download className="mr-2 h-4 w-4" />
                       Export
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
                       onClick={() => {
                         const input = document.createElement('input');
                         input.type = 'file';
                         input.accept = '.json';
-                        input.onchange = (e) => {
-                          const file = (e.target as HTMLInputElement).files?.[0];
-                          if (file) void handleImportBoard(file);
+                        input.onchange = (event) => {
+                          const file = (event.target as HTMLInputElement).files?.[0];
+                          if (file) {
+                            void handleImportBoard(file);
+                          }
                         };
                         input.click();
                       }}
-                      disabled={isMutating}
+                      disabled={isMutating || isEditMode}
                     >
                       <Upload className="mr-2 h-4 w-4" />
                       Import
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => void handleDeleteBoard()}
-                      disabled={isMutating}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => setShowDeleteConfirm(true)}
+                      disabled={isMutating || selectedBoard?.isHome}
+                      className="text-destructive focus:text-destructive"
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
                       Delete
-                    </Button>
-                  </>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowTemplates(true)}
-                  disabled={isMutating}
-                >
-                  <LayoutTemplate className="mr-2 h-4 w-4" />
-                  Templates
-                </Button>
-                <Button size="sm" onClick={() => void handleCreateBoard()} disabled={isMutating}>
-                  {createDashboard.isPending ? (
-                    <LoadingSpinner size="sm" className="mr-2 text-current" />
-                  ) : (
-                    <Plus className="mr-2 h-4 w-4" />
-                  )}
-                  New Board
-                </Button>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </>
-            ) : undefined
+            )
           }
         />
       </motion.div>
 
-      {isInitialLoading ? (
-        <motion.div
-          variants={itemVariants}
-          className="flex min-h-[320px] items-center justify-center rounded-xl border border-border bg-card"
-        >
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <LoadingSpinner />
-            Loading dashboards...
-          </div>
-        </motion.div>
-      ) : loadError ? (
+      {loadError ? (
         <motion.div variants={itemVariants}>
           <EmptyState
             icon={PanelsTopLeft}
             title="Dashboard unavailable"
-            description={getErrorMessage(loadError, 'Unable to load dashboard boards right now.')}
+            description={getErrorMessage(loadError, 'Unable to load dashboards right now.')}
             action={{ label: 'Try Again', onClick: () => void dashboardsQuery.refetch() }}
           />
         </motion.div>
-      ) : !hasBoards ? (
+      ) : hasNoBoards ? (
         <motion.div variants={itemVariants}>
           <EmptyState
             icon={PanelsTopLeft}
             title="No dashboard boards yet"
-            description="Create a starter board seeded with the core Hydra widgets and we'll persist your board state on the server."
+            description="Create a starter board seeded with the core Hydra widgets and we’ll persist your board state on the server."
             action={{
               label: createDashboard.isPending ? 'Creating...' : 'Create Starter Board',
               onClick: () => void handleCreateBoard(),
             }}
           />
         </motion.div>
+      ) : isBoardBrowser ? (
+        <motion.div variants={itemVariants} className="grid gap-4 xl:grid-cols-2">
+          {boards.map((board) => {
+            const pinned = pinnedBoardIds.includes(board.boardId);
+            return (
+              <Card key={board.boardId} className="overflow-hidden border-border/70">
+                <CardHeader className="border-b border-border/60 bg-muted/20">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-border/60 bg-card">
+                        <HydraIcon fallback={board.icon ?? 'dashboard'} size={22} />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg">{getBoardDisplayName(board)}</CardTitle>
+                        <CardDescription className="mt-1">
+                          {board.description ?? 'Customizable board with persisted widget layout.'}
+                        </CardDescription>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {board.isHome ? <Badge variant="info">Home</Badge> : null}
+                      {pinned ? <Badge variant="secondary">Pinned</Badge> : null}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4 p-6">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline">{board.widgetCount} widgets</Badge>
+                    <Badge variant="outline">{board.visibility}</Badge>
+                    <Badge variant="outline">{board.boardType}</Badge>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Button onClick={() => openBoard(board.boardId)}>
+                      Open Board
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleTogglePin(board.boardId)}
+                      disabled={isMutating}
+                    >
+                      {pinned ? (
+                        <>
+                          <PinOff className="mr-2 h-4 w-4" />
+                          Unpin
+                        </>
+                      ) : (
+                        <>
+                          <Pin className="mr-2 h-4 w-4" />
+                          Pin
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleMakeHome(board.boardId)}
+                      disabled={board.isHome || isMutating}
+                    >
+                      <Home className="mr-2 h-4 w-4" />
+                      Make Home
+                    </Button>
+                    <Button variant="outline" onClick={() => navigate(boardPath(board.boardId))}>
+                      <LayoutGrid className="mr-2 h-4 w-4" />
+                      Customize
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </motion.div>
+      ) : boards.length === 0 ? (
+        <motion.div variants={itemVariants}>
+          <EmptyState
+            icon={PanelsTopLeft}
+            title="No dashboard boards yet"
+            description="Create a starter board seeded with the core Hydra widgets and we’ll persist your board state on the server."
+            action={{
+              label: createDashboard.isPending ? 'Creating...' : 'Create Starter Board',
+              onClick: () => void handleCreateBoard(),
+            }}
+          />
+        </motion.div>
+      ) : !selectedBoard ? (
+        <motion.div variants={itemVariants}>
+          <EmptyState
+            icon={PanelsTopLeft}
+            title="Board not found"
+            description="The requested dashboard board could not be loaded."
+            action={{ label: 'Back to Dashboards', onClick: () => navigate(ROUTES.DASHBOARDS) }}
+          />
+        </motion.div>
       ) : (
         <>
-          <motion.div variants={itemVariants} className="flex flex-wrap gap-2">
-            <Link to={ROUTES.TOPOLOGY}>
-              <Button variant="outline" size="sm" className="group">
-                <Network className="mr-2 h-4 w-4 text-primary transition-transform group-hover:scale-110" />
-                Topology
-              </Button>
-            </Link>
-            <Link to={ROUTES.TIME_MACHINE}>
-              <Button variant="outline" size="sm" className="group">
-                <History className="mr-2 h-4 w-4 text-info transition-transform group-hover:scale-110" />
-                Time Machine
-              </Button>
-            </Link>
-            <Link to={ROUTES.CHAT}>
-              <Button variant="outline" size="sm" className="group">
-                <MessageSquare className="mr-2 h-4 w-4 text-compute transition-transform group-hover:scale-110" />
-                AI Chat
-              </Button>
-            </Link>
-            <Link to={ROUTES.SERVICES}>
-              <Button variant="outline" size="sm" className="group">
-                <Boxes className="mr-2 h-4 w-4 text-purple-500 transition-transform group-hover:scale-110" />
-                Services
-              </Button>
-            </Link>
-            <Link to={ROUTES.NOTIFICATIONS}>
-              <Button variant="outline" size="sm" className="group">
-                <Bell className="mr-2 h-4 w-4 text-amber-500 transition-transform group-hover:scale-110" />
-                Notifications
-              </Button>
-            </Link>
-          </motion.div>
-
-          {isBoardLoading ? (
-            <motion.div
-              variants={itemVariants}
-              className="flex min-h-[280px] items-center justify-center rounded-xl border border-border bg-card"
-            >
-              <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <LoadingSpinner />
-                Loading board...
-              </div>
-            </motion.div>
-          ) : visibleWidgets.length === 0 ? (
+          {visibleWidgets.length === 0 ? (
             <motion.div variants={itemVariants}>
               <EmptyState
                 icon={LayoutGrid}
@@ -882,10 +1091,11 @@ export default function DashboardPage() {
             <motion.div variants={itemVariants}>
               <WidgetGrid
                 widgets={visibleWidgets}
+                layout={normalizedWorkingLayout}
                 isEditMode={isEditMode}
                 onLayoutChange={handleLayoutChange}
                 onRemoveWidget={handleRemoveWidget}
-                rowHeight={selectedBoard?.layout.rowHeight ?? 80}
+                rowHeight={normalizedWorkingLayout.mode === 'grid' ? normalizedWorkingLayout.grid.rowHeight : 80}
               >
                 {visibleWidgets.map((widget) => (
                   <Widget
@@ -893,7 +1103,7 @@ export default function DashboardPage() {
                     id={widget.instanceId}
                     title={getTextConfig(widget.config, 'title') ?? widgetTypeLabel(widget.widgetType)}
                     description={getTextConfig(widget.config, 'subtitle')}
-                    icon={widgetIcon(widget.widgetType)}
+                    icon={<HydraIcon fallback={widget.widgetType.replace('hydra::', '')} size={16} />}
                     actions={widgetActions(widget.widgetType)}
                     collapsible={getBooleanConfig(widget.config, 'collapsible')}
                     defaultCollapsed={getBooleanConfig(widget.config, 'defaultCollapsed')}
@@ -908,23 +1118,45 @@ export default function DashboardPage() {
         </>
       )}
 
-      <BoardTemplates
-        open={showTemplates}
-        onOpenChange={setShowTemplates}
-        onTemplateUsed={handleTemplateUsed}
-      />
+      <BoardTemplates open={showTemplates} onOpenChange={setShowTemplates} onTemplateUsed={handleTemplateUsed} />
 
-      {selectedBoardId && selectedBoard && (
+      {effectiveBoardId && selectedBoard ? (
         <ShareDialog
           open={showShare}
           onOpenChange={setShowShare}
-          boardId={selectedBoardId}
-          boardName={selectedBoard.name}
+          boardId={effectiveBoardId}
+          boardName={getBoardDisplayName(selectedBoard)}
         />
-      )}
+      ) : null}
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this dashboard?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedBoard
+                ? `"${getBoardDisplayName(selectedBoard)}" and its widget layout will be permanently removed. This cannot be undone.`
+                : 'This dashboard and its widget layout will be permanently removed. This cannot be undone.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteDashboard.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteBoard();
+              }}
+              disabled={deleteDashboard.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteDashboard.isPending ? 'Deleting…' : 'Delete dashboard'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
-        open={!!configWidget && !!configWidgetDefinition}
+        open={Boolean(configWidget && configWidgetDefinition)}
         onOpenChange={(open) => {
           if (!open) {
             setConfigWidgetId(null);
@@ -946,24 +1178,16 @@ export default function DashboardPage() {
               {configWidgetDefinition.configSchema.map((field) => {
                 if (field.fieldType === 'boolean') {
                   return (
-                    <div
-                      key={field.key}
-                      className="flex items-center justify-between gap-4 rounded-lg border border-border/60 p-3"
-                    >
+                    <div key={field.key} className="flex items-center justify-between gap-4 rounded-lg border border-border/60 p-3">
                       <div className="space-y-1">
                         <Label htmlFor={`widget-config-${field.key}`}>{field.label}</Label>
-                        {field.description && (
-                          <p className="text-xs text-muted-foreground">{field.description}</p>
-                        )}
+                        {field.description ? <p className="text-xs text-muted-foreground">{field.description}</p> : null}
                       </div>
                       <Switch
                         id={`widget-config-${field.key}`}
                         checked={getBooleanConfig(widgetConfigDraft, field.key)}
                         onCheckedChange={(checked) =>
-                          setWidgetConfigDraft((current) => ({
-                            ...current,
-                            [field.key]: checked,
-                          }))
+                          setWidgetConfigDraft((current) => ({ ...current, [field.key]: checked }))
                         }
                       />
                     </div>
@@ -980,9 +1204,7 @@ export default function DashboardPage() {
                   return (
                     <div key={field.key} className="space-y-2">
                       <Label htmlFor={`widget-config-${field.key}`}>{field.label}</Label>
-                      {field.description && (
-                        <p className="text-xs text-muted-foreground">{field.description}</p>
-                      )}
+                      {field.description ? <p className="text-xs text-muted-foreground">{field.description}</p> : null}
                       <Select
                         value={selectValue}
                         onValueChange={(value) =>
@@ -992,11 +1214,7 @@ export default function DashboardPage() {
                           }))
                         }
                       >
-                        <SelectTrigger
-                          id={`widget-config-${field.key}`}
-                          className="bg-card border-border"
-                          aria-label={field.label}
-                        >
+                        <SelectTrigger id={`widget-config-${field.key}`} className="bg-card border-border">
                           <SelectValue placeholder={field.placeholder ?? 'Select an option'} />
                         </SelectTrigger>
                         <SelectContent>
@@ -1012,47 +1230,41 @@ export default function DashboardPage() {
                   );
                 }
 
+                const draftValue = widgetConfigDraft[field.key];
+                const inputValue =
+                  field.fieldType === 'number'
+                    ? typeof draftValue === 'number'
+                      ? String(draftValue)
+                      : typeof draftValue === 'string'
+                        ? draftValue
+                        : ''
+                    : typeof draftValue === 'string'
+                      ? draftValue
+                      : '';
+
                 return (
                   <div key={field.key} className="space-y-2">
                     <Label htmlFor={`widget-config-${field.key}`}>{field.label}</Label>
-                    {field.description && (
-                      <p className="text-xs text-muted-foreground">{field.description}</p>
-                    )}
-                    {(() => {
-                      const draftValue = widgetConfigDraft[field.key];
-                      const inputValue =
-                        field.fieldType === 'number'
-                          ? typeof draftValue === 'number'
-                            ? String(draftValue)
-                            : typeof draftValue === 'string'
-                              ? draftValue
-                              : ''
-                          : typeof draftValue === 'string'
-                            ? draftValue
-                            : '';
-
-                      return (
-                        <Input
-                          id={`widget-config-${field.key}`}
-                          type={field.fieldType === 'number' ? 'number' : 'text'}
-                          value={inputValue}
-                          placeholder={field.placeholder ?? undefined}
-                          min={field.minValue ?? undefined}
-                          max={field.maxValue ?? undefined}
-                          onChange={(event) =>
-                            setWidgetConfigDraft((current) => ({
-                              ...current,
-                              [field.key]:
-                                field.fieldType === 'number'
-                                  ? event.target.value === ''
-                                    ? ''
-                                    : Number(event.target.value)
-                                  : event.target.value,
-                            }))
-                          }
-                        />
-                      );
-                    })()}
+                    {field.description ? <p className="text-xs text-muted-foreground">{field.description}</p> : null}
+                    <Input
+                      id={`widget-config-${field.key}`}
+                      type={field.fieldType === 'number' ? 'number' : 'text'}
+                      value={inputValue}
+                      placeholder={field.placeholder ?? undefined}
+                      min={field.minValue ?? undefined}
+                      max={field.maxValue ?? undefined}
+                      onChange={(event) =>
+                        setWidgetConfigDraft((current) => ({
+                          ...current,
+                          [field.key]:
+                            field.fieldType === 'number'
+                              ? event.target.value === ''
+                                ? ''
+                                : Number(event.target.value)
+                              : event.target.value,
+                        }))
+                      }
+                    />
                   </div>
                 );
               })}
@@ -1060,19 +1272,10 @@ export default function DashboardPage() {
           ) : null}
 
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setConfigWidgetId(null)}
-              disabled={isMutating}
-            >
+            <Button type="button" variant="outline" onClick={() => setConfigWidgetId(null)} disabled={isMutating}>
               Cancel
             </Button>
-            <Button
-              type="button"
-              onClick={() => void handleSaveWidgetConfig()}
-              disabled={isMutating || !configWidget || !configWidgetDefinition}
-            >
+            <Button type="button" onClick={() => void handleSaveWidgetConfig()} disabled={isMutating}>
               Save Settings
             </Button>
           </DialogFooter>

@@ -17,9 +17,9 @@ import {
 } from 'lucide-react';
 import { EntityListPage, type StatCard, type TableDensity } from '@/components/common/entity-list-page';
 import { FilterBar } from '@/components/common/filter-bar';
-import { PageBreadcrumbs } from '@/components/layout/page-breadcrumbs';
 import { type ViewMode } from '@/components/common/view-mode-toggle';
 import { useNodes, useRegisterNode, useUpdateNode, useArchiveNode } from '@/api/nodes';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import { ConfirmDialog } from '@/components/modals/confirm-dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
@@ -62,7 +62,6 @@ import {
   NODE_COLUMNS,
   NODE_FILTER_CONFIG,
   nodeClassColors,
-  nodeClassIcons,
 } from './list-config';
 
 type NodeSummaryWithId = NodeSummary & { id: string };
@@ -233,7 +232,6 @@ export default function NodesPage() {
   );
 
   const renderTableRow = (node: NodeSummary, cols: Record<string, boolean>) => {
-    const NodeIcon = nodeClassIcons[node.class] || Server;
     const statusVariant =
       node.status === 'active'
         ? 'online'
@@ -257,7 +255,7 @@ export default function NodesPage() {
               className="flex items-center gap-3"
             >
               <div className={cn('h-8 w-8 flex items-center justify-center rounded bg-muted', nodeClassColors[node.class])}>
-                <NodeIcon className="h-4 w-4" />
+                <HydraIcon icon={node.icon} fallback={node.kind || node.class || 'server'} size={16} />
               </div>
               <div>
                 <p className="text-foreground font-medium truncate max-w-[150px]">{node.displayName}</p>
@@ -340,10 +338,6 @@ export default function NodesPage() {
 
   return (
     <>
-      {/* Breadcrumbs for list pages - shows Home > Nodes */}
-      <div className="mb-4">
-        <PageBreadcrumbs />
-      </div>
       <EntityListPage<NodeSummary>
         title="Node Explorer"
         subtitle={`${filteredNodes.length} of ${totalNodes} nodes`}

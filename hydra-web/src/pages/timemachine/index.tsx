@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { PageBreadcrumbs } from '@/components/layout/page-breadcrumbs';
+import { usePageTitleStore } from '@/stores/page-title-store';
 import { motion } from 'framer-motion';
 import {
   History,
@@ -453,6 +455,12 @@ function getEntityRoute(entityType: string, entityId: string): string | null {
 
 export default function TimeMachinePage() {
   useDocumentTitle('Time Machine');
+  const setPageTitle = usePageTitleStore((s) => s.setPageTitle);
+  const clearPageTitle = usePageTitleStore((s) => s.clearPageTitle);
+  useEffect(() => {
+    setPageTitle('Time Machine', 'Navigate through historical infrastructure states');
+    return () => clearPageTitle();
+  }, [setPageTitle, clearPageTitle]);
   const navigate = useNavigate();
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -658,15 +666,15 @@ export default function TimeMachinePage() {
   return (
     <TooltipProvider>
       <div className="p-6 space-y-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Time Machine</h1>
-            <p className="text-muted-foreground">
+        <div className="flex flex-col gap-3">
+          <h1 className="sr-only">Time Machine</h1>
+          <PageBreadcrumbs />
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <p className="text-sm text-muted-foreground">
               Navigate through historical infrastructure states
             </p>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4">
             <DateRangeSelector
               preset={dateRangePreset}
               onPresetChange={setDateRangePreset}
@@ -747,6 +755,7 @@ export default function TimeMachinePage() {
               </div>
             </div>
           </div>
+        </div>
         </div>
 
         <motion.div variants={staggerContainerVariants} initial="hidden" animate="visible">

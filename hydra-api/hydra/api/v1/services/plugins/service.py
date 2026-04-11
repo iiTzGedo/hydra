@@ -19,6 +19,7 @@ from hydra.api.v1.models.plugins import (
     UpdatePluginConfigRequest,
 )
 from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.icons import resolve_icon_descriptor
 from hydra.api.v1.services.query import log_audit
 from hydra.db.mongodb import MongoDB
 
@@ -714,10 +715,16 @@ class PluginService:
 
         Strips _id and credentials, formats dates.
         """
+        manifest = doc.get("manifest", {})
         return {
             "pluginId": doc["pluginId"],
-            "manifest": doc["manifest"],
+            "manifest": manifest,
             "status": doc["status"],
+            "icon": resolve_icon_descriptor(
+                name=manifest.get("name"),
+                provider=str(doc.get("pluginId", "")).removeprefix("plg::"),
+                fallback="plug",
+            ),
             "config": doc.get("config", {}),
             "nodeBindings": doc.get("nodeBindings", []),
             "health": doc.get("health", {
@@ -738,6 +745,11 @@ class PluginService:
             "pluginId": doc["pluginId"],
             "name": manifest.get("name", ""),
             "status": doc["status"],
+            "icon": resolve_icon_descriptor(
+                name=manifest.get("name"),
+                provider=str(doc.get("pluginId", "")).removeprefix("plg::"),
+                fallback="plug",
+            ),
             "classification": manifest.get("classification", "community"),
             "category": manifest.get("category", "other"),
             "healthStatus": doc.get("health", {}).get("status", "unknown"),

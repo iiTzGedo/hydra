@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class BoardType(StrEnum):
@@ -34,6 +34,40 @@ class WidgetPosition(BaseModel):
     h: int = Field(ge=1, le=12, description="Height in grid rows")
 
 
+DEFAULT_GRID_BREAKPOINTS: dict[str, dict[str, int]] = {
+    "lg": {"columns": 12, "width": 1200},
+    "md": {"columns": 8, "width": 996},
+    "sm": {"columns": 4, "width": 768},
+}
+
+
+def _default_breakpoints() -> dict[str, "LayoutBreakpoint"]:
+    return {
+        key: LayoutBreakpoint(**value)
+        for key, value in DEFAULT_GRID_BREAKPOINTS.items()
+    }
+
+
+def _scale_position(position: dict[str, Any], target_columns: int, source_columns: int = 12) -> dict[str, int]:
+    width_ratio = target_columns / max(source_columns, 1)
+    x = int(round(int(position.get("x", 0)) * width_ratio))
+    w = max(1, min(target_columns, int(round(int(position.get("w", 1)) * width_ratio))))
+    return {
+        "x": max(0, min(x, max(target_columns - w, 0))),
+        "y": max(0, int(position.get("y", 0))),
+        "w": w,
+        "h": max(1, int(position.get("h", 1))),
+    }
+
+
+def _expand_legacy_position(position: dict[str, Any] | None) -> dict[str, dict[str, int]]:
+    base_position = position or {"x": 0, "y": 0, "w": 12, "h": 4}
+    placements: dict[str, dict[str, int]] = {}
+    for key, breakpoint in DEFAULT_GRID_BREAKPOINTS.items():
+        placements[key] = _scale_position(base_position, breakpoint["columns"])
+    return placements
+
+
 class LayoutBreakpoint(BaseModel):
     """Responsive breakpoint definition."""
 
@@ -43,21 +77,138 @@ class LayoutBreakpoint(BaseModel):
     width: int = Field(ge=0)
 
 
-class BoardLayout(BaseModel):
-    """Board layout configuration."""
+class GridLayoutConfig(BaseModel):
+    """Grid layout configuration."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     columns: int = Field(default=12, ge=1, le=24, description="Number of grid columns")
     row_height: int = Field(default=80, ge=20, le=500, alias="rowHeight", description="Row height in pixels")
     breakpoints: dict[str, LayoutBreakpoint] = Field(
-        default_factory=lambda: {
-            "lg": LayoutBreakpoint(columns=12, width=1200),
-            "md": LayoutBreakpoint(columns=8, width=996),
-            "sm": LayoutBreakpoint(columns=4, width=768),
-        },
+        default_factory=_default_breakpoints,
         description="Responsive breakpoint configurations",
     )
+    compaction: Literal["vertical", "horizontal", "none"] = Field(
+        default="vertical",
+        description="Grid compaction strategy",
+    )
+    margin: tuple[int, int] = Field(default=(16, 16), description="Grid item spacing in pixels")
+    padding: tuple[int, int] = Field(default=(0, 0), description="Grid container padding in pixels")
+
+
+class BoardColumnDefinition(BaseModel):
+    """Definition of a named dashboard column."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = Field(min_length=1, max_length=64)
+    title: str | None = None
+    ratio: int = Field(default=1, ge=1, le=12)
+
+
+class ColumnLayoutConfig(BaseModel):
+    """Glance-style named column layout."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    columns: list[BoardColumnDefinition] = Field(
+        default_factory=lambda: [
+            BoardColumnDefinition(id="primary", title="Primary", ratio=2),
+            BoardColumnDefinition(id="secondary", title="Secondary", ratio=1),
+        ]
+    )
+    gap: int = Field(default=16, ge=0, le=64)
+    padding: tuple[int, int] = Field(default=(0, 0))
+
+
+class BoardLayout(BaseModel):
+    """Board layout configuration."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    mode: Literal["grid", "columns"] = Field(default="grid")
+    grid: GridLayoutConfig | None = None
+    columns_layout: ColumnLayoutConfig | None = Field(default=None, alias="columnsLayout")
+    columns: int | list[BoardColumnDefinition] | None = None
+    row_height: int | None = Field(default=None, alias="rowHeight")
+    breakpoints: dict[str, LayoutBreakpoint] | None = None
+    compaction: Literal["vertical", "horizontal", "none"] | None = None
+    margin: tuple[int, int] | None = None
+    padding: tuple[int, int] | None = None
+    gap: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_layout(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+
+        if "mode" not in value:
+            return {
+                "mode": "grid",
+                "grid": {
+                    "columns": value.get("columns", 12),
+                    "rowHeight": value.get("rowHeight", 80),
+                    "breakpoints": value.get("breakpoints", DEFAULT_GRID_BREAKPOINTS),
+                    "compaction": value.get("compaction", "vertical"),
+                    "margin": value.get("margin", (16, 16)),
+                    "padding": value.get("padding", (0, 0)),
+                },
+            }
+
+        if value.get("mode") == "grid" and value.get("grid") is None:
+            return {
+                **value,
+                "grid": {
+                    "columns": value.get("columns", 12),
+                    "rowHeight": value.get("rowHeight", 80),
+                    "breakpoints": value.get("breakpoints", DEFAULT_GRID_BREAKPOINTS),
+                    "compaction": value.get("compaction", "vertical"),
+                    "margin": value.get("margin", (16, 16)),
+                    "padding": value.get("padding", (0, 0)),
+                },
+            }
+
+        if value.get("mode") == "columns" and value.get("columnsLayout") is None:
+            raw_columns = value.get("columns")
+            normalized_columns = raw_columns if isinstance(raw_columns, list) else None
+            return {
+                **value,
+                "columnsLayout": {
+                    "columns": normalized_columns or [
+                        {"id": "primary", "title": "Primary", "ratio": 2},
+                        {"id": "secondary", "title": "Secondary", "ratio": 1},
+                    ],
+                    "gap": value.get("gap", 16),
+                    "padding": value.get("padding", (0, 0)),
+                },
+            }
+
+        return value
+
+    @model_validator(mode="after")
+    def ensure_matching_mode(self) -> "BoardLayout":
+        if self.mode == "grid":
+            self.grid = self.grid or GridLayoutConfig()
+            self.columns_layout = None
+            self.columns = self.grid.columns
+            self.row_height = self.grid.row_height
+            self.breakpoints = self.grid.breakpoints
+            self.compaction = self.grid.compaction
+            self.margin = self.grid.margin
+            self.padding = self.grid.padding
+            self.gap = None
+        else:
+            self.columns_layout = self.columns_layout or ColumnLayoutConfig()
+            self.grid = None
+            self.columns = self.columns_layout.columns
+            self.row_height = None
+            self.breakpoints = None
+            self.compaction = None
+            self.margin = None
+            self.padding = self.columns_layout.padding
+            self.gap = self.columns_layout.gap
+        return self
 
 
 class DataBinding(BaseModel):
@@ -75,14 +226,62 @@ class DataBinding(BaseModel):
     )
 
 
-class WidgetInstance(BaseModel):
+class WidgetPlacementMixin(BaseModel):
+    """Shared widget placement fields."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    position: WidgetPosition | None = Field(default=None, description="Primary placement for compatibility")
+    placements: dict[str, WidgetPosition] | None = Field(
+        default=None,
+        description="Per-breakpoint widget placement for grid boards",
+    )
+    column: str | None = Field(default=None, description="Named column for column layouts")
+    order: int | None = Field(default=None, description="Column order for column layouts")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_widget(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+
+        normalized = dict(value)
+        placements = normalized.get("placements")
+        position = normalized.get("position")
+
+        if placements is None and position is not None:
+            normalized["placements"] = _expand_legacy_position(position)
+        elif placements is not None and position is None and isinstance(placements, dict):
+            normalized["position"] = placements.get("lg") or next(iter(placements.values()), None)
+
+        if normalized.get("column") is not None and normalized.get("order") is None:
+            normalized["order"] = 0
+
+        return normalized
+
+    @model_validator(mode="after")
+    def ensure_widget_placement(self) -> "WidgetPlacementMixin":
+        if self.placements is None and self.position is not None:
+            self.placements = {
+                key: WidgetPosition(**placement)
+                for key, placement in _expand_legacy_position(self.position.model_dump()).items()
+            }
+        if self.position is None and self.placements:
+            self.position = self.placements.get("lg") or next(iter(self.placements.values()), None)
+        if self.column is not None and self.order is None:
+            self.order = 0
+        if self.position is None and self.column is None:
+            raise ValueError("Widget placement requires grid positions or a column assignment")
+        return self
+
+
+class WidgetInstance(WidgetPlacementMixin):
     """A specific widget placement on a board."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     instance_id: str = Field(alias="instanceId", description="Unique widget instance identifier")
     widget_type: str = Field(alias="widgetType", description="Widget type from the registry")
-    position: WidgetPosition = Field(description="Grid position and size")
     config: dict[str, Any] = Field(default_factory=dict, description="Widget-specific configuration")
     data_binding: DataBinding | None = Field(default=None, alias="dataBinding", description="Data binding configuration")
 
@@ -154,13 +353,12 @@ class BoardSummary(BaseModel):
 # ── Request Models ───────────────────────────────────────────────────
 
 
-class AddWidgetRequest(BaseModel):
+class AddWidgetRequest(WidgetPlacementMixin):
     """Add a widget to a board."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     widget_type: str = Field(alias="widgetType", description="Widget type identifier from the registry")
-    position: WidgetPosition = Field(description="Grid position and size")
     config: dict[str, Any] = Field(default_factory=dict, description="Widget-specific configuration")
     data_binding: DataBinding | None = Field(default=None, alias="dataBinding")
 
@@ -171,8 +369,16 @@ class UpdateWidgetRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     position: WidgetPosition | None = Field(default=None, description="Updated grid position and size")
+    placements: dict[str, WidgetPosition] | None = Field(default=None)
+    column: str | None = None
+    order: int | None = None
     config: dict[str, Any] | None = Field(default=None, description="Updated widget configuration")
     data_binding: DataBinding | None = Field(default=None, alias="dataBinding")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_widget(cls, value: Any) -> Any:
+        return WidgetPlacementMixin.normalize_legacy_widget(value)
 
 
 class CreateBoardRequest(BaseModel):
@@ -338,14 +544,13 @@ class DashboardListParams(BaseModel):
 # ── Portable Widget (shared by templates + export) ──────────────────
 
 
-class PortableWidgetInstance(BaseModel):
+class PortableWidgetInstance(WidgetPlacementMixin):
     """Widget instance for templates and export (instanceId is optional)."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     instance_id: str | None = Field(default=None, alias="instanceId")
     widget_type: str = Field(alias="widgetType")
-    position: WidgetPosition
     config: dict[str, Any] = Field(default_factory=dict)
     data_binding: DataBinding | None = Field(default=None, alias="dataBinding")
 

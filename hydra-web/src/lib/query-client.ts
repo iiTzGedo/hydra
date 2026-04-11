@@ -268,6 +268,19 @@ export const queryKeys = {
     },
   },
 
+  docs: {
+    all: ['docs'] as const,
+    list: <T extends object = Record<string, unknown>>(params?: T) => {
+      if (params) {
+        return [...queryKeys.docs.all, 'list', params] as const;
+      }
+      return [...queryKeys.docs.all, 'list'] as const;
+    },
+    tree: () => [...queryKeys.docs.all, 'tree'] as const,
+    search: (query: string) => [...queryKeys.docs.all, 'search', query] as const,
+    detail: (docId: string) => [...queryKeys.docs.all, 'detail', docId] as const,
+  },
+
   discovery: {
     all: ['discovery'] as const,
     scans: <T extends object = Record<string, unknown>>(params?: T) => {

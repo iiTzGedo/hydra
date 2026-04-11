@@ -396,12 +396,15 @@ describe('Dashboard Page', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards',
+        route: '/dashboards',
       });
     });
 
-    expect(await screen.findByText('No dashboard boards yet')).toBeInTheDocument();
+    await waitFor(
+      () => expect(screen.getByText('No dashboard boards yet')).toBeInTheDocument(),
+      { timeout: 5000 }
+    );
 
     await act(async () => {
       await user.click(screen.getByRole('button', { name: 'Create Starter Board' }));
@@ -412,7 +415,7 @@ describe('Dashboard Page', () => {
       expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
     );
     expect(createDashboardMock.mock.calls[0][0]).toMatchObject({
-      name: 'My Dashboard',
+      name: 'Dashboard',
       boardType: 'home',
       visibility: 'private',
     });
@@ -423,10 +426,14 @@ describe('Dashboard Page', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards/:boardId',
+        route: '/dashboards/board-001',
       });
     });
+
+    await waitFor(() =>
+      expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
+    );
 
     // The select trigger should show the active board name
     expect(await screen.findByText('Operations Overview')).toBeInTheDocument();
@@ -437,10 +444,14 @@ describe('Dashboard Page', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards/:boardId',
+        route: '/dashboards/board-001',
       });
     });
+
+    await waitFor(() =>
+      expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
+    );
 
     // Should render all 6 widgets (none hidden)
     expect(await screen.findByTestId('widget-grid')).toBeInTheDocument();
@@ -454,8 +465,8 @@ describe('Dashboard Page', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards/:boardId',
+        route: '/dashboards/board-001',
       });
     });
 
@@ -463,19 +474,26 @@ describe('Dashboard Page', () => {
       expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
     );
 
-    // Toggle edit mode
+    // Enter edit mode via the primary Edit Board button
     await act(async () => {
-      await user.click(screen.getByRole('button', { name: 'Toggle Edit Mode' }));
+      await user.click(screen.getByRole('button', { name: /^Edit Board$/i }));
     });
 
     await waitFor(() => {
       expect(screen.getByTestId('edit-mode-status')).toHaveTextContent('editing');
     });
 
-    // Edit mode shows Add Widget, Clone, Delete buttons
+    // Edit mode shows the widget picker (Add Widget) and save/discard controls inline
     expect(screen.getByRole('button', { name: /Add Widget/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Clone/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Delete/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Save Layout/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Discard/i })).toBeInTheDocument();
+
+    // Clone and Delete are available via the board-actions overflow menu
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /Board actions/i }));
+    });
+    expect(await screen.findByRole('menuitem', { name: /Clone/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Delete/i })).toBeInTheDocument();
   });
 
   it('passes isEditMode to widget components', async () => {
@@ -484,8 +502,8 @@ describe('Dashboard Page', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards/:boardId',
+        route: '/dashboards/board-001',
       });
     });
 
@@ -493,9 +511,9 @@ describe('Dashboard Page', () => {
       expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
     );
 
-    // Enter edit mode
+    // Enter edit mode via the primary Edit Board button
     await act(async () => {
-      await user.click(screen.getByRole('button', { name: 'Toggle Edit Mode' }));
+      await user.click(screen.getByRole('button', { name: /^Edit Board$/i }));
     });
 
     await waitFor(() => {
@@ -513,8 +531,8 @@ describe('Dashboard Page', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards/:boardId',
+        route: '/dashboards/board-001',
       });
     });
 
@@ -530,8 +548,8 @@ describe('Dashboard Page', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards/:boardId',
+        route: '/dashboards/board-001',
       });
     });
 
@@ -539,8 +557,13 @@ describe('Dashboard Page', () => {
       expect(useDashboardStore.getState().activeBoardId).toBe('board-001')
     );
 
+    // Enter edit mode so the customizer (and its Configure First Widget trigger) is rendered
     await act(async () => {
-      await user.click(screen.getByRole('button', { name: 'Configure First Widget' }));
+      await user.click(screen.getByRole('button', { name: /^Edit Board$/i }));
+    });
+
+    await act(async () => {
+      await user.click(await screen.findByRole('button', { name: 'Configure First Widget' }));
     });
     const dialog = await screen.findByRole('dialog');
     const titleInput = within(dialog).getByLabelText('Title');
@@ -552,11 +575,16 @@ describe('Dashboard Page', () => {
     await act(async () => {
       await user.click(screen.getByRole('button', { name: 'Save Settings' }));
     });
-
-    await waitFor(() => expect(updateDashboardMock).toHaveBeenCalled());
+    // In edit mode widget config changes land in the draft board; committing them
+    // to the API happens when the user saves the board layout.
     await waitFor(() =>
       expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
     );
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /Save Layout/i }));
+    });
+
+    await waitFor(() => expect(updateDashboardMock).toHaveBeenCalled());
 
     const latestUpdate = updateDashboardMock.mock.calls.at(-1)?.[0];
     expect(latestUpdate).toMatchObject({

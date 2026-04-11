@@ -18,9 +18,46 @@ test.describe('Critical Journeys', () => {
     await gotoPage(page, '/dashboard');
 
     await expect(page.locator('#main-content').getByRole('heading').first()).toBeVisible();
-    await expect(page.locator('#sidebar-nav').getByRole('link', { name: /^Nodes$/ })).toBeVisible();
-    await expect(page.locator('#sidebar-nav').getByRole('link', { name: /^Topology$/ })).toBeVisible();
-    await expect(page.locator('#sidebar-nav').getByRole('link', { name: /^Notifications$/ })).toBeVisible();
+    const sidebar = page.locator('#sidebar-nav');
+
+    await expect(sidebar.getByRole('button', { name: /^Dashboard$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^All Dashboards$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Dashboard$/ })).toBeVisible();
+
+    await expect(sidebar.getByRole('button', { name: /^Infrastructure$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Topology$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Nodes$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Services$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Networks$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Groups$/ })).toBeVisible();
+
+    await expect(sidebar.getByRole('button', { name: /^Operations$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Discovery$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Command Center$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Integrations$/ })).toBeVisible();
+
+    await expect(sidebar.getByRole('button', { name: /^Knowledge$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Documentation$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Chat$/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Time Machine$/ })).toBeVisible();
+
+    await expect(sidebar.getByRole('navigation', { name: /Sidebar utility/i }).getByRole('link', { name: /^Notifications$/ })).toBeVisible();
+
+    const accountActions = sidebar.getByRole('navigation', { name: /Sidebar account actions/i });
+    await expect(accountActions.getByRole('link', { name: /^Settings$/ })).toBeVisible();
+    await expect(accountActions.getByRole('link', { name: /^Profile$/ })).toBeVisible();
+
+    await expect(sidebar.getByRole('link', { name: /^MCP Marketplace$/ })).toHaveCount(0);
+  });
+
+  test('dashboard browser stays on /dashboards and shows the board management view', async ({ page }) => {
+    await gotoPage(page, '/dashboards', /^Dashboards$/);
+
+    await expect(page).toHaveURL(/\/dashboards$/);
+    await expect(page.locator('#main-content')).toContainText('Browse saved boards, manage pins, and choose your home dashboard.');
+    await expect(page.locator('#main-content').getByRole('button', { name: /^New Board$/ })).toBeVisible();
+    await expect(page.locator('#main-content').getByRole('heading', { name: /^Dashboard$/ })).toBeVisible();
+    await expect(page.locator('#main-content').getByRole('button', { name: /^Open Board$/ })).toBeVisible();
   });
 
   test('nodes page lists the seeded node and opens its detail view', async ({ page }) => {

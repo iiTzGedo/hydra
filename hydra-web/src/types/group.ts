@@ -1,4 +1,5 @@
 import { ListParams } from './api';
+import type { IconDescriptor } from './icons';
 
 export type GroupEntityType = 'node' | 'service';
 
@@ -37,6 +38,7 @@ export interface GroupSummary {
   types: GroupEntityType[];
   memberCount: MemberCount;
   tags: string[];
+  icon?: IconDescriptor | null;
 }
 
 export interface Group extends GroupSummary {

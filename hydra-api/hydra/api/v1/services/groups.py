@@ -18,6 +18,7 @@ from hydra.api.v1.models.groups import (
 )
 from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
 from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.icons import resolve_icon_descriptor
 from hydra.api.v1.services.notifications import emit_notification
 from hydra.api.v1.services.query import log_audit
 from hydra.db.mongodb import MongoDB
@@ -653,6 +654,11 @@ class GroupsService:
 
     def _format_group(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a group document for API response."""
+        icon = resolve_icon_descriptor(
+            name=doc.get("icon") or doc.get("name"),
+            provider=(doc.get("types") or ["group"])[0],
+            fallback="group",
+        )
         return {
             "groupId": doc["groupId"],
             "name": doc["name"],
@@ -664,10 +670,16 @@ class GroupsService:
             "tags": doc.get("tags", []),
             "createdAt": doc.get("createdAt"),
             "updatedAt": doc.get("updatedAt"),
+            "icon": icon,
         }
 
     def _format_group_summary(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a group document for list response."""
+        icon = resolve_icon_descriptor(
+            name=doc.get("icon") or doc.get("name"),
+            provider=(doc.get("types") or ["group"])[0],
+            fallback="group",
+        )
         return {
             "groupId": doc["groupId"],
             "name": doc["name"],
@@ -675,4 +687,5 @@ class GroupsService:
             "types": doc.get("types", []),
             "memberCount": doc.get("memberCount", {"nodes": 0, "services": 0}),
             "tags": doc.get("tags", []),
+            "icon": icon,
         }

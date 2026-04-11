@@ -15,8 +15,10 @@ from hydra.api.v1.models.docs import (
     DocFormat,
     DocListParams,
     DocResponse,
+    DocSearchResult,
     DocStatus,
     DocSummary,
+    DocTreeNode,
     DocType,
     DocumentSection,
     DocUpdatedResponse,
@@ -262,6 +264,57 @@ async def render_template(
 
 
 # ── Staleness Endpoint ──────────────────────────────────────────────────
+
+
+@router.get(
+    "/tree",
+    response_model=SuccessResponse[list[DocTreeNode]],
+    response_model_by_alias=True,
+    summary="Get Documentation Tree",
+    description="Return the category-aware documentation portal navigation tree.",
+    dependencies=[Depends(require_permission("docs:read"))],
+)
+async def get_docs_tree(
+    docs_service: DocsServiceDep,
+) -> SuccessResponse[list[DocTreeNode]]:
+    """Return the docs portal navigation tree."""
+    tree = await docs_service.get_docs_tree()
+    return SuccessResponse(data=[DocTreeNode.model_validate(node) for node in tree])
+
+
+@router.get(
+    "/search",
+    response_model=SuccessResponse[list[DocSearchResult]],
+    response_model_by_alias=True,
+    summary="Search Documentation",
+    description="Search published documentation with excerpts for the docs portal.",
+    dependencies=[Depends(require_permission("docs:read"))],
+)
+async def search_docs(
+    docs_service: DocsServiceDep,
+    q: str = Query(min_length=1, max_length=256),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> SuccessResponse[list[DocSearchResult]]:
+    """Search documentation and return portal-friendly result cards."""
+    results = await docs_service.search_docs(q, limit=limit)
+    return SuccessResponse(
+        data=[
+            DocSearchResult(
+                doc_id=result["docId"],
+                title=result["title"],
+                type=DocType(result["type"]),
+                status=DocStatus(result["status"]),
+                category=result.get("category"),
+                excerpt=result.get("excerpt"),
+                linked_entities=[
+                    LinkedEntity(entity_type=EntityType(entity["entityType"]), entity_id=entity["entityId"])
+                    for entity in result.get("linkedEntities", [])
+                ],
+                updated_at=result["updatedAt"],
+            )
+            for result in results
+        ]
+    )
 
 
 @router.get(

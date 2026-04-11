@@ -9,6 +9,7 @@ from hydra.api.v1.core.tasks import safe_create_task
 from hydra.api.v1.models.notifications import NotificationSource, NotificationType, SourceComponent
 from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.models.settings import (
+    DashboardPreferences,
     DefaultSettings,
     NotificationSettings,
     ObjectStorageSettings,
@@ -40,7 +41,7 @@ class SettingsService:
             user_id: The user identifier.
 
         Returns:
-            User settings dict with ui, views, and notifications sections.
+            User settings dict with ui, views, notifications, and dashboard sections.
         """
         doc = await self.db.user_settings.find_one({"userId": user_id})
 
@@ -94,6 +95,14 @@ class SettingsService:
                 existing_notif[key] = value
             update_fields["notifications"] = existing_notif
 
+        if request.dashboard is not None:
+            existing_dashboard = existing.get("dashboard", {})
+            for key, value in request.dashboard.model_dump(by_alias=True, exclude_none=True).items():
+                existing_dashboard[key] = value
+            pinned_ids = existing_dashboard.get("pinnedBoardIds", [])
+            existing_dashboard["pinnedBoardIds"] = pinned_ids[:5]
+            update_fields["dashboard"] = existing_dashboard
+
         await self.db.user_settings.update_one(
             {"userId": user_id},
             {"$set": update_fields},
@@ -104,7 +113,7 @@ class SettingsService:
         logger.info("user_settings_updated", user_id=user_id)
 
         changed_sections = [
-            key for key in ("ui", "views", "notifications")
+            key for key in ("ui", "views", "notifications", "dashboard")
             if key in update_fields
         ]
         audit_id = await log_audit(
@@ -142,6 +151,7 @@ class SettingsService:
             "ui": UISettings().model_dump(by_alias=True),
             "views": ViewSettings().model_dump(by_alias=True),
             "notifications": NotificationSettings().model_dump(by_alias=True),
+            "dashboard": DashboardPreferences().model_dump(by_alias=True),
             "createdAt": now,
             "updatedAt": now,
         }
@@ -159,6 +169,7 @@ class SettingsService:
             "ui": doc.get("ui", UISettings().model_dump(by_alias=True)),
             "views": doc.get("views", ViewSettings().model_dump(by_alias=True)),
             "notifications": doc.get("notifications", NotificationSettings().model_dump(by_alias=True)),
+            "dashboard": doc.get("dashboard", DashboardPreferences().model_dump(by_alias=True)),
             "updated_at": doc.get("updatedAt", doc.get("createdAt")),
         }
 

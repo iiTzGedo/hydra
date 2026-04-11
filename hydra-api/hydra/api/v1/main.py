@@ -25,6 +25,7 @@ from hydra.api.v1.routers import (
     groups,
     ha,
     health,
+    icons,
     install,
     installations,
     mcp,
@@ -200,6 +201,7 @@ def create_app() -> FastAPI:
 
     # Include routers at the v1 root (mounted by the parent app)
     app.include_router(health.router)
+    app.include_router(icons.router)
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(nodes.router)

@@ -10,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { usePlugins, useEnablePlugin, useDisablePlugin, useUninstallPlugin } from '@/api/plugins';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import { getErrorMessage } from '@/lib/api-client';
 import type { PluginStatus } from '@/types/plugins';
 import { Badge } from '@/components/ui/badge';
@@ -229,9 +230,14 @@ export function PluginRegistry() {
                 return (
                   <TableRow key={plugin.pluginId} className="border-border">
                     <TableCell>
-                      <div>
-                        <p className="font-medium">{plugin.name}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{plugin.pluginId}</p>
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border/60 bg-muted/30">
+                          <HydraIcon icon={plugin.icon} fallback="plug" size={20} />
+                        </div>
+                        <div>
+                          <p className="font-medium">{plugin.name}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{plugin.pluginId}</p>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>

@@ -513,7 +513,7 @@ export default function TopologyPage() {
               />
             )}
 
-            <Panel position="bottom-left" className="bg-card/90 backdrop-blur rounded-lg border p-3 shadow-lg">
+            <Panel position="top-right" className="bg-card/90 backdrop-blur rounded-lg border p-3 shadow-lg pointer-events-auto">
               <div className="text-xs font-medium mb-2 text-muted-foreground uppercase tracking-wider">Node Types</div>
               <div className="flex flex-col gap-1.5">
                 {topologyMode === 'service' ? (

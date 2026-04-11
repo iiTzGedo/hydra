@@ -99,12 +99,22 @@ class NotificationSettings(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DashboardPreferences(BaseModel):
+    """Saved dashboard navigation and open-state preferences."""
+
+    pinned_board_ids: list[str] = Field(default_factory=list, alias="pinnedBoardIds")
+    last_opened_board_id: str | None = Field(default=None, alias="lastOpenedBoardId")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class UserSettingsUpdate(BaseModel):
     """Request to update user settings."""
 
     ui: UISettings | None = None
     views: ViewSettings | None = None
     notifications: NotificationSettings | None = None
+    dashboard: DashboardPreferences | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -116,6 +126,7 @@ class UserSettingsResponse(BaseModel):
     ui: UISettings
     views: ViewSettings
     notifications: NotificationSettings
+    dashboard: DashboardPreferences
     updated_at: datetime = Field(alias="updatedAt")
 
     model_config = ConfigDict(populate_by_name=True)

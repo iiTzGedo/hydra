@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from hydra.api.v1.models.icons import IconDescriptor
+
 # ── Enums ───────────────────────────────────────────────────────────
 
 
@@ -199,6 +201,7 @@ class PluginResponse(BaseModel):
     plugin_id: str = Field(alias="pluginId")
     manifest: PluginManifest
     status: PluginStatus
+    icon: IconDescriptor | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     node_bindings: list[NodeBinding] = Field(default_factory=list, alias="nodeBindings")
     health: PluginHealthStatus = Field(default_factory=PluginHealthStatus)
@@ -214,6 +217,7 @@ class PluginSummary(BaseModel):
     plugin_id: str = Field(alias="pluginId")
     name: str
     status: PluginStatus
+    icon: IconDescriptor | None = None
     classification: PluginClassification
     category: PluginCategory
     health_status: str = Field(alias="healthStatus")

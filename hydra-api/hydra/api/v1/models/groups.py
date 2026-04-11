@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hydra.api.v1.core.validators import TAG_PATTERN, validate_tag
+from hydra.api.v1.models.icons import IconDescriptor
 
 
 class GroupEntityType(StrEnum):
@@ -120,6 +121,7 @@ class GroupResponse(BaseModel):
     tags: list[str] = Field(default_factory=list)
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
+    icon: IconDescriptor | None = None
 
 
 class GroupSummary(BaseModel):
@@ -133,6 +135,7 @@ class GroupSummary(BaseModel):
     types: list[GroupEntityType]
     member_count: MemberCount = Field(alias="memberCount")
     tags: list[str] = Field(default_factory=list)
+    icon: IconDescriptor | None = None
 
 
 class GroupResolveResult(BaseModel):

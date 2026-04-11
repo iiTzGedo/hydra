@@ -1,4 +1,5 @@
 import { ListParams } from './api';
+import type { IconDescriptor } from './icons';
 
 export type TopologyMode = 'network' | 'infrastructure' | 'service';
 
@@ -14,6 +15,7 @@ export interface TopologyNode {
     kind?: string;
     status?: string;
     runtime?: string;
+    icon?: IconDescriptor | null;
     [key: string]: unknown;
   };
   position: {

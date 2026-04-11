@@ -12,6 +12,7 @@ import {
   Lock,
   FileText,
   Bot,
+  LayoutDashboard,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import type { Role } from '@/types/user';
@@ -28,6 +29,7 @@ import {
   SecretsSection,
   AuditLogSection,
   AISettings,
+  DashboardSettings,
 } from './components';
 
 type TopTab = {
@@ -50,6 +52,12 @@ const topTabs: TopTab[] = [
     label: 'AI', 
     icon: Bot,
     description: 'Configure AI and chat settings',
+  },
+  { 
+    id: 'dashboards', 
+    label: 'Dashboards', 
+    icon: LayoutDashboard,
+    description: 'Pinned dashboards and saved board preferences',
   },
   { 
     id: 'notifications', 
@@ -301,6 +309,7 @@ export default function SettingsPage() {
               >
                 {topActiveTab === 'general' && <GeneralSettings />}
                 {topActiveTab === 'ai' && <AISettings />}
+                {topActiveTab === 'dashboards' && <DashboardSettings />}
                 {topActiveTab === 'notifications' && <NotificationSettings />}
                 {topActiveTab === 'security' && <SecuritySettings />}
                 {topActiveTab === 'users' && <UserManagement />}

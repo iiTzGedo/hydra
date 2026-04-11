@@ -43,6 +43,45 @@ describe('auth hooks', () => {
     expect(useAuthStore.getState().user?.role).toBe('admin');
   });
 
+  it('hydrates authoritative permissions from /auth/me after session login', async () => {
+    server.use(
+      http.post(`${BASE_URL}/auth/session/login`, () =>
+        HttpResponse.json({
+          user: {
+            userId: 'user-123',
+            username: 'system_admin',
+            email: 'admin@example.com',
+            role: 'admin',
+            permissions: [],
+            temporaryRoles: [],
+          },
+          expiresIn: 3600,
+        })
+      ),
+      http.get(`${BASE_URL}/auth/me`, () =>
+        HttpResponse.json({
+          type: 'user',
+          userId: 'user-123',
+          username: 'system_admin',
+          email: 'admin@example.com',
+          role: 'admin',
+          permissions: ['*:*'],
+        })
+      )
+    );
+
+    const { result } = renderWithQuery(() => useLogin());
+
+    result.current.mutate({
+      username: 'system_admin',
+      password: 'system12345',
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(useAuthStore.getState().user?.permissions).toEqual(['*:*']);
+  });
+
   it('surfaces login failures without authenticating the store', async () => {
     const { result } = renderWithQuery(() => useLogin());
 
@@ -124,6 +163,7 @@ describe('auth hooks', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.expiresIn).toBe(3600);
+    expect(useAuthStore.getState().user?.permissions).toEqual(['*:*']);
   });
 
   it('registers a user without returning a password field', async () => {

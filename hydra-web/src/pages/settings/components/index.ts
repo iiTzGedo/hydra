@@ -8,3 +8,4 @@ export { RegistrationTokens } from './registration-tokens';
 export { ApiKeysSection } from './api-keys-section';
 export { AuditLogSection } from './audit-log-section';
 export { AISettings } from './ai-settings';
+export { DashboardSettings } from './dashboard-settings';

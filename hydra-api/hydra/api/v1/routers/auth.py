@@ -113,6 +113,32 @@ def _clear_session_cookies(response: Response, http_request: Request) -> None:
     response.delete_cookie(CSRF_COOKIE_NAME, **cookie_kwargs)
 
 
+def _to_temporary_roles(entries: list[dict[str, Any]]) -> list[TemporaryRole]:
+    """Convert service temporary-role payloads to API models."""
+    return [
+        TemporaryRole(
+            role=Role(entry["role"]),
+            expires_at=entry["expires_at"],
+            granted_by=entry["granted_by"],
+            granted_at=entry["granted_at"],
+            reason=entry.get("reason"),
+        )
+        for entry in entries
+    ]
+
+
+def _to_user_info(user: dict[str, Any]) -> UserInfo:
+    """Convert auth-service user payloads to response models."""
+    return UserInfo(
+        user_id=user["user_id"],
+        username=user["username"],
+        email=user["email"],
+        role=user["role"],
+        permissions=user.get("permissions", []),
+        temporary_roles=_to_temporary_roles(user.get("temporary_roles", [])),
+    )
+
+
 @router.post(
     "/login",
     response_model=LoginResponse,
@@ -157,29 +183,11 @@ async def login(
         user_agent=user_agent,
     )
 
-    temp_roles = [
-        TemporaryRole(
-            role=Role(tr["role"]),
-            expires_at=tr["expires_at"],
-            granted_by=tr["granted_by"],
-            granted_at=tr["granted_at"],
-            reason=tr.get("reason"),
-        )
-        for tr in result["user"].get("temporary_roles", [])
-    ]
-
     return LoginResponse(
         access_token=result["access_token"],
         refresh_token=result["refresh_token"],
         expires_in=result["expires_in"],
-        user=UserInfo(
-            user_id=result["user"]["user_id"],
-            username=result["user"]["username"],
-            email=result["user"]["email"],
-            role=result["user"]["role"],
-            permissions=result["user"].get("permissions", []),
-            temporary_roles=temp_roles,
-        ),
+        user=_to_user_info(result["user"]),
     )
 
 
@@ -214,26 +222,8 @@ async def session_login(
         csrf_token=result["csrf_token"],
     )
 
-    temp_roles = [
-        TemporaryRole(
-            role=Role(tr["role"]),
-            expires_at=tr["expires_at"],
-            granted_by=tr["granted_by"],
-            granted_at=tr["granted_at"],
-            reason=tr.get("reason"),
-        )
-        for tr in result["user"].get("temporary_roles", [])
-    ]
-
     return SessionLoginResponse(
-        user=UserInfo(
-            user_id=result["user"]["user_id"],
-            username=result["user"]["username"],
-            email=result["user"]["email"],
-            role=result["user"]["role"],
-            permissions=result["user"].get("permissions", []),
-            temporary_roles=temp_roles,
-        ),
+        user=_to_user_info(result["user"]),
         expires_in=result["expires_in"],
     )
 
@@ -301,7 +291,13 @@ async def session_refresh(
         refresh_token=result["refresh_token"],
         csrf_token=result["csrf_token"],
     )
-    return SessionRefreshResponse(expires_in=result["expires_in"])
+    if "user" not in result:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh session")
+
+    return SessionRefreshResponse(
+        user=_to_user_info(result["user"]),
+        expires_in=result["expires_in"],
+    )
 
 
 @router.post(

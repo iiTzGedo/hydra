@@ -21,7 +21,6 @@ import { ROUTES } from '@/lib/constants';
 import { useAuditLog } from '@/api/query';
 import { useDashboardStore } from '@/stores/dashboard-store';
 import type { AuditEntry } from '@/types/query';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -260,12 +259,10 @@ export function RecentActivity() {
   }
 
   return (
-    <ScrollArea className="h-[320px]">
-      <div className="space-y-1 py-2">
-        {activities.map((entry, index) => (
-          <ActivityItem key={entry.entryId} entry={entry} index={index} />
-        ))}
-      </div>
-    </ScrollArea>
+    <div className="space-y-1 py-2">
+      {activities.map((entry, index) => (
+        <ActivityItem key={entry.entryId} entry={entry} index={index} />
+      ))}
+    </div>
   );
 }

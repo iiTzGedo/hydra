@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import {
   FolderTree,
   Plus,
@@ -274,7 +275,7 @@ function GroupGridCard({ group }: { group: GroupListItem }) {
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-primary/10 p-2">
-              <FolderTree className="h-5 w-5 text-primary" />
+              <HydraIcon icon={group.icon} fallback="group" className="text-primary" size={20} />
             </div>
             <div className="min-w-0 flex-1">
               <Link
@@ -389,7 +390,7 @@ function GroupRow({
         <TableCell>
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-primary/10 p-2">
-              <FolderTree className="h-5 w-5 text-primary" />
+              <HydraIcon icon={group.icon} fallback="group" className="text-primary" size={20} />
             </div>
             <div className="min-w-0">
               <Link

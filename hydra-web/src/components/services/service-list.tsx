@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner';
 import { useCreateCommand } from '@/api/commands';
 import { useServices } from '@/api/services';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import { ServiceSummary } from '@/types/service';
 import { ServiceFilterState } from './service-filters';
 import { ROUTES, STATUS_COLORS, SERVICE_RUNTIME_LABELS } from '@/lib/constants';
@@ -174,7 +175,7 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
       className="group flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors"
     >
       <div className="rounded-lg bg-hydra-blue p-2.5">
-        <Boxes className="h-5 w-5 text-white" />
+        <HydraIcon icon={service.icon} fallback={service.runtime || service.name || 'boxes'} className="text-white" size={20} />
       </div>
 
       <div className="flex-1 min-w-0">

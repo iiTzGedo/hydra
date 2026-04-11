@@ -98,6 +98,34 @@ class DocsService:
         return "\n\n".join(content_parts)
 
     @staticmethod
+    def _build_search_excerpt(doc: dict[str, Any], query: str) -> str | None:
+        """Extract a short excerpt around the first query hit."""
+        if not query:
+            return None
+
+        haystacks = [
+            str(doc.get("description") or ""),
+            str(doc.get("content") or ""),
+        ]
+        lowered_query = query.lower()
+
+        for haystack in haystacks:
+            lowered = haystack.lower()
+            index = lowered.find(lowered_query)
+            if index == -1:
+                continue
+            start = max(index - 60, 0)
+            end = min(index + len(query) + 120, len(haystack))
+            excerpt = haystack[start:end].strip()
+            if start > 0:
+                excerpt = f"...{excerpt}"
+            if end < len(haystack):
+                excerpt = f"{excerpt}..."
+            return excerpt
+
+        return None
+
+    @staticmethod
     def _merge_sections(
         existing_sections: list[dict[str, Any]],
         generated_sections: list[dict[str, Any]],
@@ -386,6 +414,91 @@ class DocsService:
         docs = await cursor.to_list(length=params.limit)
 
         return docs, total
+
+    async def get_docs_tree(self) -> list[dict[str, Any]]:
+        """Build a category-aware navigation tree for the docs portal."""
+        docs = await self.docs.find({}).sort("title", 1).to_list(length=None)
+
+        categories: dict[str, list[dict[str, Any]]] = {}
+        uncategorized: list[dict[str, Any]] = []
+
+        for doc in docs:
+            category = str(doc.get("category") or "").strip()
+            if category:
+                categories.setdefault(category, []).append(doc)
+            else:
+                uncategorized.append(doc)
+
+        tree: list[dict[str, Any]] = []
+
+        for category, category_docs in sorted(categories.items(), key=lambda item: item[0].lower()):
+            tree.append({
+                "nodeId": f"category::{category.lower().replace(' ', '-')}",
+                "title": category,
+                "path": f"/docs/category/{category.lower().replace(' ', '-')}",
+                "kind": "category",
+                "category": category,
+                "children": [
+                    {
+                        "nodeId": f"doc::{doc['docId']}",
+                        "title": doc["title"],
+                        "path": f"/docs/{doc['docId']}",
+                        "kind": "document",
+                        "category": category,
+                        "docId": doc["docId"],
+                        "docType": doc["type"],
+                        "status": doc["status"],
+                        "updatedAt": doc["updatedAt"],
+                        "children": [],
+                    }
+                    for doc in sorted(category_docs, key=lambda entry: str(entry.get("title", "")).lower())
+                ],
+            })
+
+        if uncategorized:
+            tree.append({
+                "nodeId": "category::uncategorized",
+                "title": "Uncategorized",
+                "path": "/docs/category/uncategorized",
+                "kind": "category",
+                "category": None,
+                "children": [
+                    {
+                        "nodeId": f"doc::{doc['docId']}",
+                        "title": doc["title"],
+                        "path": f"/docs/{doc['docId']}",
+                        "kind": "document",
+                        "category": doc.get("category"),
+                        "docId": doc["docId"],
+                        "docType": doc["type"],
+                        "status": doc["status"],
+                        "updatedAt": doc["updatedAt"],
+                        "children": [],
+                    }
+                    for doc in sorted(uncategorized, key=lambda entry: str(entry.get("title", "")).lower())
+                ],
+            })
+
+        return tree
+
+    async def search_docs(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Search documentation with excerpt generation for the portal."""
+        params = DocListParams(search=query, limit=limit, offset=0)
+        docs, _ = await self.list_docs(params)
+
+        return [
+            {
+                "docId": doc["docId"],
+                "title": doc["title"],
+                "type": doc["type"],
+                "status": doc["status"],
+                "category": doc.get("category"),
+                "excerpt": self._build_search_excerpt(doc, query),
+                "linkedEntities": doc.get("linkedEntities", []),
+                "updatedAt": doc["updatedAt"],
+            }
+            for doc in docs[:limit]
+        ]
 
     async def update_doc(
         self,

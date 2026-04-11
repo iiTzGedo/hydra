@@ -14,12 +14,18 @@ export const SEEDED_NOTIFICATION = {
   title: /Node offline: hydra-dev-machine/i,
 } as const;
 
+export async function waitForAppShell(page: Page) {
+  await expect(page.locator('#sidebar-nav')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#main-content')).toBeVisible({ timeout: 10_000 });
+}
+
 export async function login(page: Page) {
   await page.goto('/login');
   await page.getByLabel(/username/i).fill(TEST_USER.username);
   await page.getByLabel(/password/i).fill(TEST_USER.password);
   await page.getByRole('button', { name: /sign in|log in|login/i }).click();
   await expect(page).toHaveURL(/dashboard/, { timeout: 10_000 });
+  await waitForAppShell(page);
 }
 
 export async function gotoPage(
@@ -28,7 +34,7 @@ export async function gotoPage(
   heading?: string | RegExp,
 ) {
   await page.goto(path);
-  await page.waitForLoadState('networkidle');
+  await waitForAppShell(page);
 
   if (heading) {
     await expect(

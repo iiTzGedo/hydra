@@ -9,6 +9,7 @@ from pymongo import ASCENDING, DESCENDING
 from hydra.api.v1.core.exceptions import NodeNotFoundError, ValidationError
 from hydra.api.v1.models.nodes import NodeListParams, NodeStatus, UpdateNodeRequest
 from hydra.api.v1.models.query import AuditAction
+from hydra.api.v1.services.icons import resolve_icon_descriptor
 from hydra.api.v1.services.query import log_audit
 from hydra.core.config import get_settings
 from hydra.db.mongodb import MongoDB
@@ -405,6 +406,11 @@ class NodeService:
 
     def _format_node(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a node document for API response."""
+        icon = resolve_icon_descriptor(
+            name=doc.get("kind") or doc.get("class"),
+            provider=doc.get("platform") or doc.get("os"),
+            fallback=doc.get("class", "server"),
+        )
         return {
             "nodeId": doc["nodeId"],
             "class": doc["class"],
@@ -428,10 +434,16 @@ class NodeService:
             "failedDirectAttempts": doc.get("failedDirectAttempts"),
             "lastDirectContact": doc.get("lastDirectContact"),
             "lastPollContact": doc.get("lastPollContact"),
+            "icon": icon,
         }
 
     def _format_node_summary(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a node document for list response."""
+        icon = resolve_icon_descriptor(
+            name=doc.get("kind") or doc.get("class"),
+            provider=doc.get("platform") or doc.get("os"),
+            fallback=doc.get("class", "server"),
+        )
         return {
             "nodeId": doc["nodeId"],
             "class": doc["class"],
@@ -443,4 +455,5 @@ class NodeService:
             "status": doc["status"],
             "lastProfileAt": doc.get("lastProfileAt"),
             "agentTier": doc.get("agentTier"),
+            "icon": icon,
         }

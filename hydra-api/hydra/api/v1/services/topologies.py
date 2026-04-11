@@ -23,6 +23,7 @@ from hydra.api.v1.models.topologies import (
     TopologyScope,
 )
 from hydra.api.v1.services.docs import DocsService
+from hydra.api.v1.services.icons import resolve_icon_descriptor
 from hydra.api.v1.services.notifications import emit_notification
 from hydra.api.v1.services.query import log_audit
 from hydra.db.mongodb import MongoDB
@@ -576,6 +577,11 @@ class TopologiesService:
                     "cidr": network.get("cidr"),
                     "type": network.get("type"),
                     "nodeCount": network.get("nodeCount", 0),
+                    "icon": resolve_icon_descriptor(
+                        name=network.get("type") or network.get("name"),
+                        provider="network",
+                        fallback="network",
+                    ),
                 },
                 position=GraphNodePosition(x=0, y=0),
             ))
@@ -597,6 +603,11 @@ class TopologiesService:
                     "type": node.get("type"),
                     "kind": node.get("kind"),
                     "status": node.get("status"),
+                    "icon": resolve_icon_descriptor(
+                        name=node.get("kind") or node.get("class"),
+                        provider=node.get("platform") or node.get("os"),
+                        fallback=node.get("class", "server"),
+                    ),
                 },
                 position=GraphNodePosition(x=0, y=0),
             ))
@@ -653,6 +664,11 @@ class TopologiesService:
                     "type": node.get("type"),
                     "kind": node.get("kind"),
                     "status": node.get("status"),
+                    "icon": resolve_icon_descriptor(
+                        name=node.get("kind") or node.get("class"),
+                        provider=node.get("platform") or node.get("os"),
+                        fallback=node.get("class", "server"),
+                    ),
                 },
                 position=GraphNodePosition(x=0, y=0),
             ))
@@ -680,6 +696,11 @@ class TopologiesService:
                     "runtime": service.get("runtime"),
                     "status": service.get("status"),
                     "nodeId": service["nodeId"],
+                    "icon": resolve_icon_descriptor(
+                        name=service.get("name") or service.get("image"),
+                        provider=service.get("runtime"),
+                        fallback=service.get("runtime", "boxes"),
+                    ),
                 },
                 position=GraphNodePosition(x=0, y=0),
             ))
@@ -722,6 +743,11 @@ class TopologiesService:
                     "status": service.get("status"),
                     "nodeId": service["nodeId"],
                     "ports": service.get("ports", []),
+                    "icon": resolve_icon_descriptor(
+                        name=service.get("name") or service.get("image"),
+                        provider=service.get("runtime"),
+                        fallback=service.get("runtime", "boxes"),
+                    ),
                 },
                 position=GraphNodePosition(x=0, y=0),
             ))
@@ -746,6 +772,11 @@ class TopologiesService:
                         "type": node.get("type"),
                         "kind": node.get("kind"),
                         "status": node.get("status"),
+                        "icon": resolve_icon_descriptor(
+                            name=node.get("kind") or node.get("class"),
+                            provider=node.get("platform") or node.get("os"),
+                            fallback=node.get("class", "server"),
+                        ),
                     },
                     position=GraphNodePosition(x=0, y=0),
                 ))

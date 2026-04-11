@@ -352,6 +352,7 @@ export const handlers = [
 
   http.post(`${BASE_URL}/auth/session/refresh`, () =>
     HttpResponse.json({
+      user: mockUser,
       expiresIn: 3600,
     })
   ),
@@ -607,12 +608,18 @@ export const handlers = [
       createdAt: now,
       updatedAt: now,
       layout: payload.layout ?? {
-        columns: 12,
-        rowHeight: 80,
-        breakpoints: {
-          lg: { columns: 12, width: 1200 },
-          md: { columns: 8, width: 996 },
-          sm: { columns: 4, width: 768 },
+        mode: 'grid',
+        grid: {
+          columns: 12,
+          rowHeight: 80,
+          breakpoints: {
+            lg: { columns: 12, width: 1200 },
+            md: { columns: 8, width: 996 },
+            sm: { columns: 4, width: 768 },
+          },
+          compaction: 'vertical',
+          margin: [16, 16],
+          padding: [0, 0],
         },
       },
       widgets,

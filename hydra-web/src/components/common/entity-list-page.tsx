@@ -1,4 +1,4 @@
-import { ReactNode, useMemo } from 'react';
+import { ReactNode, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { LucideIcon, AlertTriangle, SlidersHorizontal, Columns3 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,8 +18,10 @@ import {
 import {
   TooltipProvider,
 } from '@/components/ui/tooltip';
+import { PageBreadcrumbs } from '@/components/layout/page-breadcrumbs';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import { cn } from '@/lib/utils';
+import { usePageTitleStore } from '@/stores/page-title-store';
 import { ViewModeToggle, type ViewMode } from './view-mode-toggle';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -238,16 +240,29 @@ export function EntityListPage<T>({
   renderLoadingSkeleton,
   gridClassName = 'grid gap-4 md:grid-cols-2 lg:grid-cols-3',
 }: EntityListPageProps<T>) {
+  const setPageTitle = usePageTitleStore((s) => s.setPageTitle);
+  const clearPageTitle = usePageTitleStore((s) => s.clearPageTitle);
+
+  useEffect(() => {
+    setPageTitle(title, subtitle ?? null);
+    return () => {
+      clearPageTitle();
+    };
+  }, [title, subtitle, setPageTitle, clearPageTitle]);
+
   return (
     <TooltipProvider>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-            <p className="text-muted-foreground">{subtitle}</p>
+        {/* Breadcrumbs + subtitle/actions row */}
+        <div className="flex flex-col gap-3">
+          <h1 className="sr-only">{title}</h1>
+          <PageBreadcrumbs />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <p className="text-sm text-muted-foreground">{subtitle}</p>
+            {headerAction ? (
+              <div className="flex shrink-0 flex-wrap items-center gap-2">{headerAction}</div>
+            ) : null}
           </div>
-          {headerAction}
         </div>
 
         {/* Statistics Cards */}

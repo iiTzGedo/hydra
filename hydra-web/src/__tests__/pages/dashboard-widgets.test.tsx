@@ -425,18 +425,21 @@ describe('Dashboard Widget Data Binding', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards/:boardId',
+        route: '/dashboards/board-widget-test',
       });
     });
 
-    // Wait for board to load and widgets to render
-    expect(await screen.findByTestId('widget-grid')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(useDashboardStore.getState().activeBoardId).toBe('board-widget-test');
+    });
 
-    // All three widget components should be rendered
-    expect(await screen.findByText('Stats Cards')).toBeInTheDocument();
-    expect(await screen.findByText('Service Summary')).toBeInTheDocument();
-    expect(await screen.findByText('Capacity Overview')).toBeInTheDocument();
+    // All three widget containers should be rendered from the board definition
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-wi_stats')).toBeInTheDocument();
+      expect(screen.getByTestId('widget-wi_services')).toBeInTheDocument();
+      expect(screen.getByTestId('widget-wi_capacity')).toBeInTheDocument();
+    }, { timeout: 5000 });
   });
 
   it('renders the empty state when the board has no widgets', async () => {
@@ -444,8 +447,8 @@ describe('Dashboard Widget Data Binding', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards/:boardId',
+        route: '/dashboards/board-empty',
       });
     });
 
@@ -464,12 +467,15 @@ describe('Dashboard Widget Data Binding', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards',
+        route: '/dashboards',
       });
     });
 
-    expect(await screen.findByText('No dashboard boards yet')).toBeInTheDocument();
+    await waitFor(
+      () => expect(screen.getByText('No dashboard boards yet')).toBeInTheDocument(),
+      { timeout: 5000 }
+    );
   });
 
   it('renders template gallery data correctly', async () => {
@@ -593,8 +599,8 @@ describe('Dashboard Widget Data Binding', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards/:boardId',
+        route: '/dashboards/board-widget-test',
       });
     });
 
@@ -640,8 +646,8 @@ describe('Dashboard Widget Data Binding', () => {
 
     await act(async () => {
       renderWithRoute(<DashboardPage />, {
-        path: '/dashboard',
-        route: '/dashboard',
+        path: '/dashboards/:boardId',
+        route: '/dashboards/board-widget-test',
       });
     });
 
@@ -649,20 +655,26 @@ describe('Dashboard Widget Data Binding', () => {
       expect(useDashboardStore.getState().activeBoardId).toBe('board-widget-test');
     });
 
-    // Enter edit mode
+    expect(await screen.findByText('Stats Cards')).toBeInTheDocument();
+
+    // Enter edit mode via the primary Edit Board button
     await act(async () => {
-      await user.click(screen.getByRole('button', { name: 'Toggle Edit Mode' }));
+      await user.click(screen.getByRole('button', { name: /^Edit Board$/i }));
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId('edit-mode-status')).toHaveTextContent('editing');
-    });
+    await waitFor(
+      () => expect(screen.getByTestId('edit-mode-status')).toHaveTextContent('editing'),
+      { timeout: 5000 }
+    );
 
     // Widget picker should be available in edit mode
     expect(screen.getByTestId('mock-widget-picker')).toBeInTheDocument();
 
-    // Clone and Delete buttons available in edit mode
-    expect(screen.getByRole('button', { name: /Clone/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Delete/i })).toBeInTheDocument();
-  });
+    // Clone and Delete are available via the board-actions overflow menu
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /Board actions/i }));
+    });
+    expect(await screen.findByRole('menuitem', { name: /Clone/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Delete/i })).toBeInTheDocument();
+  }, 10000);
 });

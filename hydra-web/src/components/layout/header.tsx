@@ -18,62 +18,19 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-
-/**
- * Map of paths to page titles
- * Used for displaying the current page title in the header
- */
-const pathTitles: Record<string, string> = {
-  '/': 'Dashboard',
-  '/dashboard': 'Dashboard',
-  '/nodes': 'Node Explorer',
-  '/services': 'Service Explorer',
-  '/networks': 'Network Explorer',
-  '/groups': 'Group Management',
-  '/topology': 'Topology Viewer',
-  '/time-machine': 'Time Machine',
-  '/timemachine': 'Time Machine',
-  '/notifications': 'Notifications',
-  '/chat': 'MCP Chat',
-  '/mcp-marketplace': 'MCP Marketplace',
-  '/profile': 'Profile',
-  '/settings': 'Settings',
-};
-
-/**
- * Get the page title based on current pathname
- * Handles detail pages with dynamic IDs
- */
-function getPageTitle(pathname: string): string {
-  // Check exact matches first
-  if (pathTitles[pathname]) {
-    return pathTitles[pathname];
-  }
-
-  // Handle detail pages
-  if (pathname.startsWith('/nodes/')) {
-    // Could extract node ID for display, but we'll let the page header show details
-    return 'Node Details';
-  }
-  if (pathname.startsWith('/services/')) return 'Service Details';
-  if (pathname.startsWith('/networks/')) return 'Network Details';
-  if (pathname.startsWith('/groups/')) return 'Group Details';
-
-  return 'Hydra';
-}
+import { getRouteTitle } from '@/router/routes';
+import { usePageTitleStore } from '@/stores/page-title-store';
 
 /**
  * Header - Main application header
  *
  * Features:
- * - Page title (simplified, breadcrumbs moved to page content)
+ * - Page title (dynamic from page-title-store, falling back to route metadata)
  * - Global search with keyboard shortcut
  * - Theme toggle
  * - Notification bell with popup panel
  * - User menu
  *
- * Note: Breadcrumbs have been moved to PageHeaderLayout component
- * for better visual hierarchy and navigation context
  */
 export function Header() {
   const navigate = useNavigate();
@@ -82,8 +39,9 @@ export function Header() {
   const { user, logout } = useAuthStore();
   const { theme, setTheme } = useTheme();
   const commandPalette = useCommandPalette();
+  const dynamicTitle = usePageTitleStore((s) => s.title);
 
-  const pageTitle = getPageTitle(location.pathname);
+  const pageTitle = dynamicTitle ?? getRouteTitle(location.pathname);
 
   const handleLogout = () => {
     logout();
@@ -102,7 +60,7 @@ export function Header() {
     >
       {/* Left section - Mobile menu + Page title */}
       <div className="flex items-center gap-4 min-w-0 flex-1">
-        {/* Mobile menu toggle */}
+        {/* Mobile menu toggle — matches sidebar md breakpoint */}
         <Button
           variant="ghost"
           size="icon"
@@ -113,14 +71,15 @@ export function Header() {
           <Menu className="h-5 w-5" />
         </Button>
 
-        {/* Page title only (breadcrumbs moved to page content) */}
-        <h1 className="text-lg font-semibold text-foreground truncate">{pageTitle}</h1>
+        <div className="min-w-0">
+          <h1 className="truncate text-lg font-semibold text-foreground">{pageTitle}</h1>
+        </div>
       </div>
 
       {/* Right section - Search, Theme, Notifications, User */}
       <div className="flex items-center gap-2 sm:gap-4">
         {/* Search */}
-        <div className="relative hidden sm:block">
+        <div className="relative hidden lg:block">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
             aria-hidden="true"
@@ -148,7 +107,7 @@ export function Header() {
         <Button
           variant="ghost"
           size="icon"
-          className="sm:hidden text-muted-foreground hover:text-foreground"
+          className="lg:hidden text-muted-foreground hover:text-foreground"
           onClick={commandPalette.open}
           aria-label="Search"
         >

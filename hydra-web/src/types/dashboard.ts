@@ -2,13 +2,50 @@ import type { ListParams } from '@/types/api';
 
 export type DashboardBoardType = 'home' | 'custom' | 'template';
 export type DashboardVisibility = 'private' | 'shared' | 'public';
+export type DashboardLayoutMode = 'grid' | 'columns';
+export type DashboardGridCompaction = 'vertical' | 'horizontal' | 'none';
 
 export interface DashboardLayoutBreakpoint {
   columns: number;
   width: number;
 }
 
-export interface DashboardBoardLayout {
+export interface DashboardGridLayoutConfig {
+  columns: number;
+  rowHeight: number;
+  breakpoints: Record<string, DashboardLayoutBreakpoint>;
+  compaction: DashboardGridCompaction;
+  margin: [number, number];
+  padding: [number, number];
+}
+
+export interface DashboardColumnDefinition {
+  id: string;
+  title?: string | null;
+  ratio: number;
+}
+
+export interface DashboardColumnsLayoutConfig {
+  columns: DashboardColumnDefinition[];
+  gap: number;
+  padding: [number, number];
+}
+
+export interface DashboardGridBoardLayout {
+  mode: 'grid';
+  grid: DashboardGridLayoutConfig;
+  columnsLayout?: never;
+}
+
+export interface DashboardColumnsBoardLayout {
+  mode: 'columns';
+  grid?: never;
+  columnsLayout: DashboardColumnsLayoutConfig;
+}
+
+export type DashboardBoardLayout = DashboardGridBoardLayout | DashboardColumnsBoardLayout;
+
+export interface LegacyDashboardBoardLayout {
   columns: number;
   rowHeight: number;
   breakpoints: Record<string, DashboardLayoutBreakpoint>;
@@ -30,7 +67,10 @@ export interface DashboardDataBinding {
 export interface DashboardWidgetInstance {
   instanceId: string;
   widgetType: string;
-  position: DashboardWidgetPosition;
+  position?: DashboardWidgetPosition | null;
+  placements?: Record<string, DashboardWidgetPosition> | null;
+  column?: string | null;
+  order?: number | null;
   config: Record<string, unknown>;
   dataBinding?: DashboardDataBinding | null;
 }
@@ -69,7 +109,10 @@ export interface DashboardBoard extends DashboardBoardSummary {
 
 export interface DashboardCreateWidgetRequest {
   widgetType: string;
-  position: DashboardWidgetPosition;
+  position?: DashboardWidgetPosition | null;
+  placements?: Record<string, DashboardWidgetPosition> | null;
+  column?: string | null;
+  order?: number | null;
   config?: Record<string, unknown>;
   dataBinding?: DashboardDataBinding | null;
 }
@@ -223,4 +266,42 @@ export interface DashboardTemplate extends DashboardTemplateSummary {
   widgets: DashboardWidgetInstance[];
   settings: DashboardBoardSettings;
   updatedAt: string;
+}
+
+export function normalizeDashboardLayout(
+  layout: DashboardBoardLayout | LegacyDashboardBoardLayout | null | undefined,
+): DashboardBoardLayout {
+  if (!layout) {
+    return {
+      mode: 'grid',
+      grid: {
+        columns: 12,
+        rowHeight: 80,
+        breakpoints: {
+          lg: { columns: 12, width: 1200 },
+          md: { columns: 8, width: 996 },
+          sm: { columns: 4, width: 768 },
+        },
+        compaction: 'vertical',
+        margin: [16, 16],
+        padding: [0, 0],
+      },
+    };
+  }
+
+  if ('mode' in layout) {
+    return layout;
+  }
+
+  return {
+    mode: 'grid',
+    grid: {
+      columns: layout.columns,
+      rowHeight: layout.rowHeight,
+      breakpoints: layout.breakpoints,
+      compaction: 'vertical',
+      margin: [16, 16],
+      padding: [0, 0],
+    },
+  };
 }

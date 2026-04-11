@@ -12,6 +12,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { useGroups } from '@/api/groups';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import { GroupSummary } from '@/types/group';
 import { GroupFilterState } from './group-filters';
 import { ROUTES } from '@/lib/constants';
@@ -146,7 +147,7 @@ function GroupCard({ group }: { group: GroupListItem }) {
     >
       <div className="flex items-start justify-between mb-4">
         <div className="rounded-lg bg-iot p-2.5">
-          <FolderTree className="h-5 w-5 text-white" />
+          <HydraIcon icon={group.icon} fallback="group" className="text-white" size={20} />
         </div>
 
         <div className="relative">

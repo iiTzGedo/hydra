@@ -792,12 +792,18 @@ function createInitialState(): MockState {
       createdAt: ISO_NOW,
       updatedAt: ISO_NOW,
       layout: {
-        columns: 12,
-        rowHeight: 80,
-        breakpoints: {
-          lg: { columns: 12, width: 1200 },
-          md: { columns: 8, width: 996 },
-          sm: { columns: 4, width: 768 },
+        mode: 'grid',
+        grid: {
+          columns: 12,
+          rowHeight: 80,
+          breakpoints: {
+            lg: { columns: 12, width: 1200 },
+            md: { columns: 8, width: 996 },
+            sm: { columns: 4, width: 768 },
+          },
+          compaction: 'vertical',
+          margin: [16, 16],
+          padding: [0, 0],
         },
       },
       widgets: [
@@ -885,6 +891,10 @@ function createInitialState(): MockState {
       quietHoursStart: null,
       quietHoursEnd: null,
       quietHoursMinTier: 5,
+    },
+    dashboard: {
+      pinnedBoardIds: ['board-001'],
+      lastOpenedBoardId: 'board-001',
     },
     updatedAt: ISO_NOW,
   };

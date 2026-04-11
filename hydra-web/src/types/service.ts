@@ -1,4 +1,5 @@
 import { ListParams } from './api';
+import type { IconDescriptor } from './icons';
 
 export type ServiceRuntime =
   | 'systemd'
@@ -62,6 +63,7 @@ export interface ServiceSummary {
   status: ServiceStatus;
   version?: string;
   lastSeen: string;
+  icon?: IconDescriptor | null;
 }
 
 export interface Service extends ServiceSummary {

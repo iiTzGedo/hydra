@@ -95,6 +95,7 @@ export interface RefreshResponse {
 }
 
 export interface SessionRefreshResponse {
+  user: User;
   expiresIn: number;
 }
 

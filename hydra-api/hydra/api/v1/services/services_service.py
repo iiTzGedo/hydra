@@ -9,6 +9,7 @@ from pymongo import ASCENDING, DESCENDING
 
 from hydra.api.v1.core.exceptions import NodeNotFoundError, ServiceNotFoundError, ValidationError
 from hydra.api.v1.models.services import ServiceListParams, UpdateServiceRequest
+from hydra.api.v1.services.icons import resolve_icon_descriptor
 from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
@@ -224,6 +225,11 @@ class ServicesService:
     def _format_service(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a service document for API response."""
         exposure = doc.get("exposure", {})
+        icon = resolve_icon_descriptor(
+            name=doc.get("name") or doc.get("image"),
+            provider=doc.get("runtime"),
+            fallback=doc.get("runtime", "boxes"),
+        )
 
         return {
             "serviceId": doc["serviceId"],
@@ -247,10 +253,16 @@ class ServicesService:
             "tags": doc.get("tags", []),
             "firstSeen": doc.get("firstSeen"),
             "lastSeen": doc.get("lastSeen"),
+            "icon": icon,
         }
 
     def _format_service_summary(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Format a service document for list response."""
+        icon = resolve_icon_descriptor(
+            name=doc.get("name") or doc.get("image"),
+            provider=doc.get("runtime"),
+            fallback=doc.get("runtime", "boxes"),
+        )
         return {
             "serviceId": doc["serviceId"],
             "name": doc["name"],
@@ -260,4 +272,5 @@ class ServicesService:
             "version": doc.get("version"),
             "nodeId": doc["nodeId"],
             "lastSeen": doc.get("lastSeen"),
+            "icon": icon,
         }

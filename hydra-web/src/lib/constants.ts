@@ -9,6 +9,8 @@ export const ROUTES = {
   RESET_PASSWORD: '/reset-password',
 
   DASHBOARD: '/dashboard',
+  DASHBOARDS: '/dashboards',
+  DASHBOARD_BOARD: '/dashboards/:boardId',
   NODES: '/nodes',
   NODE_DETAIL: '/nodes/:nodeId',
   NODE_PROFILES: '/nodes/:nodeId/profiles',
@@ -28,6 +30,7 @@ export const ROUTES = {
   COMMANDS: '/commands',
   COMMAND_DETAIL: '/commands/:commandId',
   DOCS: '/docs',
+  DOCS_WILDCARD: '/docs/*',
   INTEGRATIONS: '/integrations',
   MCP_MARKETPLACE: '/mcp-marketplace',
   NOTIFICATIONS: '/notifications',

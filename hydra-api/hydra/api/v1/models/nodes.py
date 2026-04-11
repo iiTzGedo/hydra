@@ -12,6 +12,7 @@ from hydra.api.v1.core.validators import (
     validate_network_id,
     validate_tag,
 )
+from hydra.api.v1.models.icons import IconDescriptor
 
 
 class NodeClass(StrEnum):
@@ -100,6 +101,7 @@ class NodeResponse(BaseModel):
     failed_direct_attempts: int | None = Field(default=None, alias="failedDirectAttempts")
     last_direct_contact: datetime | None = Field(default=None, alias="lastDirectContact")
     last_poll_contact: datetime | None = Field(default=None, alias="lastPollContact")
+    icon: IconDescriptor | None = None
 
 
 class NodeSummary(BaseModel):
@@ -118,6 +120,7 @@ class NodeSummary(BaseModel):
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
     last_seen_at: datetime | None = Field(default=None, alias="lastSeenAt")
     agent_tier: AgentTier | None = Field(default=None, alias="agentTier")
+    icon: IconDescriptor | None = None
 
 
 class AgentInfo(BaseModel):
