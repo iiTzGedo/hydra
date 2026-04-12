@@ -329,7 +329,6 @@ export function Sidebar() {
             {!sidebarCollapsed ? (
               <div className="min-w-0">
                 <div className="truncate text-lg font-semibold text-sidebar-foreground">Hydra</div>
-                <div className="text-[10px] uppercase tracking-[0.2em] text-sidebar-foreground/50">Phase 2</div>
               </div>
             ) : null}
           </Link>

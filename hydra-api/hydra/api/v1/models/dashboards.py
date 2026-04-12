@@ -2,25 +2,51 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class BoardType(StrEnum):
-    """Board type classification."""
+    """Board type classification aligned with Dashboard Technical Specification §3.2."""
 
-    HOME = "home"
-    CUSTOM = "custom"
+    USER = "user"
     TEMPLATE = "template"
+    SHARED = "shared"
+    KIOSK = "kiosk"
 
 
-class BoardVisibility(StrEnum):
+class OwnerType(StrEnum):
+    """Owner type for board ownership semantics."""
+
+    USER = "user"
+    SYSTEM = "system"
+
+
+class VisibilityScope(StrEnum):
     """Board visibility scope."""
 
     PRIVATE = "private"
     SHARED = "shared"
     PUBLIC = "public"
+
+
+class SharedWith(BaseModel):
+    """Structured audience for shared boards."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    roles: list[str] = Field(default_factory=list)
+    users: list[str] = Field(default_factory=list)
+
+
+class BoardVisibility(BaseModel):
+    """Structured visibility descriptor per Dashboard Technical Specification §3.3."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    scope: VisibilityScope = Field(default=VisibilityScope.PRIVATE)
+    shared_with: SharedWith = Field(default_factory=SharedWith, alias="sharedWith")
 
 
 class WidgetPosition(BaseModel):
@@ -35,10 +61,14 @@ class WidgetPosition(BaseModel):
 
 
 DEFAULT_GRID_BREAKPOINTS: dict[str, dict[str, int]] = {
+    "xl": {"columns": 12, "width": 1536},
     "lg": {"columns": 12, "width": 1200},
     "md": {"columns": 8, "width": 996},
-    "sm": {"columns": 4, "width": 768},
+    "sm": {"columns": 4, "width": 480},
+    "xs": {"columns": 2, "width": 0},
 }
+
+_BREAKPOINT_ORDER = ("xl", "lg", "md", "sm", "xs")
 
 
 def _default_breakpoints() -> dict[str, "LayoutBreakpoint"]:
@@ -211,8 +241,17 @@ class BoardLayout(BaseModel):
         return self
 
 
+class DataBindingFallback(BaseModel):
+    """Fallback strategy when a data source is unavailable."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["cached", "empty", "error"] = Field(default="cached")
+    max_age: int | None = Field(default=None, ge=0, alias="maxAge")
+
+
 class DataBinding(BaseModel):
-    """Widget data binding configuration."""
+    """Widget data binding configuration per Dashboard Technical Specification §6."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -224,6 +263,40 @@ class DataBinding(BaseModel):
         alias="refreshInterval",
         description="Refresh interval in seconds",
     )
+    realtime_channel: str | None = Field(
+        default=None,
+        alias="realtimeChannel",
+        description="WebSocket channel for push updates",
+    )
+    fallback: DataBindingFallback | None = Field(
+        default=None,
+        description="Cache strategy if source is unavailable",
+    )
+
+
+def _normalize_widget_placement(value: Any) -> Any:
+    """Normalize widget placement data for both WidgetPlacementMixin and patches."""
+    if not isinstance(value, dict):
+        return value
+
+    normalized = dict(value)
+    placements = normalized.get("placements")
+    position = normalized.get("position")
+
+    if placements is None and position is not None:
+        normalized["placements"] = _expand_legacy_position(position)
+    elif placements is not None and position is None and isinstance(placements, dict):
+        normalized["position"] = (
+            placements.get("lg")
+            or placements.get("xl")
+            or placements.get("md")
+            or next(iter(placements.values()), None)
+        )
+
+    if normalized.get("column") is not None and normalized.get("order") is None:
+        normalized["order"] = 0
+
+    return normalized
 
 
 class WidgetPlacementMixin(BaseModel):
@@ -242,22 +315,7 @@ class WidgetPlacementMixin(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_widget(cls, value: Any) -> Any:
-        if not isinstance(value, dict):
-            return value
-
-        normalized = dict(value)
-        placements = normalized.get("placements")
-        position = normalized.get("position")
-
-        if placements is None and position is not None:
-            normalized["placements"] = _expand_legacy_position(position)
-        elif placements is not None and position is None and isinstance(placements, dict):
-            normalized["position"] = placements.get("lg") or next(iter(placements.values()), None)
-
-        if normalized.get("column") is not None and normalized.get("order") is None:
-            normalized["order"] = 0
-
-        return normalized
+        return _normalize_widget_placement(value)
 
     @model_validator(mode="after")
     def ensure_widget_placement(self) -> "WidgetPlacementMixin":
@@ -267,7 +325,12 @@ class WidgetPlacementMixin(BaseModel):
                 for key, placement in _expand_legacy_position(self.position.model_dump()).items()
             }
         if self.position is None and self.placements:
-            self.position = self.placements.get("lg") or next(iter(self.placements.values()), None)
+            self.position = (
+                self.placements.get("lg")
+                or self.placements.get("xl")
+                or self.placements.get("md")
+                or next(iter(self.placements.values()), None)
+            )
         if self.column is not None and self.order is None:
             self.order = 0
         if self.position is None and self.column is None:
@@ -287,7 +350,7 @@ class WidgetInstance(WidgetPlacementMixin):
 
 
 class BoardSettings(BaseModel):
-    """Board-level settings."""
+    """Board-level settings per Dashboard Technical Specification §13.1."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -301,6 +364,30 @@ class BoardSettings(BaseModel):
     )
     show_header: bool = Field(default=True, alias="showHeader", description="Show board header")
     kiosk_mode: bool = Field(default=False, alias="kioskMode", description="Enable kiosk mode")
+    kiosk_auto_scroll: bool = Field(
+        default=False,
+        alias="kioskAutoScroll",
+        description="Enable kiosk auto-scroll",
+    )
+    kiosk_scroll_speed: int = Field(
+        default=30,
+        ge=0,
+        le=300,
+        alias="kioskScrollSpeed",
+        description="Kiosk auto-scroll speed in pixels per second",
+    )
+    background_image: str | None = Field(
+        default=None,
+        alias="backgroundImage",
+        max_length=2048,
+        description="Optional background image URL",
+    )
+    custom_css: str | None = Field(
+        default=None,
+        alias="customCss",
+        max_length=10_000,
+        description="Custom CSS scoped to this board",
+    )
 
 
 # ── Response Models ──────────────────────────────────────────────────
@@ -316,8 +403,9 @@ class BoardResponse(BaseModel):
     description: str | None = None
     icon: str | None = None
     owner_id: str = Field(alias="ownerId")
+    owner_type: OwnerType = Field(default=OwnerType.USER, alias="ownerType")
     board_type: BoardType = Field(alias="boardType")
-    visibility: BoardVisibility = Field(default=BoardVisibility.PRIVATE)
+    visibility: BoardVisibility = Field(default_factory=BoardVisibility)
     layout: BoardLayout
     widgets: list[WidgetInstance] = Field(default_factory=list)
     settings: BoardSettings = Field(default_factory=BoardSettings)
@@ -340,8 +428,9 @@ class BoardSummary(BaseModel):
     description: str | None = None
     icon: str | None = None
     owner_id: str = Field(alias="ownerId")
+    owner_type: OwnerType = Field(default=OwnerType.USER, alias="ownerType")
     board_type: BoardType = Field(alias="boardType")
-    visibility: BoardVisibility = Field(default=BoardVisibility.PRIVATE)
+    visibility: BoardVisibility = Field(default_factory=BoardVisibility)
     widget_count: int = Field(default=0, alias="widgetCount")
     tags: list[str] = Field(default_factory=list)
     is_home: bool = Field(default=False, alias="isHome")
@@ -378,7 +467,7 @@ class UpdateWidgetRequest(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_widget(cls, value: Any) -> Any:
-        return WidgetPlacementMixin.normalize_legacy_widget(value)
+        return _normalize_widget_placement(value)
 
 
 class CreateBoardRequest(BaseModel):
@@ -387,10 +476,10 @@ class CreateBoardRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     name: str = Field(min_length=1, max_length=128, description="Board name")
-    description: str | None = Field(default=None, max_length=1024)
+    description: str | None = Field(default=None, max_length=2048)
     icon: str | None = Field(default=None, max_length=64)
-    board_type: BoardType = Field(default=BoardType.CUSTOM, alias="boardType")
-    visibility: BoardVisibility = Field(default=BoardVisibility.PRIVATE)
+    board_type: BoardType = Field(default=BoardType.USER, alias="boardType")
+    visibility: BoardVisibility = Field(default_factory=BoardVisibility)
     layout: BoardLayout = Field(default_factory=BoardLayout)
     widgets: list[AddWidgetRequest] = Field(default_factory=list, description="Initial widgets")
     settings: BoardSettings = Field(default_factory=BoardSettings)
@@ -413,7 +502,7 @@ class UpdateBoardRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     name: str | None = Field(default=None, min_length=1, max_length=128)
-    description: str | None = Field(default=None, max_length=1024)
+    description: str | None = Field(default=None, max_length=2048)
     icon: str | None = Field(default=None, max_length=64)
     board_type: BoardType | None = Field(default=None, alias="boardType")
     visibility: BoardVisibility | None = None
@@ -440,6 +529,87 @@ class CloneBoardRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     name: str | None = Field(default=None, min_length=1, max_length=128, description="Name for the cloned board")
+    variables: dict[str, Any] | None = Field(
+        default=None,
+        description="Template variables for parameterized cloning (used when source is a template)",
+    )
+
+
+# ── PATCH Operations ────────────────────────────────────────────────
+
+
+class PatchUpdateSettings(BaseModel):
+    """PATCH op: update board settings."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    op: Literal["update-settings"]
+    settings: BoardSettings
+
+
+class PatchUpdateLayout(BaseModel):
+    """PATCH op: update layout positions only."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    op: Literal["update-layout"]
+    layout: BoardLayout
+
+
+class PatchAddWidget(BaseModel):
+    """PATCH op: add a widget instance."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    op: Literal["add-widget"]
+    widget: AddWidgetRequest
+
+
+class PatchUpdateWidget(BaseModel):
+    """PATCH op: update a single widget config/binding/position."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    op: Literal["update-widget"]
+    instance_id: str = Field(alias="instanceId")
+    changes: UpdateWidgetRequest
+
+
+class PatchRemoveWidget(BaseModel):
+    """PATCH op: remove a widget instance."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    op: Literal["remove-widget"]
+    instance_id: str = Field(alias="instanceId")
+
+
+class PatchReorderWidgets(BaseModel):
+    """PATCH op: reorder widgets within columns."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    op: Literal["reorder-widgets"]
+    order: list[str] = Field(description="Ordered list of widget instanceIds")
+
+
+PatchBoardOperation = Annotated[
+    PatchUpdateSettings
+    | PatchUpdateLayout
+    | PatchAddWidget
+    | PatchUpdateWidget
+    | PatchRemoveWidget
+    | PatchReorderWidgets,
+    Field(discriminator="op"),
+]
+
+
+class PatchBoardRequest(BaseModel):
+    """PATCH /dashboards/{boardId} body."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    operations: list[PatchBoardOperation] = Field(min_length=1, max_length=50)
 
 
 # ── List Query Parameters ────────────────────────────────────────────
@@ -498,6 +668,21 @@ class WidgetCapabilities(BaseModel):
     repeatable: bool = True
 
 
+class WidgetPermissions(BaseModel):
+    """Role-based permission contract for a widget per spec §4.1."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    view: list[str] = Field(
+        default_factory=lambda: ["admin", "operator", "viewer", "family"],
+        description="Roles that may view this widget",
+    )
+    interact: list[str] = Field(
+        default_factory=list,
+        description="Roles that may interact (execute commands, toggle controls)",
+    )
+
+
 class WidgetTypeDefinition(BaseModel):
     """A widget type available in the registry."""
 
@@ -509,6 +694,14 @@ class WidgetTypeDefinition(BaseModel):
     category: str
     icon: str = "square"
     source: str = "hydra"
+    version: str = Field(default="1.0.0", description="Semver of the widget type contract")
+    supported_data_shapes: list[str] = Field(
+        default_factory=list,
+        alias="supportedDataShapes",
+        description="Data shapes this widget accepts (e.g., 'scalar', 'time-series')",
+    )
+    tags: list[str] = Field(default_factory=list, description="Free-form discovery tags")
+    permissions: WidgetPermissions = Field(default_factory=WidgetPermissions)
     default_size: WidgetSize = Field(alias="defaultSize")
     min_size: WidgetSize = Field(alias="minSize")
     max_size: WidgetSize = Field(alias="maxSize")
@@ -532,7 +725,8 @@ class DashboardListParams(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     board_type: BoardType | None = Field(default=None, alias="boardType")
-    visibility: BoardVisibility | None = None
+    owner_id: str | None = Field(default=None, alias="ownerId")
+    visibility: VisibilityScope | None = Field(default=None, description="Filter by visibility scope")
     tags: list[str] | None = None
     search: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=50, ge=1, le=200)
@@ -564,7 +758,7 @@ class SaveAsTemplateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     name: str = Field(min_length=1, max_length=128, description="Template name")
-    description: str | None = Field(default=None, max_length=1024)
+    description: str | None = Field(default=None, max_length=2048)
     tags: list[str] = Field(default_factory=list)
 
     @field_validator("tags")
@@ -616,6 +810,10 @@ class InstantiateTemplateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     name: str | None = Field(default=None, min_length=1, max_length=128, description="Name for the new board")
+    variables: dict[str, Any] | None = Field(
+        default=None,
+        description="Template variables for parameterized instantiation",
+    )
 
 
 # ── Sharing Models ──────────────────────────────────────────────────
@@ -626,11 +824,11 @@ class ShareBoardRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    visibility: BoardVisibility = Field(description="Board visibility scope")
-    allowed_users: list[str] = Field(
-        default_factory=list,
-        alias="allowedUsers",
-        description="User IDs allowed to view the board (only for shared visibility)",
+    scope: VisibilityScope = Field(description="Board visibility scope")
+    shared_with: SharedWith = Field(
+        default_factory=SharedWith,
+        alias="sharedWith",
+        description="Roles and users the board is shared with",
     )
 
 
@@ -640,8 +838,8 @@ class ShareBoardResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     board_id: str = Field(alias="boardId")
-    visibility: BoardVisibility
-    allowed_users: list[str] = Field(default_factory=list, alias="allowedUsers")
+    scope: VisibilityScope
+    shared_with: SharedWith = Field(alias="sharedWith")
 
 
 # ── Export/Import Models ────────────────────────────────────────────
@@ -663,6 +861,17 @@ class BoardExport(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class ImportValidationIssue(BaseModel):
+    """A single validation issue raised during import."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    level: Literal["warning", "error"]
+    code: str
+    message: str
+    widget_index: int | None = Field(default=None, alias="widgetIndex")
+
+
 class ImportBoardRequest(BaseModel):
     """Import a board from an exported definition."""
 
@@ -670,6 +879,15 @@ class ImportBoardRequest(BaseModel):
 
     board: BoardExport = Field(description="Exported board definition to import")
     name: str | None = Field(default=None, min_length=1, max_length=128, description="Override name for imported board")
+
+
+class ImportBoardResponse(BaseModel):
+    """Result of an import with any validation warnings surfaced."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    board: BoardResponse
+    warnings: list[ImportValidationIssue] = Field(default_factory=list)
 
 
 # ── Extended Sharing Models ────────────────────────────────────────
@@ -705,3 +923,63 @@ class TemplateListParams(BaseModel):
     sort_order: Literal["asc", "desc"] = Field(default="desc", alias="sortOrder")
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
+
+
+__all__ = [
+    "_BREAKPOINT_ORDER",
+    "AddWidgetRequest",
+    "BoardColumnDefinition",
+    "BoardExport",
+    "BoardLayout",
+    "BoardResponse",
+    "BoardSettings",
+    "BoardSummary",
+    "BoardType",
+    "BoardVisibility",
+    "CloneBoardRequest",
+    "ColumnLayoutConfig",
+    "CreateBoardRequest",
+    "DashboardListParams",
+    "DataBinding",
+    "DataBindingFallback",
+    "DEFAULT_GRID_BREAKPOINTS",
+    "GridLayoutConfig",
+    "ImportBoardRequest",
+    "ImportBoardResponse",
+    "ImportValidationIssue",
+    "InstantiateTemplateRequest",
+    "LayoutBreakpoint",
+    "OwnerType",
+    "PatchAddWidget",
+    "PatchBoardOperation",
+    "PatchBoardRequest",
+    "PatchRemoveWidget",
+    "PatchReorderWidgets",
+    "PatchUpdateLayout",
+    "PatchUpdateSettings",
+    "PatchUpdateWidget",
+    "PortableWidgetInstance",
+    "SaveAsTemplateRequest",
+    "ShareBoardRequest",
+    "ShareBoardResponse",
+    "ShareInfo",
+    "SharedWith",
+    "ShareTarget",
+    "TemplateListParams",
+    "TemplateResponse",
+    "TemplateSummary",
+    "UpdateBoardRequest",
+    "UpdateWidgetRequest",
+    "VisibilityScope",
+    "WidgetCapabilities",
+    "WidgetCategoryInfo",
+    "WidgetConfigField",
+    "WidgetConfigOption",
+    "WidgetInstance",
+    "WidgetPermissions",
+    "WidgetPlacementMixin",
+    "WidgetPosition",
+    "WidgetRegistryResponse",
+    "WidgetSize",
+    "WidgetTypeDefinition",
+]

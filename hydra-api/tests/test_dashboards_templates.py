@@ -58,15 +58,21 @@ def sample_board(now):
         "description": "Main operational view",
         "icon": "server",
         "ownerId": "user_admin123",
-        "boardType": "custom",
-        "visibility": "private",
+        "ownerType": "user",
+        "boardType": "user",
+        "visibility": {
+            "scope": "private",
+            "sharedWith": {"roles": [], "users": []},
+        },
         "layout": {
             "columns": 12,
             "rowHeight": 80,
             "breakpoints": {
+                "xl": {"columns": 12, "width": 1536},
                 "lg": {"columns": 12, "width": 1200},
                 "md": {"columns": 8, "width": 996},
-                "sm": {"columns": 4, "width": 768},
+                "sm": {"columns": 4, "width": 480},
+                "xs": {"columns": 2, "width": 0},
             },
         },
         "widgets": [
@@ -84,6 +90,10 @@ def sample_board(now):
             "refreshInterval": 30,
             "showHeader": True,
             "kioskMode": False,
+            "kioskAutoScroll": False,
+            "kioskScrollSpeed": 30,
+            "backgroundImage": None,
+            "customCss": None,
         },
         "tags": ["infrastructure"],
         "isHome": False,
@@ -102,7 +112,7 @@ def sample_template(now):
         "templateId": "tmpl_abc123def456",
         "name": "Ops Template",
         "description": "Standard operations dashboard",
-        "boardType": "custom",
+        "boardType": "user",
         "layout": {
             "columns": 12,
             "rowHeight": 80,
@@ -156,7 +166,7 @@ async def test_save_as_template(
     data = response.json()["data"]
     assert data["name"] == "My Template"
     assert data["description"] == "A reusable layout"
-    assert data["boardType"] == "custom"
+    assert data["boardType"] == "user"
     assert data["widgetCount"] == 1
     assert "templateId" in data
     mock_templates_collection.insert_one.assert_awaited_once()
@@ -267,8 +277,8 @@ async def test_instantiate_template(
     assert response.status_code == 201
     data = response.json()["data"]
     assert data["name"] == "New From Template"
-    assert data["boardType"] == "custom"
-    assert data["visibility"] == "private"
+    assert data["boardType"] == "user"
+    assert data["visibility"]["scope"] == "private"
     # Widgets should have fresh instance IDs
     assert len(data["widgets"]) == 1
     assert data["widgets"][0]["instanceId"] != ""
@@ -370,14 +380,14 @@ async def test_share_board_public(
 
     response = await client.post(
         "/api/v1/dashboards/board_abc123def456/share",
-        json={"visibility": "public", "allowedUsers": []},
+        json={"scope": "public", "sharedWith": {"roles": [], "users": []}},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["visibility"] == "public"
-    assert data["allowedUsers"] == []
+    assert data["scope"] == "public"
+    assert data["sharedWith"] == {"roles": [], "users": []}
     mock_dashboards_collection.update_one.assert_awaited_once()
 
 
@@ -399,14 +409,17 @@ async def test_share_board_with_allowed_users(
 
     response = await client.post(
         "/api/v1/dashboards/board_abc123def456/share",
-        json={"visibility": "shared", "allowedUsers": ["user_bob", "user_alice"]},
+        json={
+            "scope": "shared",
+            "sharedWith": {"roles": [], "users": ["user_bob", "user_alice"]},
+        },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["visibility"] == "shared"
-    assert set(data["allowedUsers"]) == {"user_bob", "user_alice"}
+    assert data["scope"] == "shared"
+    assert set(data["sharedWith"]["users"]) == {"user_bob", "user_alice"}
 
 
 @pytest.mark.asyncio
@@ -427,7 +440,7 @@ async def test_share_board_non_owner_rejected(
 
     response = await client.post(
         "/api/v1/dashboards/board_abc123def456/share",
-        json={"visibility": "public"},
+        json={"scope": "public", "sharedWith": {"roles": [], "users": []}},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -461,7 +474,7 @@ async def test_export_board(
     data = response.json()["data"]
     assert data["exportVersion"] == 1
     assert data["name"] == "Infrastructure Overview"
-    assert data["boardType"] == "custom"
+    assert data["boardType"] == "user"
     # Widgets should have instanceId stripped (None) in export
     for widget in data["widgets"]:
         assert widget.get("instanceId") is None
@@ -485,7 +498,7 @@ async def test_import_board(
         "exportVersion": 1,
         "name": "Imported Board",
         "description": "Imported from JSON",
-        "boardType": "custom",
+        "boardType": "user",
         "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {}},
         "widgets": [
             {
@@ -505,11 +518,13 @@ async def test_import_board(
     )
 
     assert response.status_code == 201
-    data = response.json()["data"]
-    assert data["name"] == "Imported Board"
-    assert data["visibility"] == "private"
-    assert len(data["widgets"]) == 1
-    assert data["widgets"][0]["instanceId"] != ""
+    body = response.json()["data"]
+    board = body["board"]
+    assert board["name"] == "Imported Board"
+    assert board["visibility"]["scope"] == "private"
+    assert len(board["widgets"]) == 1
+    assert board["widgets"][0]["instanceId"] != ""
+    assert body["warnings"] == []
     mock_dashboards_collection.insert_one.assert_awaited_once()
 
 
@@ -530,7 +545,7 @@ async def test_import_board_with_name_override(
     export_data = {
         "exportVersion": 1,
         "name": "Original Name",
-        "boardType": "custom",
+        "boardType": "user",
         "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {}},
         "widgets": [],
         "settings": {},
@@ -544,7 +559,7 @@ async def test_import_board_with_name_override(
     )
 
     assert response.status_code == 201
-    assert response.json()["data"]["name"] == "Renamed Import"
+    assert response.json()["data"]["board"]["name"] == "Renamed Import"
 
 
 @pytest.mark.asyncio
@@ -579,7 +594,7 @@ async def test_export_import_round_trip(
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert import_resp.status_code == 201
-    imported = import_resp.json()["data"]
+    imported = import_resp.json()["data"]["board"]
 
     # Structural parity
     assert imported["name"] == exported["name"]

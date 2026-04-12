@@ -72,17 +72,16 @@ export function ShareDialog({ open, onOpenChange, boardId, boardName }: ShareDia
 
   const handleShare = useCallback(async () => {
     try {
-      // Use the existing share endpoint with visibility + allowedUsers
       await shareMutation.mutateAsync({
-        visibility: 'shared',
-        allowedUsers: userIds,
+        scope: 'shared',
+        sharedWith: { roles: selectedRoles, users: userIds },
       });
       toast.success('Dashboard shared successfully');
       sharesQuery.refetch();
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to share dashboard'));
     }
-  }, [shareMutation, userIds, sharesQuery]);
+  }, [shareMutation, selectedRoles, userIds, sharesQuery]);
 
   const handleRevokeAll = useCallback(async () => {
     try {

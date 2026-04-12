@@ -66,15 +66,21 @@ def _make_board(now, *, widgets=None, name="Test Board", board_id="board_test001
         "description": "Integration test board",
         "icon": "server",
         "ownerId": "user_admin123",
-        "boardType": "custom",
-        "visibility": "private",
+        "ownerType": "user",
+        "boardType": "user",
+        "visibility": {
+            "scope": "private",
+            "sharedWith": {"roles": [], "users": []},
+        },
         "layout": {
             "columns": 12,
             "rowHeight": 80,
             "breakpoints": {
+                "xl": {"columns": 12, "width": 1536},
                 "lg": {"columns": 12, "width": 1200},
                 "md": {"columns": 8, "width": 996},
-                "sm": {"columns": 4, "width": 768},
+                "sm": {"columns": 4, "width": 480},
+                "xs": {"columns": 2, "width": 0},
             },
         },
         "widgets": widgets or [],
@@ -84,6 +90,10 @@ def _make_board(now, *, widgets=None, name="Test Board", board_id="board_test001
             "refreshInterval": 30,
             "showHeader": True,
             "kioskMode": False,
+            "kioskAutoScroll": False,
+            "kioskScrollSpeed": 30,
+            "backgroundImage": None,
+            "customCss": None,
         },
         "tags": ["integration-test"],
         "isHome": False,
@@ -172,7 +182,7 @@ async def test_board_crud_round_trip(
         json={
             "name": "Test Board",
             "description": "Integration test board",
-            "boardType": "custom",
+            "boardType": "user",
             "widgets": [
                 {
                     "widgetType": "hydra::stats-cards",
@@ -398,7 +408,7 @@ async def test_template_instantiation(
         "templateId": "tmpl_infra_overview",
         "name": "Infrastructure Overview",
         "description": "Full infrastructure dashboard template",
-        "boardType": "custom",
+        "boardType": "user",
         "layout": {
             "columns": 12,
             "rowHeight": 80,
@@ -470,8 +480,8 @@ async def test_template_instantiation(
         assert w["instanceId"].startswith("wi_")
 
     # Board inherits template layout and settings
-    assert board["boardType"] == "custom"
-    assert board["visibility"] == "private"
+    assert board["boardType"] == "user"
+    assert board["visibility"]["scope"] == "private"
     assert board["layout"]["columns"] == 12
     mock_dashboards_collection.insert_one.assert_awaited_once()
 
@@ -500,7 +510,7 @@ async def test_template_with_custom_overrides(
         "templateId": "tmpl_minimal",
         "name": "Minimal Home",
         "description": "A clean, minimal dashboard",
-        "boardType": "custom",
+        "boardType": "user",
         "layout": {"columns": 12, "rowHeight": 80, "breakpoints": {}},
         "widgets": [
             {
@@ -572,13 +582,13 @@ async def test_board_sharing_permissions(
 
     response = await client.post(
         f"/api/v1/dashboards/{board['boardId']}/share",
-        json={"visibility": "public", "allowedUsers": []},
+        json={"scope": "public", "sharedWith": {"roles": [], "users": []}},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert response.status_code == 200
     share_data = response.json()["data"]
-    assert share_data["visibility"] == "public"
-    assert share_data["allowedUsers"] == []
+    assert share_data["scope"] == "public"
+    assert share_data["sharedWith"] == {"roles": [], "users": []}
 
     # 2. Viewer can read the public board (viewer role includes dashboards:read)
     viewer_user = {
@@ -586,7 +596,10 @@ async def test_board_sharing_permissions(
         "userId": "user_viewer123",
         "role": "viewer",
     }
-    public_board = {**board, "visibility": "public"}
+    public_board = {
+        **board,
+        "visibility": {"scope": "public", "sharedWith": {"roles": [], "users": []}},
+    }
     mock_mongodb.users.find_one = AsyncMock(return_value=viewer_user)
     mock_dashboards_collection.find_one = AsyncMock(return_value=public_board)
 
@@ -774,7 +787,7 @@ async def test_export_import_round_trip(
     # Export should have correct fields
     assert export_data["exportVersion"] == 1
     assert export_data["name"] == "Exportable Board"
-    assert export_data["boardType"] == "custom"
+    assert export_data["boardType"] == "user"
     assert len(export_data["widgets"]) == 2
     assert set(export_data["tags"]) == {"export-test", "infrastructure"}
 
@@ -794,7 +807,8 @@ async def test_export_import_round_trip(
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert response.status_code == 201
-    imported = response.json()["data"]
+    body = response.json()["data"]
+    imported = body["board"]
 
     # Imported board should have a new board ID
     assert imported["boardId"] != "board_export01"
@@ -821,7 +835,8 @@ async def test_export_import_round_trip(
     assert set(imported["tags"]) == {"export-test", "infrastructure"}
 
     # Imported board is always private
-    assert imported["visibility"] == "private"
+    assert imported["visibility"]["scope"] == "private"
+    assert body["warnings"] == []
     mock_dashboards_collection.insert_one.assert_awaited_once()
 
 
@@ -847,27 +862,36 @@ async def test_widget_registry(
     assert response.status_code == 200
     data = response.json()["data"]
 
-    assert data["total"] >= 6
-    assert len(data["widgets"]) >= 6
-    assert len(data["categories"]) >= 1
+    assert data["total"] >= 12
+    assert len(data["widgets"]) >= 12
+    # Registry returns all 11 spec categories even when some have zero widgets
+    assert len(data["categories"]) == 11
 
     # Verify widget structure
     for widget in data["widgets"]:
         assert "widgetType" in widget
         assert "displayName" in widget
         assert "category" in widget
+        assert "version" in widget
+        assert "supportedDataShapes" in widget
+        assert "tags" in widget
+        assert "permissions" in widget
         assert "defaultSize" in widget
         assert "minSize" in widget
         assert "maxSize" in widget
         assert "configSchema" in widget
         assert "capabilities" in widget
 
-    # Verify categories have name, id, and count
+    # Verify categories have id, name, and non-negative count
+    total_from_categories = 0
     for cat in data["categories"]:
         assert "id" in cat
         assert "name" in cat
         assert "count" in cat
-        assert cat["count"] > 0
+        assert cat["count"] >= 0
+        total_from_categories += cat["count"]
+    # Category counts should sum to at least the widget count
+    assert total_from_categories >= data["total"]
 
 
 @pytest.mark.asyncio
@@ -877,22 +901,23 @@ async def test_widget_registry_category_filter(
     admin_token,
     sample_user,
 ):
-    """GET /dashboards/widgets/registry?category=status filters by category."""
+    """GET /dashboards/widgets/registry?category=status-health filters by category."""
     admin_user = _make_admin_user(sample_user)
     mock_mongodb.users.find_one = AsyncMock(return_value=admin_user)
 
     response = await client.get(
-        "/api/v1/dashboards/widgets/registry?category=status",
+        "/api/v1/dashboards/widgets/registry?category=status-health",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
     assert response.status_code == 200
     data = response.json()["data"]
 
-    # All returned widgets should be in the "status" category
+    # All returned widgets should be in the "status-health" category
     for widget in data["widgets"]:
-        assert widget["category"] == "status"
+        assert widget["category"] == "status-health"
 
-    # Categories should still show ALL categories (not filtered)
+    # Categories should still show ALL spec categories (not filtered)
     category_ids = {c["id"] for c in data["categories"]}
-    assert "status" in category_ids
+    assert "status-health" in category_ids
+    assert len(category_ids) == 11

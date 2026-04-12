@@ -1,9 +1,10 @@
 """Dashboard management endpoints."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
+from fastapi.responses import Response
 
 from hydra.api.v1.core.deps import (
     CurrentUser,
@@ -17,12 +18,14 @@ from hydra.api.v1.models.dashboards import (
     BoardResponse,
     BoardSummary,
     BoardType,
-    BoardVisibility,
     CloneBoardRequest,
     CreateBoardRequest,
     DashboardListParams,
     ImportBoardRequest,
+    ImportBoardResponse,
+    ImportValidationIssue,
     InstantiateTemplateRequest,
+    PatchBoardRequest,
     SaveAsTemplateRequest,
     ShareBoardRequest,
     ShareBoardResponse,
@@ -31,6 +34,7 @@ from hydra.api.v1.models.dashboards import (
     TemplateSummary,
     UpdateBoardRequest,
     UpdateWidgetRequest,
+    VisibilityScope,
     WidgetRegistryResponse,
 )
 from hydra.api.v1.services.dashboards import DashboardService
@@ -47,6 +51,15 @@ def get_dashboard_service(mongodb: MongoDBDep) -> DashboardService:
 DashboardServiceDep = Annotated[DashboardService, Depends(get_dashboard_service)]
 
 
+def _user_id(current_user: dict[str, Any]) -> str:
+    return current_user.get("user_id") or current_user.get("userId") or current_user.get("sub") or ""
+
+
+def _user_role(current_user: dict[str, Any]) -> str | None:
+    role = current_user.get("role")
+    return str(role) if role else None
+
+
 @router.get(
     "",
     response_model=SuccessResponse[list[BoardSummary]],
@@ -59,7 +72,11 @@ async def list_dashboards(
     dashboard_service: DashboardServiceDep,
     current_user: CurrentUser,
     board_type: BoardType | None = Query(default=None, alias="boardType"),
-    visibility: BoardVisibility | None = None,
+    owner_id: str | None = Query(default=None, alias="ownerId"),
+    visibility: VisibilityScope | None = Query(
+        default=None,
+        description="Filter by visibility scope (private, shared, public)",
+    ),
     tags: list[str] | None = Query(default=None),
     search: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
@@ -67,29 +84,13 @@ async def list_dashboards(
     sort_by: Literal["name", "createdAt", "updatedAt"] = Query(default="updatedAt", alias="sortBy"),
     sort_order: Literal["asc", "desc"] = Query(default="desc", alias="sortOrder"),
 ) -> SuccessResponse[list[BoardSummary]]:
-    """Retrieve a paginated list of dashboards.
-
-    Users see their own boards plus shared and public boards.
-
-    Args:
-        dashboard_service: Dashboard service instance.
-        current_user: Authenticated user context.
-        board_type: Filter by board type.
-        visibility: Filter by visibility scope.
-        tags: Filter by tags (boards must have all specified tags).
-        search: Search query for board name or description.
-        limit: Maximum number of results to return.
-        offset: Number of results to skip.
-        sort_by: Field to sort by.
-        sort_order: Sort direction.
-
-    Returns:
-        Paginated list of board summaries with metadata.
-    """
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    """Retrieve a paginated list of dashboards visible to the user."""
+    user_id = _user_id(current_user)
+    role = _user_role(current_user)
 
     params = DashboardListParams(
         board_type=board_type,
+        owner_id=owner_id,
         visibility=visibility,
         tags=tags,
         search=search,
@@ -99,7 +100,7 @@ async def list_dashboards(
         sort_order=sort_order,
     )
 
-    boards, total = await dashboard_service.list_boards(params, user_id)
+    boards, total = await dashboard_service.list_boards(params, user_id, role)
 
     return SuccessResponse(
         data=[BoardSummary(**board) for board in boards],
@@ -121,17 +122,8 @@ async def create_dashboard(
     dashboard_service: DashboardServiceDep,
     current_user: CurrentUser,
 ) -> SuccessResponse[BoardResponse]:
-    """Create a new dashboard board owned by the current user.
-
-    Args:
-        request: Board creation details.
-        dashboard_service: Dashboard service instance.
-        current_user: Authenticated user context.
-
-    Returns:
-        The created board.
-    """
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    """Create a new dashboard board owned by the current user."""
+    user_id = _user_id(current_user)
     board = await dashboard_service.create_board(request, user_id)
     return SuccessResponse(data=BoardResponse(**board))
 
@@ -141,26 +133,19 @@ async def create_dashboard(
     response_model=SuccessResponse[WidgetRegistryResponse],
     response_model_by_alias=True,
     summary="Widget Registry",
-    description="Get available widget types for the dashboard widget picker.",
+    description="Get available widget types filtered by user role.",
     dependencies=[Depends(require_permission("dashboards:read"))],
 )
 async def get_widget_registry(
     dashboard_service: DashboardServiceDep,
+    current_user: CurrentUser,
     category: str | None = Query(default=None, description="Filter by widget category"),
 ) -> SuccessResponse[WidgetRegistryResponse]:
-    """Get available widget types from the registry.
-
-    Returns all registered widget type definitions with their default sizes,
-    constraints, and category information.
-
-    Args:
-        dashboard_service: Dashboard service instance.
-        category: Optional category filter.
-
-    Returns:
-        Widget registry with type definitions and category summaries.
-    """
-    registry = dashboard_service.get_widget_registry(category)
+    """Get widget types the current user's role may view."""
+    registry = dashboard_service.get_widget_registry(
+        category=category,
+        user_role=_user_role(current_user),
+    )
     return SuccessResponse(data=WidgetRegistryResponse(**registry))
 
 
@@ -225,7 +210,7 @@ async def instantiate_template(
     request: InstantiateTemplateRequest | None = None,
 ) -> SuccessResponse[BoardResponse]:
     """Create a new board from a dashboard template."""
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    user_id = _user_id(current_user)
     name = request.name if request else None
     board = await dashboard_service.instantiate_template(template_id, user_id, name)
     return SuccessResponse(data=BoardResponse(**board))
@@ -245,7 +230,7 @@ async def delete_template(
     template_id: str = Path(description="Dashboard template ID"),
 ) -> SuccessResponse[TemplateResponse]:
     """Delete a dashboard template."""
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    user_id = _user_id(current_user)
     template = await dashboard_service.delete_template(template_id, user_id)
     return SuccessResponse(data=TemplateResponse(**template))
 
@@ -255,23 +240,28 @@ async def delete_template(
 
 @router.post(
     "/import",
-    response_model=SuccessResponse[BoardResponse],
+    response_model=SuccessResponse[ImportBoardResponse],
     response_model_by_alias=True,
     status_code=201,
     summary="Import Dashboard",
-    description="Import a dashboard from an exported JSON definition.",
+    description="Import a dashboard from an exported JSON definition, returning any validation warnings.",
     dependencies=[Depends(require_permission("dashboards:write"))],
 )
 async def import_dashboard(
     request: ImportBoardRequest,
     current_user: CurrentUser,
     dashboard_service: DashboardServiceDep,
-) -> SuccessResponse[BoardResponse]:
-    """Import a board from an exported definition."""
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+) -> SuccessResponse[ImportBoardResponse]:
+    """Import a board from an exported definition with validation warnings."""
+    user_id = _user_id(current_user)
     export_data = request.board.model_dump(by_alias=True)
-    board = await dashboard_service.import_board(export_data, user_id, request.name)
-    return SuccessResponse(data=BoardResponse(**board))
+    board, warnings = await dashboard_service.import_board(export_data, user_id, request.name)
+    return SuccessResponse(
+        data=ImportBoardResponse(
+            board=BoardResponse(**board),
+            warnings=[ImportValidationIssue(**w) for w in warnings],
+        )
+    )
 
 
 @router.get(
@@ -288,17 +278,12 @@ async def get_dashboard(
     dashboard_service: DashboardServiceDep,
     current_user: CurrentUser,
 ) -> SuccessResponse[BoardResponse]:
-    """Retrieve a single dashboard by its identifier.
-
-    Args:
-        dashboard_id: Unique identifier of the dashboard.
-        dashboard_service: Dashboard service instance.
-
-    Returns:
-        Complete dashboard details including all widgets.
-    """
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
-    board = await dashboard_service.get_board_for_user(dashboard_id, user_id)
+    """Retrieve a single dashboard by its identifier."""
+    board = await dashboard_service.get_board_for_user(
+        dashboard_id,
+        _user_id(current_user),
+        _user_role(current_user),
+    )
     return SuccessResponse(data=BoardResponse(**board))
 
 
@@ -307,7 +292,7 @@ async def get_dashboard(
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
     summary="Update Dashboard",
-    description="Update dashboard metadata, layout, widgets, and settings.",
+    description="Full replacement update: send all mutable fields you want applied.",
     dependencies=[Depends(require_permission("dashboards:write"))],
 )
 async def update_dashboard(
@@ -316,19 +301,29 @@ async def update_dashboard(
     dashboard_service: DashboardServiceDep,
     dashboard_id: str = Path(description="Dashboard board ID"),
 ) -> SuccessResponse[BoardResponse]:
-    """Update an existing dashboard board.
-
-    Args:
-        request: Fields to update.
-        current_user: Authenticated user context.
-        dashboard_service: Dashboard service instance.
-        dashboard_id: Unique identifier of the dashboard.
-
-    Returns:
-        Updated dashboard details.
-    """
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    """Update an existing dashboard board (PUT semantics)."""
+    user_id = _user_id(current_user)
     board = await dashboard_service.update_board(dashboard_id, request, user_id)
+    return SuccessResponse(data=BoardResponse(**board))
+
+
+@router.patch(
+    "/{dashboard_id}",
+    response_model=SuccessResponse[BoardResponse],
+    response_model_by_alias=True,
+    summary="Patch Dashboard",
+    description="Apply discrete PATCH operations (update-settings, update-layout, update-widget, add-widget, remove-widget, reorder-widgets).",
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def patch_dashboard(
+    request: PatchBoardRequest,
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+) -> SuccessResponse[BoardResponse]:
+    """Apply PATCH operations to a dashboard in a single version bump."""
+    user_id = _user_id(current_user)
+    board = await dashboard_service.patch_board(dashboard_id, request.operations, user_id)
     return SuccessResponse(data=BoardResponse(**board))
 
 
@@ -345,19 +340,8 @@ async def delete_dashboard(
     dashboard_service: DashboardServiceDep,
     dashboard_id: str = Path(description="Dashboard board ID"),
 ) -> SuccessResponse[BoardResponse]:
-    """Soft delete a dashboard board.
-
-    The board is archived and can be recovered.
-
-    Args:
-        current_user: Authenticated user context.
-        dashboard_service: Dashboard service instance.
-        dashboard_id: Unique identifier of the dashboard.
-
-    Returns:
-        The archived dashboard details.
-    """
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    """Soft delete a dashboard board."""
+    user_id = _user_id(current_user)
     board = await dashboard_service.delete_board(dashboard_id, user_id)
     return SuccessResponse(data=BoardResponse(**board))
 
@@ -377,22 +361,29 @@ async def clone_dashboard(
     dashboard_id: str = Path(description="Dashboard board ID to clone"),
     request: CloneBoardRequest | None = None,
 ) -> SuccessResponse[BoardResponse]:
-    """Clone a dashboard board.
-
-    Creates a deep copy with a new board ID and fresh widget instance IDs.
-
-    Args:
-        current_user: Authenticated user context.
-        dashboard_service: Dashboard service instance.
-        dashboard_id: Unique identifier of the source dashboard.
-        request: Optional clone configuration (name override).
-
-    Returns:
-        The newly created cloned dashboard.
-    """
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    """Clone a dashboard board."""
+    user_id = _user_id(current_user)
     name = request.name if request else None
     board = await dashboard_service.clone_board(dashboard_id, user_id, name)
+    return SuccessResponse(data=BoardResponse(**board))
+
+
+@router.post(
+    "/{dashboard_id}/set-home",
+    response_model=SuccessResponse[BoardResponse],
+    response_model_by_alias=True,
+    summary="Set Home Dashboard",
+    description="Mark a dashboard as the user's home board, clearing the previous home.",
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def set_home_dashboard(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+) -> SuccessResponse[BoardResponse]:
+    """Set a board as the current user's home dashboard."""
+    user_id = _user_id(current_user)
+    board = await dashboard_service.set_home_board(dashboard_id, user_id)
     return SuccessResponse(data=BoardResponse(**board))
 
 
@@ -411,18 +402,8 @@ async def add_widget(
     dashboard_service: DashboardServiceDep,
     dashboard_id: str = Path(description="Dashboard board ID"),
 ) -> SuccessResponse[BoardResponse]:
-    """Add a new widget to a dashboard board.
-
-    Args:
-        request: Widget details including type, position, and configuration.
-        current_user: Authenticated user context.
-        dashboard_service: Dashboard service instance.
-        dashboard_id: Unique identifier of the dashboard.
-
-    Returns:
-        The updated dashboard with the new widget.
-    """
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    """Add a new widget to a dashboard board."""
+    user_id = _user_id(current_user)
     board = await dashboard_service.add_widget(dashboard_id, request, user_id)
     return SuccessResponse(data=BoardResponse(**board))
 
@@ -442,19 +423,8 @@ async def update_widget(
     dashboard_id: str = Path(description="Dashboard board ID"),
     widget_id: str = Path(description="Widget instance ID"),
 ) -> SuccessResponse[BoardResponse]:
-    """Update a widget's position, configuration, or data binding.
-
-    Args:
-        request: Widget update details.
-        current_user: Authenticated user context.
-        dashboard_service: Dashboard service instance.
-        dashboard_id: Unique identifier of the dashboard.
-        widget_id: Unique identifier of the widget instance.
-
-    Returns:
-        The updated dashboard.
-    """
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    """Update a widget's position, configuration, or data binding."""
+    user_id = _user_id(current_user)
     board = await dashboard_service.update_widget(dashboard_id, widget_id, request, user_id)
     return SuccessResponse(data=BoardResponse(**board))
 
@@ -473,18 +443,8 @@ async def delete_widget(
     dashboard_id: str = Path(description="Dashboard board ID"),
     widget_id: str = Path(description="Widget instance ID"),
 ) -> SuccessResponse[BoardResponse]:
-    """Remove a widget from a dashboard board.
-
-    Args:
-        current_user: Authenticated user context.
-        dashboard_service: Dashboard service instance.
-        dashboard_id: Unique identifier of the dashboard.
-        widget_id: Unique identifier of the widget instance to remove.
-
-    Returns:
-        The updated dashboard without the removed widget.
-    """
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    """Remove a widget from a dashboard board."""
+    user_id = _user_id(current_user)
     board = await dashboard_service.delete_widget(dashboard_id, widget_id, user_id)
     return SuccessResponse(data=BoardResponse(**board))
 
@@ -507,11 +467,8 @@ async def save_as_template(
     dashboard_service: DashboardServiceDep,
     dashboard_id: str = Path(description="Dashboard board ID"),
 ) -> SuccessResponse[TemplateResponse]:
-    """Save a board as a reusable template.
-
-    Strips user-specific data and preserves layout, widgets, and settings.
-    """
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    """Save a board as a reusable template."""
+    user_id = _user_id(current_user)
     template = await dashboard_service.save_as_template(dashboard_id, request, user_id)
     return SuccessResponse(data=TemplateResponse(**template))
 
@@ -530,8 +487,8 @@ async def share_dashboard(
     dashboard_service: DashboardServiceDep,
     dashboard_id: str = Path(description="Dashboard board ID"),
 ) -> SuccessResponse[ShareBoardResponse]:
-    """Update sharing settings (visibility and allowed users) for a board."""
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    """Update sharing settings for a board."""
+    user_id = _user_id(current_user)
     result = await dashboard_service.share_board(dashboard_id, request, user_id)
     return SuccessResponse(data=ShareBoardResponse(**result))
 
@@ -550,7 +507,7 @@ async def get_shares(
     dashboard_id: str = Path(description="Dashboard board ID"),
 ) -> SuccessResponse[ShareTarget]:
     """Get sharing target (roles + users) for a board."""
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    user_id = _user_id(current_user)
     result = await dashboard_service.get_shares(dashboard_id, user_id)
     return SuccessResponse(data=ShareTarget(**result))
 
@@ -569,25 +526,34 @@ async def revoke_shares(
     dashboard_id: str = Path(description="Dashboard board ID"),
 ) -> SuccessResponse[BoardResponse]:
     """Revoke all shares, clearing shared users/roles and setting visibility to private."""
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
+    user_id = _user_id(current_user)
     board = await dashboard_service.revoke_shares(dashboard_id, user_id)
     return SuccessResponse(data=BoardResponse(**board))
 
 
 @router.get(
     "/{dashboard_id}/export",
-    response_model=SuccessResponse[BoardExport],
-    response_model_by_alias=True,
     summary="Export Dashboard",
-    description="Export a dashboard as a portable JSON definition.",
+    description="Export a dashboard as a portable JSON (default) or YAML definition.",
     dependencies=[Depends(require_permission("dashboards:read"))],
 )
 async def export_dashboard(
     current_user: CurrentUser,
     dashboard_service: DashboardServiceDep,
     dashboard_id: str = Path(description="Dashboard board ID"),
-) -> SuccessResponse[BoardExport]:
-    """Export a board as portable JSON for backup or sharing."""
-    user_id = current_user.get("user_id") or current_user.get("userId", "")
-    export_data = await dashboard_service.export_board(dashboard_id, user_id)
-    return SuccessResponse(data=BoardExport(**export_data))
+    format: Literal["json", "yaml"] = Query(default="json", description="Export format"),
+) -> Any:
+    """Export a board as JSON (wrapped in SuccessResponse) or YAML (raw text)."""
+    user_id = _user_id(current_user)
+    result = await dashboard_service.export_board(dashboard_id, user_id, export_format=format)
+
+    if result["format"] == "yaml":
+        return Response(
+            content=result["data"],
+            media_type="application/yaml",
+            headers={
+                "Content-Disposition": f'attachment; filename="{dashboard_id}.yaml"',
+            },
+        )
+
+    return SuccessResponse(data=BoardExport(**result["data"]))

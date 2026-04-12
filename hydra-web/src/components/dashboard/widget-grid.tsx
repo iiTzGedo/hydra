@@ -22,33 +22,89 @@ import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 
 const WIDGET_TYPE_LABELS: Record<string, string> = {
+  // Existing composites
   'hydra::stats-cards': 'Stats Cards',
   'hydra::capacity-overview': 'Capacity Overview',
   'hydra::recent-activity': 'Recent Activities',
   'hydra::node-status-grid': 'Node Status Grid',
   'hydra::mini-topology': 'Mini Topology',
   'hydra::service-summary': 'Service Summary',
+  // Data Display
+  'hydra::metric-card': 'Metric Card',
+  'hydra::gauge': 'Gauge',
+  'hydra::progress-bar': 'Progress Bar',
+  'hydra::sparkline': 'Sparkline',
+  'hydra::stat-group': 'Stat Group',
+  'hydra::donut-chart': 'Donut Chart',
+  // Status & Health
+  'hydra::status-grid': 'Status Grid',
+  'hydra::health-matrix': 'Health Matrix',
+  'hydra::node-status-card': 'Node Status Card',
+  'hydra::service-status-bar': 'Service Status Bar',
+  'hydra::uptime-bar': 'Uptime Bar',
+  // Tables & Lists
+  'hydra::entity-table': 'Entity Table',
+  'hydra::service-list': 'Service List',
+  'hydra::activity-feed': 'Activity Feed',
+  'hydra::alert-list': 'Alert List',
+  'hydra::log-viewer': 'Log Viewer',
+  // Charts & Graphs
+  'hydra::line-chart': 'Line Chart',
+  'hydra::bar-chart': 'Bar Chart',
+  'hydra::area-chart': 'Area Chart',
+  'hydra::heatmap': 'Heatmap',
+  // Topology & Maps
+  'hydra::network-map': 'Network Map',
+  // Controls & Actions
+  'hydra::quick-action': 'Quick Action',
+  'hydra::command-trigger': 'Command Trigger',
+  'hydra::service-control': 'Service Control',
+  'hydra::workflow-trigger': 'Workflow Trigger',
+  // Infrastructure
+  'hydra::node-summary': 'Node Summary',
+  'hydra::capacity-panel': 'Capacity Panel',
+  'hydra::network-summary': 'Network Summary',
+  'hydra::profile-diff': 'Profile Diff',
+  // Time & History
+  'hydra::time-machine-scrubber': 'Time Machine',
+  'hydra::change-log': 'Change Log',
+  'hydra::profile-timeline': 'Profile Timeline',
+  // External & Embed
   'hydra::clock': 'Clock',
   'hydra::rss-feed': 'RSS Feed',
   'hydra::bookmark-grid': 'Bookmark Grid',
   'hydra::iframe': 'Embed',
   'hydra::markdown': 'Markdown',
   'hydra::weather': 'Weather',
+  'hydra::html-block': 'HTML Block',
+  // System & Meta
+  'hydra::integration-health': 'Integration Health',
+  'hydra::agent-grid': 'Agent Grid',
+  'hydra::audit-stream': 'Audit Stream',
+  'hydra::api-status': 'API Status',
+  'hydra::mcp-query': 'MCP Query',
+  'hydra::execution-queue': 'Execution Queue',
 };
 
 export function widgetTypeLabel(widgetType: string): string {
   return WIDGET_TYPE_LABELS[widgetType] ?? widgetType;
 }
 
-/** Map API widget instances to react-grid-layout LayoutItem array */
-export function widgetsToLayout(widgets: DashboardWidgetInstance[]): LayoutItem[] {
-  return widgets.map((w) => ({
-    i: w.instanceId,
-    x: w.placements?.lg?.x ?? w.position?.x ?? 0,
-    y: w.placements?.lg?.y ?? w.position?.y ?? 0,
-    w: w.placements?.lg?.w ?? w.position?.w ?? 12,
-    h: w.placements?.lg?.h ?? w.position?.h ?? 4,
-  }));
+/** Map API widget instances to react-grid-layout LayoutItem array for a breakpoint */
+export function widgetsToLayout(
+  widgets: DashboardWidgetInstance[],
+  breakpoint: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'lg',
+): LayoutItem[] {
+  return widgets.map((w) => {
+    const placement = w.placements?.[breakpoint] ?? w.placements?.lg ?? w.position;
+    return {
+      i: w.instanceId,
+      x: placement?.x ?? 0,
+      y: placement?.y ?? 0,
+      w: placement?.w ?? 12,
+      h: placement?.h ?? 4,
+    };
+  });
 }
 
 /** Apply RGL layout changes back onto existing widget instances */
@@ -96,10 +152,18 @@ export function WidgetGrid({
   const childArray = React.Children.toArray(children);
   const normalizedLayout = normalizeDashboardLayout(layout);
 
-  const layouts: ResponsiveLayouts = useMemo(
-    () => ({ lg: widgetsToLayout(widgets) }),
-    [widgets]
-  );
+  const layouts: ResponsiveLayouts = useMemo(() => {
+    if (normalizedLayout.mode !== 'grid') {
+      return { lg: widgetsToLayout(widgets, 'lg') };
+    }
+    const breakpointKeys = Object.keys(normalizedLayout.grid.breakpoints) as Array<
+      'xs' | 'sm' | 'md' | 'lg' | 'xl'
+    >;
+    return breakpointKeys.reduce<ResponsiveLayouts>((acc, key) => {
+      acc[key] = widgetsToLayout(widgets, key);
+      return acc;
+    }, {});
+  }, [widgets, normalizedLayout]);
 
   const handleLayoutChange = useCallback(
     (currentLayout: Layout) => {

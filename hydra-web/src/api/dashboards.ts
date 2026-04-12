@@ -13,7 +13,11 @@ import type {
   DashboardWidgetInstance,
   ExportedBoard,
   ImportBoardRequest,
+  ImportBoardResponse,
+  PatchDashboardRequest,
   SaveAsTemplateRequest,
+  ShareBoardRequest,
+  ShareBoardResponse,
   ShareTarget,
   TemplateListParams,
   UpdateDashboardRequest,
@@ -39,6 +43,7 @@ export function useDashboards(params?: DashboardListParams) {
         {
           params: {
             boardType: params?.boardType,
+            ownerId: params?.ownerId,
             visibility: params?.visibility,
             tags: params?.tags,
             search: params?.search,
@@ -104,6 +109,41 @@ export function useUpdateDashboard(boardId: string) {
     },
     onSuccess: (board) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboards.list() });
+      queryClient.setQueryData(queryKeys.dashboards.detail(board.boardId), board);
+    },
+  });
+}
+
+export function usePatchDashboard(boardId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (request: PatchDashboardRequest): Promise<DashboardBoardWithId> => {
+      const response = await apiClient.patch<ApiResponse<DashboardBoard>>(
+        `/dashboards/${boardId}`,
+        request,
+      );
+      return withBoardId(response.data.data);
+    },
+    onSuccess: (board) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboards.list() });
+      queryClient.setQueryData(queryKeys.dashboards.detail(board.boardId), board);
+    },
+  });
+}
+
+export function useSetHomeDashboard() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (boardId: string): Promise<DashboardBoardWithId> => {
+      const response = await apiClient.post<ApiResponse<DashboardBoard>>(
+        `/dashboards/${boardId}/set-home`,
+      );
+      return withBoardId(response.data.data);
+    },
+    onSuccess: (board) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboards.all });
       queryClient.setQueryData(queryKeys.dashboards.detail(board.boardId), board);
     },
   });
@@ -268,8 +308,8 @@ export function useShareDashboard(boardId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (request: { visibility: string; allowedUsers?: string[] }): Promise<unknown> => {
-      const response = await apiClient.post<ApiResponse<unknown>>(
+    mutationFn: async (request: ShareBoardRequest): Promise<ShareBoardResponse> => {
+      const response = await apiClient.post<ApiResponse<ShareBoardResponse>>(
         `/dashboards/${boardId}/share`,
         request
       );
@@ -317,7 +357,8 @@ export function useExportDashboard(boardId: string) {
     queryKey: [...queryKeys.dashboards.all, 'export', boardId] as const,
     queryFn: async (): Promise<ExportedBoard> => {
       const response = await apiClient.get<ApiResponse<ExportedBoard>>(
-        `/dashboards/${boardId}/export`
+        `/dashboards/${boardId}/export`,
+        { params: { format: 'json' } },
       );
       return response.data.data;
     },
@@ -325,16 +366,28 @@ export function useExportDashboard(boardId: string) {
   });
 }
 
+export async function exportDashboardYaml(boardId: string): Promise<string> {
+  const response = await apiClient.get<string>(
+    `/dashboards/${boardId}/export`,
+    {
+      params: { format: 'yaml' },
+      responseType: 'text',
+      headers: { Accept: 'application/yaml' },
+    },
+  );
+  return response.data;
+}
+
 export function useImportDashboard() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (request: ImportBoardRequest): Promise<DashboardBoardWithId> => {
-      const response = await apiClient.post<ApiResponse<DashboardBoard>>(
+    mutationFn: async (request: ImportBoardRequest): Promise<ImportBoardResponse> => {
+      const response = await apiClient.post<ApiResponse<ImportBoardResponse>>(
         '/dashboards/import',
-        request
+        request,
       );
-      return withBoardId(response.data.data);
+      return response.data.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboards.all });

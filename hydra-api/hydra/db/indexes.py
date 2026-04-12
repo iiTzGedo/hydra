@@ -197,6 +197,32 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("discoveryId", ASCENDING)], sparse=True),
         IndexModel([("targetIp", ASCENDING)]),
     ],
+    "dashboards": [
+        IndexModel([("boardId", ASCENDING)], unique=True),
+        IndexModel([("ownerId", ASCENDING), ("boardType", ASCENDING)]),
+        IndexModel([("ownerId", ASCENDING), ("isHome", ASCENDING)]),
+        IndexModel(
+            [("visibility.scope", ASCENDING), ("visibility.sharedWith.roles", ASCENDING)]
+        ),
+        IndexModel([("visibility.sharedWith.users", ASCENDING)]),
+        IndexModel([("boardType", ASCENDING)]),
+        IndexModel([("tags", ASCENDING)]),
+        IndexModel([("archivedAt", ASCENDING)], expireAfterSeconds=2592000, sparse=True),
+        IndexModel([("updatedAt", DESCENDING)]),
+        IndexModel(
+            [("name", TEXT), ("description", TEXT), ("tags", TEXT)],
+            default_language="english",
+        ),
+    ],
+    "dashboard_templates": [
+        IndexModel([("templateId", ASCENDING)], unique=True),
+        IndexModel([("tags", ASCENDING)]),
+        IndexModel([("createdBy", ASCENDING), ("createdAt", DESCENDING)]),
+        IndexModel(
+            [("name", TEXT), ("description", TEXT), ("tags", TEXT)],
+            default_language="english",
+        ),
+    ],
     "dashboard_versions": [
         IndexModel([("versionId", ASCENDING)], unique=True),
         IndexModel([("boardId", ASCENDING), ("version", DESCENDING)]),

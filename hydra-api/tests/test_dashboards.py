@@ -48,15 +48,21 @@ def sample_board():
         "description": "Main operational view",
         "icon": "server",
         "ownerId": "user_admin123",
-        "boardType": "custom",
-        "visibility": "private",
+        "ownerType": "user",
+        "boardType": "user",
+        "visibility": {
+            "scope": "private",
+            "sharedWith": {"roles": [], "users": []},
+        },
         "layout": {
             "columns": 12,
             "rowHeight": 80,
             "breakpoints": {
+                "xl": {"columns": 12, "width": 1536},
                 "lg": {"columns": 12, "width": 1200},
                 "md": {"columns": 8, "width": 996},
-                "sm": {"columns": 4, "width": 768},
+                "sm": {"columns": 4, "width": 480},
+                "xs": {"columns": 2, "width": 0},
             },
         },
         "widgets": [
@@ -78,6 +84,10 @@ def sample_board():
             "refreshInterval": 30,
             "showHeader": True,
             "kioskMode": False,
+            "kioskAutoScroll": False,
+            "kioskScrollSpeed": 30,
+            "backgroundImage": None,
+            "customCss": None,
         },
         "tags": ["infrastructure", "overview"],
         "isHome": True,
@@ -112,8 +122,11 @@ async def test_create_dashboard(
         json={
             "name": "Infrastructure Overview",
             "description": "Main operational view",
-            "boardType": "custom",
-            "visibility": "private",
+            "boardType": "user",
+            "visibility": {
+                "scope": "private",
+                "sharedWith": {"roles": [], "users": []},
+            },
             "tags": ["infrastructure", "overview"],
         },
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -123,7 +136,9 @@ async def test_create_dashboard(
     data = response.json()
     assert "data" in data
     assert data["data"]["name"] == "Infrastructure Overview"
-    assert data["data"]["boardType"] == "custom"
+    assert data["data"]["boardType"] == "user"
+    assert data["data"]["ownerType"] == "user"
+    assert data["data"]["visibility"]["scope"] == "private"
     mock_dashboards_collection.insert_one.assert_awaited_once()
 
 
@@ -206,7 +221,7 @@ async def test_get_dashboard_private_hidden_from_non_owner(
     private_other_board = {
         **sample_board,
         "ownerId": "user_other456",
-        "visibility": "private",
+        "visibility": {"scope": "private", "sharedWith": {"roles": [], "users": []}},
     }
     mock_mongodb.users.find_one = AsyncMock(
         return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
@@ -236,7 +251,10 @@ async def test_get_dashboard_visible_to_non_owner(
     visible_board = {
         **sample_board,
         "ownerId": "user_other456",
-        "visibility": visibility,
+        "visibility": {
+            "scope": visibility,
+            "sharedWith": {"roles": [], "users": ["user_admin123"]},
+        },
     }
     mock_mongodb.users.find_one = AsyncMock(
         return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
@@ -251,7 +269,7 @@ async def test_get_dashboard_visible_to_non_owner(
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["boardId"] == visible_board["boardId"]
-    assert data["visibility"] == visibility
+    assert data["visibility"]["scope"] == visibility
 
 
 @pytest.mark.asyncio
@@ -359,7 +377,7 @@ async def test_clone_dashboard(
         **sample_board,
         "boardId": "board_newcloned123",
         "name": "My Cloned Board",
-        "visibility": "private",
+        "visibility": {"scope": "private", "sharedWith": {"roles": [], "users": []}},
         "isHome": False,
         "version": 1,
         "clonedFrom": sample_board["boardId"],
@@ -379,7 +397,7 @@ async def test_clone_dashboard(
     assert response.status_code == 201
     data = response.json()
     assert data["data"]["clonedFrom"] == sample_board["boardId"]
-    assert data["data"]["visibility"] == "private"
+    assert data["data"]["visibility"]["scope"] == "private"
     assert data["data"]["isHome"] is False
     mock_dashboards_collection.insert_one.assert_awaited_once()
 
@@ -399,7 +417,10 @@ async def test_clone_dashboard_visible_to_non_owner(
     source_board = {
         **sample_board,
         "ownerId": "user_other456",
-        "visibility": visibility,
+        "visibility": {
+            "scope": visibility,
+            "sharedWith": {"roles": [], "users": ["user_admin123"]},
+        },
     }
     mock_mongodb.users.find_one = AsyncMock(
         return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
@@ -416,7 +437,7 @@ async def test_clone_dashboard_visible_to_non_owner(
     assert response.status_code == 201
     data = response.json()["data"]
     assert data["clonedFrom"] == source_board["boardId"]
-    assert data["visibility"] == "private"
+    assert data["visibility"]["scope"] == "private"
     mock_dashboards_collection.insert_one.assert_awaited()
 
 
@@ -498,7 +519,7 @@ async def test_add_widget_rejects_duplicate_non_repeatable_type(
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
-    assert "can only be added once" in response.json()["error"]["message"].lower()
+    assert "cannot appear more than once" in response.json()["error"]["message"].lower()
 
 
 @pytest.mark.asyncio
@@ -623,8 +644,8 @@ async def test_dashboard_write_requires_permission(
         "/api/v1/dashboards",
         json={
             "name": "Family Board",
-            "boardType": "custom",
-            "visibility": "private",
+            "boardType": "user",
+            "visibility": {"scope": "private", "sharedWith": {"roles": [], "users": []}},
         },
         headers={"Authorization": f"Bearer {family_token}"},
     )
@@ -692,11 +713,12 @@ async def test_get_widget_registry(
     assert "data" in data
 
     registry = data["data"]
-    assert registry["total"] == 6
-    assert len(registry["widgets"]) == 6
-    assert len(registry["categories"]) > 0
+    assert registry["total"] >= 45
+    assert len(registry["widgets"]) >= 45
+    # Registry returns all 11 spec categories (zero-count categories included)
+    assert len(registry["categories"]) == 11
 
-    # Verify widget structure
+    # Verify widget structure including the spec-aligned fields
     first_widget = registry["widgets"][0]
     assert "widgetType" in first_widget
     assert "displayName" in first_widget
@@ -704,6 +726,12 @@ async def test_get_widget_registry(
     assert "category" in first_widget
     assert "icon" in first_widget
     assert "source" in first_widget
+    assert "version" in first_widget
+    assert "supportedDataShapes" in first_widget
+    assert "tags" in first_widget
+    assert "permissions" in first_widget
+    assert "view" in first_widget["permissions"]
+    assert "interact" in first_widget["permissions"]
     assert "defaultSize" in first_widget
     assert "minSize" in first_widget
     assert "maxSize" in first_widget
@@ -714,13 +742,17 @@ async def test_get_widget_registry(
     assert "w" in first_widget["defaultSize"]
     assert "h" in first_widget["defaultSize"]
     assert first_widget["capabilities"]["configurable"] is True
-    assert first_widget["capabilities"]["repeatable"] is False
 
-    # Verify category structure
-    first_category = registry["categories"][0]
-    assert "id" in first_category
-    assert "name" in first_category
-    assert "count" in first_category
+    # Verify category IDs come from the 11 spec categories
+    spec_category_ids = {
+        "data-display", "status-health", "tables-lists", "charts-graphs",
+        "topology-maps", "controls-actions", "infrastructure", "iot-home",
+        "time-history", "external-embed", "system-meta",
+    }
+    for category in registry["categories"]:
+        assert category["id"] in spec_category_ids
+        assert "name" in category
+        assert "count" in category
 
 
 @pytest.mark.asyncio
@@ -738,7 +770,7 @@ async def test_get_widget_registry_filter_by_category(
 
     response = await client.get(
         "/api/v1/dashboards/widgets/registry",
-        params={"category": "status"},
+        params={"category": "status-health"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
@@ -746,13 +778,13 @@ async def test_get_widget_registry_filter_by_category(
     data = response.json()
     registry = data["data"]
 
-    # Only status widgets should be returned
+    # Only status-health widgets should be returned
     assert registry["total"] > 0
     for widget in registry["widgets"]:
-        assert widget["category"] == "status"
+        assert widget["category"] == "status-health"
 
-    # Categories should still show all categories (full registry summary)
-    assert len(registry["categories"]) > 1
+    # Categories should still show all spec categories
+    assert len(registry["categories"]) == 11
 
 
 @pytest.mark.asyncio
@@ -845,14 +877,16 @@ def sample_template():
         "templateId": "tmpl_test123abc",
         "name": "Test Template",
         "description": "A test template",
-        "boardType": "custom",
+        "boardType": "user",
         "layout": {
             "columns": 12,
             "rowHeight": 80,
             "breakpoints": {
+                "xl": {"columns": 12, "width": 1536},
                 "lg": {"columns": 12, "width": 1200},
                 "md": {"columns": 8, "width": 996},
-                "sm": {"columns": 4, "width": 768},
+                "sm": {"columns": 4, "width": 480},
+                "xs": {"columns": 2, "width": 0},
             },
         },
         "widgets": [
@@ -875,6 +909,10 @@ def sample_template():
             "refreshInterval": 30,
             "showHeader": True,
             "kioskMode": False,
+            "kioskAutoScroll": False,
+            "kioskScrollSpeed": 30,
+            "backgroundImage": None,
+            "customCss": None,
         },
         "tags": ["infrastructure", "builtin"],
         "widgetCount": 2,
@@ -976,7 +1014,7 @@ async def test_share_board(
     sample_user,
     sample_board,
 ):
-    """Test sharing a board updates visibility and allowedUsers."""
+    """Test sharing a board sets the structured visibility payload."""
     mock_mongodb.users.find_one = AsyncMock(
         return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
     )
@@ -985,14 +1023,18 @@ async def test_share_board(
 
     response = await client.post(
         f"/api/v1/dashboards/{sample_board['boardId']}/share",
-        json={"visibility": "shared", "allowedUsers": ["user_viewer123"]},
+        json={
+            "scope": "shared",
+            "sharedWith": {"roles": ["viewer"], "users": ["user_viewer123"]},
+        },
         headers={"Authorization": f"Bearer {admin_token}"},
     )
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["visibility"] == "shared"
-    assert "user_viewer123" in data["allowedUsers"]
+    assert data["scope"] == "shared"
+    assert "user_viewer123" in data["sharedWith"]["users"]
+    assert "viewer" in data["sharedWith"]["roles"]
     mock_dashboards_collection.update_one.assert_awaited_once()
 
 
@@ -1008,20 +1050,19 @@ async def test_revoke_shares(
     """Test revoking shares resets visibility to private."""
     shared_board = {
         **sample_board,
-        "visibility": "shared",
-        "allowedUsers": ["user_viewer123"],
-        "sharedWith": {"roles": ["viewer"], "users": ["user_viewer123"]},
+        "visibility": {
+            "scope": "shared",
+            "sharedWith": {"roles": ["viewer"], "users": ["user_viewer123"]},
+        },
     }
     revoked_board = {
         **sample_board,
-        "visibility": "private",
-        "allowedUsers": [],
-        "sharedWith": {"roles": [], "users": []},
+        "visibility": {"scope": "private", "sharedWith": {"roles": [], "users": []}},
     }
     mock_mongodb.users.find_one = AsyncMock(
         return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
     )
-    # First find_one for ownership check, second for update_one, third for get_board_for_user
+    # First find_one for ownership check, second for get_board_for_user response
     mock_dashboards_collection.find_one = AsyncMock(
         side_effect=[shared_board, revoked_board]
     )
@@ -1034,7 +1075,7 @@ async def test_revoke_shares(
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["visibility"] == "private"
+    assert data["visibility"]["scope"] == "private"
     mock_dashboards_collection.update_one.assert_awaited_once()
 
 
@@ -1093,7 +1134,7 @@ async def test_import_board(
             "exportVersion": 1,
             "name": "Imported Board",
             "description": "From export",
-            "boardType": "custom",
+            "boardType": "user",
             "layout": sample_board["layout"],
             "widgets": [
                 {
@@ -1114,11 +1155,13 @@ async def test_import_board(
     )
 
     assert response.status_code == 201
-    data = response.json()["data"]
-    assert data["boardId"].startswith("board_")
-    assert data["name"] == "Imported Board"
-    assert data["ownerId"] == "user_admin123"
-    assert data["visibility"] == "private"
+    body = response.json()["data"]
+    board = body["board"]
+    assert board["boardId"].startswith("board_")
+    assert board["name"] == "Imported Board"
+    assert board["ownerId"] == "user_admin123"
+    assert board["visibility"]["scope"] == "private"
+    assert body["warnings"] == []
     mock_dashboards_collection.insert_one.assert_awaited_once()
 
 
@@ -1155,7 +1198,7 @@ async def test_export_import_roundtrip(
     )
 
     assert import_response.status_code == 201
-    imported = import_response.json()["data"]
+    imported = import_response.json()["data"]["board"]
     assert imported["name"] == "Re-imported"
     assert imported["boardType"] == exported["boardType"]
     assert len(imported["widgets"]) == len(exported["widgets"])
@@ -1177,9 +1220,12 @@ async def test_get_shares(
     """Test getting share information for a board."""
     board_with_shares = {
         **sample_board,
-        "sharedWith": {
-            "roles": ["viewer", "operator"],
-            "users": ["user_viewer123"],
+        "visibility": {
+            "scope": "shared",
+            "sharedWith": {
+                "roles": ["viewer", "operator"],
+                "users": ["user_viewer123"],
+            },
         },
     }
     mock_mongodb.users.find_one = AsyncMock(

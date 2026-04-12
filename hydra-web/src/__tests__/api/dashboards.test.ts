@@ -36,7 +36,7 @@ describe('Dashboards API Hooks', () => {
     await act(async () => {
       await result.current.mutateAsync({
         name: 'Created From Test',
-        visibility: 'private',
+        visibility: { scope: 'private', sharedWith: { roles: [], users: [] } },
         widgets: [],
       });
     });

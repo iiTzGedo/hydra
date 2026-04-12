@@ -55,6 +55,14 @@ vi.mock('@/api/dashboards', () => ({
     mutateAsync: vi.fn(),
     isPending: false,
   }),
+  useSetHomeDashboard: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  usePatchDashboard: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
   useSaveAsTemplate: () => ({
     mutateAsync: vi.fn(),
     isPending: false,
@@ -248,8 +256,9 @@ const starterBoard = {
   description: 'Primary infrastructure dashboard',
   icon: 'layout-dashboard',
   ownerId: 'user-001',
-  boardType: 'home',
-  visibility: 'private',
+  ownerType: 'user' as const,
+  boardType: 'user' as const,
+  visibility: { scope: 'private' as const, sharedWith: { roles: [], users: [] } },
   widgetCount: 6,
   tags: ['starter'],
   isHome: true,
@@ -260,9 +269,11 @@ const starterBoard = {
     columns: 12,
     rowHeight: 80,
     breakpoints: {
+      xl: { columns: 12, width: 1536 },
       lg: { columns: 12, width: 1200 },
       md: { columns: 8, width: 996 },
-      sm: { columns: 4, width: 768 },
+      sm: { columns: 4, width: 480 },
+      xs: { columns: 2, width: 0 },
     },
   },
   widgets: [
@@ -315,6 +326,10 @@ const starterBoard = {
     refreshInterval: 30,
     showHeader: true,
     kioskMode: false,
+    kioskAutoScroll: false,
+    kioskScrollSpeed: 30,
+    backgroundImage: null,
+    customCss: null,
   },
   clonedFrom: null,
   archivedAt: null,
@@ -327,8 +342,9 @@ const secondBoard = {
   description: 'Another board',
   icon: null,
   ownerId: 'user-001',
-  boardType: 'custom',
-  visibility: 'private',
+  ownerType: 'user' as const,
+  boardType: 'user' as const,
+  visibility: { scope: 'private' as const, sharedWith: { roles: [], users: [] } },
   widgetCount: 1,
   tags: [],
   isHome: false,
@@ -416,8 +432,8 @@ describe('Dashboard Page', () => {
     );
     expect(createDashboardMock.mock.calls[0][0]).toMatchObject({
       name: 'Dashboard',
-      boardType: 'home',
-      visibility: 'private',
+      boardType: 'user',
+      visibility: { scope: 'private', sharedWith: { roles: [], users: [] } },
     });
   });
 

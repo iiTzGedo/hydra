@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { Layout } from 'react-grid-layout';
 import {
@@ -34,6 +33,7 @@ import {
   useDeleteWidget,
   useExportDashboard,
   useImportDashboard,
+  useSetHomeDashboard,
   useUpdateDashboard,
   useWidgetRegistry,
 } from '@/api/dashboards';
@@ -100,7 +100,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { apiClient } from '@/lib/api-client';
+import { useWidgetData } from '@/hooks/use-widget-data';
 import { getErrorMessage } from '@/lib/api-client';
 import { ROUTES } from '@/lib/constants';
 import { useDashboardStore } from '@/stores/dashboard-store';
@@ -111,6 +111,7 @@ import type {
   DashboardBoardLayout,
   DashboardBoardSettings,
   DashboardCreateWidgetRequest,
+  DashboardDataBinding,
   DashboardWidgetInstance,
   WidgetConfigField,
   WidgetSize,
@@ -145,9 +146,11 @@ const DEFAULT_BOARD_LAYOUT: DashboardBoardLayout = {
     columns: 12,
     rowHeight: 80,
     breakpoints: {
+      xl: { columns: 12, width: 1536 },
       lg: { columns: 12, width: 1200 },
       md: { columns: 8, width: 996 },
-      sm: { columns: 4, width: 768 },
+      sm: { columns: 4, width: 480 },
+      xs: { columns: 2, width: 0 },
     },
     compaction: 'vertical',
     margin: [16, 16],
@@ -155,12 +158,16 @@ const DEFAULT_BOARD_LAYOUT: DashboardBoardLayout = {
   },
 };
 
-const DEFAULT_BOARD_SETTINGS: DashboardBoardSettings = {
+const STARTER_BOARD_SETTINGS: DashboardBoardSettings = {
   theme: 'inherit',
   autoRefresh: true,
   refreshInterval: 30,
   showHeader: true,
   kioskMode: false,
+  kioskAutoScroll: false,
+  kioskScrollSpeed: 30,
+  backgroundImage: null,
+  customCss: null,
 };
 
 function getBoardDisplayName(board?: { isHome?: boolean; name: string } | null) {
@@ -175,10 +182,10 @@ function buildStarterBoardRequest(name: string, isHome: boolean): CreateDashboar
   return {
     name,
     description: 'Overview of your infrastructure',
-    boardType: isHome ? 'home' : 'custom',
-    visibility: 'private',
+    boardType: 'user',
+    visibility: { scope: 'private', sharedWith: { roles: [], users: [] } },
     layout: DEFAULT_BOARD_LAYOUT,
-    settings: DEFAULT_BOARD_SETTINGS,
+    settings: STARTER_BOARD_SETTINGS,
     tags: ['starter'],
     isHome,
     widgets: [
@@ -270,13 +277,31 @@ function sanitizeWidgetConfig(
 function WidgetContent({
   widgetType,
   config,
+  dataBinding,
+  isEditing,
+  onNavigate,
 }: {
   widgetType: string;
   config: Record<string, unknown>;
+  dataBinding?: DashboardDataBinding | null;
+  isEditing: boolean;
+  onNavigate: (path: string) => void;
 }) {
+  const { data, isLoading, error } = useWidgetData(dataBinding);
+
   const Component = getWidgetComponent(widgetType);
   if (Component) {
-    return <Component config={{ ...config, __widgetType: widgetType }} />;
+    return (
+      <Component
+        config={{ ...config, __widgetType: widgetType }}
+        data={data}
+        isEditing={isEditing}
+        isLoading={isLoading}
+        error={error}
+        dimensions={{ width: 0, height: 0 }}
+        onNavigate={onNavigate}
+      />
+    );
   }
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -330,7 +355,6 @@ function widgetActions(widgetType: string) {
 export default function DashboardPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const queryClient = useQueryClient();
   const { boardId: routeBoardId } = useParams<{ boardId?: string }>();
   const isInlineLegacyDashboard = location.pathname === ROUTES.DASHBOARD && !routeBoardId;
 
@@ -405,6 +429,7 @@ export default function DashboardPage() {
   const deleteWidget = useDeleteWidget(effectiveBoardId ?? '');
   const exportQuery = useExportDashboard(effectiveBoardId ?? '');
   const importDashboard = useImportDashboard();
+  const setHomeBoard = useSetHomeDashboard();
 
   const widgetDefinitions = useMemo(
     () =>
@@ -757,9 +782,15 @@ export default function DashboardPage() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
-      const board = await importDashboard.mutateAsync({ board: parsed });
-      toast.success('Dashboard imported');
-      openBoard(board.boardId);
+      const result = await importDashboard.mutateAsync({ board: parsed });
+      if (result.warnings.length > 0) {
+        toast.warning(
+          `Dashboard imported with ${result.warnings.length} warning(s): ${result.warnings[0].message}`,
+        );
+      } else {
+        toast.success('Dashboard imported');
+      }
+      openBoard(result.board.boardId);
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to import dashboard'));
     }
@@ -782,18 +813,13 @@ export default function DashboardPage() {
   }, [pinnedBoardIds, updateSettings]);
 
   const handleMakeHome = useCallback(async (boardId: string) => {
-    const currentHome = boards.find((board) => board.isHome);
     try {
-      if (currentHome && currentHome.boardId !== boardId) {
-        await apiClient.put(`/dashboards/${currentHome.boardId}`, { isHome: false });
-      }
-      await apiClient.put(`/dashboards/${boardId}`, { isHome: true });
-      await queryClient.invalidateQueries({ queryKey: ['dashboards'] });
+      await setHomeBoard.mutateAsync(boardId);
       toast.success('Home dashboard updated');
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to update home dashboard'));
     }
-  }, [boards, queryClient]);
+  }, [setHomeBoard]);
 
   const customizerWidgets = useMemo(() => {
     if (!workingBoard) {
@@ -1013,7 +1039,7 @@ export default function DashboardPage() {
                 <CardContent className="space-y-4 p-6">
                   <div className="flex flex-wrap gap-2">
                     <Badge variant="outline">{board.widgetCount} widgets</Badge>
-                    <Badge variant="outline">{board.visibility}</Badge>
+                    <Badge variant="outline">{board.visibility.scope}</Badge>
                     <Badge variant="outline">{board.boardType}</Badge>
                   </div>
 
@@ -1109,7 +1135,13 @@ export default function DashboardPage() {
                     defaultCollapsed={getBooleanConfig(widget.config, 'defaultCollapsed')}
                     isEditMode={isEditMode}
                   >
-                    <WidgetContent widgetType={widget.widgetType} config={widget.config} />
+                    <WidgetContent
+                      widgetType={widget.widgetType}
+                      config={widget.config}
+                      dataBinding={widget.dataBinding}
+                      isEditing={isEditMode}
+                      onNavigate={(path) => navigate(path)}
+                    />
                   </Widget>
                 ))}
               </WidgetGrid>
