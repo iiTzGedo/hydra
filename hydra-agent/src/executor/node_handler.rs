@@ -1,6 +1,6 @@
 //! Node command handler.
 //!
-//! Handles node-level commands: reboot, shutdown, update-system, set-hostname.
+//! Handles node-level commands: reboot, shutdown, suspend, update-system, set-hostname.
 //! These commands operate on the host system and typically require root privileges.
 
 use serde_json::Value;
@@ -21,6 +21,7 @@ pub async fn execute(action: &str, parameters: &Option<Value>, timeout_secs: u64
     match action {
         "reboot" => execute_reboot(timeout_secs).await,
         "shutdown" => execute_shutdown(timeout_secs).await,
+        "suspend" => execute_suspend(timeout_secs).await,
         "update-system" => execute_system_update(timeout_secs).await,
         "set-hostname" => execute_set_hostname(parameters, timeout_secs).await,
         other => CommandResult::error(&format!("Unknown node action: {}", other)),
@@ -47,6 +48,17 @@ async fn execute_shutdown(timeout_secs: u64) -> CommandResult {
 #[cfg(not(target_os = "linux"))]
 async fn execute_shutdown(_timeout_secs: u64) -> CommandResult {
     CommandResult::error("Shutdown is only supported on Linux")
+}
+
+/// Suspend the system to RAM.
+#[cfg(target_os = "linux")]
+async fn execute_suspend(timeout_secs: u64) -> CommandResult {
+    run_command("systemctl", &["suspend"], timeout_secs).await
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn execute_suspend(_timeout_secs: u64) -> CommandResult {
+    CommandResult::error("Suspend is only supported on Linux")
 }
 
 /// Update system packages.

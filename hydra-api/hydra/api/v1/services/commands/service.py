@@ -1418,11 +1418,19 @@ class CommandsService:
 
         cutoff = datetime.now(UTC) - timedelta(minutes=timeout_minutes)
 
+        # Capture timed-out commands before marking them, so we can send cancel
+        # signals to nodes that support direct execution.
+        stale_query = {
+            "status": CommandStatus.EXECUTING.value,
+            "startedAt": {"$lt": cutoff},
+        }
+        stale_commands: list[dict[str, Any]] = await self.commands.find(
+            stale_query,
+            projection={"commandId": 1, "target.nodeId": 1},
+        ).to_list(length=500)
+
         result = await self.commands.update_many(
-            {
-                "status": CommandStatus.EXECUTING.value,
-                "startedAt": {"$lt": cutoff},
-            },
+            stale_query,
             {
                 "$set": {
                     "status": CommandStatus.TIMEOUT.value,
@@ -1444,6 +1452,16 @@ class CommandsService:
 
         if result.modified_count > 0:
             logger.info("commands_timed_out", count=result.modified_count)
+
+            # Fire cancel signals to max-tier nodes (best-effort, async).
+            for cmd in stale_commands:
+                node_id = cmd.get("target", {}).get("nodeId")
+                command_id = cmd.get("commandId")
+                if node_id and command_id:
+                    safe_create_task(
+                        self._send_timeout_cancel_signal(node_id, command_id)
+                    )
+
             audit_id = await log_audit(
                 action=AuditAction.EXECUTE,
                 resource_type="command",
@@ -1466,6 +1484,51 @@ class CommandsService:
             )
 
         return result.modified_count
+
+    async def _send_timeout_cancel_signal(
+        self, node_id: str, command_id: str
+    ) -> None:
+        """Send a cancel signal to a max-tier node's agent server (best-effort).
+
+        For poll-only nodes, the agent will see the TIMEOUT status on next poll.
+        For direct-execution nodes, we attempt an HTTP POST to abort immediately.
+        """
+        try:
+            node = await self.nodes.find_one({"nodeId": node_id})
+            if not node:
+                return
+
+            server_address = node.get("serverAddress")
+            server_port = node.get("serverPort", 9100)
+            server_secret = node.get("agentServerSecret")
+
+            if not server_address or not server_secret:
+                return  # Poll-only node; agent picks up TIMEOUT on next poll.
+
+            import httpx
+
+            scheme = "https" if node.get("serverTlsEnabled") else "http"
+            url = f"{scheme}://{server_address}:{server_port}/cancel"
+
+            async with httpx.AsyncClient(timeout=5.0, verify=False) as http:  # noqa: S501
+                await http.post(
+                    url,
+                    json={"commandId": command_id, "reason": "timeout"},
+                    headers={"Authorization": f"Bearer {server_secret}"},
+                )
+
+            logger.info(
+                "timeout_cancel_signal_sent",
+                node_id=node_id,
+                command_id=command_id,
+            )
+        except Exception as exc:
+            logger.debug(
+                "timeout_cancel_signal_failed",
+                node_id=node_id,
+                command_id=command_id,
+                error=str(exc),
+            )
 
     # ── Safety controls (P2C-002) ───────────────────────────────────────
 

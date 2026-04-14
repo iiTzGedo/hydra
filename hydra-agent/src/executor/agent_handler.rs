@@ -1,7 +1,7 @@
 //! Agent command handler.
 //!
-//! Handles agent self-management commands: status, config-reload, collect-now,
-//! restart, update, probe-network.
+//! Handles agent self-management commands: status, config-reload, config-update,
+//! collect-now, restart, update, uninstall, probe-network.
 
 use std::net::Ipv4Addr;
 use std::path::Path;
@@ -71,10 +71,12 @@ pub async fn execute(
 
     match action {
         "status" => execute_status(config, start_time).await,
-        "config-reload" => execute_config_reload(config, config_path).await,
+        "config-reload" => execute_config_reload(config.clone(), config_path).await,
+        "config-update" => execute_config_update(parameters, config, config_path).await,
         "collect-now" => execute_collect_now(config, timeout_secs, api_client).await,
         "restart" => execute_restart(timeout_secs).await,
         "update" => execute_update(parameters, config, vault).await,
+        "uninstall" => execute_uninstall(parameters).await,
         "probe-network" => execute_probe_network(parameters, timeout_secs).await,
         other => CommandResult::error(&format!("Unknown agent action: {}", other)),
     }
@@ -173,6 +175,183 @@ async fn execute_config_reload(
             data: None,
         },
     }
+}
+
+/// Update specific fields in the agent configuration file and reload.
+///
+/// Accepts a `merge` parameter containing key-value pairs that are written
+/// into agent.toml, then triggers a config reload.
+async fn execute_config_update(
+    parameters: &Option<Value>,
+    config: Arc<RwLock<AgentConfig>>,
+    config_path: Option<&Path>,
+) -> CommandResult {
+    let Some(params) = parameters.as_ref() else {
+        return CommandResult::error("config-update requires parameters with a 'merge' object");
+    };
+
+    let Some(merge) = params.get("merge") else {
+        return CommandResult::error("Missing required parameter 'merge'");
+    };
+
+    if !merge.is_object() {
+        return CommandResult::error("'merge' parameter must be an object");
+    }
+
+    let path = match config_path {
+        Some(p) => p,
+        None => {
+            return CommandResult::error(
+                "Config update unavailable: config path not available in this execution context",
+            );
+        }
+    };
+
+    // Read current TOML, apply merge values, write back.
+    let toml_content = match tokio::fs::read_to_string(path).await {
+        Ok(content) => content,
+        Err(e) => {
+            return CommandResult::error(&format!("Failed to read config file: {}", e));
+        }
+    };
+
+    let mut doc: toml::Value = match toml_content.parse() {
+        Ok(v) => v,
+        Err(e) => {
+            return CommandResult::error(&format!("Failed to parse config TOML: {}", e));
+        }
+    };
+
+    // Merge JSON values into TOML structure.
+    let merge_map = merge.as_object().unwrap();
+    let mut applied_keys = Vec::new();
+    if let Some(table) = doc.as_table_mut() {
+        for (key, value) in merge_map {
+            if let Some(toml_val) = json_to_toml(value) {
+                table.insert(key.clone(), toml_val);
+                applied_keys.push(key.clone());
+            }
+        }
+    }
+
+    let new_toml = match toml::to_string_pretty(&doc) {
+        Ok(s) => s,
+        Err(e) => {
+            return CommandResult::error(&format!("Failed to serialize updated config: {}", e));
+        }
+    };
+
+    if let Err(e) = tokio::fs::write(path, &new_toml).await {
+        return CommandResult::error(&format!("Failed to write config file: {}", e));
+    }
+
+    info!(
+        keys = ?applied_keys,
+        "Config file updated, triggering reload"
+    );
+
+    // Reload the in-memory config.
+    let reload_result = execute_config_reload(config, config_path).await;
+    if !reload_result.success {
+        return CommandResult::error(&format!(
+            "Config written but reload failed: {}",
+            reload_result.error.unwrap_or_default()
+        ));
+    }
+
+    CommandResult {
+        success: true,
+        output: Some(format!(
+            "Config updated and reloaded. Applied keys: {}",
+            applied_keys.join(", ")
+        )),
+        exit_code: Some(0),
+        error: None,
+        data: Some(serde_json::json!({
+            "appliedKeys": applied_keys,
+        })),
+    }
+}
+
+/// Convert a serde_json Value to a toml Value.
+fn json_to_toml(value: &Value) -> Option<toml::Value> {
+    match value {
+        Value::Bool(b) => Some(toml::Value::Boolean(*b)),
+        Value::Number(n) => n
+            .as_i64()
+            .map(toml::Value::Integer)
+            .or_else(|| n.as_f64().map(toml::Value::Float)),
+        Value::String(s) => Some(toml::Value::String(s.clone())),
+        Value::Array(arr) => {
+            let items: Vec<toml::Value> = arr.iter().filter_map(json_to_toml).collect();
+            Some(toml::Value::Array(items))
+        }
+        Value::Object(map) => {
+            let mut table = toml::map::Map::new();
+            for (k, v) in map {
+                if let Some(tv) = json_to_toml(v) {
+                    table.insert(k.clone(), tv);
+                }
+            }
+            Some(toml::Value::Table(table))
+        }
+        Value::Null => None,
+    }
+}
+
+/// Uninstall the Hydra agent from the node.
+///
+/// Stops and disables the service, optionally removes config and credential files.
+#[cfg(target_os = "linux")]
+async fn execute_uninstall(parameters: &Option<Value>) -> CommandResult {
+    let purge = parameters
+        .as_ref()
+        .and_then(|p| p.get("purge"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    info!(purge = purge, "Agent uninstall requested");
+
+    // Schedule the actual uninstall after result submission.
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        let _ = Command::new("systemctl")
+            .args(["stop", "hydra-agent.service"])
+            .status()
+            .await;
+        let _ = Command::new("systemctl")
+            .args(["disable", "hydra-agent.service"])
+            .status()
+            .await;
+
+        if purge {
+            let _ = tokio::fs::remove_dir_all("/etc/hydra").await;
+            let _ = tokio::fs::remove_dir_all("/var/cv/hydra").await;
+        }
+    });
+
+    CommandResult {
+        success: true,
+        output: Some(format!(
+            "Agent uninstall initiated{}. The service will stop momentarily.",
+            if purge {
+                " with purge (config and credentials will be removed)"
+            } else {
+                ""
+            }
+        )),
+        exit_code: Some(0),
+        error: None,
+        data: Some(serde_json::json!({
+            "purge": purge,
+        })),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn execute_uninstall(_parameters: &Option<Value>) -> CommandResult {
+    CommandResult::error("Agent uninstall via systemctl is only supported on Linux")
 }
 
 /// Trigger an immediate profile collection and submission.

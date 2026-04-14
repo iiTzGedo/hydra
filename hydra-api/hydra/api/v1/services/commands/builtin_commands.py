@@ -1,6 +1,6 @@
 """Built-in command definitions for the command registry.
 
-These 18 commands are seeded into the command_definitions collection on startup.
+These commands are seeded into the command_definitions collection on startup.
 They match the spec in Phase 2 Technical Specification §4.2.2 and §5 (Controls).
 """
 
@@ -23,6 +23,7 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
             "runtimes": {
                 "systemd": "systemctl start {service}",
                 "docker": "docker start {container}",
+                "podman": "podman start {container}",
             },
             "handler": None,
             "timeout": 30,
@@ -52,6 +53,7 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
             "runtimes": {
                 "systemd": "systemctl stop {service}",
                 "docker": "docker stop {container}",
+                "podman": "podman stop {container}",
             },
             "handler": None,
             "timeout": 30,
@@ -81,6 +83,7 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
             "runtimes": {
                 "systemd": "systemctl restart {service}",
                 "docker": "docker restart {container}",
+                "podman": "podman restart {container}",
             },
             "handler": None,
             "timeout": 60,
@@ -109,6 +112,7 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
         "execution": {
             "runtimes": {
                 "systemd": "systemctl reload {service}",
+                "podman": "podman kill -s HUP {container}",
             },
             "handler": None,
             "timeout": 30,
@@ -143,6 +147,7 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
             "runtimes": {
                 "systemd": "journalctl -u {service} -n {lines}",
                 "docker": "docker logs --tail {lines} {container}",
+                "podman": "podman logs --tail {lines} {container}",
             },
             "handler": None,
             "timeout": 30,
@@ -172,6 +177,7 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
             "runtimes": {
                 "systemd": "systemctl show {service}",
                 "docker": "docker inspect {container}",
+                "podman": "podman inspect {container}",
             },
             "handler": None,
             "timeout": 15,
@@ -204,6 +210,7 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
         "execution": {
             "runtimes": {
                 "docker": "docker pull {image} && docker restart {container}",
+                "podman": "podman pull {image} && podman restart {container}",
             },
             "handler": None,
             "timeout": 300,
@@ -327,7 +334,32 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
         "audit": {"logLevel": "standard", "captureOutput": True, "sensitiveParameters": []},
         "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
     },
-    # ── Agent commands (7) ───────────────────────────────────────────────
+    {
+        "registryId": "reg::node::suspend",
+        "category": "node",
+        "action": "suspend",
+        "displayName": "Suspend Node",
+        "description": "Suspend the node to RAM (wake-on-LAN or physical access needed to resume)",
+        "targetSchema": {"required": ["nodeId"]},
+        "parametersSchema": None,
+        "execution": {
+            "handler": "node_suspend",
+            "timeout": 30,
+            "deliveryMode": "poll_only",
+            "retryable": False,
+            "maxRetries": 0,
+        },
+        "rbac": {
+            "minimumRole": "admin",
+            "requiresConfirmation": True,
+            "confirmationMessage": "This will suspend the node to RAM. Wake-on-LAN or physical access is needed to resume.",
+            "dangerLevel": "high",
+            "controlPermission": "nodes:control:suspend",
+        },
+        "audit": {"logLevel": "verbose", "captureOutput": True, "sensitiveParameters": []},
+        "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
+    },
+    # ── Agent commands (9) ───────────────────────────────────────────────
     {
         "registryId": "reg::agent::restart",
         "category": "agent",
@@ -539,6 +571,221 @@ BUILTIN_COMMANDS: list[dict[str, Any]] = [
             "confirmationMessage": None,
             "dangerLevel": "safe",
             "controlPermission": "agent:control:status",
+        },
+        "audit": {"logLevel": "minimal", "captureOutput": True, "sensitiveParameters": []},
+        "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
+    },
+    {
+        "registryId": "reg::agent::config-update",
+        "category": "agent",
+        "action": "config-update",
+        "displayName": "Update Config",
+        "description": "Merge new values into the agent configuration file",
+        "targetSchema": {"required": ["nodeId"]},
+        "parametersSchema": {
+            "required": ["merge"],
+            "properties": {
+                "merge": {
+                    "type": "object",
+                    "description": "Key-value pairs to merge into agent.toml sections",
+                },
+            },
+        },
+        "execution": {
+            "handler": "agent_config_update",
+            "timeout": 30,
+            "deliveryMode": "poll_only",
+            "retryable": False,
+            "maxRetries": 0,
+        },
+        "rbac": {
+            "minimumRole": "admin",
+            "requiresConfirmation": False,
+            "confirmationMessage": None,
+            "dangerLevel": "medium",
+            "controlPermission": "agent:control:config-update",
+        },
+        "audit": {"logLevel": "standard", "captureOutput": True, "sensitiveParameters": []},
+        "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
+    },
+    {
+        "registryId": "reg::agent::uninstall",
+        "category": "agent",
+        "action": "uninstall",
+        "displayName": "Uninstall Agent",
+        "description": "Stop and uninstall the Hydra agent from the node",
+        "targetSchema": {"required": ["nodeId"]},
+        "parametersSchema": {
+            "properties": {
+                "purge": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Also remove config and credential files",
+                },
+            },
+        },
+        "execution": {
+            "handler": "agent_uninstall",
+            "timeout": 60,
+            "deliveryMode": "poll_only",
+            "retryable": False,
+            "maxRetries": 0,
+        },
+        "rbac": {
+            "minimumRole": "admin",
+            "requiresConfirmation": True,
+            "confirmationMessage": "This will uninstall the Hydra agent. The node will no longer report to Hydra.",
+            "dangerLevel": "critical",
+            "controlPermission": "agent:control:uninstall",
+        },
+        "audit": {"logLevel": "verbose", "captureOutput": True, "sensitiveParameters": []},
+        "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
+    },
+    # ── Home Assistant / IoT commands (5) ────────────────────────────────
+    {
+        "registryId": "reg::ha::turn-on",
+        "category": "plugin",
+        "action": "ha::turn-on",
+        "displayName": "Turn On",
+        "description": "Turn on a Home Assistant entity (light, switch, etc.)",
+        "targetSchema": {"required": ["nodeId"]},
+        "parametersSchema": {
+            "required": ["entityId"],
+            "properties": {
+                "entityId": {"type": "string", "description": "HA entity ID (e.g. light.living_room)"},
+                "domain": {"type": "string", "default": "light", "description": "HA domain"},
+            },
+        },
+        "execution": {
+            "handler": "plugin_ha",
+            "timeout": 15,
+            "deliveryMode": "poll_only",
+            "retryable": False,
+            "maxRetries": 0,
+        },
+        "rbac": {
+            "minimumRole": "family",
+            "requiresConfirmation": False,
+            "confirmationMessage": None,
+            "dangerLevel": "safe",
+            "controlPermission": "iot:control",
+        },
+        "audit": {"logLevel": "minimal", "captureOutput": True, "sensitiveParameters": []},
+        "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
+    },
+    {
+        "registryId": "reg::ha::turn-off",
+        "category": "plugin",
+        "action": "ha::turn-off",
+        "displayName": "Turn Off",
+        "description": "Turn off a Home Assistant entity",
+        "targetSchema": {"required": ["nodeId"]},
+        "parametersSchema": {
+            "required": ["entityId"],
+            "properties": {
+                "entityId": {"type": "string", "description": "HA entity ID"},
+                "domain": {"type": "string", "default": "light", "description": "HA domain"},
+            },
+        },
+        "execution": {
+            "handler": "plugin_ha",
+            "timeout": 15,
+            "deliveryMode": "poll_only",
+            "retryable": False,
+            "maxRetries": 0,
+        },
+        "rbac": {
+            "minimumRole": "family",
+            "requiresConfirmation": False,
+            "confirmationMessage": None,
+            "dangerLevel": "safe",
+            "controlPermission": "iot:control",
+        },
+        "audit": {"logLevel": "minimal", "captureOutput": True, "sensitiveParameters": []},
+        "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
+    },
+    {
+        "registryId": "reg::ha::toggle",
+        "category": "plugin",
+        "action": "ha::toggle",
+        "displayName": "Toggle",
+        "description": "Toggle a Home Assistant entity on/off",
+        "targetSchema": {"required": ["nodeId"]},
+        "parametersSchema": {
+            "required": ["entityId"],
+            "properties": {
+                "entityId": {"type": "string", "description": "HA entity ID"},
+                "domain": {"type": "string", "default": "light", "description": "HA domain"},
+            },
+        },
+        "execution": {
+            "handler": "plugin_ha",
+            "timeout": 15,
+            "deliveryMode": "poll_only",
+            "retryable": False,
+            "maxRetries": 0,
+        },
+        "rbac": {
+            "minimumRole": "family",
+            "requiresConfirmation": False,
+            "confirmationMessage": None,
+            "dangerLevel": "safe",
+            "controlPermission": "iot:control",
+        },
+        "audit": {"logLevel": "minimal", "captureOutput": True, "sensitiveParameters": []},
+        "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
+    },
+    {
+        "registryId": "reg::ha::get-state",
+        "category": "plugin",
+        "action": "ha::get-state",
+        "displayName": "Get State",
+        "description": "Get the current state of a Home Assistant entity",
+        "targetSchema": {"required": ["nodeId"]},
+        "parametersSchema": {
+            "required": ["entityId"],
+            "properties": {
+                "entityId": {"type": "string", "description": "HA entity ID"},
+            },
+        },
+        "execution": {
+            "handler": "plugin_ha",
+            "timeout": 10,
+            "deliveryMode": "direct_or_poll",
+            "retryable": False,
+            "maxRetries": 0,
+        },
+        "rbac": {
+            "minimumRole": "family",
+            "requiresConfirmation": False,
+            "confirmationMessage": None,
+            "dangerLevel": "safe",
+            "controlPermission": "iot:read",
+        },
+        "audit": {"logLevel": "minimal", "captureOutput": True, "sensitiveParameters": []},
+        "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
+    },
+    {
+        "registryId": "reg::ha::list-entities",
+        "category": "plugin",
+        "action": "ha::list-entities",
+        "displayName": "List Entities",
+        "description": "List all Home Assistant entities available on the node",
+        "targetSchema": {"required": ["nodeId"]},
+        "parametersSchema": None,
+        "execution": {
+            "handler": "plugin_ha",
+            "timeout": 15,
+            "deliveryMode": "direct_or_poll",
+            "retryable": False,
+            "maxRetries": 0,
+        },
+        "rbac": {
+            "minimumRole": "family",
+            "requiresConfirmation": False,
+            "confirmationMessage": None,
+            "dangerLevel": "safe",
+            "controlPermission": "iot:read",
         },
         "audit": {"logLevel": "minimal", "captureOutput": True, "sensitiveParameters": []},
         "metadata": {"version": "0.5.0", "addedAt": _NOW, "builtIn": True, "deprecated": False},
