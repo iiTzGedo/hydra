@@ -120,6 +120,20 @@ function RouteMatcher() {
     });
 
   if (matchedRoute) {
+    // Kiosk routes render without the sidebar/header layout
+    if (pathname.startsWith('/kiosk/')) {
+      return (
+        <ProtectedRoute
+          roles={matchedRoute.roles}
+          permissions={matchedRoute.permissions}
+        >
+          <Suspense fallback={<PageLoader />}>
+            <matchedRoute.element />
+          </Suspense>
+        </ProtectedRoute>
+      );
+    }
+
     return (
       <RootLayout>
         <AnimatedOutlet>

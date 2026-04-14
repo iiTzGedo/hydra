@@ -216,6 +216,9 @@ INDEXES: dict[str, list[IndexModel]] = {
     ],
     "dashboard_templates": [
         IndexModel([("templateId", ASCENDING)], unique=True),
+        IndexModel([("category", ASCENDING)]),
+        IndexModel([("source", ASCENDING)]),
+        IndexModel([("targetRoles", ASCENDING)]),
         IndexModel([("tags", ASCENDING)]),
         IndexModel([("createdBy", ASCENDING), ("createdAt", DESCENDING)]),
         IndexModel(
@@ -224,8 +227,9 @@ INDEXES: dict[str, list[IndexModel]] = {
         ),
     ],
     "dashboard_versions": [
-        IndexModel([("versionId", ASCENDING)], unique=True),
+        IndexModel([("boardId", ASCENDING), ("version", ASCENDING)], unique=True),
         IndexModel([("boardId", ASCENDING), ("version", DESCENDING)]),
+        IndexModel([("savedAt", DESCENDING)]),
     ],
 }
 

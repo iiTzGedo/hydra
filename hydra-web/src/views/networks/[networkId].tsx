@@ -17,6 +17,7 @@ import { ROUTES, NETWORK_TYPE_LABELS, NODE_CLASS_COLORS } from '@/lib/constants'
 import { cn, formatDate } from '@/lib/utils';
 import { getErrorMessage } from '@/lib/api-client';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
+import { EntityDashboardPanel } from '@/components/dashboard/entity-dashboard-panel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -347,6 +348,8 @@ export default function NetworkDetailPage() {
             </div>
           )}
         </motion.div>
+
+        <EntityDashboardPanel entityType="network" entityId={network.networkId} />
       </motion.div>
 
       <Dialog open={showEditDialog} onOpenChange={(open) => {

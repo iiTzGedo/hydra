@@ -133,6 +133,78 @@ class WidgetNotFoundError(NotFoundError):
         super().__init__("widget", widget_id)
 
 
+# ── Template variable substitution ───────────────────────────────
+
+_VAR_PATTERN = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+
+def _substitute_variables(obj: Any, variables: dict[str, Any]) -> Any:
+    """Recursively walk *obj* and replace ``{{varName}}`` placeholders.
+
+    - In strings: ``{{varName}}`` is replaced with the stringified variable value.
+      If the entire string is a single placeholder (``"{{x}}"``), the raw typed
+      value is substituted so numbers and booleans survive.
+    - In dicts/lists: recurse into children.
+    - Other types pass through unchanged.
+    """
+    if isinstance(obj, str):
+        # Fast path: entire string is a single variable reference → return raw value
+        single = _VAR_PATTERN.fullmatch(obj)
+        if single:
+            key = single.group(1)
+            return variables.get(key, obj)
+        # Partial replacement: may contain multiple interpolations
+        def _replace(match: re.Match[str]) -> str:
+            key = match.group(1)
+            return str(variables.get(key, match.group(0)))
+        return _VAR_PATTERN.sub(_replace, obj)
+    if isinstance(obj, dict):
+        return {k: _substitute_variables(v, variables) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_substitute_variables(item, variables) for item in obj]
+    return obj
+
+
+def _validate_template_variables(
+    template_vars: dict[str, Any] | None,
+    provided: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Validate provided variables against the template's variable schema.
+
+    Returns the merged variables dict (defaults filled in for missing optional vars).
+    Raises ``ValidationError`` if required variables are missing.
+    """
+    if not template_vars:
+        return provided or {}
+
+    schema = template_vars  # {name: {type, label, default, required, ...}}
+    result: dict[str, Any] = {}
+    missing: list[str] = []
+
+    for var_name, var_def in schema.items():
+        if provided and var_name in provided:
+            result[var_name] = provided[var_name]
+        elif isinstance(var_def, dict) and var_def.get("default") is not None:
+            result[var_name] = var_def["default"]
+        elif isinstance(var_def, dict) and var_def.get("required"):
+            missing.append(var_name)
+        # else: optional with no default — omit
+
+    if missing:
+        raise ValidationError(
+            f"Missing required template variables: {', '.join(missing)}",
+            {"missing": missing},
+        )
+
+    # Pass through any extra variables the user sent (forward-compat)
+    if provided:
+        for k, v in provided.items():
+            if k not in result:
+                result[k] = v
+
+    return result
+
+
 class DashboardService:
     """Service for dashboard board management operations."""
 
@@ -451,6 +523,10 @@ class DashboardService:
             details={"fields": list(update_fields.keys())},
         )
 
+        # Save version snapshot from the in-memory merge
+        snapshot_doc = {**existing, **update_fields}
+        await self._save_version_snapshot(snapshot_doc, user_id, "Board updated")
+
         return await self.get_board_for_user(board_id, user_id)
 
     async def patch_board(
@@ -570,6 +646,19 @@ class DashboardService:
             details={"patch_ops": applied_ops},
         )
 
+        # Save version snapshot from in-memory state
+        snapshot_doc = {
+            **existing,
+            "widgets": widgets,
+            "layout": layout,
+            "settings": settings,
+            "updatedAt": now,
+            "version": existing.get("version", 1) + 1,
+        }
+        await self._save_version_snapshot(
+            snapshot_doc, user_id, f"Patch: {', '.join(applied_ops)}"
+        )
+
         return await self.get_board_for_user(board_id, user_id)
 
     async def set_home_board(self, board_id: str, user_id: str) -> dict[str, Any]:
@@ -623,9 +712,16 @@ class DashboardService:
         self,
         board_id: str,
         user_id: str,
+        user_role: str | None = None,
     ) -> dict[str, Any]:
-        """Soft delete a dashboard board."""
-        existing = await self._get_owned_board(board_id, user_id, "delete")
+        """Soft delete a dashboard board. Admins can delete any board."""
+        if user_role == "admin":
+            doc = await self.collection.find_one({"boardId": board_id, "archivedAt": None})
+            if not doc:
+                raise DashboardNotFoundError(board_id)
+            existing = cast(dict[str, Any], doc)
+        else:
+            existing = await self._get_owned_board(board_id, user_id, "delete")
 
         now = datetime.now(UTC)
         await self.collection.update_one(
@@ -653,8 +749,9 @@ class DashboardService:
         board_id: str,
         user_id: str,
         name: str | None = None,
+        variables: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Clone an existing board owned by or visible to the user."""
+        """Clone an existing board with optional variable substitution."""
         source = await self._get_visible_board(board_id, user_id)
         await self._enforce_create_limit(user_id)
 
@@ -678,6 +775,10 @@ class DashboardService:
 
         for widget in cloned.get("widgets", []):
             widget["instanceId"] = f"wi_{uuid4().hex[:8]}"
+            if variables:
+                widget["config"] = _substitute_variables(widget.get("config", {}), variables)
+                if widget.get("dataBinding"):
+                    widget["dataBinding"] = _substitute_variables(widget["dataBinding"], variables)
 
         await self.collection.insert_one(cloned)
 
@@ -999,10 +1100,23 @@ class DashboardService:
             widget.pop("instanceId", None)
             sanitized_widgets.append(widget)
 
+        variables_dict: dict[str, Any] | None = None
+        if request.variables:
+            variables_dict = {
+                key: var.model_dump(by_alias=True)
+                for key, var in request.variables.items()
+            }
+
         doc: dict[str, Any] = {
             "templateId": template_id,
             "name": request.name,
             "description": request.description,
+            "category": request.category.value,
+            "targetRoles": request.target_roles,
+            "requiredPlugins": request.required_plugins,
+            "optionalPlugins": request.optional_plugins,
+            "variables": variables_dict,
+            "source": "user",
             "boardType": "user",
             "layout": source.get("layout", _default_grid_layout()),
             "widgets": sanitized_widgets,
@@ -1038,19 +1152,43 @@ class DashboardService:
         offset: int = 0,
         search: str | None = None,
         tags: list[str] | None = None,
+        category: str | None = None,
+        source: str | None = None,
+        user_role: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        """List dashboard templates."""
+        """List dashboard templates, filtered by category, source, and user role."""
         templates_col = self.db.db["dashboard_templates"]
         filter_query: dict[str, Any] = {}
 
+        if category:
+            filter_query["category"] = category
+        if source:
+            filter_query["source"] = source
         if tags:
             filter_query["tags"] = {"$all": tags}
+        if user_role:
+            # Only return templates whose targetRoles include the user's role,
+            # or templates that have no targetRoles set (legacy/unrestricted).
+            filter_query["$or"] = [
+                {"targetRoles": user_role},
+                {"targetRoles": {"$exists": False}},
+                {"targetRoles": {"$size": 0}},
+            ]
         if search:
             escaped = re.escape(search)
-            filter_query["$or"] = [
+            search_conditions = [
                 {"name": {"$regex": escaped, "$options": "i"}},
                 {"description": {"$regex": escaped, "$options": "i"}},
             ]
+            if "$or" in filter_query:
+                # Combine role filter with search using $and
+                role_or = filter_query.pop("$or")
+                filter_query["$and"] = [
+                    {"$or": role_or},
+                    {"$or": search_conditions},
+                ]
+            else:
+                filter_query["$or"] = search_conditions
 
         total = await templates_col.count_documents(filter_query)
 
@@ -1080,8 +1218,9 @@ class DashboardService:
         template_id: str,
         user_id: str,
         name: str | None = None,
+        variables: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create a new board from a template."""
+        """Create a new board from a template with optional variable substitution."""
         templates_col = self.db.db["dashboard_templates"]
         template = await templates_col.find_one({"templateId": template_id})
         if not template:
@@ -1089,12 +1228,23 @@ class DashboardService:
 
         await self._enforce_create_limit(user_id)
 
+        # Validate and merge provided variables with defaults from the schema
+        resolved_vars = _validate_template_variables(
+            template.get("variables"),
+            variables,
+        )
+
         now = datetime.now(UTC)
         board_id = f"board_{uuid4().hex[:12]}"
 
         widgets: list[dict[str, Any]] = []
         for widget in copy.deepcopy(template.get("widgets", [])):
             widget["instanceId"] = f"wi_{uuid4().hex[:8]}"
+            # Apply variable substitution to widget config and data bindings
+            if resolved_vars:
+                widget["config"] = _substitute_variables(widget.get("config", {}), resolved_vars)
+                if widget.get("dataBinding"):
+                    widget["dataBinding"] = _substitute_variables(widget["dataBinding"], resolved_vars)
             widgets.append(widget)
 
         doc: dict[str, Any] = {
@@ -1170,6 +1320,157 @@ class DashboardService:
         )
 
         return self._format_template(doc)
+
+    # ── Version History ────────────────────────────────────────────
+
+    async def _save_version_snapshot(
+        self,
+        board: dict[str, Any],
+        user_id: str,
+        change_description: str | None = None,
+    ) -> None:
+        """Persist a snapshot of the board's current state into ``dashboard_versions``."""
+        versions_col = self.db.db["dashboard_versions"]
+        snapshot = {
+            k: v for k, v in board.items()
+            if k not in ("_id",)
+        }
+        await versions_col.insert_one({
+            "boardId": board["boardId"],
+            "version": board.get("version", 1),
+            "snapshot": snapshot,
+            "savedBy": user_id,
+            "savedAt": datetime.now(UTC),
+            "changeDescription": change_description,
+            "widgetCount": len(board.get("widgets", [])),
+        })
+
+    async def list_versions(
+        self,
+        board_id: str,
+        user_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List version history for a board (newest first)."""
+        await self._get_visible_board(board_id, user_id)
+
+        versions_col = self.db.db["dashboard_versions"]
+        filter_query = {"boardId": board_id}
+        total = await versions_col.count_documents(filter_query)
+
+        cursor = (
+            versions_col.find(filter_query, {"snapshot": 0})
+            .sort("version", DESCENDING)
+            .skip(offset)
+            .limit(limit)
+        )
+
+        results: list[dict[str, Any]] = []
+        async for doc in cursor:
+            results.append({
+                "boardId": doc["boardId"],
+                "version": doc["version"],
+                "savedBy": doc["savedBy"],
+                "savedAt": doc["savedAt"],
+                "changeDescription": doc.get("changeDescription"),
+                "widgetCount": doc.get("widgetCount", 0),
+            })
+
+        return results, total
+
+    async def get_version(
+        self,
+        board_id: str,
+        version: int,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Retrieve a specific version snapshot."""
+        await self._get_visible_board(board_id, user_id)
+
+        versions_col = self.db.db["dashboard_versions"]
+        doc = await versions_col.find_one({"boardId": board_id, "version": version})
+        if not doc:
+            raise NotFoundError("dashboard_version", f"{board_id}@v{version}")
+
+        return {
+            "boardId": doc["boardId"],
+            "version": doc["version"],
+            "snapshot": doc["snapshot"],
+            "savedBy": doc["savedBy"],
+            "savedAt": doc["savedAt"],
+            "changeDescription": doc.get("changeDescription"),
+        }
+
+    async def restore_version(
+        self,
+        board_id: str,
+        version: int,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Restore a board to a previous version.
+
+        Creates a new version (current + 1) with the snapshot content.
+        """
+        existing = await self._get_owned_board(board_id, user_id, "restore")
+
+        versions_col = self.db.db["dashboard_versions"]
+        version_doc = await versions_col.find_one({"boardId": board_id, "version": version})
+        if not version_doc:
+            raise NotFoundError("dashboard_version", f"{board_id}@v{version}")
+
+        snapshot = version_doc["snapshot"]
+        new_version = existing.get("version", 1) + 1
+        now = datetime.now(UTC)
+
+        # Snapshot current state before overwriting
+        await self._save_version_snapshot(
+            existing, user_id, f"Pre-restore snapshot (before restoring to v{version})"
+        )
+
+        # Restore layout, widgets, settings from the snapshot
+        await self.collection.update_one(
+            {"boardId": board_id},
+            {
+                "$set": {
+                    "layout": snapshot.get("layout", _default_grid_layout()),
+                    "widgets": snapshot.get("widgets", []),
+                    "settings": snapshot.get("settings", _default_settings()),
+                    "version": new_version,
+                    "updatedAt": now,
+                }
+            },
+        )
+
+        logger.info(
+            "dashboard_version_restored",
+            board_id=board_id,
+            restored_version=version,
+            new_version=new_version,
+        )
+
+        await log_audit(
+            AuditAction.UPDATE,
+            "dashboard",
+            board_id,
+            "user",
+            user_id,
+            True,
+            details={"action": "restore", "restoredVersion": version, "newVersion": new_version},
+        )
+
+        restored = await self.get_board_for_user(board_id, user_id)
+
+        # Snapshot restored state
+        restored_doc = await self.collection.find_one({"boardId": board_id, "archivedAt": None})
+        if restored_doc:
+            await self._save_version_snapshot(
+                cast(dict[str, Any], restored_doc),
+                user_id,
+                f"Restored from v{version}",
+            )
+
+        return restored
 
     # ── Sharing ─────────────────────────────────────────────────────
 
@@ -1282,6 +1583,11 @@ class DashboardService:
             doc = copy.deepcopy(template)
             doc["widgetCount"] = len(doc.get("widgets", []))
             doc["createdBy"] = "system"
+            doc.setdefault("source", "system")
+            doc.setdefault("category", "general")
+            doc.setdefault("targetRoles", ["admin", "operator", "viewer", "family"])
+            doc.setdefault("requiredPlugins", [])
+            doc.setdefault("optionalPlugins", [])
             doc["createdAt"] = now
             doc["updatedAt"] = now
 
@@ -1474,6 +1780,13 @@ class DashboardService:
             "templateId": doc["templateId"],
             "name": doc["name"],
             "description": doc.get("description"),
+            "category": doc.get("category", "general"),
+            "targetRoles": doc.get("targetRoles", ["admin", "operator", "viewer", "family"]),
+            "requiredPlugins": doc.get("requiredPlugins", []),
+            "optionalPlugins": doc.get("optionalPlugins", []),
+            "preview": doc.get("preview"),
+            "variables": doc.get("variables"),
+            "source": doc.get("source", "user"),
             "boardType": doc.get("boardType", "user"),
             "layout": doc.get("layout", _default_grid_layout()),
             "widgets": doc.get("widgets", []),
@@ -1491,6 +1804,12 @@ class DashboardService:
             "templateId": doc["templateId"],
             "name": doc["name"],
             "description": doc.get("description"),
+            "category": doc.get("category", "general"),
+            "targetRoles": doc.get("targetRoles", ["admin", "operator", "viewer", "family"]),
+            "requiredPlugins": doc.get("requiredPlugins", []),
+            "optionalPlugins": doc.get("optionalPlugins", []),
+            "preview": doc.get("preview"),
+            "source": doc.get("source", "user"),
             "boardType": doc.get("boardType", "user"),
             "tags": doc.get("tags", []),
             "widgetCount": doc.get("widgetCount", len(doc.get("widgets", []))),

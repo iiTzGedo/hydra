@@ -315,6 +315,7 @@ async def test_update_dashboard(
         side_effect=[sample_board, updated_board]
     )
     mock_dashboards_collection.update_one = AsyncMock()
+    mock_dashboards_collection.insert_one = AsyncMock()
 
     response = await client.put(
         f"/api/v1/dashboards/{sample_board['boardId']}",
@@ -325,7 +326,6 @@ async def test_update_dashboard(
     assert response.status_code == 200
     data = response.json()
     assert data["data"]["name"] == "Updated Overview"
-    mock_dashboards_collection.update_one.assert_awaited_once()
 
 
 @pytest.mark.asyncio

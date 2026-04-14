@@ -377,10 +377,41 @@ export interface ShareInfo {
   sharedBy: string;
 }
 
+export type DashboardTemplateCategory =
+  | 'infrastructure'
+  | 'monitoring'
+  | 'iot'
+  | 'networking'
+  | 'security'
+  | 'capacity'
+  | 'operations'
+  | 'general';
+
+export type DashboardTemplateSource = 'system' | 'user';
+
+export interface TemplateVariableDefinition {
+  type: string;
+  label: string;
+  description?: string | null;
+  default?: unknown;
+  required?: boolean;
+  options?: string[] | null;
+}
+
 export interface SaveAsTemplateRequest {
   name?: string;
   description?: string;
+  category?: DashboardTemplateCategory;
+  targetRoles?: string[];
+  requiredPlugins?: string[];
+  optionalPlugins?: string[];
+  variables?: Record<string, TemplateVariableDefinition> | null;
   tags?: string[];
+}
+
+export interface InstantiateTemplateRequest {
+  name?: string;
+  variables?: Record<string, unknown> | null;
 }
 
 export interface ExportedBoard {
@@ -413,6 +444,8 @@ export interface ImportBoardResponse {
 }
 
 export interface TemplateListParams {
+  category?: DashboardTemplateCategory;
+  source?: DashboardTemplateSource;
   search?: string;
   tags?: string[];
   sortBy?: string;
@@ -425,6 +458,12 @@ export interface DashboardTemplateSummary {
   templateId: string;
   name: string;
   description?: string | null;
+  category: DashboardTemplateCategory;
+  targetRoles: string[];
+  requiredPlugins: string[];
+  optionalPlugins: string[];
+  preview?: string | null;
+  source: DashboardTemplateSource;
   boardType: DashboardBoardType;
   tags: string[];
   widgetCount: number;
@@ -436,7 +475,23 @@ export interface DashboardTemplate extends DashboardTemplateSummary {
   layout: DashboardBoardLayout;
   widgets: DashboardWidgetInstance[];
   settings: DashboardBoardSettings;
+  variables?: Record<string, TemplateVariableDefinition> | null;
   updatedAt: string;
+}
+
+// ── Version History Types ─────────────────────────────────────────
+
+export interface DashboardVersionSummary {
+  boardId: string;
+  version: number;
+  savedBy: string;
+  savedAt: string;
+  changeDescription?: string | null;
+  widgetCount: number;
+}
+
+export interface DashboardVersionSnapshot extends DashboardVersionSummary {
+  snapshot: Record<string, unknown>;
 }
 
 // ── Defaults & helpers ───────────────────────────────────────────

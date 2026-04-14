@@ -5,9 +5,9 @@ Contains the seed data for shipping dashboards. Templates target the spec's
 templates into their own user boards) and use only the built-in native
 widgets available in the current widget registry.
 
-Wave 3 will expand this with spec-aligned fields (``category``,
-``targetRoles``, ``requiredPlugins``, ``variables``, ``source``, ``preview``)
-once template variables and plugin widgets land.
+Each template includes spec-aligned metadata: ``category``,
+``targetRoles``, ``requiredPlugins``, ``optionalPlugins``, ``source``,
+and ``variables`` (where applicable).
 """
 
 from __future__ import annotations
@@ -58,6 +58,11 @@ BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "templateId": "tmpl_infra_overview",
         "name": "Infrastructure Overview",
         "description": "A comprehensive view of your infrastructure with stats, node status, and capacity metrics.",
+        "category": "infrastructure",
+        "targetRoles": ["admin", "operator"],
+        "requiredPlugins": [],
+        "optionalPlugins": ["plg::proxmox", "plg::docker"],
+        "source": "system",
         "boardType": "user",
         "layout": _grid_layout(),
         "widgets": [
@@ -72,6 +77,11 @@ BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "templateId": "tmpl_service_health",
         "name": "Service Health",
         "description": "Monitor service health and key infrastructure metrics.",
+        "category": "monitoring",
+        "targetRoles": ["admin", "operator"],
+        "requiredPlugins": [],
+        "optionalPlugins": [],
+        "source": "system",
         "boardType": "user",
         "layout": _grid_layout(),
         "widgets": [
@@ -85,6 +95,11 @@ BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "templateId": "tmpl_network_ops",
         "name": "Network Operations",
         "description": "Network topology and infrastructure metrics at a glance.",
+        "category": "networking",
+        "targetRoles": ["admin", "operator"],
+        "requiredPlugins": [],
+        "optionalPlugins": [],
+        "source": "system",
         "boardType": "user",
         "layout": _grid_layout(),
         "widgets": [
@@ -98,6 +113,11 @@ BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "templateId": "tmpl_capacity",
         "name": "Capacity Planning",
         "description": "Resource utilization and capacity metrics for planning.",
+        "category": "capacity",
+        "targetRoles": ["admin"],
+        "requiredPlugins": [],
+        "optionalPlugins": [],
+        "source": "system",
         "boardType": "user",
         "layout": _grid_layout(),
         "widgets": [
@@ -111,6 +131,11 @@ BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "templateId": "tmpl_activity",
         "name": "Activity Monitor",
         "description": "Track recent infrastructure events and key metrics.",
+        "category": "operations",
+        "targetRoles": ["admin", "operator"],
+        "requiredPlugins": [],
+        "optionalPlugins": [],
+        "source": "system",
         "boardType": "user",
         "layout": _grid_layout(),
         "widgets": [
@@ -124,6 +149,11 @@ BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "templateId": "tmpl_minimal",
         "name": "Minimal Home",
         "description": "A clean, minimal dashboard with just the key stats.",
+        "category": "general",
+        "targetRoles": ["admin", "operator", "viewer", "family"],
+        "requiredPlugins": [],
+        "optionalPlugins": [],
+        "source": "system",
         "boardType": "user",
         "layout": _grid_layout(),
         "widgets": [
@@ -136,6 +166,11 @@ BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "templateId": "tmpl_ops_center",
         "name": "Operations Center",
         "description": "Full operations view with all core widgets for comprehensive monitoring.",
+        "category": "operations",
+        "targetRoles": ["admin"],
+        "requiredPlugins": [],
+        "optionalPlugins": [],
+        "source": "system",
         "boardType": "user",
         "layout": _grid_layout(),
         "widgets": [
@@ -153,6 +188,11 @@ BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "templateId": "tmpl_iot",
         "name": "IoT Dashboard",
         "description": "Monitor IoT nodes and device status across your infrastructure.",
+        "category": "iot",
+        "targetRoles": ["admin", "operator", "family"],
+        "requiredPlugins": [],
+        "optionalPlugins": ["plg::home-assistant"],
+        "source": "system",
         "boardType": "user",
         "layout": _grid_layout(),
         "widgets": [
@@ -166,6 +206,11 @@ BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "templateId": "tmpl_security",
         "name": "Security Overview",
         "description": "Security-focused view with recent activity and key infrastructure metrics.",
+        "category": "security",
+        "targetRoles": ["admin"],
+        "requiredPlugins": [],
+        "optionalPlugins": [],
+        "source": "system",
         "boardType": "user",
         "layout": _grid_layout(),
         "widgets": [

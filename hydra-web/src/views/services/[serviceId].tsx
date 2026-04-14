@@ -14,6 +14,7 @@ import { ROUTES, STATUS_COLORS, SERVICE_RUNTIME_LABELS } from '@/lib/constants';
 import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
 import { ServiceControlPanel } from '@/components/commands/service-control-panel';
 import { CommandHistoryPanel } from '@/components/commands/command-history-panel';
+import { EntityDashboardPanel } from '@/components/dashboard/entity-dashboard-panel';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 
 export default function ServiceDetailPage() {
@@ -282,6 +283,8 @@ export default function ServiceDetailPage() {
         )}
 
         <CommandHistoryPanel nodeId={service.nodeId} serviceId={service.serviceId} />
+
+        <EntityDashboardPanel entityType="service" entityId={service.serviceId} nodeId={service.nodeId} />
       </motion.div>
     </div>
   );

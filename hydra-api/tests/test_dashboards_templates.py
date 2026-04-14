@@ -30,14 +30,21 @@ def mock_templates_collection():
     return create_mock_collection()
 
 
+@pytest.fixture
+def mock_versions_collection():
+    """Create a mock dashboard_versions collection."""
+    return create_mock_collection()
+
+
 @pytest.fixture(autouse=True)
 def _patch_dashboard_collections(
-    mock_mongodb, mock_dashboards_collection, mock_templates_collection,
+    mock_mongodb, mock_dashboards_collection, mock_templates_collection, mock_versions_collection,
 ):
     """Patch mock_mongodb.db to return controlled mock collections."""
     collections = {
         "dashboards": mock_dashboards_collection,
         "dashboard_templates": mock_templates_collection,
+        "dashboard_versions": mock_versions_collection,
     }
     mock_db = MagicMock()
     mock_db.__getitem__ = MagicMock(side_effect=lambda key: collections[key])

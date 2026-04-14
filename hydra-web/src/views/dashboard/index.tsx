@@ -38,6 +38,7 @@ import {
   useUpdateDashboard,
   useWidgetRegistry,
 } from '@/api/dashboards';
+import { useCreateCommand } from '@/api/commands';
 import { useUpdateUserSettings, useUserSettings } from '@/api/settings';
 import { BoardTemplates } from '@/components/dashboard/board-templates';
 import { ShareDialog } from '@/components/dashboard/share-dialog';
@@ -281,12 +282,18 @@ function WidgetContent({
   dataBinding,
   isEditing,
   onNavigate,
+  onExecuteCommand,
 }: {
   widgetType: string;
   config: Record<string, unknown>;
   dataBinding?: DashboardDataBinding | null;
   isEditing: boolean;
   onNavigate: (path: string) => void;
+  onExecuteCommand: (
+    commandId: string,
+    target: Record<string, unknown>,
+    params: Record<string, unknown>,
+  ) => Promise<void>;
 }) {
   const { data, isLoading, error } = useWidgetData(dataBinding);
 
@@ -301,6 +308,7 @@ function WidgetContent({
         error={error}
         dimensions={{ width: 0, height: 0 }}
         onNavigate={onNavigate}
+        onExecuteCommand={onExecuteCommand}
       />
     );
   }
@@ -431,6 +439,43 @@ export default function DashboardPage() {
   const exportQuery = useExportDashboard(effectiveBoardId ?? '');
   const importDashboard = useImportDashboard();
   const setHomeBoard = useSetHomeDashboard();
+  const createCommand = useCreateCommand();
+
+  const handleExecuteCommand = useCallback(
+    async (
+      registryId: string,
+      target: Record<string, unknown>,
+      params: Record<string, unknown>,
+    ) => {
+      const nodeId = target.nodeId as string | undefined;
+      if (!registryId || !nodeId) {
+        toast.error('Missing command or target node');
+        return;
+      }
+      try {
+        const result = await createCommand.mutateAsync({
+          registryId,
+          target: {
+            nodeId,
+            serviceId: (target.serviceId as string) ?? undefined,
+          },
+          parameters: Object.keys(params).length > 0 ? params : undefined,
+        });
+        if (result.requiresConfirmation) {
+          toast.warning('Command requires confirmation', {
+            description: result.confirmationMessage ?? `Confirm command ${registryId} (${result.dangerLevel ?? 'unknown'} risk)`,
+          });
+        } else if (result.status === 'queued') {
+          toast.info('Command queued', { description: `Position: ${result.queuePosition ?? '—'}` });
+        } else {
+          toast.success('Command submitted', { description: `Status: ${result.status}` });
+        }
+      } catch (err) {
+        toast.error(getErrorMessage(err, 'Command execution failed'));
+      }
+    },
+    [createCommand],
+  );
 
   const widgetDefinitions = useMemo(
     () =>
@@ -1142,6 +1187,7 @@ export default function DashboardPage() {
                       dataBinding={widget.dataBinding}
                       isEditing={isEditMode}
                       onNavigate={(path) => router.push(path)}
+                      onExecuteCommand={handleExecuteCommand}
                     />
                   </Widget>
                 ))}

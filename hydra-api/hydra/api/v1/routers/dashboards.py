@@ -34,6 +34,8 @@ from hydra.api.v1.models.dashboards import (
     TemplateSummary,
     UpdateBoardRequest,
     UpdateWidgetRequest,
+    VersionSnapshotResponse,
+    VersionSummary,
     VisibilityScope,
     WidgetRegistryResponse,
 )
@@ -157,19 +159,29 @@ async def get_widget_registry(
     response_model=SuccessResponse[list[TemplateSummary]],
     response_model_by_alias=True,
     summary="List Dashboard Templates",
-    description="List available dashboard templates with optional filtering.",
+    description="List available dashboard templates with optional filtering by category, source, tags, and user role.",
     dependencies=[Depends(require_permission("dashboards:read"))],
 )
 async def list_templates(
     dashboard_service: DashboardServiceDep,
+    current_user: CurrentUser,
+    category: str | None = Query(default=None, description="Filter by template category"),
+    source: str | None = Query(default=None, description="Filter by template source (system, user)"),
     search: str | None = None,
     tags: list[str] | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> SuccessResponse[list[TemplateSummary]]:
-    """List available dashboard templates."""
+    """List available dashboard templates filtered by the user's role."""
+    user_role = _user_role(current_user)
     templates, total = await dashboard_service.list_templates(
-        limit=limit, offset=offset, search=search, tags=tags,
+        limit=limit,
+        offset=offset,
+        search=search,
+        tags=tags,
+        category=category,
+        source=source,
+        user_role=user_role,
     )
     return SuccessResponse(
         data=[TemplateSummary(**t) for t in templates],
@@ -209,10 +221,11 @@ async def instantiate_template(
     template_id: str = Path(description="Dashboard template ID"),
     request: InstantiateTemplateRequest | None = None,
 ) -> SuccessResponse[BoardResponse]:
-    """Create a new board from a dashboard template."""
+    """Create a new board from a dashboard template with optional variable substitution."""
     user_id = _user_id(current_user)
     name = request.name if request else None
-    board = await dashboard_service.instantiate_template(template_id, user_id, name)
+    variables = request.variables if request else None
+    board = await dashboard_service.instantiate_template(template_id, user_id, name, variables)
     return SuccessResponse(data=BoardResponse(**board))
 
 
@@ -262,6 +275,78 @@ async def import_dashboard(
             warnings=[ImportValidationIssue(**w) for w in warnings],
         )
     )
+
+
+# ── Version History Endpoints ──────────────────────────────────────
+
+
+@router.get(
+    "/{dashboard_id}/versions",
+    response_model=SuccessResponse[list[VersionSummary]],
+    response_model_by_alias=True,
+    summary="List Board Versions",
+    description="List version history for a dashboard board.",
+    dependencies=[Depends(require_permission("dashboards:read"))],
+)
+async def list_versions(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> SuccessResponse[list[VersionSummary]]:
+    """List version history for a board (newest first)."""
+    user_id = _user_id(current_user)
+    versions, total = await dashboard_service.list_versions(
+        dashboard_id, user_id, limit=limit, offset=offset,
+    )
+    return SuccessResponse(
+        data=[VersionSummary(**v) for v in versions],
+        meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@router.get(
+    "/{dashboard_id}/versions/{version}",
+    response_model=SuccessResponse[VersionSnapshotResponse],
+    response_model_by_alias=True,
+    summary="Get Board Version",
+    description="Get a specific version snapshot for a dashboard board.",
+    dependencies=[Depends(require_permission("dashboards:read"))],
+)
+async def get_version(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+    version: int = Path(description="Version number to retrieve"),
+) -> SuccessResponse[VersionSnapshotResponse]:
+    """Retrieve a specific version snapshot."""
+    user_id = _user_id(current_user)
+    result = await dashboard_service.get_version(dashboard_id, version, user_id)
+    return SuccessResponse(data=VersionSnapshotResponse(**result))
+
+
+@router.post(
+    "/{dashboard_id}/restore/{version}",
+    response_model=SuccessResponse[BoardResponse],
+    response_model_by_alias=True,
+    summary="Restore Board Version",
+    description="Restore a dashboard board to a previous version.",
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def restore_version(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+    version: int = Path(description="Version number to restore"),
+) -> SuccessResponse[BoardResponse]:
+    """Restore a board to a previous version (creates a new version)."""
+    user_id = _user_id(current_user)
+    board = await dashboard_service.restore_version(dashboard_id, version, user_id)
+    return SuccessResponse(data=BoardResponse(**board))
+
+
+# ── Single Dashboard Endpoints ─────────────────────────────────────
 
 
 @router.get(
@@ -340,9 +425,10 @@ async def delete_dashboard(
     dashboard_service: DashboardServiceDep,
     dashboard_id: str = Path(description="Dashboard board ID"),
 ) -> SuccessResponse[BoardResponse]:
-    """Soft delete a dashboard board."""
+    """Soft delete a dashboard board. Admins can delete any board per spec §9.2."""
     user_id = _user_id(current_user)
-    board = await dashboard_service.delete_board(dashboard_id, user_id)
+    role = _user_role(current_user)
+    board = await dashboard_service.delete_board(dashboard_id, user_id, user_role=role)
     return SuccessResponse(data=BoardResponse(**board))
 
 
@@ -361,10 +447,11 @@ async def clone_dashboard(
     dashboard_id: str = Path(description="Dashboard board ID to clone"),
     request: CloneBoardRequest | None = None,
 ) -> SuccessResponse[BoardResponse]:
-    """Clone a dashboard board."""
+    """Clone a dashboard board with optional variable substitution."""
     user_id = _user_id(current_user)
     name = request.name if request else None
-    board = await dashboard_service.clone_board(dashboard_id, user_id, name)
+    variables = request.variables if request else None
+    board = await dashboard_service.clone_board(dashboard_id, user_id, name, variables)
     return SuccessResponse(data=BoardResponse(**board))
 
 
@@ -458,7 +545,7 @@ async def delete_widget(
     response_model_by_alias=True,
     status_code=201,
     summary="Save As Template",
-    description="Save a dashboard as a reusable template.",
+    description="Save a dashboard as a reusable template. Requires admin role per spec §9.2.",
     dependencies=[Depends(require_permission("dashboards:write"))],
 )
 async def save_as_template(
@@ -467,7 +554,12 @@ async def save_as_template(
     dashboard_service: DashboardServiceDep,
     dashboard_id: str = Path(description="Dashboard board ID"),
 ) -> SuccessResponse[TemplateResponse]:
-    """Save a board as a reusable template."""
+    """Save a board as a reusable template (admin only)."""
+    role = _user_role(current_user)
+    if role != "admin":
+        from hydra.api.v1.core.exceptions import AdminOnlyError
+
+        raise AdminOnlyError()
     user_id = _user_id(current_user)
     template = await dashboard_service.save_as_template(dashboard_id, request, user_id)
     return SuccessResponse(data=TemplateResponse(**template))
@@ -478,7 +570,7 @@ async def save_as_template(
     response_model=SuccessResponse[ShareBoardResponse],
     response_model_by_alias=True,
     summary="Share Dashboard",
-    description="Update sharing settings for a dashboard.",
+    description="Update sharing settings for a dashboard. Requires admin or operator role per spec §9.2.",
     dependencies=[Depends(require_permission("dashboards:write"))],
 )
 async def share_dashboard(
@@ -487,7 +579,12 @@ async def share_dashboard(
     dashboard_service: DashboardServiceDep,
     dashboard_id: str = Path(description="Dashboard board ID"),
 ) -> SuccessResponse[ShareBoardResponse]:
-    """Update sharing settings for a board."""
+    """Update sharing settings for a board (admin/operator only)."""
+    role = _user_role(current_user)
+    if role not in ("admin", "operator"):
+        from hydra.api.v1.core.exceptions import AuthorizationError
+
+        raise AuthorizationError("dashboards:share")
     user_id = _user_id(current_user)
     result = await dashboard_service.share_board(dashboard_id, request, user_id)
     return SuccessResponse(data=ShareBoardResponse(**result))

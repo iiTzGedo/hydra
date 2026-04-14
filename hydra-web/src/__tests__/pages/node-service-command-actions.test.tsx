@@ -59,6 +59,10 @@ vi.mock('@/views/nodes/[nodeId]/tabs', () => ({
   GroupsTab: () => <div>Groups tab</div>,
 }));
 
+vi.mock('@/components/dashboard/entity-dashboard-panel', () => ({
+  EntityDashboardPanel: () => null,
+}));
+
 import NodeDetailPage from '@/views/nodes/[nodeId]';
 import ServiceDetailPage from '@/views/services/[serviceId]';
 import { renderWithRoute } from '../page-test-utils';

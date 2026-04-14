@@ -23,6 +23,26 @@ class OwnerType(StrEnum):
     SYSTEM = "system"
 
 
+class TemplateSource(StrEnum):
+    """Origin of a dashboard template."""
+
+    SYSTEM = "system"
+    USER = "user"
+
+
+class TemplateCategory(StrEnum):
+    """Template category for grouping in the template browser."""
+
+    INFRASTRUCTURE = "infrastructure"
+    MONITORING = "monitoring"
+    IOT = "iot"
+    NETWORKING = "networking"
+    SECURITY = "security"
+    CAPACITY = "capacity"
+    OPERATIONS = "operations"
+    GENERAL = "general"
+
+
 class VisibilityScope(StrEnum):
     """Board visibility scope."""
 
@@ -752,6 +772,27 @@ class PortableWidgetInstance(WidgetPlacementMixin):
 # ── Template Models ─────────────────────────────────────────────────
 
 
+class TemplateVariableDefinition(BaseModel):
+    """Schema for a single template variable that users fill in on clone/instantiate."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: str = Field(
+        description="Variable input type (e.g., 'text', 'number', 'node-selector', 'network-selector', 'select')",
+    )
+    label: str = Field(min_length=1, max_length=128, description="Human-readable label shown in the UI")
+    description: str | None = Field(default=None, max_length=512)
+    default: Any | None = Field(default=None, description="Default value if user doesn't provide one")
+    required: bool = Field(default=False, description="Whether the variable must be provided")
+    options: list[str] | None = Field(
+        default=None,
+        description="Allowed values for 'select' type variables",
+    )
+
+
+MAX_TEMPLATE_VARIABLES = 10
+
+
 class SaveAsTemplateRequest(BaseModel):
     """Save a board as a reusable template."""
 
@@ -759,6 +800,29 @@ class SaveAsTemplateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=128, description="Template name")
     description: str | None = Field(default=None, max_length=2048)
+    category: TemplateCategory = Field(
+        default=TemplateCategory.GENERAL,
+        description="Template category for grouping",
+    )
+    target_roles: list[str] = Field(
+        default_factory=lambda: ["admin", "operator", "viewer", "family"],
+        alias="targetRoles",
+        description="Roles this template is applicable to",
+    )
+    required_plugins: list[str] = Field(
+        default_factory=list,
+        alias="requiredPlugins",
+        description="Plugins that must be enabled for this template to work",
+    )
+    optional_plugins: list[str] = Field(
+        default_factory=list,
+        alias="optionalPlugins",
+        description="Plugins that enhance this template but are not required",
+    )
+    variables: dict[str, TemplateVariableDefinition] | None = Field(
+        default=None,
+        description="Template variable definitions for parameterized cloning",
+    )
     tags: list[str] = Field(default_factory=list)
 
     @field_validator("tags")
@@ -767,6 +831,26 @@ class SaveAsTemplateRequest(BaseModel):
         for tag in v:
             if len(tag) > 64:
                 raise ValueError(f"Tag '{tag[:20]}...' exceeds maximum length of 64 characters")
+        return v
+
+    @field_validator("variables")
+    @classmethod
+    def validate_variables_count(
+        cls, v: dict[str, TemplateVariableDefinition] | None,
+    ) -> dict[str, TemplateVariableDefinition] | None:
+        if v is not None and len(v) > MAX_TEMPLATE_VARIABLES:
+            raise ValueError(
+                f"Templates may define at most {MAX_TEMPLATE_VARIABLES} variables, got {len(v)}"
+            )
+        return v
+
+    @field_validator("target_roles")
+    @classmethod
+    def validate_target_roles(cls, v: list[str]) -> list[str]:
+        valid_roles = {"admin", "operator", "viewer", "family"}
+        for role in v:
+            if role not in valid_roles:
+                raise ValueError(f"Invalid target role '{role}'; allowed: {sorted(valid_roles)}")
         return v
 
 
@@ -778,6 +862,16 @@ class TemplateResponse(BaseModel):
     template_id: str = Field(alias="templateId")
     name: str
     description: str | None = None
+    category: TemplateCategory = Field(default=TemplateCategory.GENERAL)
+    target_roles: list[str] = Field(
+        default_factory=lambda: ["admin", "operator", "viewer", "family"],
+        alias="targetRoles",
+    )
+    required_plugins: list[str] = Field(default_factory=list, alias="requiredPlugins")
+    optional_plugins: list[str] = Field(default_factory=list, alias="optionalPlugins")
+    preview: str | None = Field(default=None, description="Preview image URL")
+    variables: dict[str, TemplateVariableDefinition] | None = None
+    source: TemplateSource = Field(default=TemplateSource.USER)
     board_type: BoardType = Field(alias="boardType")
     layout: BoardLayout
     widgets: list[PortableWidgetInstance] = Field(default_factory=list)
@@ -797,6 +891,15 @@ class TemplateSummary(BaseModel):
     template_id: str = Field(alias="templateId")
     name: str
     description: str | None = None
+    category: TemplateCategory = Field(default=TemplateCategory.GENERAL)
+    target_roles: list[str] = Field(
+        default_factory=lambda: ["admin", "operator", "viewer", "family"],
+        alias="targetRoles",
+    )
+    required_plugins: list[str] = Field(default_factory=list, alias="requiredPlugins")
+    optional_plugins: list[str] = Field(default_factory=list, alias="optionalPlugins")
+    preview: str | None = Field(default=None)
+    source: TemplateSource = Field(default=TemplateSource.USER)
     board_type: BoardType = Field(alias="boardType")
     tags: list[str] = Field(default_factory=list)
     widget_count: int = Field(default=0, alias="widgetCount")
@@ -814,6 +917,35 @@ class InstantiateTemplateRequest(BaseModel):
         default=None,
         description="Template variables for parameterized instantiation",
     )
+
+
+# ── Version History Models ──────────────────────────────────────────
+
+
+class VersionSnapshotResponse(BaseModel):
+    """A single board version snapshot."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    board_id: str = Field(alias="boardId")
+    version: int
+    snapshot: dict[str, Any] = Field(description="Complete board definition at this version")
+    saved_by: str = Field(alias="savedBy")
+    saved_at: datetime = Field(alias="savedAt")
+    change_description: str | None = Field(default=None, alias="changeDescription")
+
+
+class VersionSummary(BaseModel):
+    """Abbreviated version entry for list endpoints (no snapshot payload)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    board_id: str = Field(alias="boardId")
+    version: int
+    saved_by: str = Field(alias="savedBy")
+    saved_at: datetime = Field(alias="savedAt")
+    change_description: str | None = Field(default=None, alias="changeDescription")
+    widget_count: int = Field(default=0, alias="widgetCount")
 
 
 # ── Sharing Models ──────────────────────────────────────────────────
@@ -917,6 +1049,8 @@ class TemplateListParams(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    category: TemplateCategory | None = None
+    source: TemplateSource | None = None
     search: str | None = Field(default=None, max_length=256)
     tags: list[str] | None = None
     sort_by: Literal["name", "createdAt", "updatedAt"] = Field(default="createdAt", alias="sortBy")
@@ -949,6 +1083,7 @@ __all__ = [
     "ImportValidationIssue",
     "InstantiateTemplateRequest",
     "LayoutBreakpoint",
+    "MAX_TEMPLATE_VARIABLES",
     "OwnerType",
     "PatchAddWidget",
     "PatchBoardOperation",
@@ -965,11 +1100,16 @@ __all__ = [
     "ShareInfo",
     "SharedWith",
     "ShareTarget",
+    "TemplateCategory",
     "TemplateListParams",
     "TemplateResponse",
+    "TemplateSource",
     "TemplateSummary",
+    "TemplateVariableDefinition",
     "UpdateBoardRequest",
     "UpdateWidgetRequest",
+    "VersionSnapshotResponse",
+    "VersionSummary",
     "VisibilityScope",
     "WidgetCapabilities",
     "WidgetCategoryInfo",

@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Loader2,
   Sparkles,
+  LayoutDashboard,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/constants';
@@ -21,6 +22,7 @@ import { useNodes } from '@/api/nodes';
 import { useServices } from '@/api/services';
 import { useNetworks } from '@/api/networks';
 import { useGroups } from '@/api/groups';
+import { useDashboards } from '@/api/dashboards';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -29,7 +31,7 @@ interface CommandPaletteProps {
 
 interface SearchResult {
   id: string;
-  type: 'node' | 'service' | 'network' | 'group' | 'page';
+  type: 'node' | 'service' | 'network' | 'group' | 'page' | 'board';
   title: string;
   subtitle?: string;
   icon: typeof Server;
@@ -58,8 +60,9 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const { data: servicesData, isLoading: servicesLoading } = useServices({ limit: 10 });
   const { data: networksData, isLoading: networksLoading } = useNetworks({ limit: 10 });
   const { data: groupsData, isLoading: groupsLoading } = useGroups({ limit: 10 });
+  const { data: dashboardsData, isLoading: dashboardsLoading } = useDashboards({ limit: 20 });
 
-  const isLoading = nodesLoading || servicesLoading || networksLoading || groupsLoading;
+  const isLoading = nodesLoading || servicesLoading || networksLoading || groupsLoading || dashboardsLoading;
 
   const searchResults = useCallback((): SearchResult[] => {
     const lowerQuery = query.toLowerCase().trim();
@@ -74,6 +77,21 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       if (action.title.toLowerCase().includes(lowerQuery) ||
           action.subtitle?.toLowerCase().includes(lowerQuery)) {
         results.push(action);
+      }
+    });
+
+    dashboardsData?.items.forEach((board) => {
+      if (board.name.toLowerCase().includes(lowerQuery) ||
+          board.description?.toLowerCase().includes(lowerQuery) ||
+          board.tags?.some(t => t.toLowerCase().includes(lowerQuery))) {
+        results.push({
+          id: `board-${board.boardId}`,
+          type: 'board',
+          title: board.name,
+          subtitle: board.isHome ? 'Home Dashboard' : `${board.widgetCount ?? 0} widgets`,
+          icon: LayoutDashboard,
+          route: ROUTES.DASHBOARD_BOARD.replace(':boardId', board.boardId),
+        });
       }
     });
 
@@ -136,7 +154,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     });
 
     return results.slice(0, 12);
-  }, [query, nodesData, servicesData, networksData, groupsData]);
+  }, [query, nodesData, servicesData, networksData, groupsData, dashboardsData]);
 
   const results = searchResults();
 
@@ -213,7 +231,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                   setQuery(e.target.value);
                   setSelectedIndex(0);
                 }}
-                placeholder="Search nodes, services, networks..."
+                placeholder="Search dashboards, nodes, services, networks..."
                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
               {query && (
@@ -268,6 +286,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                         result.type === 'service' && 'bg-success/10 text-success',
                         result.type === 'network' && 'bg-network/10 text-network',
                         result.type === 'group' && 'bg-warning/10 text-warning',
+                        result.type === 'board' && 'bg-primary/10 text-primary',
                         result.type === 'page' && 'bg-muted text-muted-foreground'
                       )}>
                         <result.icon className="h-4 w-4" />

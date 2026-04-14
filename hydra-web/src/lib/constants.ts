@@ -11,6 +11,7 @@ export const ROUTES = {
   DASHBOARD: '/dashboard',
   DASHBOARDS: '/dashboards',
   DASHBOARD_BOARD: '/dashboards/:boardId',
+  KIOSK: '/kiosk/:boardId',
   NODES: '/nodes',
   NODE_DETAIL: '/nodes/:nodeId',
   NODE_PROFILES: '/nodes/:nodeId/profiles',

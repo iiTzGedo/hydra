@@ -9,6 +9,7 @@ const ResetPasswordPage = lazy(() => import('@/views/auth/reset-password'));
 
 const LegacyDashboardPage = lazy(() => import('@/views/dashboard/legacy-redirect'));
 const DashboardPage = lazy(() => import('@/views/dashboard'));
+const KioskPage = lazy(() => import('@/views/kiosk'));
 
 const NodesPage = lazy(() => import('@/views/nodes'));
 const NodeDetailPage = lazy(() => import('@/views/nodes/[nodeId]'));
@@ -92,6 +93,13 @@ const routeMeta: RouteConfig[] = [
     requiresAuth: true,
     parentPath: ROUTES.DASHBOARDS,
     parentTitle: 'Dashboards',
+  },
+  {
+    path: ROUTES.KIOSK,
+    element: KioskPage,
+    title: 'Kiosk',
+    requiresAuth: true,
+    sidebarPlacement: 'hidden',
   },
   {
     path: ROUTES.TOPOLOGY,

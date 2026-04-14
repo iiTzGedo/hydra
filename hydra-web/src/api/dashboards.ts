@@ -10,6 +10,8 @@ import type {
   DashboardListParams,
   DashboardTemplate,
   DashboardTemplateSummary,
+  DashboardVersionSnapshot,
+  DashboardVersionSummary,
   DashboardWidgetInstance,
   ExportedBoard,
   ImportBoardRequest,
@@ -388,6 +390,57 @@ export function useImportDashboard() {
         request,
       );
       return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboards.all });
+    },
+  });
+}
+
+// ── Version History Hooks ──────────────────────────────────────────
+
+export function useDashboardVersions(boardId: string, params?: { limit?: number; offset?: number }) {
+  return useQuery({
+    queryKey: [...queryKeys.dashboards.all, 'versions', boardId, params] as const,
+    queryFn: async (): Promise<PaginatedResponse<DashboardVersionSummary>> => {
+      const response = await apiClient.get<ApiResponse<DashboardVersionSummary[]>>(
+        `/dashboards/${boardId}/versions`,
+        { params: { limit: params?.limit ?? 50, offset: params?.offset ?? 0 } },
+      );
+      const items = response.data.data;
+      return {
+        items,
+        total: response.data.meta?.total ?? items.length,
+        limit: response.data.meta?.limit ?? params?.limit ?? 50,
+        offset: response.data.meta?.offset ?? params?.offset ?? 0,
+      };
+    },
+    enabled: !!boardId,
+  });
+}
+
+export function useDashboardVersion(boardId: string, version: number) {
+  return useQuery({
+    queryKey: [...queryKeys.dashboards.all, 'versions', boardId, version] as const,
+    queryFn: async (): Promise<DashboardVersionSnapshot> => {
+      const response = await apiClient.get<ApiResponse<DashboardVersionSnapshot>>(
+        `/dashboards/${boardId}/versions/${version}`,
+      );
+      return response.data.data;
+    },
+    enabled: !!boardId && version > 0,
+  });
+}
+
+export function useRestoreDashboardVersion(boardId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (version: number): Promise<DashboardBoardWithId> => {
+      const response = await apiClient.post<ApiResponse<DashboardBoard>>(
+        `/dashboards/${boardId}/restore/${version}`,
+      );
+      return withBoardId(response.data.data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboards.all });

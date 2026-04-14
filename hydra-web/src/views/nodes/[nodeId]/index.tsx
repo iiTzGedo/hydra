@@ -53,6 +53,7 @@ import {
 import { NodeControlPanel } from '@/components/commands/node-control-panel';
 import { AgentControlPanel } from '@/components/commands/agent-control-panel';
 import { CommandHistoryPanel } from '@/components/commands/command-history-panel';
+import { EntityDashboardPanel } from '@/components/dashboard/entity-dashboard-panel';
 
 const tabs = [
   { id: 'overview', label: 'Overview', icon: Info },
@@ -251,7 +252,10 @@ export default function NodeDetailPage() {
         </TabsList>
 
         <TabsContent value="overview" className="mt-6">
-          <OverviewTab node={node} />
+          <div className="space-y-6">
+            <OverviewTab node={node} />
+            <EntityDashboardPanel entityType="node" entityId={node.nodeId} nodeId={node.nodeId} />
+          </div>
         </TabsContent>
 
         <TabsContent value="controls" className="mt-6">
