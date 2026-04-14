@@ -1,47 +1,46 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
-import { matchPath } from 'react-router-dom';
 import { ROUTES } from '@/lib/constants';
 import type { Role } from '@/types/auth';
 
-const LoginPage = lazy(() => import('@/pages/auth/login'));
-const RegisterPage = lazy(() => import('@/pages/auth/register'));
-const ForgotPasswordPage = lazy(() => import('@/pages/auth/forgot-password'));
-const ResetPasswordPage = lazy(() => import('@/pages/auth/reset-password'));
+const LoginPage = lazy(() => import('@/views/auth/login'));
+const RegisterPage = lazy(() => import('@/views/auth/register'));
+const ForgotPasswordPage = lazy(() => import('@/views/auth/forgot-password'));
+const ResetPasswordPage = lazy(() => import('@/views/auth/reset-password'));
 
-const LegacyDashboardPage = lazy(() => import('@/pages/dashboard/legacy-redirect'));
-const DashboardPage = lazy(() => import('@/pages/dashboard'));
+const LegacyDashboardPage = lazy(() => import('@/views/dashboard/legacy-redirect'));
+const DashboardPage = lazy(() => import('@/views/dashboard'));
 
-const NodesPage = lazy(() => import('@/pages/nodes'));
-const NodeDetailPage = lazy(() => import('@/pages/nodes/[nodeId]'));
-const NodeProfilesPage = lazy(() => import('@/pages/nodes/[nodeId]/profiles'));
-const ProfileDetailPage = lazy(() => import('@/pages/nodes/[nodeId]/profile/[profileId]'));
-const ProfileComparePage = lazy(() => import('@/pages/nodes/[nodeId]/profiles/compare'));
+const NodesPage = lazy(() => import('@/views/nodes'));
+const NodeDetailPage = lazy(() => import('@/views/nodes/[nodeId]'));
+const NodeProfilesPage = lazy(() => import('@/views/nodes/[nodeId]/profiles'));
+const ProfileDetailPage = lazy(() => import('@/views/nodes/[nodeId]/profile/[profileId]'));
+const ProfileComparePage = lazy(() => import('@/views/nodes/[nodeId]/profiles/compare'));
 
-const ServicesPage = lazy(() => import('@/pages/services'));
-const ServiceDetailPage = lazy(() => import('@/pages/services/[serviceId]'));
+const ServicesPage = lazy(() => import('@/views/services'));
+const ServiceDetailPage = lazy(() => import('@/views/services/[serviceId]'));
 
-const NetworksPage = lazy(() => import('@/pages/networks'));
-const NetworkDetailPage = lazy(() => import('@/pages/networks/[networkId]'));
-const DiscoveryPage = lazy(() => import('@/pages/discovery'));
+const NetworksPage = lazy(() => import('@/views/networks'));
+const NetworkDetailPage = lazy(() => import('@/views/networks/[networkId]'));
+const DiscoveryPage = lazy(() => import('@/views/discovery'));
 
-const GroupsPage = lazy(() => import('@/pages/groups'));
-const GroupDetailPage = lazy(() => import('@/pages/groups/[groupId]'));
-const NewGroupPage = lazy(() => import('@/pages/groups/new'));
+const GroupsPage = lazy(() => import('@/views/groups'));
+const GroupDetailPage = lazy(() => import('@/views/groups/[groupId]'));
+const NewGroupPage = lazy(() => import('@/views/groups/new'));
 
-const TopologyPage = lazy(() => import('@/pages/topology'));
-const TimeMachinePage = lazy(() => import('@/pages/timemachine'));
-const ChatPage = lazy(() => import('@/pages/chat'));
-const CommandsPage = lazy(() => import('@/pages/commands'));
-const CommandDetailPage = lazy(() => import('@/pages/commands/[commandId]'));
-const DocsPage = lazy(() => import('@/pages/docs'));
-const IntegrationsPage = lazy(() => import('@/pages/integrations'));
-const MCPMarketplacePage = lazy(() => import('@/pages/mcp/marketplace'));
-const NotificationsPage = lazy(() => import('@/pages/notifications'));
-const ProfilePage = lazy(() => import('@/pages/profile'));
+const TopologyPage = lazy(() => import('@/views/topology'));
+const TimeMachinePage = lazy(() => import('@/views/timemachine'));
+const ChatPage = lazy(() => import('@/views/chat'));
+const CommandsPage = lazy(() => import('@/views/commands'));
+const CommandDetailPage = lazy(() => import('@/views/commands/[commandId]'));
+const DocsPage = lazy(() => import('@/views/docs'));
+const IntegrationsPage = lazy(() => import('@/views/integrations'));
+const MCPMarketplacePage = lazy(() => import('@/views/mcp/marketplace'));
+const NotificationsPage = lazy(() => import('@/views/notifications'));
+const ProfilePage = lazy(() => import('@/views/profile'));
 
-const SettingsPage = lazy(() => import('@/pages/settings'));
+const SettingsPage = lazy(() => import('@/views/settings'));
 
-const NotFoundPage = lazy(() => import('@/pages/error/404'));
+const NotFoundPage = lazy(() => import('@/views/error/404'));
 
 export type SidebarPlacement = 'primary' | 'utility' | 'hidden';
 export type NavGroup = 'infrastructure' | 'operations' | 'knowledge';
@@ -377,22 +376,29 @@ export const errorRoutes: RouteConfig[] = [
 
 export const allRoutes = [...authRoutes, ...routeMeta, ...errorRoutes];
 
+/**
+ * Convert a route path pattern (e.g. "/nodes/:nodeId") into a regex for matching.
+ */
+function pathToRegex(path: string, end: boolean): RegExp {
+  // Handle wildcard routes like "/docs/*"
+  const pattern = path
+    .replace(/\*/g, '.*')
+    .replace(/:[\w]+/g, '[^/]+');
+  if (end) {
+    return new RegExp(`^${pattern}$`);
+  }
+  return new RegExp(`^${pattern}(?:/|$)`);
+}
+
 export function getRouteConfig(pathname: string): RouteConfig | undefined {
   const normalizedPath = pathname === '/' ? ROUTES.DASHBOARD : pathname;
 
   return [...routeMeta]
     .sort((a, b) => b.path.length - a.path.length)
-    .find((route) =>
-      Boolean(
-        matchPath(
-          {
-            path: route.path,
-            end: route.matchEnd ?? true,
-          },
-          normalizedPath,
-        ),
-      ),
-    );
+    .find((route) => {
+      const regex = pathToRegex(route.path, route.matchEnd ?? true);
+      return regex.test(normalizedPath);
+    });
 }
 
 export function getRouteTitle(pathname: string): string {

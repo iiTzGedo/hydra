@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import MCPMarketplacePage from '@/pages/mcp/marketplace';
+import MCPMarketplacePage from '@/views/mcp/marketplace';
 import { queryKeys } from '@/lib/query-client';
 import type { MCPServerListResponse } from '@/api/mcp';
 import { renderWithRoute } from '../page-test-utils';

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
   X,
@@ -57,7 +57,7 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
         <div className="flex items-center gap-3">
           <Icon className="h-6 w-6 text-white" />
           <div>
-            <h3 className="font-semibold text-white">{node.id}</h3>
+            <h3 className="font-semibold text-white truncate max-w-[200px]">{node.id}</h3>
             <p className="text-xs text-white/80 capitalize">{nodeClass}</p>
           </div>
         </div>
@@ -122,7 +122,7 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
                   {connectedServices.slice(0, 5).map((service) => (
                     <Link
                       key={service.id}
-                      to={`${ROUTES.SERVICES}/${service.data?.serviceId}`}
+                      href={`${ROUTES.SERVICES}/${service.data?.serviceId}`}
                       className="block px-2 py-1 text-xs rounded bg-muted hover:bg-muted/80 truncate"
                     >
                       {service.label || service.data?.serviceId}
@@ -147,7 +147,7 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
                   {connectedNetworks.slice(0, 5).map((network) => (
                     <Link
                       key={network.id}
-                      to={`${ROUTES.NETWORKS}/${network.data?.networkId}`}
+                      href={`${ROUTES.NETWORKS}/${network.data?.networkId}`}
                       className="block px-2 py-1 text-xs rounded bg-muted hover:bg-muted/80 truncate"
                     >
                       {network.label || network.data?.networkId}
@@ -167,7 +167,7 @@ export function TopologyDetailPanel({ node, onClose }: TopologyDetailPanelProps)
 
       <div className="border-t p-4">
         <Link
-          to={ROUTES.NODES + '/' + node.id}
+          href={ROUTES.NODES + '/' + node.id}
           className={cn(
             'flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground',
             'hover:bg-primary/90 transition-colors w-full'

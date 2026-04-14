@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
   ReactFlow,
@@ -180,7 +180,7 @@ export function HistoricalTopology({
             return (
               <motion.div key={node.id} variants={staggerItemVariants}>
                 <Link
-                  to={ROUTES.NODES + '/' + node.id}
+                  href={ROUTES.NODES + '/' + node.id}
                   className="flex items-center gap-3 rounded-lg p-2 hover:bg-muted transition-colors"
                 >
                   <div className={cn('rounded-lg p-1.5', colors?.bg || 'bg-muted')}>

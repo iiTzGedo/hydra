@@ -1,4 +1,5 @@
-import { Navigate, useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { ROUTES } from '@/lib/constants';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -11,8 +12,30 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, roles, permissions }: ProtectedRouteProps) {
-  const location = useLocation();
+  const pathname = usePathname();
+  const router = useRouter();
   const { isAuthenticated, isLoading, hasPermission, hasAnyRole } = useAuthStore();
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (!isAuthenticated) {
+      router.replace(ROUTES.LOGIN);
+      return;
+    }
+
+    if (roles && roles.length > 0 && !hasAnyRole(roles)) {
+      router.replace(ROUTES.DASHBOARD);
+      return;
+    }
+
+    if (permissions && permissions.length > 0) {
+      const hasAllPermissions = permissions.every((p) => hasPermission(p));
+      if (!hasAllPermissions) {
+        router.replace(ROUTES.DASHBOARD);
+      }
+    }
+  }, [isLoading, isAuthenticated, roles, permissions, hasAnyRole, hasPermission, router, pathname]);
 
   if (isLoading) {
     return (
@@ -23,19 +46,17 @@ export function ProtectedRoute({ children, roles, permissions }: ProtectedRouteP
   }
 
   if (!isAuthenticated) {
-    return <Navigate to={ROUTES.LOGIN} state={{ from: location }} replace />;
+    return null;
   }
 
-  if (roles && roles.length > 0) {
-    if (!hasAnyRole(roles)) {
-      return <Navigate to={ROUTES.DASHBOARD} replace />;
-    }
+  if (roles && roles.length > 0 && !hasAnyRole(roles)) {
+    return null;
   }
 
   if (permissions && permissions.length > 0) {
     const hasAllPermissions = permissions.every((p) => hasPermission(p));
     if (!hasAllPermissions) {
-      return <Navigate to={ROUTES.DASHBOARD} replace />;
+      return null;
     }
   }
 

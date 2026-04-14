@@ -1,5 +1,6 @@
 import { useMemo, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ReactFlow,
   Background,
@@ -126,7 +127,7 @@ function calculateLayout(index: number, total: number): { x: number; y: number }
  * <MiniTopology />
  */
 export function MiniTopology() {
-  const navigate = useNavigate();
+  const router = useRouter();
   const { data: topology, isLoading, error } = useLatestTopology();
 
   const totalNodes = topology?.graph?.nodes?.length ?? 0;
@@ -137,9 +138,9 @@ export function MiniTopology() {
   // Handle node click - navigate to node detail
   const handleNodeClick = useCallback(
     (nodeId: string) => {
-      navigate(`${ROUTES.NODES}/${nodeId}`);
+      router.push(`${ROUTES.NODES}/${nodeId}`);
     },
-    [navigate]
+    [router]
   );
 
   // Build ReactFlow nodes
@@ -274,7 +275,7 @@ export function MiniTopology() {
             <div className="text-xs text-muted-foreground">
               Showing {displayedNodes.length} of {totalNodes} nodes
               <Link
-                to={ROUTES.TOPOLOGY}
+                href={ROUTES.TOPOLOGY}
                 className="ml-2 text-primary hover:underline font-medium"
               >
                 View all

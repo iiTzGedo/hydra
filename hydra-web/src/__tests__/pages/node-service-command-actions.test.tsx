@@ -50,7 +50,7 @@ vi.mock('@/api/nodes', async () => {
   };
 });
 
-vi.mock('@/pages/nodes/[nodeId]/tabs', () => ({
+vi.mock('@/views/nodes/[nodeId]/tabs', () => ({
   OverviewTab: () => <div>Overview tab</div>,
   ProfileTab: () => <div>Profile tab</div>,
   ServicesTab: () => <div>Services tab</div>,
@@ -59,8 +59,8 @@ vi.mock('@/pages/nodes/[nodeId]/tabs', () => ({
   GroupsTab: () => <div>Groups tab</div>,
 }));
 
-import NodeDetailPage from '@/pages/nodes/[nodeId]';
-import ServiceDetailPage from '@/pages/services/[serviceId]';
+import NodeDetailPage from '@/views/nodes/[nodeId]';
+import ServiceDetailPage from '@/views/services/[serviceId]';
 import { renderWithRoute } from '../page-test-utils';
 
 describe('Node and Service Command Actions', () => {

@@ -2,7 +2,7 @@ export const CSRF_COOKIE_NAME = 'hydra_csrf';
 export const CSRF_HEADER_NAME = 'X-CSRF-Token';
 
 export function getApiBaseUrl(): string {
-  return import.meta.env.VITE_API_URL || '/api/v1';
+  return process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 }
 
 export function getCookieValue(name: string): string | null {

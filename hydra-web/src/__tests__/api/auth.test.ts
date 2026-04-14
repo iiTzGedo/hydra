@@ -14,7 +14,7 @@ import {
 import { useAuthStore } from '@/stores/auth-store';
 import type { LoginRequest, RegisterRequest } from '@/types/auth';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
 describe('auth hooks', () => {
   beforeEach(() => {

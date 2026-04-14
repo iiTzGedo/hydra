@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { History, ChevronRight } from 'lucide-react';
 import { useCommands } from '@/api/commands';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -46,7 +46,7 @@ export function CommandHistoryPanel({
             {visibleCommands.map((cmd) => (
               <Link
                 key={cmd.commandId}
-                to={`/commands/${cmd.commandId}`}
+                href={`/commands/${cmd.commandId}`}
                 className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted/50 group"
               >
                 <div className="flex items-center gap-2 min-w-0">

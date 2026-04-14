@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Server,
@@ -265,7 +265,7 @@ function NodeRow({ node }: { node: NodeListItem }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <Link
-            to={ROUTES.NODES + '/' + node.id}
+            href={ROUTES.NODES + '/' + node.id}
             className="font-medium hover:text-primary transition-colors truncate"
           >
             {node.displayName || node.id}
@@ -327,7 +327,7 @@ function NodeRow({ node }: { node: NodeListItem }) {
             />
             <div className="absolute right-0 top-full z-50 mt-1 w-40 rounded-lg border bg-popover p-1 shadow-lg">
               <Link
-                to={ROUTES.NODES + '/' + node.id}
+                href={ROUTES.NODES + '/' + node.id}
                 className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
                 onClick={() => setMenuOpen(false)}
               >
@@ -335,7 +335,7 @@ function NodeRow({ node }: { node: NodeListItem }) {
                 View Details
               </Link>
               <Link
-                to={ROUTES.NODES + '/' + node.id + '/profiles'}
+                href={ROUTES.NODES + '/' + node.id + '/profiles'}
                 className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
                 onClick={() => setMenuOpen(false)}
               >
@@ -343,7 +343,7 @@ function NodeRow({ node }: { node: NodeListItem }) {
                 View Profiles
               </Link>
               <Link
-                to={`${ROUTES.NODES}/${node.id}?edit=1`}
+                href={`${ROUTES.NODES}/${node.id}?edit=1`}
                 className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
                 onClick={() => setMenuOpen(false)}
               >
@@ -352,7 +352,7 @@ function NodeRow({ node }: { node: NodeListItem }) {
               </Link>
               <div className="my-1 border-t" />
               <Link
-                to={`${ROUTES.NODES}/${node.id}?archive=1`}
+                href={`${ROUTES.NODES}/${node.id}?archive=1`}
                 className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-error hover:bg-error/10"
                 onClick={() => setMenuOpen(false)}
               >
@@ -374,7 +374,7 @@ function CompactNodeRow({ node }: { node: NodeListItem }) {
   return (
     <motion.div variants={staggerItemVariants} layout>
       <Link
-        to={ROUTES.NODES + '/' + node.id}
+        href={ROUTES.NODES + '/' + node.id}
         className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors"
       >
         <span className={cn('h-2 w-2 rounded-full shrink-0', statusColors.dot)} />

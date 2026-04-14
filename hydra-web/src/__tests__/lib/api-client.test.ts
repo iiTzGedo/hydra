@@ -18,7 +18,7 @@ describe('apiClient', () => {
   });
 
   it('uses the resolved API base URL and cookie credentials', () => {
-    expect(apiClient.defaults.baseURL).toBe(import.meta.env.VITE_API_URL || '/api/v1');
+    expect(apiClient.defaults.baseURL).toBe(process.env.NEXT_PUBLIC_API_URL || '/api/v1');
     expect(apiClient.defaults.withCredentials).toBe(true);
     expect(apiClient.defaults.timeout).toBe(30000);
     expect(apiClient.defaults.headers['Content-Type']).toBe('application/json');

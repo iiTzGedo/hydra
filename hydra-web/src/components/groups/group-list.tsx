@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FolderTree,
@@ -67,7 +67,7 @@ export function GroupList({ filters }: GroupListProps) {
             : 'Create your first group to organize infrastructure'}
         </p>
         <Link
-          to={ROUTES.GROUP_NEW}
+          href={ROUTES.GROUP_NEW}
           className={cn(
             'mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground',
             'hover:bg-primary/90 transition-colors'
@@ -170,7 +170,7 @@ function GroupCard({ group }: { group: GroupListItem }) {
               />
               <div className="absolute right-0 top-full z-50 mt-1 w-36 rounded-lg border bg-popover p-1 shadow-lg">
                 <Link
-                  to={ROUTES.GROUPS + '/' + group.id}
+                  href={ROUTES.GROUPS + '/' + group.id}
                   className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
                   onClick={() => setMenuOpen(false)}
                 >
@@ -198,7 +198,7 @@ function GroupCard({ group }: { group: GroupListItem }) {
         </div>
       </div>
 
-      <Link to={ROUTES.GROUPS + '/' + group.id}>
+      <Link href={ROUTES.GROUPS + '/' + group.id}>
         <h3 className="font-semibold hover:text-primary transition-colors mb-2">
           {group.name}
         </h3>

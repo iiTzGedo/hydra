@@ -1,4 +1,5 @@
-import { Link, useLocation } from 'react-router-dom';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { ChevronRight, Home } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ROUTES } from '@/lib/constants';
@@ -10,8 +11,8 @@ interface PageBreadcrumbsProps {
 }
 
 export function PageBreadcrumbs({ className }: PageBreadcrumbsProps) {
-  const location = useLocation();
-  const crumbs = getRouteBreadcrumbs(location.pathname);
+  const pathname = usePathname() ?? '/';
+  const crumbs = getRouteBreadcrumbs(pathname);
 
   return (
     <nav aria-label="Breadcrumb" className={cn('flex items-center', className)}>
@@ -23,7 +24,7 @@ export function PageBreadcrumbs({ className }: PageBreadcrumbsProps) {
       >
         <li>
           <Link
-            to={ROUTES.DASHBOARD}
+            href={ROUTES.DASHBOARD}
             className="flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-muted hover:text-foreground"
           >
             <Home className="h-3 w-3" />
@@ -44,7 +45,7 @@ export function PageBreadcrumbs({ className }: PageBreadcrumbsProps) {
                 </span>
               ) : (
                 <Link
-                  to={resolvedPath}
+                  href={resolvedPath}
                   className="rounded px-1 py-0.5 transition-colors hover:bg-muted hover:text-foreground"
                 >
                   {crumb.title}

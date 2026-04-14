@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import {
   HelpCircle,
   Boxes,
@@ -186,7 +186,7 @@ export function ServiceSummary() {
                   transition={{ duration: 0.2 }}
                   whileHover={{ scale: 1.05 }}
                 >
-                  <Link to={`${ROUTES.SERVICES}?runtime=${runtime}`}>
+                  <Link href={`${ROUTES.SERVICES}?runtime=${runtime}`}>
                     <Badge
                       variant="secondary"
                       className={cn(

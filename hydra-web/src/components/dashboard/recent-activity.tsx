@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import {
   Clock,
   ArrowRight,
@@ -72,7 +72,7 @@ interface ActivityItemProps {
  * - Actor information
  */
 function ActivityItem({ entry, index }: ActivityItemProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const ResourceIcon = resourceIcons[entry.resource.type] || Server;
   const action =
     actionConfig[entry.action] || {
@@ -87,9 +87,9 @@ function ActivityItem({ entry, index }: ActivityItemProps) {
   const handleClick = useCallback(() => {
     const baseRoute = resourceRoutes[entry.resource.type];
     if (baseRoute) {
-      navigate(`${baseRoute}/${entry.resource.id}`);
+      router.push(`${baseRoute}/${entry.resource.id}`);
     }
-  }, [navigate, entry.resource.type, entry.resource.id]);
+  }, [router, entry.resource.type, entry.resource.id]);
 
   // Handle keyboard navigation
   const handleKeyDown = useCallback(

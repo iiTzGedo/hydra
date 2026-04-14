@@ -1,4 +1,4 @@
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -136,10 +136,11 @@ export function SmartBackButton({
   fallbackLabel: _fallbackLabel = 'Back',
   forceContext,
 }: SmartBackButtonProps) {
-  const navigate = useNavigate();
-  const location = useLocation();
+  const router = useRouter();
+  const pathname = usePathname() ?? '/';
+  const searchParams = useSearchParams();
 
-  const context = forceContext || getNavigationContext(location.pathname, location.search);
+  const context = forceContext || getNavigationContext(pathname, searchParams?.toString() ? `?${searchParams.toString()}` : '');
 
   // Don't render if we're at root or no context available
   if (!context) {
@@ -147,13 +148,13 @@ export function SmartBackButton({
   }
 
   const handleClick = () => {
-    navigate(context.path);
+    router.push(context.path);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      navigate(context.path);
+      router.push(context.path);
     }
   };
 

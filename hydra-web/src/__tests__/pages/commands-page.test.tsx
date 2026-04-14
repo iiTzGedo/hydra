@@ -43,7 +43,7 @@ vi.mock('@/api/workflows', () => ({
   }),
 }));
 
-import CommandsPage from '@/pages/commands';
+import CommandsPage from '@/views/commands';
 import { renderWithRoute } from '../page-test-utils';
 
 describe('Commands Page', () => {

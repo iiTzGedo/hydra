@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useMemo } from 'react';
 import { Bell, CheckCheck, Loader2, ChevronRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -240,7 +240,7 @@ export function NotificationPanel({
             asChild
             onClick={onClose}
           >
-            <Link to={ROUTES.NOTIFICATIONS}>
+            <Link href={ROUTES.NOTIFICATIONS}>
               View all notifications
               <span className="ml-1 text-muted-foreground">
                 ({total})

@@ -21,5 +21,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget -qO- http://localhost:3000/ || exit 1
 
-# Serve built assets with SPA routing
-CMD ["npx", "serve", "dist", "-l", "3000", "-s"]
+# Run Next.js server
+CMD ["npm", "start"]

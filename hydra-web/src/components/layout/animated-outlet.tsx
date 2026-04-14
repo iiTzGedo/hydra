@@ -1,22 +1,23 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { useLocation, useOutlet } from 'react-router-dom';
+import { usePathname } from 'next/navigation';
 
 /**
  * AnimatedOutlet - Wraps page content with smooth transition animations
- * 
+ *
  * Features:
  * - Fade + slide transition between pages
  * - Reduced motion support for accessibility
  * - Consistent timing with design system
+ *
+ * Note: In Next.js, this component uses children instead of Outlet.
  */
-export function AnimatedOutlet() {
-  const location = useLocation();
-  const outlet = useOutlet();
+export function AnimatedOutlet({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
 
   return (
     <AnimatePresence mode="wait">
       <motion.div
-        key={location.pathname}
+        key={pathname}
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -8 }}
@@ -26,7 +27,7 @@ export function AnimatedOutlet() {
         }}
         className="h-full"
       >
-        {outlet}
+        {children}
       </motion.div>
     </AnimatePresence>
   );

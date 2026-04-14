@@ -7,16 +7,15 @@ module.exports = {
     'plugin:react-hooks/recommended',
     'plugin:jsx-a11y/recommended',
   ],
-  ignorePatterns: ['dist', 'node_modules', '*.config.*', 'e2e'],
+  ignorePatterns: ['dist', '.next', 'node_modules', '*.config.*', 'e2e', 'next-env.d.ts'],
   parser: '@typescript-eslint/parser',
   parserOptions: {
     ecmaVersion: 'latest',
     sourceType: 'module',
     ecmaFeatures: { jsx: true },
   },
-  plugins: ['react-refresh', 'jsx-a11y'],
+  plugins: ['jsx-a11y'],
   rules: {
-    'react-refresh/only-export-components': 'off',
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     'jsx-a11y/no-autofocus': 'off',
   },

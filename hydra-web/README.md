@@ -56,7 +56,7 @@ npm install
 
 # Configure API endpoint
 cp .env.example .env
-# Edit .env: VITE_API_URL=http://localhost:8080/api/v1
+# Edit .env: NEXT_PUBLIC_API_URL= (leave empty for relative /api/v1)
 
 # Start development server
 npm run dev
@@ -91,7 +91,9 @@ Edit `.env` with your configuration (see [Configuration](#configuration) below).
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `VITE_API_URL` | Hydra API base URL | `http://localhost:8080/api/v1` |
+| `NEXT_PUBLIC_API_URL` | API URL exposed to the browser (leave empty for relative `/api/v1`) | _(empty)_ |
+| `HYDRA_API_URL` | Internal API URL for server components (SSR) | _(unset)_ |
+| `HYDRA_API_PROXY_TARGET` | Dev-only rewrite proxy target | `http://localhost:8080` |
 
 ## Pages & Routes
 
@@ -229,7 +231,7 @@ This builds the production bundle and serves it with Node `serve` (SPA routing v
 docker run -p 3000:3000 hydra-web:latest
 ```
 
-> **Note:** `VITE_API_URL` is baked into the bundle at build time. To change it, rebuild the image with the desired value.
+> **Note:** `NEXT_PUBLIC_API_URL` is embedded in the browser bundle at build time. To change it, rebuild the image with the desired value. Leave it empty to use relative `/api/v1` behind a reverse proxy.
 
 ### Docker Compose
 
@@ -257,9 +259,9 @@ docker compose logs -f hydra-web
 
 | Problem | Solution |
 |---------|----------|
-| `VITE_API_URL` not working | Ensure the variable is set **before** `npm run build`; Vite inlines env vars at build time |
+| `NEXT_PUBLIC_API_URL` not working | Ensure the variable is set **before** `npm run build`; Next.js embeds `NEXT_PUBLIC_*` vars at build time |
 | CORS errors in browser | Check `HYDRA_CORS_ORIGINS` in the API includes your web origin (e.g., `http://localhost:5173`) |
-| Blank page after deploy | Verify `serve.json` SPA rewrite is in place or that `serve -s` flag is used |
+| Blank page after deploy | Verify `next.config.ts` rewrites are correct and `npm run build && npm start` completes without errors |
 | 401 loops | Clear browser storage and re-login; the refresh token may have expired |
 | `npm install` engine warning | Ensure Node.js >= 22 (`node --version`) |
 

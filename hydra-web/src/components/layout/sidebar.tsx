@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   Bell,
   Boxes,
@@ -76,7 +77,7 @@ function getBoardDisplayLabel(board: { isHome?: boolean; name: string }) {
 }
 
 export function Sidebar() {
-  const location = useLocation();
+  const pathname = usePathname() ?? '/';
   const { sidebarCollapsed, sidebarMobileOpen, toggleSidebar, setSidebarMobileOpen } = useUiStore();
   const { hasPermission } = useAuthStore();
   const dashboards = useDashboards({ limit: 50, sortBy: 'updatedAt', sortOrder: 'desc' });
@@ -88,7 +89,7 @@ export function Sidebar() {
     Knowledge: true,
   });
 
-  const currentRoute = getRouteConfig(location.pathname);
+  const currentRoute = getRouteConfig(pathname);
 
   const primaryGroups = getPrimaryNavGroups()
     .map((group) => ({
@@ -133,12 +134,12 @@ export function Sidebar() {
 
   const isActive = (path: string) => {
     if (path === ROUTES.DASHBOARDS) {
-      return location.pathname.startsWith('/dashboards') || location.pathname === ROUTES.DASHBOARD;
+      return pathname.startsWith('/dashboards') || pathname === ROUTES.DASHBOARD;
     }
     if (path.startsWith('/docs')) {
-      return location.pathname.startsWith('/docs');
+      return pathname.startsWith('/docs');
     }
-    return location.pathname === path;
+    return pathname === path;
   };
 
   const toggleGroup = (label: string) => {
@@ -151,7 +152,7 @@ export function Sidebar() {
 
     const content = (
       <Link
-        to={item.path}
+        href={item.path}
         aria-label={sidebarCollapsed ? item.label : undefined}
         onClick={() => setSidebarMobileOpen(false)}
         className={cn(
@@ -220,7 +221,7 @@ export function Sidebar() {
               {items.map((item) => (
                 <Link
                   key={item.path}
-                  to={item.path}
+                  href={item.path}
                   onClick={() => setSidebarMobileOpen(false)}
                   className={cn(
                     'flex items-center gap-2 rounded-lg px-2 py-2 text-sm',
@@ -283,7 +284,7 @@ export function Sidebar() {
         <Tooltip delayDuration={0}>
           <TooltipTrigger asChild>
             <Link
-              to={path}
+              href={path}
               aria-label={label}
               onClick={() => setSidebarMobileOpen(false)}
               className={cn(
@@ -303,7 +304,7 @@ export function Sidebar() {
 
     return (
       <Link
-        to={path}
+        href={path}
         onClick={() => setSidebarMobileOpen(false)}
         className={cn(
           'flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm transition-colors',
@@ -322,7 +323,7 @@ export function Sidebar() {
     <TooltipProvider>
       <div className="flex h-full flex-col">
         <div className={cn('flex h-16 items-center border-b border-sidebar-border px-4', sidebarCollapsed && 'justify-center px-2')}>
-          <Link to={ROUTES.DASHBOARD} className="group flex items-center gap-3">
+          <Link href={ROUTES.DASHBOARD} className="group flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-lg shadow-primary/20">
               <Shield className="h-5 w-5" />
             </div>

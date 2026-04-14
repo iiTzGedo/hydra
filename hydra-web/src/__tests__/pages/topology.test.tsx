@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import TopologyPage from '@/pages/topology';
+import TopologyPage from '@/views/topology';
 import { server } from '../msw/server';
 import { renderWithRoute } from '../page-test-utils';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
 vi.mock('@xyflow/react', () => ({
   ReactFlow: ({ children, nodes, edges }: { children: React.ReactNode; nodes: unknown[]; edges: unknown[] }) => (

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Boxes,
@@ -181,7 +181,7 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <Link
-            to={ROUTES.SERVICES + '/' + encodeURIComponent(service.id)}
+            href={ROUTES.SERVICES + '/' + encodeURIComponent(service.id)}
             className="font-medium hover:text-primary transition-colors truncate"
           >
             {service.displayName || service.name}
@@ -216,7 +216,7 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
 
       <div className="hidden lg:block">
         <Link
-          to={ROUTES.NODES + '/' + service.nodeId}
+          href={ROUTES.NODES + '/' + service.nodeId}
           className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <Server className="h-4 w-4" />
@@ -248,7 +248,7 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
             />
             <div className="absolute right-0 top-full z-50 mt-1 w-40 rounded-lg border bg-popover p-1 shadow-lg">
               <Link
-                to={ROUTES.SERVICES + '/' + encodeURIComponent(service.id)}
+                href={ROUTES.SERVICES + '/' + encodeURIComponent(service.id)}
                 className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
                 onClick={() => setMenuOpen(false)}
               >
@@ -256,7 +256,7 @@ function ServiceRow({ service }: { service: ServiceListItem }) {
                 View Details
               </Link>
               <Link
-                to={ROUTES.NODES + '/' + service.nodeId}
+                href={ROUTES.NODES + '/' + service.nodeId}
                 className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
                 onClick={() => setMenuOpen(false)}
               >

@@ -45,7 +45,7 @@ vi.mock('@/api/nodes', () => ({
   useNodes: () => useNodesMock(),
 }));
 
-import DiscoveryPage from '@/pages/discovery';
+import DiscoveryPage from '@/views/discovery';
 import { ROUTES } from '@/lib/constants';
 import { renderWithRoute } from '../page-test-utils';
 

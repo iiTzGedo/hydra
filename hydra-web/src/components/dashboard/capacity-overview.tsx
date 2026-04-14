@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { Cpu, MemoryStick, HardDrive, Server, Layers, ArrowRight } from 'lucide-react';
 // Card imports removed - Widget container handles card styling
 import { Skeleton } from '@/components/ui/skeleton';
@@ -99,7 +99,7 @@ export function CapacityOverview() {
             {/* Summary metric cards with drill-down links */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Link
-                to={ROUTES.NODES}
+                href={ROUTES.NODES}
                 className="rounded-lg border bg-muted/30 p-4 hover:border-foreground/20 transition-colors group"
               >
                 <div className="flex items-center justify-between text-muted-foreground mb-2">
@@ -116,7 +116,7 @@ export function CapacityOverview() {
               </Link>
 
               <Link
-                to={`${ROUTES.NODES}?sort=cores`}
+                href={`${ROUTES.NODES}?sort=cores`}
                 className="rounded-lg border bg-muted/30 p-4 hover:border-foreground/20 transition-colors group"
               >
                 <div className="flex items-center justify-between text-muted-foreground mb-2">
@@ -131,7 +131,7 @@ export function CapacityOverview() {
               </Link>
 
               <Link
-                to={`${ROUTES.NODES}?sort=memory`}
+                href={`${ROUTES.NODES}?sort=memory`}
                 className="rounded-lg border bg-muted/30 p-4 hover:border-foreground/20 transition-colors group"
               >
                 <div className="flex items-center justify-between text-muted-foreground mb-2">
@@ -148,7 +148,7 @@ export function CapacityOverview() {
               </Link>
 
               <Link
-                to={`${ROUTES.NODES}?sort=storage`}
+                href={`${ROUTES.NODES}?sort=storage`}
                 className="rounded-lg border bg-muted/30 p-4 hover:border-foreground/20 transition-colors group"
               >
                 <div className="flex items-center justify-between text-muted-foreground mb-2">
@@ -218,7 +218,7 @@ export function CapacityOverview() {
                     {classNames.map((className) => (
                       <Link
                         key={className}
-                        to={`${ROUTES.NODES}?class=${className}`}
+                        href={`${ROUTES.NODES}?class=${className}`}
                         className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
                       >
                         <span
@@ -335,7 +335,7 @@ export function CapacityOverview() {
                   {Object.entries(byClass).map(([className, capacity]) => (
                     <Link
                       key={className}
-                      to={`${ROUTES.NODES}?class=${className}`}
+                      href={`${ROUTES.NODES}?class=${className}`}
                       className="flex items-center justify-between rounded-lg border bg-card/50 p-3 hover:border-foreground/20 transition-colors group"
                     >
                       <div>

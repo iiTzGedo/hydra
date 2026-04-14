@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import ChatPage from '@/pages/chat';
+import ChatPage from '@/views/chat';
 import { renderWithRoute } from '../page-test-utils';
 
 const mockUseChatOrchestration = vi.fn();
@@ -30,7 +30,7 @@ const OLLAMA_PROVIDER = {
   updatedAt: '2026-03-09T12:00:00Z',
 } as const;
 
-vi.mock('@/pages/chat/hooks/use-chat-orchestration', () => ({
+vi.mock('@/views/chat/hooks/use-chat-orchestration', () => ({
   useChatOrchestration: () => mockUseChatOrchestration(),
 }));
 

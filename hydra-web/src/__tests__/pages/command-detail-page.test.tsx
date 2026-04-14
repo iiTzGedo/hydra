@@ -17,7 +17,7 @@ vi.mock('@/api/commands', async () => {
   };
 });
 
-import CommandDetailPage from '@/pages/commands/[commandId]';
+import CommandDetailPage from '@/views/commands/[commandId]';
 import { renderWithRoute } from '../page-test-utils';
 
 describe('Command Detail Page', () => {

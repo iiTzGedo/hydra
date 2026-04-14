@@ -11,7 +11,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -86,7 +86,7 @@ export const NotificationItem = forwardRef<HTMLButtonElement, NotificationItemPr
     },
     ref
   ) {
-    const navigate = useNavigate();
+    const router = useRouter();
     const tier = notification.tier as NotificationTier;
     const colors = TIER_COLORS[tier];
     const Icon = tierIcons[tier];
@@ -112,10 +112,10 @@ export const NotificationItem = forwardRef<HTMLButtonElement, NotificationItemPr
       }
       // Navigate to the primary link if available (validate relative path to prevent open redirect)
       if (primaryLink && primaryLink.href.startsWith('/') && !primaryLink.href.startsWith('//')) {
-        navigate(primaryLink.href);
+        router.push(primaryLink.href);
       }
       onClick?.();
-    }, [navigate, primaryLink, onClick, tier, onViewDetails, notification]);
+    }, [router, primaryLink, onClick, tier, onViewDetails, notification]);
 
     // Handle mark read without triggering navigation
     const handleMarkRead = useCallback(

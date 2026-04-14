@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
   Server,
@@ -104,7 +104,7 @@ export function NodeCard({ node, onEdit, onArchive }: NodeCardProps) {
       className="h-full"
     >
       <Card className="group h-full border-border bg-card overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-foreground/10">
-        <Link to={`${ROUTES.NODES}/${node.nodeId}`} className="block h-full">
+        <Link href={`${ROUTES.NODES}/${node.nodeId}`} className="block h-full">
           <CardContent className="p-5 h-full flex flex-col">
             {/* Main content: left details + right status/actions */}
             <div className="flex flex-1 items-start gap-4">
@@ -127,7 +127,7 @@ export function NodeCard({ node, onEdit, onArchive }: NodeCardProps) {
                   </div>
                 </div>
 
-                <h3 className="font-semibold text-foreground text-base mb-1 truncate group-hover:text-primary transition-colors">
+                <h3 className="font-semibold text-foreground text-base mb-1 break-words group-hover:text-primary transition-colors">
                   {node.displayName}
                 </h3>
                 <p className="text-xs text-muted-foreground font-mono truncate mb-4">
@@ -207,7 +207,7 @@ export function NodeCard({ node, onEdit, onArchive }: NodeCardProps) {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                       <DropdownMenuItem asChild>
-                        <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
+                        <Link href={`${ROUTES.NODES}/${node.nodeId}`}>
                           <Eye className="h-4 w-4 mr-2" />
                           View Details
                         </Link>
@@ -275,7 +275,7 @@ export function NodeCardCompact({ node }: { node: NodeSummary }) {
   const status = statusConfig[node.status] || statusConfig.inactive;
 
   return (
-    <Link to={`${ROUTES.NODES}/${node.nodeId}`}>
+    <Link href={`${ROUTES.NODES}/${node.nodeId}`}>
       <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors group">
         <div className={cn(
           'h-10 w-10 rounded-lg flex items-center justify-center shrink-0',

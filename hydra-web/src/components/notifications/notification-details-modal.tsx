@@ -12,7 +12,7 @@ import {
   User,
   XCircle,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -77,7 +77,7 @@ export function NotificationDetailsModal({
   onDelete,
   canWrite = true,
 }: NotificationDetailsModalProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
 
   if (!notification) return null;
 
@@ -197,7 +197,7 @@ export function NotificationDetailsModal({
                       className="h-7 text-xs"
                       onClick={() => {
                         if (link.href.startsWith('/') && !link.href.startsWith('//')) {
-                          navigate(link.href);
+                          router.push(link.href);
                         }
                         onOpenChange(false);
                       }}
@@ -283,7 +283,7 @@ export function NotificationDetailsModal({
               size="sm"
               onClick={() => {
                 if (primaryLink.href.startsWith('/') && !primaryLink.href.startsWith('//')) {
-                  navigate(primaryLink.href);
+                  router.push(primaryLink.href);
                 }
                 onOpenChange(false);
               }}

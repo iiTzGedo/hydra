@@ -17,6 +17,50 @@ notifyManager.setNotifyFunction((callback) => {
   act(callback);
 });
 
+// Mock next/navigation — required for all components using App Router hooks.
+// Uses a shared mutable state object so page-test-utils can override values per test.
+const mockNavState = {
+  router: {
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+    prefetch: vi.fn(),
+  },
+  pathname: '/' as string,
+  searchParams: new URLSearchParams() as URLSearchParams,
+  params: {} as Record<string, string>,
+};
+
+// Expose for page-test-utils to override
+(globalThis as Record<string, unknown>).__mockNavState = mockNavState;
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => mockNavState.router,
+  usePathname: () => mockNavState.pathname,
+  useSearchParams: () => mockNavState.searchParams,
+  useParams: () => mockNavState.params,
+  useSelectedLayoutSegment: () => null,
+  useSelectedLayoutSegments: () => [],
+  redirect: vi.fn(),
+  notFound: vi.fn(),
+}));
+
+// Mock next/link — renders as a plain <a> tag in tests
+vi.mock('next/link', async () => {
+  const React = await import('react');
+  return {
+    __esModule: true,
+    default: React.forwardRef<
+      HTMLAnchorElement,
+      React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }
+    >(({ children, href, ...props }, ref) =>
+      React.createElement('a', { ...props, href, ref }, children)
+    ),
+  };
+});
+
 vi.mock('framer-motion', async () => {
   const React = await import('react');
 

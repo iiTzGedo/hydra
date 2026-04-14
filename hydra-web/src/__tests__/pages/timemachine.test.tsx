@@ -2,26 +2,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { HistoricalTopology, TimelineResponse } from '@/types/timemachine';
-import TimeMachinePage from '@/pages/timemachine';
+import TimeMachinePage from '@/views/timemachine';
 import { renderWithRoute } from '../page-test-utils';
 
 const {
-  mockNavigate,
+  mockRouterPush,
   mockUseTimeline,
   mockUseTopologyStateAt,
 } = vi.hoisted(() => ({
-  mockNavigate: vi.fn(),
+  mockRouterPush: vi.fn(),
   mockUseTimeline: vi.fn(),
   mockUseTopologyStateAt: vi.fn(),
 }));
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-  return {
-    ...actual,
-    useNavigate: () => mockNavigate,
-  };
-});
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: mockRouterPush,
+    replace: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    refresh: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => '/timemachine',
+  useSearchParams: () => new URLSearchParams(),
+  useParams: () => ({}),
+}));
 
 vi.mock('@/api/timemachine', () => ({
   useTimeline: (...args: unknown[]) => mockUseTimeline(...args),
@@ -124,7 +130,7 @@ function createTopology(timestamp: string): HistoricalTopology {
 
 describe('Time Machine Integration', () => {
   beforeEach(() => {
-    mockNavigate.mockReset();
+    mockRouterPush.mockReset();
     mockUseTimeline.mockReset();
     mockUseTopologyStateAt.mockReset();
 
@@ -170,7 +176,7 @@ describe('Time Machine Integration', () => {
     expect(screen.getByText('Topology timestamp: 2026-03-10T09:30:00.000Z')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'View node' }));
-    expect(mockNavigate).toHaveBeenCalledWith('/nodes/node-alpha');
+    expect(mockRouterPush).toHaveBeenCalledWith('/nodes/node-alpha');
 
     await user.click(screen.getByRole('tab', { name: 'Calendar' }));
     expect(await screen.findByText('Calendar mock')).toBeInTheDocument();

@@ -188,7 +188,7 @@ vi.mock('@/components/dashboard/widget-picker', () => ({
   ),
 }));
 
-import DashboardPage from '@/pages/dashboard';
+import DashboardPage from '@/views/dashboard';
 import { useDashboardStore } from '@/stores/dashboard-store';
 import { renderWithRoute } from '../page-test-utils';
 

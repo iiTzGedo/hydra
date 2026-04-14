@@ -1,5 +1,5 @@
 import { LucideIcon, MoreHorizontal } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -73,7 +73,7 @@ export function ActionMenu({ items, align = 'end', triggerClassName }: ActionMen
                 disabled={item.disabled}
                 className={cn(item.variant === 'destructive' && 'text-destructive')}
               >
-                <Link to={item.href}>{content}</Link>
+                <Link href={item.href}>{content}</Link>
               </DropdownMenuItem>
             );
           }

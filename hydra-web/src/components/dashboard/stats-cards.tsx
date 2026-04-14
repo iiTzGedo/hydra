@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import {
   Server,
   Boxes,
@@ -100,7 +100,7 @@ function StatCard({
   details,
   color,
 }: StatCardProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const colors = colorVariants[color];
 
   if (loading) {
@@ -121,14 +121,14 @@ function StatCard({
 
   // Handle card click - navigate to main href
   const handleCardClick = () => {
-    navigate(href);
+    router.push(href);
   };
 
   // Handle detail button click - navigate to specific href
   const handleDetailClick = (e: React.MouseEvent, detailHref?: string) => {
     if (!detailHref) return;
     e.stopPropagation(); // Prevent card click
-    navigate(detailHref);
+    router.push(detailHref);
   };
 
   return (

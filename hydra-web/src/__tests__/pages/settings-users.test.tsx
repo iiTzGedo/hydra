@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import SettingsPage from '@/pages/settings';
-import { UserManagement } from '@/pages/settings/components/user-management';
+import SettingsPage from '@/views/settings';
+import { UserManagement } from '@/views/settings/components/user-management';
 import { server } from '../msw/server';
 import { renderWithRoute } from '../page-test-utils';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
 describe('Settings Users Integration', () => {
   it('renders the users tab when selected through query params', async () => {

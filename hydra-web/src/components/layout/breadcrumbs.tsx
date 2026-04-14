@@ -1,4 +1,5 @@
-import { Link, useLocation } from 'react-router-dom';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { ChevronRight, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ROUTES } from '@/lib/constants';
@@ -49,8 +50,8 @@ export function Breadcrumbs({
   className?: string;
   maxIdLength?: number;
 }) {
-  const location = useLocation();
-  const segments = location.pathname.split('/').filter(Boolean);
+  const pathname = usePathname() ?? '/';
+  const segments = pathname.split('/').filter(Boolean);
   
   if (segments.length === 0) return null;
 
@@ -101,7 +102,7 @@ export function Breadcrumbs({
         {/* Home link */}
         <li>
           <Link
-            to={ROUTES.DASHBOARD}
+            href={ROUTES.DASHBOARD}
             className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
           >
             <Home className="h-3.5 w-3.5" />
@@ -130,7 +131,7 @@ export function Breadcrumbs({
               ) : (
                 // Parent page (clickable)
                 <Link
-                  to={crumb.path}
+                  href={crumb.path}
                   className={cn(
                     'text-muted-foreground hover:text-foreground transition-colors truncate max-w-[100px] sm:max-w-[150px]',
                     crumb.isId && 'font-mono text-xs'

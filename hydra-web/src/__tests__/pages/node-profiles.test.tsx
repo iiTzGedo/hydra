@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import NodeProfilesPage from '@/pages/nodes/[nodeId]/profiles';
-import ProfileComparePage from '@/pages/nodes/[nodeId]/profiles/compare';
+import NodeProfilesPage from '@/views/nodes/[nodeId]/profiles';
+import ProfileComparePage from '@/views/nodes/[nodeId]/profiles/compare';
 import { server } from '../msw/server';
 import { renderWithRoute } from '../page-test-utils';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
 describe('Node Profiles Integration', () => {
   it('shows compare actions only after two profiles are selected', async () => {

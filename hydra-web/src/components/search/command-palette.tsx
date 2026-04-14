@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
@@ -49,7 +49,7 @@ const quickActions: SearchResult[] = [
 ];
 
 export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -149,9 +149,9 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   }, [isOpen]);
 
   const handleSelect = useCallback((result: SearchResult) => {
-    navigate(result.route);
+    router.push(result.route);
     onClose();
-  }, [navigate, onClose]);
+  }, [router, onClose]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

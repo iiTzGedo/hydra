@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Server, Wifi, Cpu, HardDrive, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useNodes } from '@/api/nodes';
@@ -40,13 +41,13 @@ interface NodeStatusItemProps {
  * NodeStatusItem - Single node status card
  */
 function NodeStatusItem({ node, index }: NodeStatusItemProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const Icon = nodeClassIcons[node.class] || Server;
   const classConfig = nodeClassConfig[node.class];
   const status = statusConfig[node.status] || statusConfig.inactive;
 
   const handleClick = () => {
-    navigate(`${ROUTES.NODES}/${node.nodeId}`);
+    router.push(`${ROUTES.NODES}/${node.nodeId}`);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -174,7 +175,7 @@ export function NodeStatusGrid() {
         <div className="text-center">
           <Server className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
           <p className="text-sm text-muted-foreground">No nodes available</p>
-          <Link to={ROUTES.NODES}>
+          <Link href={ROUTES.NODES}>
             <Button variant="link" size="sm" className="mt-1">
               Register a node
             </Button>

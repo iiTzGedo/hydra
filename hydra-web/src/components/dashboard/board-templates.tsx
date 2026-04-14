@@ -21,7 +21,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { getErrorMessage } from '@/lib/api-client';
+import { apiClient, getErrorMessage } from '@/lib/api-client';
 
 interface BoardTemplatesProps {
   open: boolean;
@@ -51,24 +51,11 @@ export function BoardTemplates({ open, onOpenChange, onTemplateUsed }: BoardTemp
   const handleUseTemplate = async (templateId: string) => {
     setInstantiatingId(templateId);
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL ?? '/api/v1'}/dashboards/templates/${templateId}/instantiate`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('auth_token') ?? ''}`,
-          },
-          body: JSON.stringify({}),
-        }
+      const response = await apiClient.post(
+        `/dashboards/templates/${templateId}/instantiate`,
+        {}
       );
-
-      if (!response.ok) {
-        throw new Error(`Failed to instantiate template (${response.status})`);
-      }
-
-      const result = await response.json();
-      const newBoardId = result?.data?.boardId;
+      const newBoardId = response.data?.data?.boardId;
       toast.success('Dashboard created from template');
       onOpenChange(false);
       if (newBoardId && onTemplateUsed) {

@@ -68,13 +68,17 @@ services:
     build:
       context: ./hydra-web
       dockerfile: Dockerfile
-    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    command: ["npm", "run", "dev"]
     network_mode: host
     environment:
-      - VITE_API_URL=
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-}
+      - HYDRA_API_URL=${HYDRA_API_URL:-}
+      - HYDRA_API_PROXY_TARGET=${HYDRA_API_PROXY_TARGET:-http://localhost:8080}
     volumes:
       - ./hydra-web/src:/app/src:ro
+      - ./hydra-web/app:/app/app:ro
       - ./hydra-web/public:/app/public:ro
+      - ./hydra-web/middleware.ts:/app/middleware.ts:ro
     depends_on:
       - hydra-api
 

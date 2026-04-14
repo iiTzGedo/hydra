@@ -1,4 +1,4 @@
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useRouter, usePathname } from 'next/navigation';
 import { Menu, Search, LogOut, Settings, Moon, Sun, User, Command } from 'lucide-react';
 import { ROUTES } from '@/lib/constants';
 import { useUiStore } from '@/stores/ui-store';
@@ -33,19 +33,19 @@ import { usePageTitleStore } from '@/stores/page-title-store';
  *
  */
 export function Header() {
-  const navigate = useNavigate();
-  const location = useLocation();
+  const router = useRouter();
+  const pathname = usePathname() ?? '/';
   const { setSidebarMobileOpen } = useUiStore();
   const { user, logout } = useAuthStore();
   const { theme, setTheme } = useTheme();
   const commandPalette = useCommandPalette();
   const dynamicTitle = usePageTitleStore((s) => s.title);
 
-  const pageTitle = dynamicTitle ?? getRouteTitle(location.pathname);
+  const pageTitle = dynamicTitle ?? getRouteTitle(pathname);
 
   const handleLogout = () => {
     logout();
-    navigate(ROUTES.LOGIN);
+    router.push(ROUTES.LOGIN);
   };
 
   return (
@@ -166,12 +166,12 @@ export function Header() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate('/profile')} className="cursor-pointer">
+            <DropdownMenuItem onClick={() => router.push('/profile')} className="cursor-pointer">
               <User className="mr-2 h-4 w-4" />
               Profile
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => navigate(ROUTES.SETTINGS)}
+              onClick={() => router.push(ROUTES.SETTINGS)}
               className="cursor-pointer"
             >
               <Settings className="mr-2 h-4 w-4" />

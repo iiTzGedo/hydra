@@ -1,4 +1,4 @@
-import { Outlet, useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
@@ -24,7 +24,7 @@ interface RootLayoutProps {
  * - Global navigation shortcuts
  */
 export function RootLayout({ children }: RootLayoutProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -49,42 +49,42 @@ export function RootLayout({ children }: RootLayoutProps) {
       key: 'g',
       ctrl: true,
       shift: true,
-      handler: () => navigate(ROUTES.DASHBOARD),
+      handler: () => router.push(ROUTES.DASHBOARD),
       description: 'Go to Dashboard',
     },
     {
       key: 'n',
       ctrl: true,
       shift: true,
-      handler: () => navigate(ROUTES.NODES),
+      handler: () => router.push(ROUTES.NODES),
       description: 'Go to Nodes',
     },
     {
       key: 's',
       ctrl: true,
       shift: true,
-      handler: () => navigate(ROUTES.SERVICES),
+      handler: () => router.push(ROUTES.SERVICES),
       description: 'Go to Services',
     },
     {
       key: 'w',
       ctrl: true,
       shift: true,
-      handler: () => navigate(ROUTES.NETWORKS),
+      handler: () => router.push(ROUTES.NETWORKS),
       description: 'Go to Networks',
     },
     {
       key: 'd',
       ctrl: true,
       shift: true,
-      handler: () => navigate(ROUTES.DISCOVERY),
+      handler: () => router.push(ROUTES.DISCOVERY),
       description: 'Go to Discovery',
     },
     {
       key: 't',
       ctrl: true,
       shift: true,
-      handler: () => navigate(ROUTES.TOPOLOGY),
+      handler: () => router.push(ROUTES.TOPOLOGY),
       description: 'Go to Topology',
     },
     // Actions
@@ -126,7 +126,7 @@ export function RootLayout({ children }: RootLayoutProps) {
           className="flex-1 overflow-auto bg-background p-4 sm:p-6"
           tabIndex={-1}
         >
-          {children || <Outlet />}
+          {children}
         </main>
       </div>
 

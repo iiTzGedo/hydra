@@ -1,5 +1,5 @@
 import { LucideIcon } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
@@ -33,7 +33,7 @@ export function EmptyState({
         {action && (
           action.href ? (
             <Button variant="outline" className="mt-4" asChild>
-              <Link to={action.href}>{action.label}</Link>
+              <Link href={action.href}>{action.label}</Link>
             </Button>
           ) : (
             <Button variant="outline" className="mt-4" onClick={action.onClick}>

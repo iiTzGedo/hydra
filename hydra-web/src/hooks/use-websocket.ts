@@ -10,7 +10,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { CSRF_HEADER_NAME, getApiBaseUrl, getCsrfToken } from '@/lib/auth-session';
 
 // Enable debug logging for WebSocket connections
-const WS_DEBUG = import.meta.env.DEV;
+const WS_DEBUG = process.env.NODE_ENV === 'development';
 
 // Consolidated debug logging utility
 export const wsDebug = {

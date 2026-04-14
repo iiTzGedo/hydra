@@ -27,10 +27,15 @@ export function ThemeProvider({
   defaultTheme = 'system',
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(
-    () => storage.getTheme() || defaultTheme
-  );
+  const [theme, setTheme] = useState<Theme>(defaultTheme);
   const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>('light');
+  // Hydrate theme from localStorage after mount to avoid SSR mismatch
+  useEffect(() => {
+    const stored = storage.getTheme();
+    if (stored && stored !== defaultTheme) {
+      setTheme(stored);
+    }
+  }, [defaultTheme]);
 
   useEffect(() => {
     const root = window.document.documentElement;
