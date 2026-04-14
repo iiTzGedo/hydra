@@ -492,11 +492,18 @@ async def cancel_command(
     command_id: str,
     commands_service: CommandsServiceDep,
     current_user: CurrentUser,
+    confirm_cascade: bool = Query(
+        default=False,
+        alias="confirmCascade",
+        description="Also cancel sibling commands in the same chain.",
+    ),
 ) -> SuccessResponse[CommandCancelledResponse]:
     """Cancel a command that has not yet completed."""
     user_id = get_authenticated_user_id(current_user)
 
-    result = await commands_service.cancel_command(command_id, cancelled_by=user_id)
+    result = await commands_service.cancel_command(
+        command_id, cancelled_by=user_id, confirm_cascade=confirm_cascade
+    )
 
     return SuccessResponse(
         data=CommandCancelledResponse(
@@ -504,6 +511,7 @@ async def cancel_command(
             status=CommandStatus(result["status"]),
             cancelled_at=result["cancelledAt"],
             cancelled_by=result.get("cancelledBy"),
+            cascade_cancelled_ids=result.get("cascadeCancelledIds"),
         )
     )
 

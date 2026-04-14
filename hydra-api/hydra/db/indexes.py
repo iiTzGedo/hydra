@@ -231,6 +231,11 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("boardId", ASCENDING), ("version", DESCENDING)]),
         IndexModel([("savedAt", DESCENDING)]),
     ],
+    "mcp_clients": [
+        IndexModel([("clientId", ASCENDING)], unique=True),
+        IndexModel([("type", ASCENDING)]),
+        IndexModel([("registeredAt", DESCENDING)]),
+    ],
 }
 
 

@@ -1,9 +1,10 @@
 """MCP server configuration management endpoints."""
 
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Request
 
 from hydra.api.v1.core.deps import CurrentUser, check_not_agent
 from hydra.api.v1.models.mcp import (
@@ -479,3 +480,53 @@ async def list_prompts(
     )
 
     return MCPPromptsResponse(**result)
+
+
+# ============================================================================
+# MCP Client Registration (Internal)
+# ============================================================================
+
+
+@router.post(
+    "/clients/register",
+    response_model=dict[str, Any],
+    summary="Register MCP Client",
+    description="Register or update an MCP client connection (internal use by hydra-mcp).",
+    include_in_schema=False,
+)
+async def register_mcp_client(
+    request: Request,
+    mongodb: MongoDB = Depends(get_mongodb),
+) -> dict[str, Any]:
+    """Register or update an MCP client in the mcp_clients collection.
+
+    Called by hydra-mcp on first tool invocation per client session.
+    This is an internal endpoint — no user auth required, validated by
+    the internal request header convention.
+    """
+    body = await request.json()
+    client_id = body.get("clientId", "unknown")
+    client_type = body.get("type", "external")
+    capabilities = body.get("capabilities", [])
+
+    now = datetime.now(UTC)
+
+    await mongodb.mcp_clients.update_one(
+        {"clientId": client_id},
+        {
+            "$set": {
+                "type": client_type,
+                "lastSeenAt": now,
+                "capabilities": capabilities,
+            },
+            "$setOnInsert": {
+                "clientId": client_id,
+                "registeredAt": now,
+            },
+        },
+        upsert=True,
+    )
+
+    logger.info("mcp_client_registered", client_id=client_id, type=client_type)
+
+    return {"clientId": client_id, "type": client_type, "registeredAt": now.isoformat()}

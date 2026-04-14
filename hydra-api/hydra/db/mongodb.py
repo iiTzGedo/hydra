@@ -286,6 +286,11 @@ class MongoDB:
         """Dashboard version snapshots collection."""
         return self.db.dashboard_versions
 
+    @property
+    def mcp_clients(self) -> AsyncIOMotorCollection[Any]:
+        """MCP client registration collection."""
+        return self.db.mcp_clients
+
 
 _mongodb: MongoDB | None = None
 

@@ -94,6 +94,9 @@ class CommandCancelledResponse(BaseModel):
     status: CommandStatus = CommandStatus.CANCELLED
     cancelled_at: Annotated[datetime, Field(alias="cancelledAt")]
     cancelled_by: Annotated[str | None, Field(default=None, alias="cancelledBy")]
+    cascade_cancelled_ids: Annotated[
+        list[str] | None, Field(default=None, alias="cascadeCancelledIds")
+    ]
 
     model_config = ConfigDict(populate_by_name=True)
 

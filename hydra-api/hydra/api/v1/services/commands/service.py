@@ -966,16 +966,21 @@ class CommandsService:
         return commands, total
 
     async def cancel_command(
-        self, command_id: str, cancelled_by: str | None = None
+        self,
+        command_id: str,
+        cancelled_by: str | None = None,
+        confirm_cascade: bool = False,
     ) -> dict[str, Any]:
         """Cancel a pending or queued command.
 
         Args:
             command_id: The command identifier.
             cancelled_by: User ID of who cancelled the command.
+            confirm_cascade: If True, also cancel sibling commands in the same chain.
 
         Returns:
-            Dict with command_id, status, cancelled_at, and cancelled_by.
+            Dict with command_id, status, cancelled_at, cancelled_by,
+            and cascade_cancelled_ids (when cascade was applied).
 
         Raises:
             CommandNotFoundError: If the command does not exist.
@@ -1007,11 +1012,49 @@ class CommandsService:
 
         logger.info("command_cancelled", command_id=command_id, cancelled_by=cancelled_by)
 
+        # Cascade cancel sibling commands in the same chain.
+        cascade_cancelled_ids: list[str] | None = None
+        chain = command.get("chain")
+        if confirm_cascade and chain and chain.get("chainId"):
+            chain_id = chain["chainId"]
+            siblings = self.commands.find(
+                {
+                    "chain.chainId": chain_id,
+                    "commandId": {"$ne": command_id},
+                    "status": {"$in": cancellable_statuses},
+                },
+                projection={"commandId": 1},
+            )
+            cascade_cancelled_ids = []
+            async for sibling in siblings:
+                sibling_id = sibling["commandId"]
+                await self.commands.update_one(
+                    {"commandId": sibling_id},
+                    {
+                        "$set": {
+                            "status": CommandStatus.CANCELLED.value,
+                            "completedAt": now,
+                            "cancelledAt": now,
+                            "cancelledBy": cancelled_by,
+                        }
+                    },
+                )
+                cascade_cancelled_ids.append(sibling_id)
+
+            if cascade_cancelled_ids:
+                logger.info(
+                    "cascade_cancelled",
+                    chain_id=chain_id,
+                    cancelled_count=len(cascade_cancelled_ids),
+                    cancelled_ids=cascade_cancelled_ids,
+                )
+
         return {
             "commandId": command_id,
             "status": CommandStatus.CANCELLED.value,
             "cancelledAt": now,
             "cancelledBy": cancelled_by,
+            "cascadeCancelledIds": cascade_cancelled_ids,
         }
 
     async def poll_commands(self, node_id: str) -> list[dict[str, Any]]:

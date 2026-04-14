@@ -817,6 +817,108 @@ async def test_cancel_command_success(
 
 
 @pytest.mark.asyncio
+async def test_cancel_cascade_cancels_chain_siblings(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_command,
+    sample_user,
+):
+    """Cascade cancel cancels sibling commands in the same chain."""
+    chain_id = "chain-abc-001"
+    chained_command = {
+        **sample_command,
+        "chain": {"chainId": chain_id, "step": 1},
+    }
+    sibling = {
+        "commandId": "cmd-sibling-001",
+        "status": "queued",
+        "chain": {"chainId": chain_id, "step": 2},
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.commands.find_one = AsyncMock(return_value=chained_command)
+    mock_mongodb.commands.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
+
+    async def _fake_find(query, **kwargs):
+        """Yield siblings matching the chain query."""
+        for doc in [sibling]:
+            yield doc
+
+    mock_mongodb.commands.find = MagicMock(side_effect=_fake_find)
+
+    response = await client.post(
+        f"/api/v1/commands/{chained_command['commandId']}/cancel?confirmCascade=true",
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["cascadeCancelledIds"] == ["cmd-sibling-001"]
+    # Primary + sibling = 2 update_one calls
+    assert mock_mongodb.commands.update_one.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_cancel_without_cascade_does_not_cancel_siblings(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_command,
+    sample_user,
+):
+    """Default cancel (no cascade) leaves siblings untouched."""
+    chained_command = {
+        **sample_command,
+        "chain": {"chainId": "chain-xyz", "step": 1},
+    }
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.commands.find_one = AsyncMock(return_value=chained_command)
+    mock_mongodb.commands.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
+
+    response = await client.post(
+        f"/api/v1/commands/{chained_command['commandId']}/cancel",
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data.get("cascadeCancelledIds") is None
+    # Only primary command cancelled
+    assert mock_mongodb.commands.update_one.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_cascade_noop_for_unchained_command(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_command,
+    sample_user,
+):
+    """Cascade on a command without a chain is a no-op."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    # sample_command has chain: None
+    mock_mongodb.commands.find_one = AsyncMock(return_value=sample_command)
+    mock_mongodb.commands.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
+
+    response = await client.post(
+        f"/api/v1/commands/{sample_command['commandId']}/cancel?confirmCascade=true",
+        headers=trusted_write_headers(),
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data.get("cascadeCancelledIds") is None
+    assert mock_mongodb.commands.update_one.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_confirm_command_rejects_cross_user(
     client: AsyncClient,
     mock_mongodb,

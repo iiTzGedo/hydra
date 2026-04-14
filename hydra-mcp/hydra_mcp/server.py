@@ -264,6 +264,36 @@ async def _emit_mcp_notification(
         )
 
 
+# ── MCP Client Registration ─────────────────────────────────────────────
+# Track which client IDs have already been registered this session to avoid
+# a DB call on every tool invocation.
+_registered_clients: set[str] = set()
+
+
+async def _register_mcp_client(client_id: str, source_type: str) -> None:
+    """Register the current MCP client (fire-and-forget, best-effort)."""
+    if client_id in _registered_clients:
+        return
+    _registered_clients.add(client_id)
+    try:
+        runtime_settings = get_settings()
+        import httpx
+
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            await http.post(
+                f"{runtime_settings.api_url.rstrip('/')}/mcp/clients/register",
+                json={
+                    "clientId": client_id,
+                    "type": source_type,
+                },
+            )
+        logger.debug("mcp_client_registered", client_id=client_id, source_type=source_type)
+    except Exception:
+        # Best-effort; don't block tool execution on registration failure.
+        _registered_clients.discard(client_id)
+        logger.debug("mcp_client_registration_failed", client_id=client_id)
+
+
 @server.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]
 async def list_tools() -> ListToolsResult:
     """List all available MCP tools for infrastructure management.
@@ -293,6 +323,18 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
     """
     try:
         result = await registry_execute_tool(name, arguments)
+
+        # Register MCP client on first successful tool call (best-effort, async)
+        try:
+            from hydra_mcp.auth import get_auth_context
+
+            ctx = get_auth_context()
+            if ctx and ctx.client_id:
+                import asyncio
+
+                asyncio.create_task(_register_mcp_client(ctx.client_id, ctx.source_type))
+        except Exception:
+            pass
 
         # Emit GREEN-tier notification for successful write tool execution (best-effort)
         if name in _WRITE_TOOLS:
