@@ -465,6 +465,7 @@ class NetworksService:
             "routerNodeId": doc.get("routerNodeId"),
             "dhcp": doc.get("dhcp"),
             "dns": doc.get("dns"),
+            "scanConfig": doc.get("scanConfig"),
             "nodeCount": doc.get("nodeCount", 0),
             "origin": doc.get("origin", {}),
             "tags": doc.get("tags", []),

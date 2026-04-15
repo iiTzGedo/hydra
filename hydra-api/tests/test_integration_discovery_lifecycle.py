@@ -377,8 +377,8 @@ async def test_device_fingerprinting_on_result_submission(
     assert "fingerprint" in enrich_update
     assert "classification" in enrich_update
     fingerprint = enrich_update["fingerprint"]
-    assert 22 in fingerprint["openPorts"]
-    assert 80 in fingerprint["openPorts"]
+    assert 22 in fingerprint["portNumbers"]
+    assert 80 in fingerprint["portNumbers"]
 
     classification = enrich_update["classification"]
     assert "suggestedClass" in classification

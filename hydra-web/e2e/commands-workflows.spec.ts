@@ -56,7 +56,7 @@ test.describe('Commands and Workflows', () => {
     // The execution dialog should open with parameter fields
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 10_000 });
-    await expect(dialog.getByText(/Node ID/i)).toBeVisible();
+    await expect(dialog.getByText('Node *')).toBeVisible();
     await expect(dialog.getByRole('button', { name: /Execute/i })).toBeVisible();
   });
 
@@ -66,15 +66,9 @@ test.describe('Commands and Workflows', () => {
     // Switch to the Workflows tab
     await page.getByRole('tab', { name: /Workflows/i }).click();
 
-    // The workflow list should render — either a table with workflows,
-    // the "Create Workflow" button, or an empty/loading state
-    const createButton = page.getByRole('button', { name: /Create Workflow|New Workflow/i });
-    const workflowTable = page.locator('#main-content table');
-    const emptyState = page.locator('#main-content').getByText(/No workflows|no workflow/i);
-    const searchInput = page.getByPlaceholder(/Search/i);
-
+    // The workflow tab should render — verify the search input is visible
     await expect(
-      createButton.or(workflowTable).or(emptyState).or(searchInput),
+      page.locator('#main-content').getByPlaceholder(/Search workflows/i),
     ).toBeVisible({ timeout: 10_000 });
   });
 });

@@ -132,6 +132,40 @@ test.describe('Critical Journeys', () => {
       });
     });
 
+    await page.route('**/api/v1/nodes**', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            data: [
+              { nodeId: 'server-01', displayName: 'Server 01', status: 'active', class: 'compute' },
+            ],
+            meta: { total: 1, limit: 50, offset: 0 },
+          }),
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await page.route('**/api/v1/services**', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            data: [
+              { serviceId: 'svc-nginx-a1b2', nodeId: 'server-01', name: 'nginx', displayName: 'Nginx', runtime: 'docker', status: 'running' },
+            ],
+            meta: { total: 1, limit: 50, offset: 0 },
+          }),
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
     await page.route('**/api/v1/commands/queue**', async (route) => {
       await route.fulfill({
         status: 200,
@@ -229,10 +263,24 @@ test.describe('Critical Journeys', () => {
     await gotoPage(page, '/commands', /Command Center/i);
 
     await page.getByText('Restart Service').click();
-    await page.getByLabel('Node ID *').fill('server-01');
-    await page.getByLabel('Service ID').fill('svc-nginx-a1b2');
-    await page.getByRole('button', { name: 'Execute' }).click();
-    await expect(page.getByRole('dialog')).not.toBeVisible();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
+
+    // Node field uses EntityCombobox — click trigger, search, select
+    await dialog.getByRole('combobox').first().click();
+    await page.getByPlaceholder(/Search nodes/i).fill('server');
+    await page.getByRole('option', { name: /Server 01/i }).click();
+
+    // Service combobox (second one, only for service category commands)
+    const serviceCombobox = dialog.getByRole('combobox').nth(1);
+    if (await serviceCombobox.isVisible().catch(() => false)) {
+      await serviceCombobox.click();
+      await page.getByPlaceholder(/Search services/i).fill('nginx');
+      await page.getByRole('option', { name: /Nginx/i }).click();
+    }
+
+    await dialog.getByRole('button', { name: 'Execute' }).click();
+    await expect(page.getByRole('dialog', { name: /Execute Command/i })).not.toBeVisible();
 
     await page.goto('/commands/cmd-playwright-001');
     await expect(page.locator('#main-content')).toContainText('Command cmd-playwright-001');
@@ -357,7 +405,9 @@ test.describe('Authentication', () => {
     await login(page);
 
     await page.getByText('system_admin').first().click();
-    await page.getByText(/log ?out/i).click();
+    const logoutItem = page.getByText(/log ?out/i);
+    await expect(logoutItem).toBeVisible();
+    await logoutItem.click({ force: true });
     await expect(page).toHaveURL(/login/, { timeout: 10_000 });
   });
 

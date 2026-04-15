@@ -34,6 +34,26 @@ export interface NetworkSummary {
   tags: string[];
 }
 
+export type ScanConfigStatus = 'api-direct' | 'api-routed' | 'agent-only' | 'unreachable';
+
+export interface ReachabilityTest {
+  lastTested?: string | null;
+  method?: string | null;
+  result?: string | null;
+  gatewayReachable?: boolean | null;
+  sampleHostReachable?: boolean | null;
+  errorDetails?: string | null;
+}
+
+export interface ScanConfig {
+  status: ScanConfigStatus;
+  apiReachable: boolean;
+  apiReachabilityTest?: ReachabilityTest | null;
+  delegateAgentNodeIds: string[];
+  delegateAgentTierRequired: string;
+  userGuidance?: string | null;
+}
+
 export interface Network extends NetworkSummary {
   description?: string;
   cidrV6?: string | null;
@@ -43,6 +63,7 @@ export interface Network extends NetworkSummary {
   subnetIds: string[];
   dhcp?: DhcpConfig;
   dns?: DnsConfig;
+  scanConfig?: ScanConfig | null;
   origin?: {
     createdBy: string;
     sourceNodeId?: string;

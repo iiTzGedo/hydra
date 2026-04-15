@@ -99,6 +99,41 @@ class NetworkSubnetInfo(BaseModel):
     cidr: str | None = None
 
 
+class ReachabilityTest(BaseModel):
+    """Result of a network reachability probe."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    last_tested: datetime | None = Field(default=None, alias="lastTested")
+    method: str | None = None
+    result: str | None = None
+    gateway_reachable: bool | None = Field(default=None, alias="gatewayReachable")
+    sample_host_reachable: bool | None = Field(default=None, alias="sampleHostReachable")
+    error_details: str | None = Field(default=None, alias="errorDetails")
+
+
+class ScanConfig(BaseModel):
+    """Network scannability configuration for discovery."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    status: str = Field(
+        default="unreachable",
+        description="api-direct | api-routed | agent-only | unreachable",
+    )
+    api_reachable: bool = Field(default=False, alias="apiReachable")
+    api_reachability_test: ReachabilityTest | None = Field(
+        default=None, alias="apiReachabilityTest",
+    )
+    delegate_agent_node_ids: list[str] = Field(
+        default_factory=list, alias="delegateAgentNodeIds",
+    )
+    delegate_agent_tier_required: str = Field(
+        default="max", alias="delegateAgentTierRequired",
+    )
+    user_guidance: str | None = Field(default=None, alias="userGuidance")
+
+
 class NetworkResponse(BaseModel):
     """Full network response model."""
 
@@ -118,6 +153,7 @@ class NetworkResponse(BaseModel):
     router_node_id: str | None = Field(default=None, alias="routerNodeId")
     dhcp: DhcpConfig | None = None
     dns: DnsConfig | None = None
+    scan_config: ScanConfig | None = Field(default=None, alias="scanConfig")
     node_count: int = Field(default=0, alias="nodeCount")
     origin: NetworkOrigin
     tags: list[str] = Field(default_factory=list)

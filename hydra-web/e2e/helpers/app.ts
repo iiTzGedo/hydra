@@ -34,6 +34,19 @@ export async function gotoPage(
   heading?: string | RegExp,
 ) {
   await page.goto(path);
+
+  // Wait for network to settle so the client-side useMe() auth check completes.
+  // If the session cookie is expired, the API returns 401, the refresh attempt fails,
+  // and the client redirects to /login — all of which happens over the network.
+  // Use a short timeout since WebSocket connections can prevent full networkidle.
+  await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
+
+  // If we ended up on login (middleware redirect OR client-side auth failure), re-authenticate
+  if (page.url().includes('/login')) {
+    await login(page);
+    await page.goto(path);
+  }
+
   await waitForAppShell(page);
 
   if (heading) {

@@ -280,6 +280,7 @@ class RolesMixin:
                 "commands:read",
                 "discovery:read",
                 "discovery:scan",
+                "discovery:dismiss",
                 "plugins:read",
                 "plugins:write",
                 "installations:read",

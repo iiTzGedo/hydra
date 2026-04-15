@@ -70,9 +70,19 @@ def mock_nodes_collection():
     return create_mock_collection()
 
 
+@pytest.fixture
+def mock_exclusions_collection():
+    """Create a mock discovery_exclusions collection."""
+    return create_mock_collection()
+
+
 @pytest.fixture(autouse=True)
 def _patch_discovery_collections(
-    mock_mongodb, mock_scans_collection, mock_devices_collection, mock_nodes_collection
+    mock_mongodb,
+    mock_scans_collection,
+    mock_devices_collection,
+    mock_nodes_collection,
+    mock_exclusions_collection,
 ):
     """Patch mock_mongodb.db to return discovery collections."""
     mock_db = MagicMock()
@@ -84,6 +94,8 @@ def _patch_discovery_collections(
             return mock_devices_collection
         if name == "nodes":
             return mock_nodes_collection
+        if name == "discovery_exclusions":
+            return mock_exclusions_collection
         return create_mock_collection()
 
     mock_db.__getitem__ = MagicMock(side_effect=_getitem)
@@ -129,11 +141,16 @@ def sample_device():
     """Sample discovered device document."""
     now = datetime.now(UTC)
     return {
-        "discoveryId": "disc_112233445566aabb",
+        "discoveryId": "disc::mac::aa-bb-cc-dd-ee-ff",
         "identity": {
             "primaryMac": "aa:bb:cc:dd:ee:ff",
+            "observedMacs": ["aa:bb:cc:dd:ee:ff"],
+            "macVendor": None,
+            "macResolved": True,
             "currentIp": "192.168.1.42",
+            "observedIps": [{"address": "192.168.1.42", "seenAt": now.isoformat(), "seenInScan": None}],
             "hostname": "unknown-device",
+            "hostnameSources": [],
         },
         "networkId": "net-192-168-1",
         "probe": {
@@ -504,7 +521,7 @@ async def test_submit_scan_results(
 
     # Device find_one calls: 1) upsert check (None = new), 2) enrich_discovery->get_discovery
     enriched_device = {
-        "discoveryId": "disc_new",
+        "discoveryId": "disc::mac::aa-bb-cc-dd-ee-ff",
         "identity": {
             "primaryMac": "aa:bb:cc:dd:ee:ff",
             "currentIp": "192.168.1.42",
@@ -825,12 +842,16 @@ class TestFingerprintService:
         assert "http" in fp.service_hints
         assert "https" in fp.service_hints
         assert "prometheus" in fp.service_hints
-        assert fp.open_ports == [22, 80, 443, 9090]
+        assert fp.port_numbers == [22, 80, 443, 9090]
+        assert len(fp.open_ports) == 4
+        assert fp.open_ports[0].port == 22
+        assert fp.open_ports[0].service == "ssh"
 
         cls = self.fp_service.classify_device(fp)
         assert cls.suggested_class == "compute"
         assert cls.confidence > 0
         assert cls.suggested_type == "server"
+        assert cls.suggested_kind == "server"
 
     def test_fingerprint_networking_device(self) -> None:
         """BGP + SNMP ports produce networking classification."""
@@ -858,6 +879,7 @@ class TestFingerprintService:
         """Empty ports produce unknown classification."""
         fp = self.fp_service.fingerprint_device([], [])
         assert fp.open_ports == []
+        assert fp.port_numbers == []
         assert fp.service_hints == []
         cls = self.fp_service.classify_device(fp)
         assert cls.suggested_class == "unknown"
@@ -920,8 +942,8 @@ class TestFingerprintService:
         """Duplicate ports produce unique service hints."""
         fp = self.fp_service.fingerprint_device([22, 22, 80, 80], [])
         assert fp.service_hints == ["http", "ssh"]
-        # open_ports are sorted but not deduplicated (caller should provide unique)
-        assert fp.open_ports == [22, 22, 80, 80]
+        # port_numbers are deduped and sorted
+        assert fp.port_numbers == [22, 80]
 
     def test_protocol_signals(self) -> None:
         """Protocol-based signals boost classification scores."""
@@ -935,9 +957,13 @@ class TestFingerprintService:
         fp = self.fp_service.fingerprint_device([22, 80], ["mdns"])
         data = fp.model_dump(by_alias=True)
         assert "openPorts" in data
+        assert "portNumbers" in data
         assert "serviceHints" in data
         assert "osHint" in data
-        assert data["openPorts"] == [22, 80]
+        assert data["portNumbers"] == [22, 80]
+        assert isinstance(data["openPorts"], list)
+        assert len(data["openPorts"]) == 2
+        assert data["openPorts"][0]["port"] == 22
 
     def test_classification_serialization(self) -> None:
         """Classification serializes with camelCase aliases."""
@@ -946,6 +972,7 @@ class TestFingerprintService:
         data = cls.model_dump(by_alias=True)
         assert "suggestedClass" in data
         assert "suggestedType" in data
+        assert "suggestedKind" in data
         assert data["suggestedClass"] == "compute"
 
 
@@ -973,19 +1000,25 @@ async def test_enrich_discovery(
 
     assert "fingerprint" in result
     assert "classification" in result
+    assert "eligibility" in result
     fp = result["fingerprint"]
     cls = result["classification"]
+    elig = result["eligibility"]
     assert "openPorts" in fp
+    assert "portNumbers" in fp
     assert "serviceHints" in fp
     assert "suggestedClass" in cls
     assert cls["suggestedClass"] == "compute"
     assert cls["confidence"] > 0
+    assert "registerable" in elig
+    assert elig["registerable"] is True
 
     mock_devices_collection.update_one.assert_awaited_once()
     call_args = mock_devices_collection.update_one.call_args
     update_set = call_args[0][1]["$set"]
     assert "fingerprint" in update_set
     assert "classification" in update_set
+    assert "eligibility" in update_set
     assert "updatedAt" in update_set
 
 
@@ -1004,7 +1037,7 @@ async def test_enrich_discovery_not_found(
     mock_devices_collection.find_one = AsyncMock(return_value=None)
 
     with pytest.raises(DiscoveryNotFoundError):
-        await service.enrich_discovery("disc_nonexistent")
+        await service.enrich_discovery("disc::mac::00-00-00-00-00-00")
 
 
 @pytest.mark.asyncio
@@ -1033,7 +1066,7 @@ async def test_submit_results_triggers_enrichment(
     # Device: first find_one for upsert (no match = new),
     # second find_one for enrich_discovery (get_discovery)
     new_device_doc = {
-        "discoveryId": "disc_enriched",
+        "discoveryId": "disc::mac::ee-ee-ee-ee-ee-ee",
         "identity": {
             "primaryMac": "11:22:33:44:55:66",
             "currentIp": "192.168.1.100",
@@ -1436,9 +1469,9 @@ async def test_bulk_approve(
         }
 
     devices = [
-        make_device("disc_aaa", "host-a"),
-        make_device("disc_bbb", "host-b"),
-        make_device("disc_ccc", "host-c"),
+        make_device("disc::ip::net-1::192.168.1.10", "host-a"),
+        make_device("disc::ip::net-1::192.168.1.11", "host-b"),
+        make_device("disc::ip::net-1::192.168.1.12", "host-c"),
     ]
 
     # find_one is called once per approve_device call
@@ -1449,7 +1482,7 @@ async def test_bulk_approve(
     response = await client.post(
         "/api/v1/discovery/devices/bulk-approve",
         json={
-            "discoveryIds": ["disc_aaa", "disc_bbb", "disc_ccc"],
+            "discoveryIds": ["disc::ip::net-1::192.168.1.10", "disc::ip::net-1::192.168.1.11", "disc::ip::net-1::192.168.1.12"],
             "autoRegister": True,
         },
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -1503,14 +1536,14 @@ async def test_bulk_reject(
             "matchedNodeId": None,
         }
 
-    devices = [make_pending_device("disc_x"), make_pending_device("disc_y")]
+    devices = [make_pending_device("disc::ip::unknown::10.0.0.10"), make_pending_device("disc::ip::unknown::10.0.0.11")]
     mock_devices_collection.find_one = AsyncMock(side_effect=devices)
     mock_devices_collection.update_one = AsyncMock()
 
     response = await client.post(
         "/api/v1/discovery/devices/bulk-reject",
         json={
-            "discoveryIds": ["disc_x", "disc_y"],
+            "discoveryIds": ["disc::ip::unknown::10.0.0.10", "disc::ip::unknown::10.0.0.11"],
             "reason": "Unauthorized devices",
         },
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -1539,7 +1572,7 @@ async def test_bulk_approve_partial_failure(
     now = datetime.now(UTC)
 
     pending_device = {
-        "discoveryId": "disc_ok",
+        "discoveryId": "disc::ip::unknown::10.0.0.1",
         "identity": {"primaryMac": None, "currentIp": "10.0.0.1", "hostname": "good-host"},
         "networkId": None,
         "probe": {"scannedBy": "test", "method": "arp", "scannedAt": now.isoformat()},
@@ -1561,7 +1594,7 @@ async def test_bulk_approve_partial_failure(
         "rejectReason": None,
         "matchedNodeId": None,
     }
-    already_approved = {**pending_device, "discoveryId": "disc_already", "status": "approved"}
+    already_approved = {**pending_device, "discoveryId": "disc::ip::unknown::10.0.0.2", "status": "approved"}
 
     # First call returns pending, second returns already-approved
     mock_devices_collection.find_one = AsyncMock(
@@ -1573,7 +1606,7 @@ async def test_bulk_approve_partial_failure(
     response = await client.post(
         "/api/v1/discovery/devices/bulk-approve",
         json={
-            "discoveryIds": ["disc_ok", "disc_already"],
+            "discoveryIds": ["disc::ip::unknown::10.0.0.1", "disc::ip::unknown::10.0.0.2"],
             "autoRegister": True,
         },
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -1585,7 +1618,7 @@ async def test_bulk_approve_partial_failure(
     assert data["succeeded"] == 1
     assert data["failed"] == 1
     assert len(data["errors"]) == 1
-    assert data["errors"][0]["discoveryId"] == "disc_already"
+    assert data["errors"][0]["discoveryId"] == "disc::ip::unknown::10.0.0.2"
 
 
 @pytest.mark.asyncio
@@ -1636,7 +1669,7 @@ async def test_node_id_derived_from_hostname(
     now = datetime.now(UTC)
 
     device = {
-        "discoveryId": "disc_hostname",
+        "discoveryId": "disc::mac::aa-bb-cc-dd-ee-f0",
         "identity": {
             "primaryMac": "aa:bb:cc:dd:ee:ff",
             "currentIp": "192.168.1.50",
@@ -1668,7 +1701,7 @@ async def test_node_id_derived_from_hostname(
     mock_nodes_collection.insert_one = AsyncMock()
 
     request = ApproveDeviceRequest(auto_register=True)
-    result = await service.approve_device("disc_hostname", request, "user_admin123")
+    result = await service.approve_device("disc::mac::aa-bb-cc-dd-ee-f0", request, "user_admin123")
 
     # Hostname "My_Server.Home" -> "my-server.home"
     assert result["matchedNodeId"] == "my-server.home"
@@ -1688,7 +1721,7 @@ async def test_node_id_derived_from_ip_fallback(
     now = datetime.now(UTC)
 
     device = {
-        "discoveryId": "disc_nohost",
+        "discoveryId": "disc::ip::unknown::10.0.0.5",
         "identity": {
             "primaryMac": None,
             "currentIp": "10.0.0.5",
@@ -1720,7 +1753,7 @@ async def test_node_id_derived_from_ip_fallback(
     mock_nodes_collection.insert_one = AsyncMock()
 
     request = ApproveDeviceRequest(auto_register=True)
-    result = await service.approve_device("disc_nohost", request, "user_admin123")
+    result = await service.approve_device("disc::ip::unknown::10.0.0.5", request, "user_admin123")
 
     assert result["matchedNodeId"] == "disc-10-0-0-5"
 
@@ -1768,7 +1801,7 @@ async def test_unknown_class_defaults_to_compute(
     now = datetime.now(UTC)
 
     device = {
-        "discoveryId": "disc_unknown",
+        "discoveryId": "disc::ip::unknown::10.0.0.99",
         "identity": {"primaryMac": None, "currentIp": "10.0.0.1", "hostname": "mystery"},
         "networkId": None,
         "probe": {"scannedBy": "test", "method": "arp", "scannedAt": now.isoformat()},
@@ -1796,7 +1829,266 @@ async def test_unknown_class_defaults_to_compute(
     mock_nodes_collection.insert_one = AsyncMock()
 
     request = ApproveDeviceRequest(auto_register=True)
-    await service.approve_device("disc_unknown", request, "user_admin123")
+    await service.approve_device("disc::ip::unknown::10.0.0.99", request, "user_admin123")
 
     node_doc = mock_nodes_collection.insert_one.call_args[0][0]
     assert node_doc["class"] == "compute"
+
+
+# ── Discovery ID Generation Tests ─────────────────────────────────────
+
+
+class TestDiscoveryIdGeneration:
+    """Unit tests for spec-format discoveryId generation."""
+
+    def test_mac_based_id(self) -> None:
+        """MAC address produces disc::mac:: format with hyphen-separated lowercase."""
+        from hydra.api.v1.services.discovery.service import generate_discovery_id
+
+        result = generate_discovery_id("AA:BB:CC:DD:EE:FF", "net-1", "192.168.1.1")
+        assert result == "disc::mac::aa-bb-cc-dd-ee-ff"
+
+    def test_mac_based_id_already_hyphens(self) -> None:
+        """MAC with hyphens is normalized correctly."""
+        from hydra.api.v1.services.discovery.service import generate_discovery_id
+
+        result = generate_discovery_id("aa-bb-cc-dd-ee-ff", None, None)
+        assert result == "disc::mac::aa-bb-cc-dd-ee-ff"
+
+    def test_ip_based_id_with_network(self) -> None:
+        """No MAC falls back to disc::ip::{networkId}::{ip}."""
+        from hydra.api.v1.services.discovery.service import generate_discovery_id
+
+        result = generate_discovery_id(None, "home-lan", "192.168.1.50")
+        assert result == "disc::ip::home-lan::192.168.1.50"
+
+    def test_ip_based_id_without_network(self) -> None:
+        """No MAC and no networkId uses 'unknown' network."""
+        from hydra.api.v1.services.discovery.service import generate_discovery_id
+
+        result = generate_discovery_id(None, None, "10.0.0.5")
+        assert result == "disc::ip::unknown::10.0.0.5"
+
+    def test_fallback_id(self) -> None:
+        """No MAC and no IP produces a random fallback."""
+        from hydra.api.v1.services.discovery.service import generate_discovery_id
+
+        result = generate_discovery_id(None, None, None)
+        assert result.startswith("disc::unknown::")
+
+
+# ── Eligibility Assessment Tests ──────────────────────────────────────
+
+
+class TestEligibilityAssessment:
+    """Unit tests for eligibility assessment logic."""
+
+    def setup_method(self) -> None:
+        self.fp_service = FingerprintService()
+
+    def test_compute_with_ssh_is_agent_compatible(self) -> None:
+        """Compute device with SSH is agent-compatible and remote-installable."""
+        fp = self.fp_service.fingerprint_device([22, 80, 443], [])
+        cls = self.fp_service.classify_device(fp)
+        from hydra.api.v1.services.discovery.eligibility import assess_eligibility
+
+        elig = assess_eligibility(fp, cls, [22, 80, 443])
+        assert elig.registerable is True
+        assert elig.agent_compatible is True
+        assert elig.remote_installable is True
+        assert elig.remote_install_method == "ssh"
+        assert elig.profiling_strategy == "agent"
+
+    def test_compute_without_ssh_not_remote_installable(self) -> None:
+        """Compute device without SSH is not remote-installable."""
+        fp = self.fp_service.fingerprint_device([80, 443, 8080], [])
+        cls = self.fp_service.classify_device(fp)
+        from hydra.api.v1.services.discovery.eligibility import assess_eligibility
+
+        elig = assess_eligibility(fp, cls, [80, 443, 8080])
+        assert elig.agent_compatible is False
+        assert elig.remote_installable is False
+
+    def test_networking_device_uses_snmp_profiling(self) -> None:
+        """Networking device with SNMP port uses SNMP profiling strategy."""
+        fp = self.fp_service.fingerprint_device([161, 179], ["snmp"])
+        cls = self.fp_service.classify_device(fp)
+        from hydra.api.v1.services.discovery.eligibility import assess_eligibility
+
+        elig = assess_eligibility(fp, cls, [161, 179])
+        assert elig.registerable is True
+        assert elig.agent_compatible is False
+        assert elig.profiling_strategy == "snmp"
+
+    def test_iot_device_uses_integration_profiling(self) -> None:
+        """IoT device uses integration profiling strategy."""
+        fp = self.fp_service.fingerprint_device([1883], [])
+        cls = self.fp_service.classify_device(fp)
+        from hydra.api.v1.services.discovery.eligibility import assess_eligibility
+
+        elig = assess_eligibility(fp, cls, [1883])
+        assert elig.registerable is True
+        assert elig.agent_compatible is False
+        assert elig.profiling_strategy == "integration"
+
+    def test_ha_device_uses_homeassistant_profiling(self) -> None:
+        """Home Assistant device uses homeassistant profiling strategy."""
+        fp = self.fp_service.fingerprint_device([8123, 1883], [])
+        cls = self.fp_service.classify_device(fp)
+        from hydra.api.v1.services.discovery.eligibility import assess_eligibility
+
+        elig = assess_eligibility(fp, cls, [8123, 1883])
+        assert elig.profiling_strategy == "homeassistant"
+
+    def test_unknown_device_not_registerable(self) -> None:
+        """Unknown device is not registerable."""
+        fp = self.fp_service.fingerprint_device([12345], [])
+        cls = self.fp_service.classify_device(fp)
+        from hydra.api.v1.services.discovery.eligibility import assess_eligibility
+
+        elig = assess_eligibility(fp, cls, [12345])
+        assert elig.registerable is False
+        assert elig.profiling_strategy == "none"
+        assert len(elig.blockers) > 0
+
+
+# ── Exclusion Tests ───────────────────────────────────────────────────
+
+
+class TestExclusionService:
+    """Unit tests for exclusion rules."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(
+        self, mock_mongodb: MagicMock, mock_exclusions_collection: MagicMock,
+    ) -> None:
+        from hydra.api.v1.services.discovery.exclusions import ExclusionService
+
+        self.service = ExclusionService(mock_mongodb)
+        self.collection = mock_exclusions_collection
+
+    @pytest.mark.asyncio
+    async def test_create_mac_exclusion(self) -> None:
+        """Creating a MAC exclusion normalizes the value to lowercase colon format."""
+        from hydra.api.v1.models.discovery.requests import CreateExclusionRequest
+
+        self.collection.insert_one = AsyncMock()
+
+        request = CreateExclusionRequest(
+            type="mac", value="AA-BB-CC-DD-EE-FF", label="Test device", reason="Personal",
+        )
+        result = await self.service.create_exclusion(request, "user_admin")
+
+        assert result["type"] == "mac"
+        assert result["value"] == "aa:bb:cc:dd:ee:ff"
+        assert result["label"] == "Test device"
+        self.collection.insert_one.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_is_excluded_by_mac(self) -> None:
+        """MAC exclusion matches regardless of format."""
+        self.collection.find.return_value.to_list = AsyncMock(
+            return_value=[{"type": "mac", "value": "aa:bb:cc:dd:ee:ff"}]
+        )
+        assert await self.service.is_excluded("AA:BB:CC:DD:EE:FF", "192.168.1.1") is True
+        assert await self.service.is_excluded("11:22:33:44:55:66", "192.168.1.1") is False
+
+    @pytest.mark.asyncio
+    async def test_is_excluded_by_ip(self) -> None:
+        """IP exclusion matches exact IP."""
+        self.collection.find.return_value.to_list = AsyncMock(
+            return_value=[{"type": "ip", "value": "192.168.1.50"}]
+        )
+        assert await self.service.is_excluded(None, "192.168.1.50") is True
+        assert await self.service.is_excluded(None, "192.168.1.51") is False
+
+    @pytest.mark.asyncio
+    async def test_is_excluded_by_ip_range(self) -> None:
+        """IP range exclusion matches addresses within the range."""
+        self.collection.find.return_value.to_list = AsyncMock(
+            return_value=[{"type": "ip-range", "value": "192.168.1.200-192.168.1.254"}]
+        )
+        assert await self.service.is_excluded(None, "192.168.1.200") is True
+        assert await self.service.is_excluded(None, "192.168.1.230") is True
+        assert await self.service.is_excluded(None, "192.168.1.254") is True
+        assert await self.service.is_excluded(None, "192.168.1.199") is False
+        assert await self.service.is_excluded(None, "192.168.2.1") is False
+
+    @pytest.mark.asyncio
+    async def test_is_excluded_empty_rules(self) -> None:
+        """No exclusion rules means nothing is excluded."""
+        self.collection.find.return_value.to_list = AsyncMock(return_value=[])
+        assert await self.service.is_excluded("aa:bb:cc:dd:ee:ff", "192.168.1.1") is False
+
+    @pytest.mark.asyncio
+    async def test_delete_exclusion(self) -> None:
+        """Deleting an exclusion removes it from the collection."""
+        self.collection.delete_one = AsyncMock(
+            return_value=MagicMock(deleted_count=1)
+        )
+        await self.service.delete_exclusion("excl_abc123")
+        self.collection.delete_one.assert_awaited_once_with(
+            {"exclusionId": "excl_abc123"}
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_exclusion_not_found(self) -> None:
+        """Deleting a nonexistent exclusion raises NotFoundError."""
+        from hydra.api.v1.services.discovery.exclusions import ExclusionNotFoundError
+
+        self.collection.delete_one = AsyncMock(
+            return_value=MagicMock(deleted_count=0)
+        )
+        with pytest.raises(ExclusionNotFoundError):
+            await self.service.delete_exclusion("excl_nonexistent")
+
+
+# ── Scan Diff Tests ───────────────────────────────────────────────────
+
+
+class TestScanDiffComputation:
+    """Unit tests for device change detection between scans."""
+
+    def test_ip_change_detected(self) -> None:
+        """IP address change between scans is detected."""
+        from hydra.api.v1.services.discovery.service import DiscoveryService
+
+        old = {"identity": {"currentIp": "192.168.1.10", "hostname": "dev"}, "openPorts": [22]}
+        new = {"identity": {"currentIp": "192.168.1.20", "hostname": "dev"}, "openPorts": [22]}
+        changes = DiscoveryService._compute_device_changes(old, new)
+        assert len(changes) == 1
+        assert changes[0]["field"] == "ip"
+        assert changes[0]["from"] == "192.168.1.10"
+        assert changes[0]["to"] == "192.168.1.20"
+
+    def test_port_change_detected(self) -> None:
+        """Added/removed ports between scans are detected."""
+        from hydra.api.v1.services.discovery.service import DiscoveryService
+
+        old = {"identity": {"currentIp": "10.0.0.1"}, "openPorts": [22, 80]}
+        new = {"identity": {"currentIp": "10.0.0.1"}, "openPorts": [22, 443]}
+        changes = DiscoveryService._compute_device_changes(old, new)
+        port_change = next(c for c in changes if c["field"] == "openPorts")
+        assert 443 in port_change["from"]["added"]
+        assert 80 in port_change["from"]["removed"]
+
+    def test_no_changes(self) -> None:
+        """Identical devices produce no changes."""
+        from hydra.api.v1.services.discovery.service import DiscoveryService
+
+        device = {
+            "identity": {"currentIp": "10.0.0.1", "hostname": "dev"},
+            "openPorts": [22, 80],
+            "classification": {"suggestedClass": "compute"},
+        }
+        changes = DiscoveryService._compute_device_changes(device, device)
+        assert len(changes) == 0
+
+    def test_class_change_detected(self) -> None:
+        """Classification change between scans is detected."""
+        from hydra.api.v1.services.discovery.service import DiscoveryService
+
+        old = {"identity": {"currentIp": "10.0.0.1"}, "openPorts": [], "classification": {"suggestedClass": "unknown"}}
+        new = {"identity": {"currentIp": "10.0.0.1"}, "openPorts": [], "classification": {"suggestedClass": "compute"}}
+        changes = DiscoveryService._compute_device_changes(old, new)
+        assert any(c["field"] == "suggestedClass" for c in changes)

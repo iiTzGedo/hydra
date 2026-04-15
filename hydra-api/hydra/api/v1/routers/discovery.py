@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 import structlog
@@ -15,19 +16,25 @@ from hydra.api.v1.models.discovery import (
     BulkApproveRequest,
     BulkOperationResponse,
     BulkRejectRequest,
+    CreateExclusionRequest,
     DiscoveredDeviceResponse,
     DiscoveryListParams,
     DiscoveryStatus,
     DismissDeviceRequest,
+    ExclusionListParams,
+    ExclusionResponse,
     RejectDeviceRequest,
+    ScanDiffResponse,
     ScanListParams,
     ScanResponse,
     ScanStatus,
     ScanSummary,
+    ScanTrigger,
     StartScanRequest,
     SubmitScanResultsRequest,
 )
 from hydra.api.v1.services.discovery import DiscoveryService
+from hydra.api.v1.services.discovery.exclusions import ExclusionService
 
 router = APIRouter(prefix="/discovery", tags=["Discovery"])
 logger = structlog.get_logger(__name__)
@@ -38,7 +45,13 @@ def get_discovery_service(mongodb: MongoDBDep) -> DiscoveryService:
     return DiscoveryService(mongodb)
 
 
+def get_exclusion_service(mongodb: MongoDBDep) -> ExclusionService:
+    """Get exclusion service dependency."""
+    return ExclusionService(mongodb)
+
+
 DiscoveryServiceDep = Annotated[DiscoveryService, Depends(get_discovery_service)]
+ExclusionServiceDep = Annotated[ExclusionService, Depends(get_exclusion_service)]
 
 
 # ── Scans ────────────────────────────────────────────────────────────────
@@ -64,6 +77,7 @@ async def start_scan(
         user_id=user["userId"],
         user_role=user.get("role", "operator"),
         user_permissions=user.get("permissions", []),
+        triggered_via=ScanTrigger.API,
     )
     return SuccessResponse(data=ScanResponse(**scan))
 
@@ -146,6 +160,32 @@ async def submit_scan_results(
     return SuccessResponse(data=ScanResponse(**scan))
 
 
+# ── Scan Diff ───────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/diff",
+    response_model=SuccessResponse[ScanDiffResponse],
+    response_model_by_alias=True,
+    summary="Scan Diff",
+    description="Compare two scans for a network to find arrived, departed, and changed devices.",
+    dependencies=[Depends(require_permission("discovery:read"))],
+)
+async def scan_diff(
+    service: DiscoveryServiceDep,
+    network_id: str = Query(alias="networkId"),
+    from_scan: str | None = Query(default=None, alias="fromScan"),
+    to_scan: str | None = Query(default=None, alias="toScan"),
+) -> SuccessResponse[ScanDiffResponse]:
+    """Compare scans to find network changes."""
+    result = await service.compute_scan_diff(
+        network_id=network_id,
+        from_scan_id=from_scan,
+        to_scan_id=to_scan,
+    )
+    return SuccessResponse(data=ScanDiffResponse(**result))
+
+
 # ── Discovered Devices ──────────────────────────────────────────────────
 
 
@@ -161,6 +201,11 @@ async def list_discoveries(
     service: DiscoveryServiceDep,
     status: DiscoveryStatus | None = None,
     network_id: str | None = Query(default=None, alias="networkId"),
+    device_class: str | None = Query(default=None, alias="deviceClass"),
+    agent_compatible: bool | None = Query(default=None, alias="agentCompatible"),
+    remote_installable: bool | None = Query(default=None, alias="remoteInstallable"),
+    min_confidence: float | None = Query(default=None, ge=0.0, le=1.0, alias="minConfidence"),
+    since: datetime | None = None,
     search: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -171,6 +216,11 @@ async def list_discoveries(
     params = DiscoveryListParams(
         status=status,
         network_id=network_id,
+        device_class=device_class,
+        agent_compatible=agent_compatible,
+        remote_installable=remote_installable,
+        min_confidence=min_confidence,
+        since=since,
         search=search,
         limit=limit,
         offset=offset,
@@ -286,7 +336,7 @@ async def reject_device(
     response_model_by_alias=True,
     summary="Dismiss Discovered Device",
     description="Dismiss a discovered device so it no longer appears in pending lists.",
-    dependencies=[Depends(require_permission("discovery:scan"))],
+    dependencies=[Depends(require_permission("discovery:dismiss"))],
 )
 async def dismiss_discovery(
     discovery_id: str,
@@ -299,5 +349,70 @@ async def dismiss_discovery(
         discovery_id,
         reason=request.reason,
         user_id=user["userId"],
+        permanent=request.permanent,
     )
     return SuccessResponse(data=DiscoveredDeviceResponse(**device))
+
+
+# ── Exclusions ──────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/exclusions",
+    response_model=SuccessResponse[ExclusionResponse],
+    response_model_by_alias=True,
+    status_code=201,
+    summary="Create Exclusion",
+    description="Create a discovery exclusion rule to skip specific devices during scans.",
+    dependencies=[Depends(require_permission("discovery:configure"))],
+)
+async def create_exclusion(
+    request: CreateExclusionRequest,
+    exclusion_service: ExclusionServiceDep,
+    user: CurrentUser,
+) -> SuccessResponse[ExclusionResponse]:
+    """Create a discovery exclusion."""
+    exclusion = await exclusion_service.create_exclusion(
+        request, user_id=user["userId"],
+    )
+    return SuccessResponse(data=ExclusionResponse(**exclusion))
+
+
+@router.get(
+    "/exclusions",
+    response_model=SuccessResponse[list[ExclusionResponse]],
+    response_model_by_alias=True,
+    summary="List Exclusions",
+    description="List discovery exclusion rules.",
+    dependencies=[Depends(require_permission("discovery:read"))],
+)
+async def list_exclusions(
+    exclusion_service: ExclusionServiceDep,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> SuccessResponse[list[ExclusionResponse]]:
+    """List discovery exclusions."""
+    params = ExclusionListParams(limit=limit, offset=offset)
+    exclusions, total = await exclusion_service.list_exclusions(params)
+    responses = [ExclusionResponse(**e) for e in exclusions]
+    return SuccessResponse(
+        data=responses,
+        meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+@router.delete(
+    "/exclusions/{exclusion_id}",
+    response_model=SuccessResponse[dict[str, str | bool]],
+    response_model_by_alias=True,
+    summary="Delete Exclusion",
+    description="Delete a discovery exclusion rule.",
+    dependencies=[Depends(require_permission("discovery:configure"))],
+)
+async def delete_exclusion(
+    exclusion_id: str,
+    exclusion_service: ExclusionServiceDep,
+) -> SuccessResponse[dict[str, str | bool]]:
+    """Delete a discovery exclusion."""
+    await exclusion_service.delete_exclusion(exclusion_id)
+    return SuccessResponse(data={"deleted": True, "exclusionId": exclusion_id})

@@ -236,6 +236,31 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("type", ASCENDING)]),
         IndexModel([("registeredAt", DESCENDING)]),
     ],
+    "discovered_nodes": [
+        IndexModel([("discoveryId", ASCENDING)], unique=True),
+        IndexModel([("networkId", ASCENDING), ("status", ASCENDING)]),
+        IndexModel([("identity.primaryMac", ASCENDING)]),
+        IndexModel([("identity.currentIp", ASCENDING)]),
+        IndexModel([("matchedNodeId", ASCENDING)]),
+        IndexModel(
+            [
+                ("classification.suggestedClass", ASCENDING),
+                ("classification.confidence", DESCENDING),
+            ],
+        ),
+        IndexModel([("lastSeen", DESCENDING)]),
+    ],
+    "discovery_exclusions": [
+        IndexModel([("exclusionId", ASCENDING)], unique=True),
+        IndexModel([("type", ASCENDING)]),
+        IndexModel([("value", ASCENDING)]),
+    ],
+    "discovery_scans": [
+        IndexModel([("scanId", ASCENDING)], unique=True),
+        IndexModel([("status", ASCENDING), ("createdAt", DESCENDING)]),
+        IndexModel([("startedBy", ASCENDING)]),
+        IndexModel([("completedAt", DESCENDING)]),
+    ],
 }
 
 

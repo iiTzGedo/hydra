@@ -4,17 +4,21 @@ import { queryKeys } from '@/lib/query-client';
 import type { ApiResponse, PaginatedResponse } from '@/types/api';
 import type {
   ApproveDiscoveryRequest,
+  CreateExclusionRequest,
   DiscoveredDevice,
   DiscoveryApprovalResponse,
   DiscoveryDeviceListParams,
+  DiscoveryExclusion,
   DiscoveryScan,
   DiscoveryScanListParams,
   DiscoveryScanSummary,
   DismissDiscoveryRequest,
+  ExclusionListParams,
   Installation,
   InstallationListParams,
   InstallationSummary,
   RejectDiscoveryRequest,
+  ScanDiffResult,
   StartDiscoveryScanRequest,
   StartInstallationRequest,
 } from '@/types/discovery';
@@ -101,6 +105,10 @@ export function useDiscoveryDevices(params?: DiscoveryDeviceListParams) {
           params: {
             status: params?.status,
             networkId: params?.networkId,
+            deviceClass: params?.deviceClass,
+            agentCompatible: params?.agentCompatible,
+            remoteInstallable: params?.remoteInstallable,
+            minConfidence: params?.minConfidence,
             search: params?.search,
             limit: params?.limit,
             offset: params?.offset,
@@ -190,6 +198,96 @@ export function useDismissDiscovery(discoveryId: string | null | undefined) {
     onSuccess: () => {
       invalidateDiscovery(queryClient);
     },
+  });
+}
+
+// ── Exclusion Hooks ────────────────────────────────────────────────
+
+const exclusionKeys = {
+  all: ['discovery', 'exclusions'] as const,
+  list: (params?: ExclusionListParams) => {
+    if (params) return [...exclusionKeys.all, 'list', params] as const;
+    return [...exclusionKeys.all, 'list'] as const;
+  },
+};
+
+export function useDiscoveryExclusions(params?: ExclusionListParams) {
+  return useQuery({
+    queryKey: exclusionKeys.list(params),
+    queryFn: async (): Promise<PaginatedResponse<DiscoveryExclusion>> => {
+      const response = await apiClient.get<ApiResponse<DiscoveryExclusion[]>>(
+        '/discovery/exclusions',
+        {
+          params: {
+            limit: params?.limit,
+            offset: params?.offset,
+          },
+        }
+      );
+      const items = response.data.data;
+      return {
+        items,
+        total: response.data.meta?.total ?? items.length,
+        limit: response.data.meta?.limit ?? params?.limit ?? 50,
+        offset: response.data.meta?.offset ?? params?.offset ?? 0,
+      };
+    },
+  });
+}
+
+export function useCreateExclusion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (request: CreateExclusionRequest): Promise<DiscoveryExclusion> => {
+      const response = await apiClient.post<ApiResponse<DiscoveryExclusion>>(
+        '/discovery/exclusions',
+        request
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: exclusionKeys.all });
+    },
+  });
+}
+
+export function useDeleteExclusion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (exclusionId: string): Promise<void> => {
+      await apiClient.delete(`/discovery/exclusions/${exclusionId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: exclusionKeys.all });
+    },
+  });
+}
+
+// ── Scan Diff Hook ─────────────────────────────────────────────────
+
+export function useScanDiff(
+  networkId: string | null | undefined,
+  fromScan?: string | null,
+  toScan?: string | null,
+) {
+  return useQuery({
+    queryKey: [...queryKeys.discovery.all, 'diff', networkId ?? '', fromScan ?? '', toScan ?? ''] as const,
+    queryFn: async (): Promise<ScanDiffResult> => {
+      const response = await apiClient.get<ApiResponse<ScanDiffResult>>(
+        '/discovery/diff',
+        {
+          params: {
+            networkId,
+            fromScan: fromScan || undefined,
+            toScan: toScan || undefined,
+          },
+        }
+      );
+      return response.data.data;
+    },
+    enabled: Boolean(networkId),
   });
 }
 

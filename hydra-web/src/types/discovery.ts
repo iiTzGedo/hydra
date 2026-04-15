@@ -19,11 +19,81 @@ export type DiscoveryDeviceStatus =
 export type DiscoveryScanMethod = 'arp' | 'tcp_port' | 'mdns' | 'ssdp' | 'snmp';
 export type DiscoveryPortTier = 'tier1' | 'tier2';
 export type DiscoveryClass = 'compute' | 'networking' | 'iot' | 'unknown';
+export type ScanTrigger = 'api' | 'web' | 'mcp';
+export type HostnameSource = 'dns-reverse' | 'mdns' | 'netbios' | 'snmp' | 'http-title' | 'ssh-banner';
+export type ProfilingStrategy = 'agent' | 'snmp' | 'integration' | 'homeassistant' | 'manual' | 'none';
+
+// ── Port & Protocol Detail Types ──────────────────────────────────
+
+export interface PortInference {
+  os?: string | null;
+  arch?: string | null;
+  application?: string | null;
+  version?: string | null;
+}
+
+export interface DetailedPort {
+  port: number;
+  protocol: string;
+  state: string;
+  service?: string | null;
+  banner?: string | null;
+  inference?: PortInference | null;
+}
+
+export interface MdnsDetail {
+  services: string[];
+  hostname?: string | null;
+  txtRecords: Record<string, string>;
+}
+
+export interface SsdpDetail {
+  server?: string | null;
+  location?: string | null;
+  usn?: string | null;
+  deviceType?: string | null;
+}
+
+export interface SnmpDetail {
+  sysDescr?: string | null;
+  sysName?: string | null;
+  sysObjectID?: string | null;
+}
+
+export interface LldpDetail {
+  chassisId?: string | null;
+  portId?: string | null;
+  systemName?: string | null;
+  systemDescription?: string | null;
+}
+
+export interface ProtocolDetails {
+  mdns?: MdnsDetail | null;
+  ssdp?: SsdpDetail | null;
+  snmp?: SnmpDetail | null;
+  lldp?: LldpDetail | null;
+}
+
+export interface HttpResponseDetail {
+  port: number;
+  statusCode?: number | null;
+  server?: string | null;
+  title?: string | null;
+  redirectTo?: string | null;
+  identifiedAs?: string | null;
+}
+
+// ── Identity Types ────────────────────────────────────────────────
+
+export interface ObservedIp {
+  address: string;
+  seenAt: string;
+  seenInScan?: string | null;
+}
 
 export interface DiscoveryScanTarget {
   networkId?: string | null;
   subnet?: string | null;
-  ips?: string[] | null;
   delegateToNodeId?: string | null;
 }
 
@@ -39,13 +109,20 @@ export interface DiscoveryScanSummaryResult {
   hostsAlive: number;
   newDiscoveries: number;
   returningDevices: number;
+  departedSinceLast: number;
+  alreadyRegistered: number;
   errors: string[];
 }
 
 export interface DiscoveryDeviceIdentity {
   primaryMac?: string | null;
+  observedMacs: string[];
+  macVendor?: string | null;
+  macResolved: boolean;
   currentIp: string;
+  observedIps: ObservedIp[];
   hostname?: string | null;
+  hostnameSources: HostnameSource[];
 }
 
 export interface DiscoveryProbeInfo {
@@ -67,9 +144,11 @@ export interface DiscoveryRawEvidence {
 }
 
 export interface DiscoveryFingerprint {
-  openPorts: number[];
+  openPorts: DetailedPort[];
+  portNumbers: number[];
   serviceHints: string[];
-  protocols: string[];
+  protocols?: ProtocolDetails | null;
+  httpResponses: HttpResponseDetail[];
   osHint?: string | null;
   vendor?: string | null;
   macOui?: string | null;
@@ -79,10 +158,25 @@ export interface DiscoveryFingerprint {
 export interface DiscoveryClassification {
   suggestedClass: DiscoveryClass;
   suggestedType?: string | null;
+  suggestedKind?: string | null;
+  suggestedNodeId?: string | null;
+  suggestedDisplayName?: string | null;
   confidence: number;
   signals: string[];
   explanation?: string | null;
   eligibleForRegistration: boolean;
+}
+
+export interface DiscoveryEligibility {
+  registerable: boolean;
+  agentCompatible: boolean;
+  agentPlatform?: string | null;
+  profilingStrategy?: ProfilingStrategy | null;
+  remoteInstallable: boolean;
+  remoteInstallMethod?: string | null;
+  remoteInstallBlockers: string[];
+  blockers: string[];
+  notes: string[];
 }
 
 export interface DiscoveryDelegationInfo {
@@ -91,6 +185,13 @@ export interface DiscoveryDelegationInfo {
   executionMethod?: string | null;
   commandStatus?: string | null;
   notes: string[];
+}
+
+export interface ScanExecution {
+  scannedBy?: string | null;
+  scannedFrom?: string | null;
+  method?: string | null;
+  delegatedTo?: string | null;
 }
 
 export interface DiscoveryScanProgress {
@@ -120,6 +221,8 @@ export interface DiscoveryScanSummary {
 export interface DiscoveryScan extends DiscoveryScanSummary {
   targets: DiscoveryScanTarget[];
   options: DiscoveryScanOptions;
+  triggeredVia?: ScanTrigger | null;
+  execution?: ScanExecution | null;
   delegateToNodeId?: string | null;
   summary?: DiscoveryScanSummaryResult | null;
   delegation?: DiscoveryDelegationInfo | null;
@@ -142,9 +245,11 @@ export interface DiscoveredDevice {
   rawEvidence?: DiscoveryRawEvidence | null;
   fingerprint?: DiscoveryFingerprint | null;
   classification?: DiscoveryClassification | null;
+  eligibility?: DiscoveryEligibility | null;
   dismissedAt?: string | null;
   dismissedBy?: string | null;
   dismissReason?: string | null;
+  dismissPermanent?: boolean;
   approvedAt?: string | null;
   approvedBy?: string | null;
   rejectedAt?: string | null;
@@ -168,7 +273,11 @@ export interface StartDiscoveryScanRequest {
 export interface ApproveDiscoveryRequest {
   autoRegister: boolean;
   nodeId?: string | null;
+  displayName?: string | null;
+  description?: string | null;
   nodeClass?: string | null;
+  nodeType?: string | null;
+  kind?: string | null;
   tags?: string[];
 }
 
@@ -178,6 +287,7 @@ export interface RejectDiscoveryRequest {
 
 export interface DismissDiscoveryRequest {
   reason?: string | null;
+  permanent?: boolean;
 }
 
 export interface DiscoveryScanListParams extends Omit<ListParams, 'search'> {
@@ -187,6 +297,71 @@ export interface DiscoveryScanListParams extends Omit<ListParams, 'search'> {
 export interface DiscoveryDeviceListParams extends ListParams {
   status?: DiscoveryDeviceStatus;
   networkId?: string;
+  deviceClass?: DiscoveryClass;
+  agentCompatible?: boolean;
+  remoteInstallable?: boolean;
+  minConfidence?: number;
+  since?: string;
+}
+
+// ── Exclusion Types ───────────────────────────────────────────────
+
+export type ExclusionType = 'mac' | 'ip' | 'ip-range';
+
+export interface DiscoveryExclusion {
+  exclusionId: string;
+  type: ExclusionType;
+  value: string;
+  label: string;
+  reason?: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface CreateExclusionRequest {
+  type: ExclusionType;
+  value: string;
+  label: string;
+  reason?: string | null;
+}
+
+export interface ExclusionListParams {
+  limit?: number;
+  offset?: number;
+}
+
+// ── Scan Diff Types ───────────────────────────────────────────────
+
+export interface DiffDeviceSummary {
+  discoveryId: string;
+  ip?: string | null;
+  mac?: string | null;
+  hostname?: string | null;
+  classification?: DiscoveryClassification | null;
+}
+
+export interface DiffChange {
+  field: string;
+  from: unknown;
+  to: unknown;
+}
+
+export interface DiffChangedDevice {
+  discoveryId: string;
+  ip?: string | null;
+  hostname?: string | null;
+  changes: DiffChange[];
+}
+
+export interface ScanDiffResult {
+  networkId: string;
+  fromScan: { scanId: string; completedAt?: string } | null;
+  toScan: { scanId: string; completedAt?: string } | null;
+  arrived: DiffDeviceSummary[];
+  departed: DiffDeviceSummary[];
+  changed: DiffChangedDevice[];
+  unchanged: number;
+  error?: string | null;
 }
 
 // ── Installation Types ─────────────────────────────────────────────

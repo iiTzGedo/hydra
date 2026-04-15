@@ -27,7 +27,7 @@ test.describe('P2 Pages', () => {
 
     if (hasServices) {
       await serviceLink.click();
-      await page.waitForLoadState('networkidle');
+      await expect(page).toHaveURL(/\/services\//, { timeout: 10_000 });
 
       // The detail page shows Service Info, Status, and Host sections
       await expect(page.locator('#main-content').getByText('Service Info')).toBeVisible({
@@ -50,10 +50,10 @@ test.describe('P2 Pages', () => {
     const addButton = page.getByRole('button', { name: /^Add Network$/ });
     await expect(addButton).toBeVisible({ timeout: 10_000 });
 
-    // Either network cards/rows exist or the "No networks found" text
-    await expect(
-      page.locator('#main-content').getByText(/No networks found|Networks/i),
-    ).toBeVisible();
+    // Either network cards/table exist or the "No networks found" text
+    const networkTable = page.locator('#main-content table');
+    const emptyState = page.locator('#main-content').getByText(/No networks found/i);
+    await expect(networkTable.or(emptyState)).toBeVisible({ timeout: 10_000 });
   });
 
   test('groups page loads with create button', async ({ page }) => {
@@ -107,44 +107,40 @@ test.describe('P2 Pages', () => {
     await gotoPage(page, '/settings', /^Settings$/);
 
     // Verify multiple settings categories are rendered (not just Users)
-    await expect(page.locator('#main-content').getByText('General')).toBeVisible({
+    // Use role selectors to avoid strict-mode violations (tab labels also appear as headings)
+    await expect(page.locator('#main-content').getByRole('button', { name: /^General/ })).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.locator('#main-content').getByText('AI')).toBeVisible();
-    await expect(page.locator('#main-content').getByText('Notifications')).toBeVisible();
-    await expect(page.locator('#main-content').getByText('Security')).toBeVisible();
-    await expect(page.locator('#main-content').getByText('Users')).toBeVisible();
+    await expect(page.locator('#main-content').getByRole('button', { name: /^AI/ })).toBeVisible();
+    await expect(page.locator('#main-content').getByRole('button', { name: /^Notifications/ })).toBeVisible();
+    await expect(page.locator('#main-content').getByRole('button', { name: /^Security/ })).toBeVisible();
+    await expect(page.locator('#main-content').getByRole('button', { name: /^Users/ })).toBeVisible();
 
     // Also check the Administration section tabs
-    await expect(page.locator('#main-content').getByText('Agent Config')).toBeVisible();
-    await expect(page.locator('#main-content').getByText('Audit Log')).toBeVisible();
+    await expect(page.locator('#main-content').getByRole('button', { name: /^Agent Config/ })).toBeVisible();
+    await expect(page.locator('#main-content').getByRole('button', { name: /^Audit Log/ })).toBeVisible();
   });
 
   test('profile page shows user info', async ({ page }) => {
-    await gotoPage(page, '/profile');
-
-    // Page heading
-    await expect(
-      page.locator('#main-content').getByRole('heading', { name: /Profile/i }).first(),
-    ).toBeVisible({ timeout: 10_000 });
+    await gotoPage(page, '/profile', /Profile/i);
 
     // Should show the logged-in user's username and role
-    await expect(page.locator('#main-content').getByText('system_admin')).toBeVisible({
+    await expect(page.locator('#main-content').getByText('system_admin').first()).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.locator('#main-content').getByText(/admin/i)).toBeVisible();
+    await expect(page.locator('#main-content').getByText(/admin/i).first()).toBeVisible();
 
     // Account Information and Security sections should be visible
     await expect(
       page.locator('#main-content').getByText('Account Information'),
     ).toBeVisible();
     await expect(
-      page.locator('#main-content').getByText('Security'),
+      page.locator('#main-content').getByText('Security').first(),
     ).toBeVisible();
 
     // API Keys section should be present
     await expect(
-      page.locator('#main-content').getByText('API Keys'),
+      page.locator('#main-content').getByRole('heading', { name: 'API Keys' }),
     ).toBeVisible();
   });
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -39,6 +40,10 @@ class DismissDeviceRequest(BaseModel):
     """Request to dismiss a discovered device."""
 
     reason: str | None = Field(default=None, description="Reason for dismissal")
+    permanent: bool = Field(
+        default=False,
+        description="If true, device will not reappear in future scans",
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -50,7 +55,11 @@ class ApproveDeviceRequest(BaseModel):
 
     auto_register: bool = Field(alias="autoRegister", default=True)
     node_id: str | None = Field(alias="nodeId", default=None)
+    display_name: str | None = Field(alias="displayName", default=None)
+    description: str | None = None
     node_class: str | None = Field(alias="nodeClass", default=None)
+    node_type: str | None = Field(alias="nodeType", default=None)
+    kind: str | None = None
     tags: list[str] = Field(default_factory=list)
 
 
@@ -83,8 +92,15 @@ class BulkRejectRequest(BaseModel):
 class DiscoveryListParams(BaseModel):
     """Parameters for listing discovered devices."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     status: DiscoveryStatus | None = None
     network_id: str | None = Field(default=None, alias="networkId")
+    device_class: str | None = Field(default=None, alias="deviceClass")
+    agent_compatible: bool | None = Field(default=None, alias="agentCompatible")
+    remote_installable: bool | None = Field(default=None, alias="remoteInstallable")
+    min_confidence: float | None = Field(default=None, ge=0.0, le=1.0, alias="minConfidence")
+    since: datetime | None = None
     search: str | None = None
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
@@ -97,11 +113,11 @@ class DiscoveryListParams(BaseModel):
         Field(default="desc", alias="sortOrder"),
     ]
 
-    model_config = ConfigDict(populate_by_name=True)
-
 
 class ScanListParams(BaseModel):
     """Parameters for listing scans."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     status: ScanStatus | None = None
     limit: int = Field(default=50, ge=1, le=200)
@@ -115,4 +131,22 @@ class ScanListParams(BaseModel):
         Field(default="desc", alias="sortOrder"),
     ]
 
+
+class CreateExclusionRequest(BaseModel):
+    """Request to create a discovery exclusion rule."""
+
     model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["mac", "ip", "ip-range"]
+    value: str = Field(min_length=1, max_length=256)
+    label: str = Field(min_length=1, max_length=128)
+    reason: str | None = Field(default=None, max_length=512)
+
+
+class ExclusionListParams(BaseModel):
+    """Parameters for listing exclusions."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    limit: int = Field(default=50, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)

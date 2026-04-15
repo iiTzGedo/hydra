@@ -20,7 +20,11 @@ from hydra.api.v1.core.exceptions import (
 )
 from hydra.api.v1.models.commands import CommandSource, CreateCommandRequest
 from hydra.api.v1.models.commands.schemas import CommandTarget
-from hydra.api.v1.models.discovery.enums import DiscoveryStatus, ScanStatus
+from hydra.api.v1.models.discovery.enums import (
+    DiscoveryStatus,
+    ScanStatus,
+    ScanTrigger,
+)
 from hydra.api.v1.models.discovery.requests import (
     ApproveDeviceRequest,
     BulkApproveRequest,
@@ -32,11 +36,45 @@ from hydra.api.v1.models.discovery.requests import (
     SubmitScanResultsRequest,
 )
 from hydra.api.v1.services.commands.service import CommandsService
+from hydra.api.v1.services.discovery.eligibility import assess_eligibility
+from hydra.api.v1.services.discovery.exclusions import ExclusionService
 from hydra.api.v1.services.discovery.fingerprint import FingerprintService
 from hydra.api.v1.services.docs import DocsService
 from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
+
+
+# ── Discovery ID Generation ───────────────────────────────────────────
+
+
+def generate_discovery_id(
+    primary_mac: str | None,
+    network_id: str | None,
+    current_ip: str | None,
+) -> str:
+    """Generate a spec-format discoveryId.
+
+    Format:
+        - With MAC: ``disc::mac::{normalized-mac}`` (hyphen-separated lowercase)
+        - Without MAC: ``disc::ip::{networkId}::{ip}``
+
+    Args:
+        primary_mac: MAC address (any format: colon or hyphen separated).
+        network_id: Network where the device was discovered.
+        current_ip: IP address of the device.
+
+    Returns:
+        A deterministic discoveryId string.
+    """
+    if primary_mac:
+        normalized = primary_mac.lower().replace(":", "-")
+        return f"disc::mac::{normalized}"
+    if network_id and current_ip:
+        return f"disc::ip::{network_id}::{current_ip}"
+    if current_ip:
+        return f"disc::ip::unknown::{current_ip}"
+    return f"disc::unknown::{secrets.token_hex(8)}"
 
 
 # ── Exceptions ──────────────────────────────────────────────────────────
@@ -105,7 +143,10 @@ class DiscoveryService:
         self.nodes = mongodb.db["nodes"]
         self.commands = CommandsService(mongodb)
         self.docs = DocsService(mongodb)
+        self.exclusions = ExclusionService(mongodb)
         self.fingerprinter = FingerprintService()
+
+    # ── Scan Management ────────────────────────────────────────────────
 
     async def start_scan(
         self,
@@ -114,6 +155,7 @@ class DiscoveryService:
         *,
         user_role: str = "operator",
         user_permissions: list[str] | None = None,
+        triggered_via: ScanTrigger = ScanTrigger.API,
     ) -> dict[str, Any]:
         """Start a new network discovery scan.
 
@@ -122,6 +164,7 @@ class DiscoveryService:
             user_id: ID of the user initiating the scan.
             user_role: Caller's RBAC role for delegated command dispatch.
             user_permissions: Caller's permissions for delegated command dispatch.
+            triggered_via: How the scan was triggered (api/web/mcp).
 
         Returns:
             The created scan document.
@@ -149,6 +192,13 @@ class DiscoveryService:
             "status": initial_status,
             "targets": [t.model_dump(by_alias=True) for t in request.targets],
             "options": request.options.model_dump(by_alias=True),
+            "triggeredVia": triggered_via,
+            "execution": {
+                "scannedBy": delegate_node_id or "api",
+                "scannedFrom": None,
+                "method": "agent-delegated" if has_delegate else "api-direct",
+                "delegatedTo": delegate_node_id,
+            },
             "delegateToNodeId": delegate_node_id,
             "summary": None,
             "progress": {
@@ -294,7 +344,11 @@ class DiscoveryService:
         upsert_errors: list[str] = []
         for device_data in request.results:
             try:
-                await self._upsert_device(device_data.model_dump(by_alias=True), now)
+                await self._upsert_device(
+                    device_data.model_dump(by_alias=True),
+                    now,
+                    scan_id=scan_id,
+                )
             except (ValueError, Exception) as exc:  # noqa: BLE001
                 logger.warning(
                     "discovery.device_upsert_failed",
@@ -332,19 +386,25 @@ class DiscoveryService:
         logger.info("discovery.scan_completed", scan_id=scan_id)
         return updated
 
+    # ── Device Upsert ──────────────────────────────────────────────────
+
     async def _upsert_device(
         self,
         device_data: dict[str, Any],
         now: datetime,
+        *,
+        scan_id: str | None = None,
     ) -> None:
         """Upsert a discovered device by primaryMac or currentIp.
 
         If an existing device matches, update lastSeen, increment seenCount,
-        and merge openPorts/protocols. Otherwise create a new discovery entry.
+        and merge openPorts/protocols. Otherwise create a new discovery entry
+        with a spec-format discoveryId.
         """
         identity = device_data.get("identity", {})
         primary_mac = identity.get("primaryMac")
         current_ip = identity.get("currentIp")
+        network_id = device_data.get("networkId")
 
         # Build match query: prefer MAC, fall back to IP
         match_query: dict[str, Any]
@@ -356,9 +416,17 @@ class DiscoveryService:
             msg = "Discovered device has neither primaryMac nor currentIp"
             raise ValueError(msg)
 
+        # Check exclusion rules before upserting
+        if await self.exclusions.is_excluded(primary_mac, current_ip):
+            return
+
         existing = await self.devices.find_one(match_query)
 
         if existing:
+            # Skip permanently dismissed devices — they should not reappear
+            if existing.get("dismissPermanent"):
+                return
+
             # Merge: update lastSeen, increment seenCount, union ports/protocols
             new_ports = list(
                 set(existing.get("openPorts", []))
@@ -368,22 +436,48 @@ class DiscoveryService:
                 set(existing.get("protocols", []))
                 | set(device_data.get("protocols", []))
             )
+
+            # Build observed IP entry for this sighting
+            observed_ip_entry = {
+                "address": current_ip,
+                "seenAt": now,
+                "seenInScan": scan_id,
+            }
+            # Merge observed MACs
+            existing_observed_macs = existing.get("identity", {}).get("observedMacs", [])
+            new_observed_macs = list(set(existing_observed_macs))
+            if primary_mac and primary_mac not in new_observed_macs:
+                new_observed_macs.append(primary_mac)
+
+            # Resolve vendor from MAC if not already set
+            existing_mac_vendor = existing.get("identity", {}).get("macVendor")
+            mac_vendor = existing_mac_vendor
+            if not mac_vendor and primary_mac:
+                mac_vendor = self.fingerprinter.lookup_vendor(primary_mac)
+
+            update_set: dict[str, Any] = {
+                "lastSeen": now,
+                "updatedAt": now,
+                "openPorts": new_ports,
+                "protocols": new_protocols,
+                "identity.currentIp": current_ip,
+                "identity.observedMacs": new_observed_macs,
+                "identity.macResolved": bool(primary_mac),
+                "probe": device_data.get("probe", existing.get("probe")),
+                "rawEvidence": device_data.get(
+                    "rawEvidence",
+                    existing.get("rawEvidence"),
+                ),
+            }
+            if mac_vendor:
+                update_set["identity.macVendor"] = mac_vendor
+
             await self.devices.update_one(
                 match_query,
                 {
-                    "$set": {
-                        "lastSeen": now,
-                        "updatedAt": now,
-                        "openPorts": new_ports,
-                        "protocols": new_protocols,
-                        "identity": identity,
-                        "probe": device_data.get("probe", existing.get("probe")),
-                        "rawEvidence": device_data.get(
-                            "rawEvidence",
-                            existing.get("rawEvidence"),
-                        ),
-                    },
+                    "$set": update_set,
                     "$inc": {"seenCount": 1},
+                    "$push": {"identity.observedIps": observed_ip_entry},
                 },
             )
             # Re-enrich if ports changed
@@ -393,11 +487,32 @@ class DiscoveryService:
             ):
                 await self.enrich_discovery(existing_discovery_id)
         else:
-            discovery_id = f"disc_{secrets.token_hex(12)}"
+            # Generate spec-format discoveryId
+            discovery_id = generate_discovery_id(primary_mac, network_id, current_ip)
+
+            # Resolve vendor from MAC
+            mac_vendor = self.fingerprinter.lookup_vendor(primary_mac) if primary_mac else None
+
+            # Build initial observed data
+            observed_ips = [
+                {"address": current_ip, "seenAt": now, "seenInScan": scan_id},
+            ] if current_ip else []
+            observed_macs = [primary_mac] if primary_mac else []
+
+            # Populate identity with new fields
+            enriched_identity: dict[str, Any] = {
+                **identity,
+                "observedMacs": observed_macs,
+                "macVendor": mac_vendor,
+                "macResolved": bool(primary_mac),
+                "observedIps": observed_ips,
+                "hostnameSources": [],
+            }
+
             doc: dict[str, Any] = {
                 "discoveryId": discovery_id,
-                "identity": identity,
-                "networkId": device_data.get("networkId"),
+                "identity": enriched_identity,
+                "networkId": network_id,
                 "probe": device_data.get("probe", {}),
                 "status": DiscoveryStatus.PENDING,
                 "firstSeen": now,
@@ -409,9 +524,11 @@ class DiscoveryService:
                 "rawEvidence": device_data.get("rawEvidence"),
                 "fingerprint": None,
                 "classification": None,
+                "eligibility": None,
                 "dismissedAt": None,
                 "dismissedBy": None,
                 "dismissReason": None,
+                "dismissPermanent": False,
                 "approvedAt": None,
                 "approvedBy": None,
                 "rejectedAt": None,
@@ -423,6 +540,8 @@ class DiscoveryService:
             # Enrich new devices that have open ports or protocols
             if device_data.get("openPorts") or device_data.get("protocols"):
                 await self.enrich_discovery(discovery_id)
+
+    # ── Discovery Listing & Detail ─────────────────────────────────────
 
     async def list_discoveries(
         self,
@@ -441,12 +560,23 @@ class DiscoveryService:
             query["status"] = params.status.value
         if params.network_id is not None:
             query["networkId"] = params.network_id
+        if params.device_class is not None:
+            query["classification.suggestedClass"] = params.device_class
+        if params.agent_compatible is not None:
+            query["eligibility.agentCompatible"] = params.agent_compatible
+        if params.remote_installable is not None:
+            query["eligibility.remoteInstallable"] = params.remote_installable
+        if params.min_confidence is not None:
+            query["classification.confidence"] = {"$gte": params.min_confidence}
+        if params.since is not None:
+            query["lastSeen"] = {"$gte": params.since}
 
         if params.search:
             escaped = re.escape(params.search)
             query["$or"] = [
                 {"identity.hostname": {"$regex": escaped, "$options": "i"}},
                 {"identity.currentIp": {"$regex": escaped, "$options": "i"}},
+                {"identity.primaryMac": {"$regex": escaped, "$options": "i"}},
             ]
 
         sort_dir = DESCENDING if params.sort_order == "desc" else ASCENDING
@@ -478,11 +608,245 @@ class DiscoveryService:
         result: dict[str, Any] = device
         return result
 
+    # ── Scan Diff ───────────────────────────────────────────────────────
+
+    async def compute_scan_diff(
+        self,
+        network_id: str,
+        from_scan_id: str | None = None,
+        to_scan_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Compare two scans for a network to find arrived/departed/changed devices.
+
+        If scan IDs are not specified, uses the two most recent completed scans
+        for the given network.
+
+        Args:
+            network_id: Network to compare scans for.
+            from_scan_id: Earlier scan ID (optional — defaults to second-latest).
+            to_scan_id: Later scan ID (optional — defaults to latest).
+
+        Returns:
+            Diff result with arrived, departed, changed, and unchanged counts.
+
+        Raises:
+            ScanNotFoundError: If either scan does not exist.
+        """
+        if not from_scan_id or not to_scan_id:
+            recent = await (
+                self.scans.find({
+                    "status": ScanStatus.COMPLETED,
+                    "targets.networkId": network_id,
+                })
+                .sort("completedAt", DESCENDING)
+                .limit(2)
+                .to_list(length=2)
+            )
+            if len(recent) < 2:
+                return {
+                    "networkId": network_id,
+                    "fromScan": None,
+                    "toScan": None,
+                    "arrived": [],
+                    "departed": [],
+                    "changed": [],
+                    "unchanged": 0,
+                    "error": "Fewer than 2 completed scans for this network",
+                }
+            to_scan_doc = recent[0]
+            from_scan_doc = recent[1]
+            from_scan_id = from_scan_doc["scanId"]
+            to_scan_id = to_scan_doc["scanId"]
+        else:
+            from_scan_doc = await self.get_scan(from_scan_id)
+            to_scan_doc = await self.get_scan(to_scan_id)
+
+        # Find devices seen in each scan
+        from_devices = await self.devices.find(
+            {"probe.delegatedByScanId": from_scan_id, "networkId": network_id}
+        ).to_list(length=1000)
+        to_devices = await self.devices.find(
+            {"probe.delegatedByScanId": to_scan_id, "networkId": network_id}
+        ).to_list(length=1000)
+
+        # Also check devices whose observedIps.seenInScan matches
+        from_by_scan = await self.devices.find(
+            {"identity.observedIps.seenInScan": from_scan_id, "networkId": network_id}
+        ).to_list(length=1000)
+        to_by_scan = await self.devices.find(
+            {"identity.observedIps.seenInScan": to_scan_id, "networkId": network_id}
+        ).to_list(length=1000)
+
+        # Merge device lists by discoveryId
+        def _merge(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+            result: dict[str, dict[str, Any]] = {}
+            for d in a:
+                result[d["discoveryId"]] = d
+            for d in b:
+                result[d["discoveryId"]] = d
+            return result
+
+        from_map = _merge(from_devices, from_by_scan)
+        to_map = _merge(to_devices, to_by_scan)
+
+        from_ids = set(from_map.keys())
+        to_ids = set(to_map.keys())
+
+        arrived_ids = to_ids - from_ids
+        departed_ids = from_ids - to_ids
+        common_ids = from_ids & to_ids
+
+        def _device_summary(d: dict[str, Any]) -> dict[str, Any]:
+            identity = d.get("identity", {})
+            return {
+                "discoveryId": d["discoveryId"],
+                "ip": identity.get("currentIp"),
+                "mac": identity.get("primaryMac"),
+                "hostname": identity.get("hostname"),
+                "classification": d.get("classification"),
+            }
+
+        arrived = [_device_summary(to_map[did]) for did in sorted(arrived_ids)]
+        departed = [_device_summary(from_map[did]) for did in sorted(departed_ids)]
+
+        changed: list[dict[str, Any]] = []
+        unchanged = 0
+        for did in sorted(common_ids):
+            old = from_map[did]
+            new = to_map[did]
+            changes = self._compute_device_changes(old, new)
+            if changes:
+                identity = new.get("identity", {})
+                changed.append({
+                    "discoveryId": did,
+                    "ip": identity.get("currentIp"),
+                    "hostname": identity.get("hostname"),
+                    "changes": changes,
+                })
+            else:
+                unchanged += 1
+
+        return {
+            "networkId": network_id,
+            "fromScan": {
+                "scanId": from_scan_id,
+                "completedAt": from_scan_doc.get("completedAt"),
+            },
+            "toScan": {
+                "scanId": to_scan_id,
+                "completedAt": to_scan_doc.get("completedAt"),
+            },
+            "arrived": arrived,
+            "departed": departed,
+            "changed": changed,
+            "unchanged": unchanged,
+        }
+
+    @staticmethod
+    def _compute_device_changes(
+        old: dict[str, Any],
+        new: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Compare two versions of the same device and return changed fields."""
+        changes: list[dict[str, Any]] = []
+
+        old_ip = old.get("identity", {}).get("currentIp")
+        new_ip = new.get("identity", {}).get("currentIp")
+        if old_ip != new_ip:
+            changes.append({"field": "ip", "from": old_ip, "to": new_ip})
+
+        old_hostname = old.get("identity", {}).get("hostname")
+        new_hostname = new.get("identity", {}).get("hostname")
+        if old_hostname != new_hostname:
+            changes.append({"field": "hostname", "from": old_hostname, "to": new_hostname})
+
+        old_ports = set(old.get("openPorts", []))
+        new_ports = set(new.get("openPorts", []))
+        if old_ports != new_ports:
+            added = sorted(new_ports - old_ports)
+            removed = sorted(old_ports - new_ports)
+            changes.append({
+                "field": "openPorts",
+                "from": {"added": added, "removed": removed},
+                "to": sorted(new_ports),
+            })
+
+        old_class = (old.get("classification") or {}).get("suggestedClass")
+        new_class = (new.get("classification") or {}).get("suggestedClass")
+        if old_class != new_class and old_class is not None and new_class is not None:
+            changes.append({"field": "suggestedClass", "from": old_class, "to": new_class})
+
+        return changes
+
+    # ── Enrichment ─────────────────────────────────────────────────────
+
+    async def enrich_discovery(self, discovery_id: str) -> dict[str, Any]:
+        """Enrich a discovered device with fingerprint, classification, and eligibility.
+
+        Args:
+            discovery_id: The discovery identifier to enrich.
+
+        Returns:
+            The updated device document.
+
+        Raises:
+            DiscoveryNotFoundError: If the device does not exist.
+        """
+        device = await self.get_discovery(discovery_id)
+
+        open_ports: list[int] = device.get("openPorts", [])
+        protocols: list[str] = device.get("protocols", [])
+        raw_evidence = device.get("rawEvidence") or {}
+        identity = device.get("identity", {})
+        primary_mac = identity.get("primaryMac")
+        hostname = identity.get("hostname")
+
+        fingerprint = self.fingerprinter.fingerprint_device(
+            open_ports,
+            protocols,
+            primary_mac=primary_mac,
+            raw_vendor=raw_evidence.get("vendor"),
+        )
+        classification = self.fingerprinter.classify_device(
+            fingerprint,
+            primary_mac=primary_mac,
+            hostname=hostname,
+        )
+        eligibility = assess_eligibility(
+            fingerprint, classification, open_ports,
+        )
+
+        now = datetime.now(UTC)
+        update: dict[str, Any] = {
+            "fingerprint": fingerprint.model_dump(by_alias=True),
+            "classification": classification.model_dump(by_alias=True),
+            "eligibility": eligibility.model_dump(by_alias=True),
+            "updatedAt": now,
+        }
+
+        await self.devices.update_one(
+            {"discoveryId": discovery_id},
+            {"$set": update},
+        )
+
+        device.update(update)
+        logger.info(
+            "discovery.device_enriched",
+            discovery_id=discovery_id,
+            suggested_class=classification.suggested_class,
+            confidence=classification.confidence,
+        )
+        return device
+
+    # ── Dismiss ────────────────────────────────────────────────────────
+
     async def dismiss_discovery(
         self,
         discovery_id: str,
         reason: str | None,
         user_id: str,
+        *,
+        permanent: bool = False,
     ) -> dict[str, Any]:
         """Dismiss a discovered device.
 
@@ -490,6 +854,7 @@ class DiscoveryService:
             discovery_id: The discovery to dismiss.
             reason: Optional reason for dismissal.
             user_id: ID of the user dismissing the device.
+            permanent: If True, device will not reappear in future scans.
 
         Returns:
             The updated device document.
@@ -512,58 +877,12 @@ class DiscoveryService:
                     "dismissedAt": now,
                     "dismissedBy": user_id,
                     "dismissReason": reason,
+                    "dismissPermanent": permanent,
                 }
             },
         )
 
         return await self.get_discovery(discovery_id)
-
-    async def enrich_discovery(self, discovery_id: str) -> dict[str, Any]:
-        """Enrich a discovered device with fingerprint and classification.
-
-        Args:
-            discovery_id: The discovery identifier to enrich.
-
-        Returns:
-            The updated device document.
-
-        Raises:
-            DiscoveryNotFoundError: If the device does not exist.
-        """
-        device = await self.get_discovery(discovery_id)
-
-        open_ports: list[int] = device.get("openPorts", [])
-        protocols: list[str] = device.get("protocols", [])
-        raw_evidence = device.get("rawEvidence") or {}
-
-        fingerprint = self.fingerprinter.fingerprint_device(
-            open_ports,
-            protocols,
-            primary_mac=device.get("identity", {}).get("primaryMac"),
-            raw_vendor=raw_evidence.get("vendor"),
-        )
-        classification = self.fingerprinter.classify_device(fingerprint)
-
-        now = datetime.now(UTC)
-        update: dict[str, Any] = {
-            "fingerprint": fingerprint.model_dump(by_alias=True),
-            "classification": classification.model_dump(by_alias=True),
-            "updatedAt": now,
-        }
-
-        await self.devices.update_one(
-            {"discoveryId": discovery_id},
-            {"$set": update},
-        )
-
-        device.update(update)
-        logger.info(
-            "discovery.device_enriched",
-            discovery_id=discovery_id,
-            suggested_class=classification.suggested_class,
-            confidence=classification.confidence,
-        )
-        return device
 
     # ── Approval / Rejection ───────────────────────────────────────────
 
@@ -603,22 +922,33 @@ class DiscoveryService:
             if existing_node:
                 raise ConflictError("node", node_id)
 
-            # Determine node class from request override or classification
+            # Determine node metadata from request overrides or classification
             classification = device.get("classification") or {}
             node_class = request.node_class or classification.get(
                 "suggestedClass", "compute"
             )
-            # Fall back to "compute" if classification returned "unknown"
             if node_class == "unknown":
                 node_class = "compute"
+
+            node_type = request.node_type or classification.get("suggestedType")
+            kind = request.kind or classification.get("suggestedKind")
+            display_name = (
+                request.display_name
+                or classification.get("suggestedDisplayName")
+                or node_id
+            )
+            description = (
+                request.description
+                or f"Auto-registered from discovery {discovery_id}"
+            )
 
             node_doc: dict[str, Any] = {
                 "nodeId": node_id,
                 "class": node_class,
-                "type": classification.get("suggestedType"),
-                "kind": None,
-                "displayName": node_id,
-                "description": f"Auto-registered from discovery {discovery_id}",
+                "type": node_type,
+                "kind": kind,
+                "displayName": display_name,
+                "description": description,
                 "tags": request.tags,
                 "parentNodeId": None,
                 "networkIds": (
@@ -820,6 +1150,8 @@ class DiscoveryService:
             "results": results,
             "errors": errors,
         }
+
+    # ── Delegation Lifecycle ───────────────────────────────────────────
 
     async def attach_delegated_command(
         self,

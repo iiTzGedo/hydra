@@ -9,6 +9,16 @@ function apiResponse<T>(data: T, meta?: Record<string, unknown>) {
 }
 
 async function mockAuthenticatedSession(page: Page) {
+  // Set a fake session cookie so Next.js middleware allows navigation to protected routes
+  await page.context().addCookies([
+    {
+      name: 'hydra_access',
+      value: 'mock-e2e-session',
+      domain: 'localhost',
+      path: '/',
+    },
+  ]);
+
   await page.route('**/api/v1/auth/me', async (route) => {
     await route.fulfill({
       status: 200,
@@ -29,6 +39,39 @@ async function mockAuthenticatedSession(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ expiresIn: 3600 }),
+    });
+  });
+
+  // Mock layout-level endpoints to prevent 401 cascades from the real API
+  await page.route('**/api/v1/settings/user', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { dashboard: { pinnedBoardIds: [] } } }),
+    });
+  });
+
+  await page.route('**/api/v1/notifications**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [], meta: { total: 0, limit: 50, offset: 0 } }),
+    });
+  });
+
+  await page.route('**/api/v1/dashboards/templates**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [], meta: { total: 0, limit: 50, offset: 0 } }),
+    });
+  });
+
+  await page.route('**/api/v1/dashboards/**/shares', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [] }),
     });
   });
 }
@@ -158,38 +201,8 @@ test.describe('Dashboard and Discovery', () => {
       });
     });
 
-    await page.route('**/api/v1/dashboards/board-e2e', async (route) => {
-      if (route.request().method() === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(apiResponse(board)),
-        });
-        return;
-      }
-
-      if (route.request().method() === 'PUT') {
-        const updates = route.request().postDataJSON() as Partial<typeof board>;
-        board = {
-          ...board,
-          ...updates,
-          widgets: updates.widgets ?? board.widgets,
-          widgetCount: updates.widgets?.length ?? board.widgets.length,
-          version: board.version + 1,
-          updatedAt: '2026-04-06T00:05:00Z',
-        };
-
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(apiResponse(board)),
-        });
-        return;
-      }
-
-      await route.fallback();
-    });
-
+    // Register catch-all FIRST — Playwright checks routes in reverse registration order,
+    // so the more specific board-e2e route (registered after) takes priority.
     await page.route('**/api/v1/dashboards**', async (route) => {
       const url = new URL(route.request().url());
       if (route.request().method() === 'GET' && url.pathname.endsWith('/api/v1/dashboards')) {
@@ -225,6 +238,39 @@ test.describe('Dashboard and Discovery', () => {
       await route.fallback();
     });
 
+    // Specific board route AFTER the catch-all so it takes priority in Playwright's LIFO order
+    await page.route('**/api/v1/dashboards/board-e2e', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(apiResponse(board)),
+        });
+        return;
+      }
+
+      if (route.request().method() === 'PUT') {
+        const updates = route.request().postDataJSON() as Partial<typeof board>;
+        board = {
+          ...board,
+          ...updates,
+          widgets: updates.widgets ?? board.widgets,
+          widgetCount: updates.widgets?.length ?? board.widgets.length,
+          version: board.version + 1,
+          updatedAt: '2026-04-06T00:05:00Z',
+        };
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(apiResponse(board)),
+        });
+        return;
+      }
+
+      await route.fallback();
+    });
+
     await page.route('**/api/v1/services**', async (route) => {
       await route.fulfill({
         status: 200,
@@ -247,9 +293,13 @@ test.describe('Dashboard and Discovery', () => {
       });
     });
 
-    await gotoPage(page, '/dashboard', /^Dashboard$/);
+    // Navigate to the board view page (not the management page)
+    await gotoPage(page, '/dashboards/board-e2e', /^Dashboard$/);
 
-    await page.getByRole('button', { name: /^Customize$/ }).click();
+    // Wait for the board data to load and Edit Board to become enabled, then enter edit mode
+    const editButton = page.getByRole('button', { name: /^Edit Board$/ });
+    await expect(editButton).toBeEnabled({ timeout: 15_000 });
+    await editButton.click();
     await page.getByRole('button', { name: /Configure Service Summary/i }).click();
     await page.locator('#widget-config-title').fill('Executive Services');
     await page.getByRole('button', { name: /^Save Settings$/ }).click();

@@ -181,6 +181,7 @@ export default function DiscoveryPage() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [deviceStatus, setDeviceStatus] = useState<DiscoveryDeviceStatus | 'all'>('pending');
   const [deviceSearch, setDeviceSearch] = useState('');
+  const [deviceClassFilter, setDeviceClassFilter] = useState<DiscoveryClass | 'all'>('all');
   const [scanForm, setScanForm] = useState({
     subnet: '',
     delegateToNodeId: '',
@@ -245,6 +246,7 @@ export default function DiscoveryPage() {
   } = useDiscoveryDevices({
     limit: 25,
     status: deviceStatus === 'all' ? undefined : deviceStatus,
+    deviceClass: deviceClassFilter === 'all' ? undefined : deviceClassFilter,
     search: deviceSearch || undefined,
     sortBy: 'lastSeen',
     sortOrder: 'desc',
@@ -655,12 +657,12 @@ export default function DiscoveryPage() {
 
         <TabsContent value="devices" className="space-y-4">
           <Card>
-            <CardContent className="grid gap-4 p-5 md:grid-cols-[0.85fr_0.85fr_0.6fr]">
+            <CardContent className="grid gap-4 p-5 md:grid-cols-[0.85fr_0.7fr_0.7fr_0.75fr]">
               <div className="space-y-2">
                 <Label htmlFor="device-search">Search</Label>
                 <Input
                   id="device-search"
-                  placeholder="Hostname or IP"
+                  placeholder="Hostname, IP, or MAC"
                   value={deviceSearch}
                   onChange={(event) => setDeviceSearch(event.target.value)}
                 />
@@ -677,6 +679,21 @@ export default function DiscoveryPage() {
                         {option.label}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Class</Label>
+                <Select value={deviceClassFilter} onValueChange={(value) => setDeviceClassFilter(value as DiscoveryClass | 'all')}>
+                  <SelectTrigger aria-label="Discovery device class">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All classes</SelectItem>
+                    <SelectItem value="compute">Compute</SelectItem>
+                    <SelectItem value="networking">Networking</SelectItem>
+                    <SelectItem value="iot">IoT</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -729,7 +746,7 @@ export default function DiscoveryPage() {
                               <div className="font-medium">{deviceLabel(device)}</div>
                               <div className="text-xs text-muted-foreground">
                                 {device.identity.currentIp}
-                                {device.rawEvidence?.macOui ? ` • ${device.rawEvidence.macOui}` : ''}
+                                {device.identity.macVendor ? ` • ${device.identity.macVendor}` : device.rawEvidence?.macOui ? ` • ${device.rawEvidence.macOui}` : ''}
                               </div>
                             </div>
                           </TableCell>
@@ -800,6 +817,12 @@ export default function DiscoveryPage() {
                             {selectedDevice.classification.suggestedType && (
                               <Badge variant="secondary">{selectedDevice.classification.suggestedType}</Badge>
                             )}
+                            {selectedDevice.classification.suggestedKind && (
+                              <Badge variant="secondary">{selectedDevice.classification.suggestedKind}</Badge>
+                            )}
+                            <span className="text-xs text-muted-foreground">
+                              {Math.round(selectedDevice.classification.confidence * 100)}%
+                            </span>
                           </div>
                           <p className="text-sm text-muted-foreground">
                             {selectedDevice.classification.explanation || 'Explainable evidence will appear here once enrichment completes.'}
@@ -894,6 +917,64 @@ export default function DiscoveryPage() {
                       ) : null}
                     </div>
                   </div>
+
+                  {selectedDevice.eligibility && (
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Eligibility</p>
+                      <div className="mt-2 grid gap-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Registerable</span>
+                          <Badge variant={selectedDevice.eligibility.registerable ? 'default' : 'secondary'}>
+                            {selectedDevice.eligibility.registerable ? 'Yes' : 'No'}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Agent compatible</span>
+                          <Badge variant={selectedDevice.eligibility.agentCompatible ? 'default' : 'secondary'}>
+                            {selectedDevice.eligibility.agentCompatible ? 'Yes' : 'No'}
+                          </Badge>
+                        </div>
+                        {selectedDevice.eligibility.agentPlatform && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Platform</span>
+                            <span className="font-medium">{selectedDevice.eligibility.agentPlatform}</span>
+                          </div>
+                        )}
+                        {selectedDevice.eligibility.profilingStrategy && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Profiling strategy</span>
+                            <Badge variant="outline">{selectedDevice.eligibility.profilingStrategy}</Badge>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Remote installable</span>
+                          <Badge variant={selectedDevice.eligibility.remoteInstallable ? 'default' : 'secondary'}>
+                            {selectedDevice.eligibility.remoteInstallable ? `Yes (${selectedDevice.eligibility.remoteInstallMethod})` : 'No'}
+                          </Badge>
+                        </div>
+                        {selectedDevice.eligibility.blockers.length > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">Blockers</span>
+                            <div className="mt-1 space-y-1">
+                              {selectedDevice.eligibility.blockers.map((blocker) => (
+                                <p key={blocker} className="text-xs text-destructive">{blocker}</p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {selectedDevice.eligibility.notes.length > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">Notes</span>
+                            <div className="mt-1 space-y-1">
+                              {selectedDevice.eligibility.notes.map((note) => (
+                                <p key={note} className="text-xs text-muted-foreground">{note}</p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   <PermissionGate permissions={['discovery:scan']}>
                     <div className="rounded-lg border p-4">

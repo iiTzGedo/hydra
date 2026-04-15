@@ -303,6 +303,7 @@ export const Sidebar = memo(function Sidebar() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const setSidebarMobileOpen = useUiStore((s) => s.setSidebarMobileOpen);
   const hasPermission = useAuthStore((s) => s.hasPermission);
+  const userPermissions = useAuthStore((s) => s.user?.permissions);
 
   const dashboards = useDashboards({ limit: 50, sortBy: 'updatedAt', sortOrder: 'desc' });
   const userSettings = useUserSettings();
@@ -343,7 +344,8 @@ export const Sidebar = memo(function Sidebar() {
             .filter((item) => !item.permission || hasPermission(item.permission)),
         }))
         .filter((group) => group.items.length > 0),
-    [hasPermission],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hasPermission reads from store via get(); userPermissions triggers recompute when permissions change
+    [hasPermission, userPermissions],
   );
 
   const utilityItems = useMemo(
@@ -351,7 +353,8 @@ export const Sidebar = memo(function Sidebar() {
       getUtilityRoutes()
         .map(routeToNavItem)
         .filter((item) => !item.permission || hasPermission(item.permission)),
-    [hasPermission],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hasPermission, userPermissions],
   );
 
   const dashboardNavItems = useMemo(() => {
