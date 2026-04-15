@@ -121,14 +121,14 @@ export function useMe() {
 
     if (query.isError) {
       clearAuth();
+      return;
     }
-  }, [clearAuth, query.data, query.isError, setLoading, setUser]);
 
-  useEffect(() => {
+    // Query finished but no recognized data type — clear loading state
     if (query.isFetched) {
       setLoading(false);
     }
-  }, [query.isFetched, setLoading]);
+  }, [clearAuth, query.data, query.isError, query.isFetched, setLoading, setUser]);
 
   return query;
 }

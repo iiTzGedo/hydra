@@ -271,7 +271,9 @@ export interface WidgetConfigOption {
 export interface WidgetConfigField {
   key: string;
   label: string;
-  fieldType: 'text' | 'boolean' | 'number' | 'select';
+  fieldType: 'text' | 'boolean' | 'number' | 'select' | 'entity';
+  /** Entity type for fieldType === 'entity' */
+  entityType?: 'node' | 'service' | 'network' | 'group';
   description?: string | null;
   placeholder?: string | null;
   minValue?: number | null;

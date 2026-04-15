@@ -24,6 +24,7 @@ import { getErrorMessage } from '@/lib/api-client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { EntityCombobox } from '@/components/ui/entity-combobox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -357,12 +358,14 @@ export default function NodeDetailPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label className="text-foreground text-sm">Parent Node ID</Label>
-              <Input
+              <Label className="text-foreground text-sm">Parent Node</Label>
+              <EntityCombobox
+                entityType="node"
                 value={editForm.parentNodeId}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, parentNodeId: e.target.value }))}
-                className="bg-muted border-border text-foreground"
-                placeholder="Optional parent node ID"
+                onValueChange={(val) => setEditForm((prev) => ({ ...prev, parentNodeId: val }))}
+                clearable
+                excludeIds={nodeId ? [nodeId] : undefined}
+                placeholder="Select parent node..."
               />
             </div>
             <div className="space-y-2">

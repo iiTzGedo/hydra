@@ -18,11 +18,13 @@ import {
 } from 'lucide-react';
 import { useGroups, useCreateGroup } from '@/api/groups';
 import { GroupSummary, GroupEntityType, GroupSelectors, CreateGroupRequest } from '@/types/group';
-import { ROUTES } from '@/lib/constants';
+import { NODE_KIND_LABELS, ROUTES, SERVICE_RUNTIME_LABELS } from '@/lib/constants';
 import { getErrorMessage } from '@/lib/api-client';
 import { staggerItemVariants } from '@/lib/animations';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { EntityMultiSelect } from '@/components/ui/entity-multi-select';
+import { EnumMultiSelect } from '@/components/ui/enum-multi-select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -71,6 +73,30 @@ import {
   GROUP_FILTER_CONFIG,
   type GroupColumnKey,
 } from './list-config';
+
+const GROUP_STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'archived', label: 'Archived' },
+  { value: 'running', label: 'Running' },
+  { value: 'stopped', label: 'Stopped' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'exited', label: 'Exited' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'restarting', label: 'Restarting' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+const GROUP_KIND_OPTIONS = Object.entries(NODE_KIND_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
+
+const GROUP_RUNTIME_OPTIONS = Object.entries(SERVICE_RUNTIME_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
 
 interface FilterState {
   search: string;
@@ -530,12 +556,12 @@ function CreateGroupModal({
   });
 
   const [selectors, setSelectors] = useState({
-    ids: '',
-    networks: '',
-    statuses: '',
-    kinds: '',
-    runtimes: '',
-    tags: '',
+    ids: [] as string[],
+    networks: [] as string[],
+    statuses: [] as string[],
+    kinds: [] as string[],
+    runtimes: [] as string[],
+    tags: [] as string[],
     tagMode: 'isAny' as 'isAny' | 'isAll',
   });
 
@@ -551,12 +577,12 @@ function CreateGroupModal({
       types: ['node'],
     });
     setSelectors({
-      ids: '',
-      networks: '',
-      statuses: '',
-      kinds: '',
-      runtimes: '',
-      tags: '',
+      ids: [],
+      networks: [],
+      statuses: [],
+      kinds: [],
+      runtimes: [],
+      tags: [],
       tagMode: 'isAny',
     });
     setFormError(null);
@@ -574,19 +600,13 @@ function CreateGroupModal({
 
   const buildSelectors = (): GroupSelectors => {
     const result: GroupSelectors = {};
-    const ids = parseList(selectors.ids);
-    if (ids.length) result.id = { isAll: ids };
-    const networks = parseList(selectors.networks);
-    if (networks.length) result.network = { isAny: networks };
-    const statuses = parseList(selectors.statuses);
-    if (statuses.length) result.status = { isAny: statuses };
-    const kinds = parseList(selectors.kinds);
-    if (kinds.length) result.kind = { isAny: kinds };
-    const runtimes = parseList(selectors.runtimes);
-    if (runtimes.length) result.runtime = { isAny: runtimes };
-    const tagValues = parseList(selectors.tags);
-    if (tagValues.length) {
-      result.tags = selectors.tagMode === 'isAll' ? { isAll: tagValues } : { isAny: tagValues };
+    if (selectors.ids.length) result.id = { isAll: selectors.ids };
+    if (selectors.networks.length) result.network = { isAny: selectors.networks };
+    if (selectors.statuses.length) result.status = { isAny: selectors.statuses };
+    if (selectors.kinds.length) result.kind = { isAny: selectors.kinds };
+    if (selectors.runtimes.length) result.runtime = { isAny: selectors.runtimes };
+    if (selectors.tags.length) {
+      result.tags = selectors.tagMode === 'isAll' ? { isAll: selectors.tags } : { isAny: selectors.tags };
     }
     return result;
   };
@@ -756,62 +776,69 @@ function CreateGroupModal({
                   Selectors
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  Add one or more selectors. Each uses comma-separated values.
+                  Add one or more selectors to define group membership rules.
                 </p>
 
                 <div className="space-y-2">
                   <Label>Node/Service IDs</Label>
-                  <Input
-                    value={selectors.ids}
-                    onChange={(e) => setSelectors(s => ({ ...s, ids: e.target.value }))}
-                    placeholder="e.g., node-01, node-02"
+                  <EntityMultiSelect
+                    entityType="node"
+                    values={selectors.ids}
+                    onValuesChange={(vals) => setSelectors(s => ({ ...s, ids: vals }))}
+                    placeholder="Select nodes or services..."
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label>Networks</Label>
-                  <Input
-                    value={selectors.networks}
-                    onChange={(e) => setSelectors(s => ({ ...s, networks: e.target.value }))}
-                    placeholder="e.g., prod-vlan-10"
+                  <EntityMultiSelect
+                    entityType="network"
+                    values={selectors.networks}
+                    onValuesChange={(vals) => setSelectors(s => ({ ...s, networks: vals }))}
+                    placeholder="Select networks..."
                   />
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Statuses</Label>
-                    <Input
-                      value={selectors.statuses}
-                      onChange={(e) => setSelectors(s => ({ ...s, statuses: e.target.value }))}
-                      placeholder="e.g., active"
+                    <EnumMultiSelect
+                      values={selectors.statuses}
+                      onValuesChange={(vals) => setSelectors(s => ({ ...s, statuses: vals }))}
+                      options={GROUP_STATUS_OPTIONS}
+                      placeholder="Select statuses..."
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Kinds</Label>
-                    <Input
-                      value={selectors.kinds}
-                      onChange={(e) => setSelectors(s => ({ ...s, kinds: e.target.value }))}
-                      placeholder="e.g., vm, router"
+                    <EnumMultiSelect
+                      values={selectors.kinds}
+                      onValuesChange={(vals) => setSelectors(s => ({ ...s, kinds: vals }))}
+                      options={GROUP_KIND_OPTIONS}
+                      placeholder="Select kinds..."
                     />
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label>Runtimes</Label>
-                  <Input
-                    value={selectors.runtimes}
-                    onChange={(e) => setSelectors(s => ({ ...s, runtimes: e.target.value }))}
-                    placeholder="e.g., docker, kubernetes"
+                  <EnumMultiSelect
+                    values={selectors.runtimes}
+                    onValuesChange={(vals) => setSelectors(s => ({ ...s, runtimes: vals }))}
+                    options={GROUP_RUNTIME_OPTIONS}
+                    placeholder="Select runtimes..."
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label>Tags Selector</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={selectors.tags}
-                      onChange={(e) => setSelectors(s => ({ ...s, tags: e.target.value }))}
-                      placeholder="e.g., critical, edge"
+                  <div className="flex gap-2 items-start">
+                    <EnumMultiSelect
+                      values={selectors.tags}
+                      onValuesChange={(vals) => setSelectors(s => ({ ...s, tags: vals }))}
+                      options={[]}
+                      allowFreeText
+                      placeholder="Enter tags..."
                       className="flex-1"
                     />
                     <Select

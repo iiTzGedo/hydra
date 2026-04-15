@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -76,10 +76,234 @@ function getBoardDisplayLabel(board: { isHome?: boolean; name: string }) {
   return board.isHome ? 'Dashboard' : board.name;
 }
 
-export function Sidebar() {
+function isPathActive(pathname: string, path: string): boolean {
+  if (path === ROUTES.DASHBOARDS) {
+    return pathname.startsWith('/dashboards') || pathname === ROUTES.DASHBOARD;
+  }
+  if (path.startsWith('/docs')) {
+    return pathname.startsWith('/docs');
+  }
+  return pathname === path;
+}
+
+// --- Extracted, memoized sub-components ---
+
+interface NavLinkProps {
+  item: SidebarNavItem;
+  sidebarCollapsed: boolean;
+  active: boolean;
+  onNavigate: () => void;
+}
+
+const NavLink = memo(function NavLink({ item, sidebarCollapsed, active, onNavigate }: NavLinkProps) {
+  const Icon = item.icon;
+
+  const content = (
+    <Link
+      href={item.path}
+      aria-label={sidebarCollapsed ? item.label : undefined}
+      onClick={onNavigate}
+      className={cn(
+        'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+        active
+          ? 'bg-sidebar-accent text-sidebar-foreground'
+          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
+        sidebarCollapsed && 'justify-center px-2',
+      )}
+    >
+      {active ? (
+        <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary" />
+      ) : null}
+      <Icon className={cn('h-4 w-4 shrink-0', active && 'text-primary')} />
+      {!sidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
+    </Link>
+  );
+
+  if (!sidebarCollapsed) {
+    return content;
+  }
+
+  return (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>{content}</TooltipTrigger>
+      <TooltipContent side="right">{item.label}</TooltipContent>
+    </Tooltip>
+  );
+});
+
+interface NavGroupProps {
+  label: string;
+  icon: LucideIcon;
+  items: SidebarNavItem[];
+  sidebarCollapsed: boolean;
+  expanded: boolean;
+  hasActiveChild: boolean;
+  isItemActive: (path: string) => boolean;
+  onToggle: (label: string) => void;
+  onNavigate: () => void;
+}
+
+const NavGroup = memo(function NavGroup({
+  label,
+  icon,
+  items,
+  sidebarCollapsed,
+  expanded,
+  hasActiveChild,
+  isItemActive,
+  onToggle,
+  onNavigate,
+}: NavGroupProps) {
+  const Icon = icon;
+
+  if (sidebarCollapsed) {
+    return (
+      <Tooltip delayDuration={0}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={label}
+            className={cn(
+              'flex w-full items-center justify-center rounded-xl px-2 py-2.5 transition-colors',
+              hasActiveChild
+                ? 'bg-sidebar-accent text-sidebar-foreground'
+                : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
+            )}
+          >
+            <Icon className={cn('h-4 w-4', hasActiveChild && 'text-primary')} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="w-56 p-2">
+          <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            {label}
+          </div>
+          <div className="space-y-1">
+            {items.map((item) => (
+              <Link
+                key={item.path}
+                href={item.path}
+                onClick={onNavigate}
+                className={cn(
+                  'flex items-center gap-2 rounded-lg px-2 py-2 text-sm',
+                  isItemActive(item.path)
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                )}
+              >
+                <item.icon className="h-4 w-4" />
+                <span className="truncate">{item.label}</span>
+              </Link>
+            ))}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <button
+        type="button"
+        onClick={() => onToggle(label)}
+        className={cn(
+          'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+          hasActiveChild
+            ? 'text-sidebar-foreground'
+            : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
+        )}
+      >
+        <Icon className={cn('h-4 w-4 shrink-0', hasActiveChild && 'text-primary')} />
+        <span className="flex-1 truncate text-left">{label}</span>
+        <ChevronDown className={cn('h-4 w-4 transition-transform', !expanded && '-rotate-90')} />
+      </button>
+      {expanded ? (
+        <div className="ml-5 space-y-1 border-l border-sidebar-border/50 pl-3">
+          {items.map((item) => (
+            <NavLink
+              key={item.path}
+              item={item}
+              sidebarCollapsed={false}
+              active={isItemActive(item.path)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+});
+
+interface FooterActionLinkProps {
+  path: string;
+  label: string;
+  icon: LucideIcon;
+  sidebarCollapsed: boolean;
+  active: boolean;
+  onNavigate: () => void;
+}
+
+const FooterActionLink = memo(function FooterActionLink({
+  path,
+  label,
+  icon,
+  sidebarCollapsed,
+  active,
+  onNavigate,
+}: FooterActionLinkProps) {
+  const Icon = icon;
+
+  if (sidebarCollapsed) {
+    return (
+      <Tooltip delayDuration={0}>
+        <TooltipTrigger asChild>
+          <Link
+            href={path}
+            aria-label={label}
+            onClick={onNavigate}
+            className={cn(
+              'flex items-center justify-center rounded-xl px-2 py-2.5 transition-colors',
+              active
+                ? 'bg-sidebar-accent text-sidebar-foreground'
+                : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
+            )}
+          >
+            <Icon className={cn('h-4 w-4', active && 'text-primary')} />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right">{label}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <Link
+      href={path}
+      onClick={onNavigate}
+      className={cn(
+        'flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm transition-colors',
+        active
+          ? 'bg-sidebar-accent text-sidebar-foreground'
+          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
+      )}
+    >
+      <Icon className={cn('h-4 w-4', active && 'text-primary')} />
+      <span>{label}</span>
+    </Link>
+  );
+});
+
+// --- Main Sidebar component ---
+
+export const Sidebar = memo(function Sidebar() {
   const pathname = usePathname() ?? '/';
-  const { sidebarCollapsed, sidebarMobileOpen, toggleSidebar, setSidebarMobileOpen } = useUiStore();
-  const { hasPermission } = useAuthStore();
+
+  // Individual Zustand selectors to avoid re-renders from unrelated state changes
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
+  const sidebarMobileOpen = useUiStore((s) => s.sidebarMobileOpen);
+  const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const setSidebarMobileOpen = useUiStore((s) => s.setSidebarMobileOpen);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+
   const dashboards = useDashboards({ limit: 50, sortBy: 'updatedAt', sortOrder: 'desc' });
   const userSettings = useUserSettings();
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
@@ -91,18 +315,44 @@ export function Sidebar() {
 
   const currentRoute = getRouteConfig(pathname);
 
-  const primaryGroups = getPrimaryNavGroups()
-    .map((group) => ({
-      ...group,
-      items: group.routes
+  // Stable callback: only closes mobile sidebar when it's actually open
+  const handleNavigate = useCallback(() => {
+    if (sidebarMobileOpen) {
+      setSidebarMobileOpen(false);
+    }
+  }, [sidebarMobileOpen, setSidebarMobileOpen]);
+
+  // Stable callback for group toggling
+  const handleToggleGroup = useCallback((label: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+  }, []);
+
+  // Stable isActive checker — only changes when pathname changes
+  const checkIsActive = useCallback(
+    (path: string) => isPathActive(pathname, path),
+    [pathname],
+  );
+
+  const primaryGroups = useMemo(
+    () =>
+      getPrimaryNavGroups()
+        .map((group) => ({
+          ...group,
+          items: group.routes
+            .map(routeToNavItem)
+            .filter((item) => !item.permission || hasPermission(item.permission)),
+        }))
+        .filter((group) => group.items.length > 0),
+    [hasPermission],
+  );
+
+  const utilityItems = useMemo(
+    () =>
+      getUtilityRoutes()
         .map(routeToNavItem)
         .filter((item) => !item.permission || hasPermission(item.permission)),
-    }))
-    .filter((group) => group.items.length > 0);
-
-  const utilityItems = getUtilityRoutes()
-    .map(routeToNavItem)
-    .filter((item) => !item.permission || hasPermission(item.permission));
+    [hasPermission],
+  );
 
   const dashboardNavItems = useMemo(() => {
     const boardItems = dashboards.data?.items ?? [];
@@ -132,193 +382,6 @@ export function Sidebar() {
     ];
   }, [dashboards.data?.items, userSettings.data?.dashboard?.pinnedBoardIds]);
 
-  const isActive = (path: string) => {
-    if (path === ROUTES.DASHBOARDS) {
-      return pathname.startsWith('/dashboards') || pathname === ROUTES.DASHBOARD;
-    }
-    if (path.startsWith('/docs')) {
-      return pathname.startsWith('/docs');
-    }
-    return pathname === path;
-  };
-
-  const toggleGroup = (label: string) => {
-    setExpandedGroups((current) => ({ ...current, [label]: !current[label] }));
-  };
-
-  const NavLink = ({ item }: { item: SidebarNavItem }) => {
-    const Icon = item.icon;
-    const active = isActive(item.path);
-
-    const content = (
-      <Link
-        href={item.path}
-        aria-label={sidebarCollapsed ? item.label : undefined}
-        onClick={() => setSidebarMobileOpen(false)}
-        className={cn(
-          'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
-          active
-            ? 'bg-sidebar-accent text-sidebar-foreground'
-            : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
-          sidebarCollapsed && 'justify-center px-2',
-        )}
-      >
-        {active ? (
-          <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary" />
-        ) : null}
-        <Icon className={cn('h-4 w-4 shrink-0', active && 'text-primary')} />
-        {!sidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
-      </Link>
-    );
-
-    if (!sidebarCollapsed) {
-      return content;
-    }
-
-    return (
-      <Tooltip delayDuration={0}>
-        <TooltipTrigger asChild>{content}</TooltipTrigger>
-        <TooltipContent side="right">{item.label}</TooltipContent>
-      </Tooltip>
-    );
-  };
-
-  const NavGroup = ({
-    label,
-    icon,
-    items,
-  }: {
-    label: string;
-    icon: LucideIcon;
-    items: SidebarNavItem[];
-  }) => {
-    const Icon = icon;
-    const expanded = expandedGroups[label] ?? true;
-    const hasActiveChild = items.some((item) => isActive(item.path));
-
-    if (sidebarCollapsed) {
-      return (
-        <Tooltip delayDuration={0}>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={label}
-              className={cn(
-                'flex w-full items-center justify-center rounded-xl px-2 py-2.5 transition-colors',
-                hasActiveChild
-                  ? 'bg-sidebar-accent text-sidebar-foreground'
-                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
-              )}
-            >
-              <Icon className={cn('h-4 w-4', hasActiveChild && 'text-primary')} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" className="w-56 p-2">
-            <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              {label}
-            </div>
-            <div className="space-y-1">
-              {items.map((item) => (
-                <Link
-                  key={item.path}
-                  href={item.path}
-                  onClick={() => setSidebarMobileOpen(false)}
-                  className={cn(
-                    'flex items-center gap-2 rounded-lg px-2 py-2 text-sm',
-                    isActive(item.path)
-                      ? 'bg-muted text-foreground'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                  <span className="truncate">{item.label}</span>
-                </Link>
-              ))}
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      );
-    }
-
-    return (
-      <div className="space-y-1">
-        <button
-          type="button"
-          onClick={() => toggleGroup(label)}
-          className={cn(
-            'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
-            hasActiveChild
-              ? 'text-sidebar-foreground'
-              : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
-          )}
-        >
-          <Icon className={cn('h-4 w-4 shrink-0', hasActiveChild && 'text-primary')} />
-          <span className="flex-1 truncate text-left">{label}</span>
-          <ChevronDown className={cn('h-4 w-4 transition-transform', !expanded && '-rotate-90')} />
-        </button>
-        {expanded ? (
-          <div className="ml-5 space-y-1 border-l border-sidebar-border/50 pl-3">
-            {items.map((item) => (
-              <NavLink key={item.path} item={item} />
-            ))}
-          </div>
-        ) : null}
-      </div>
-    );
-  };
-
-  const FooterActionLink = ({
-    path,
-    label,
-    icon,
-  }: {
-    path: string;
-    label: string;
-    icon: LucideIcon;
-  }) => {
-    const Icon = icon;
-    const active = isActive(path);
-
-    if (sidebarCollapsed) {
-      return (
-        <Tooltip delayDuration={0}>
-          <TooltipTrigger asChild>
-            <Link
-              href={path}
-              aria-label={label}
-              onClick={() => setSidebarMobileOpen(false)}
-              className={cn(
-                'flex items-center justify-center rounded-xl px-2 py-2.5 transition-colors',
-                active
-                  ? 'bg-sidebar-accent text-sidebar-foreground'
-                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
-              )}
-            >
-              <Icon className={cn('h-4 w-4', active && 'text-primary')} />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent side="right">{label}</TooltipContent>
-        </Tooltip>
-      );
-    }
-
-    return (
-      <Link
-        href={path}
-        onClick={() => setSidebarMobileOpen(false)}
-        className={cn(
-          'flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm transition-colors',
-          active
-            ? 'bg-sidebar-accent text-sidebar-foreground'
-            : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
-        )}
-      >
-        <Icon className={cn('h-4 w-4', active && 'text-primary')} />
-        <span>{label}</span>
-      </Link>
-    );
-  };
-
   const sidebarContent = (
     <TooltipProvider>
       <div className="flex h-full flex-col">
@@ -346,7 +409,17 @@ export function Sidebar() {
 
         <ScrollArea className="flex-1 px-3 py-4">
           <nav className="space-y-4">
-            <NavGroup label="Dashboard" icon={LayoutDashboard} items={dashboardNavItems} />
+            <NavGroup
+              label="Dashboard"
+              icon={LayoutDashboard}
+              items={dashboardNavItems}
+              sidebarCollapsed={sidebarCollapsed}
+              expanded={expandedGroups['Dashboard'] ?? true}
+              hasActiveChild={dashboardNavItems.some((item) => checkIsActive(item.path))}
+              isItemActive={checkIsActive}
+              onToggle={handleToggleGroup}
+              onNavigate={handleNavigate}
+            />
 
             {primaryGroups.map((group) => (
               <NavGroup
@@ -354,6 +427,12 @@ export function Sidebar() {
                 label={group.label}
                 icon={group.id === 'infrastructure' ? Server : group.id === 'operations' ? Terminal : FileText}
                 items={group.items}
+                sidebarCollapsed={sidebarCollapsed}
+                expanded={expandedGroups[group.label] ?? true}
+                hasActiveChild={group.items.some((item) => checkIsActive(item.path))}
+                isItemActive={checkIsActive}
+                onToggle={handleToggleGroup}
+                onNavigate={handleNavigate}
               />
             ))}
 
@@ -362,7 +441,13 @@ export function Sidebar() {
                 <Separator className="bg-sidebar-border/60" />
                 <nav aria-label="Sidebar utility" className="space-y-1">
                   {utilityItems.map((item) => (
-                    <NavLink key={item.path} item={item} />
+                    <NavLink
+                      key={item.path}
+                      item={item}
+                      sidebarCollapsed={sidebarCollapsed}
+                      active={checkIsActive(item.path)}
+                      onNavigate={handleNavigate}
+                    />
                   ))}
                 </nav>
               </>
@@ -375,8 +460,22 @@ export function Sidebar() {
             aria-label="Sidebar account actions"
             className={cn('mb-3 flex gap-1', sidebarCollapsed ? 'flex-col' : 'flex-row')}
           >
-            <FooterActionLink path={ROUTES.SETTINGS} label="Settings" icon={Settings} />
-            <FooterActionLink path={ROUTES.PROFILE} label="Profile" icon={User} />
+            <FooterActionLink
+              path={ROUTES.SETTINGS}
+              label="Settings"
+              icon={Settings}
+              sidebarCollapsed={sidebarCollapsed}
+              active={checkIsActive(ROUTES.SETTINGS)}
+              onNavigate={handleNavigate}
+            />
+            <FooterActionLink
+              path={ROUTES.PROFILE}
+              label="Profile"
+              icon={User}
+              sidebarCollapsed={sidebarCollapsed}
+              active={checkIsActive(ROUTES.PROFILE)}
+              onNavigate={handleNavigate}
+            />
           </nav>
 
           <Button
@@ -437,4 +536,4 @@ export function Sidebar() {
       </aside>
     </>
   );
-}
+});

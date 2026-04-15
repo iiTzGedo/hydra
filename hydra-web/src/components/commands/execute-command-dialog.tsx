@@ -13,11 +13,11 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
+import { EntityCombobox } from '@/components/ui/entity-combobox';
 
 interface ExecuteCommandDialogProps {
   open: boolean;
@@ -119,24 +119,24 @@ export function ExecuteCommandDialog({
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="exec-node-id">Node ID *</Label>
-            <Input
-              id="exec-node-id"
+            <Label>Node *</Label>
+            <EntityCombobox
+              entityType="node"
               value={nodeId}
-              onChange={(e) => setNodeId(e.target.value)}
-              placeholder="e.g. proxmox-01"
-              required
+              onValueChange={setNodeId}
+              placeholder="Select a node..."
             />
           </div>
 
           {isServiceCategory && (
             <div className="space-y-2">
-              <Label htmlFor="exec-service-id">Service ID</Label>
-              <Input
-                id="exec-service-id"
+              <Label>Service</Label>
+              <EntityCombobox
+                entityType="service"
                 value={serviceId}
-                onChange={(e) => setServiceId(e.target.value)}
-                placeholder="e.g. svc-nginx-a1b2"
+                onValueChange={setServiceId}
+                clearable
+                placeholder="Select a service..."
               />
             </div>
           )}

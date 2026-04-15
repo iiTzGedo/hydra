@@ -3,6 +3,7 @@ import { HelpCircle, Trash2 } from 'lucide-react';
 import type { CommandDefinitionSummary } from '@/api/commands';
 import type { StepFailurePolicy, WorkflowStepConfig } from '@/types/workflows';
 import { Button } from '@/components/ui/button';
+import { EntityCombobox } from '@/components/ui/entity-combobox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -90,20 +91,20 @@ export function StepEditor({
   );
 
   const handleNodeIdChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    (value: string) => {
       onUpdate(step.stepId, {
-        target: { ...step.target, nodeId: e.target.value },
+        target: { ...step.target, nodeId: value },
       });
     },
     [step.stepId, step.target, onUpdate]
   );
 
   const handleServiceIdChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    (value: string) => {
       onUpdate(step.stepId, {
         target: {
           ...step.target,
-          serviceId: e.target.value || null,
+          serviceId: value || null,
         },
       });
     },
@@ -244,37 +245,34 @@ export function StepEditor({
             )}
           </div>
 
-          {/* Target Node ID */}
+          {/* Target Node */}
           <div className="space-y-1.5">
             <div className="flex items-center gap-1.5">
-              <Label htmlFor="step-node" className="text-xs">
-                Target Node ID
-              </Label>
+              <Label className="text-xs">Target Node</Label>
               <FieldHint text="The node where this command will execute." />
             </div>
-            <Input
-              id="step-node"
+            <EntityCombobox
+              entityType="node"
               value={step.target.nodeId}
-              onChange={handleNodeIdChange}
-              placeholder="e.g. proxmox-01"
-              className="h-8 text-xs"
+              onValueChange={handleNodeIdChange}
+              placeholder="Select a node..."
+              triggerClassName="h-8 text-xs"
             />
           </div>
 
-          {/* Target Service ID */}
+          {/* Target Service */}
           <div className="space-y-1.5">
             <div className="flex items-center gap-1.5">
-              <Label htmlFor="step-service" className="text-xs">
-                Target Service ID
-              </Label>
+              <Label className="text-xs">Target Service</Label>
               <FieldHint text="Optional. Required for service-scoped commands." />
             </div>
-            <Input
-              id="step-service"
+            <EntityCombobox
+              entityType="service"
               value={step.target.serviceId ?? ''}
-              onChange={handleServiceIdChange}
-              placeholder="e.g. svc-nginx-a1b2"
-              className="h-8 text-xs"
+              onValueChange={handleServiceIdChange}
+              clearable
+              placeholder="Select a service..."
+              triggerClassName="h-8 text-xs"
             />
           </div>
 

@@ -23,6 +23,36 @@ vi.mock('@/api/commands', async () => {
   };
 });
 
+vi.mock('@/api/nodes', () => ({
+  useNodes: () => ({
+    data: {
+      items: [
+        { nodeId: 'server-01', displayName: 'Server 01', class: 'compute', type: 'physical', status: 'active', tags: [] },
+      ],
+      total: 1,
+      limit: 200,
+      offset: 0,
+    },
+    isLoading: false,
+    error: null,
+  }),
+}));
+
+vi.mock('@/api/services', () => ({
+  useServices: () => ({
+    data: {
+      items: [
+        { serviceId: 'svc-nginx-a1b2', name: 'nginx', displayName: 'Nginx', nodeId: 'server-01', runtime: 'docker', status: 'running', lastSeen: '2026-01-01' },
+      ],
+      total: 1,
+      limit: 200,
+      offset: 0,
+    },
+    isLoading: false,
+    error: null,
+  }),
+}));
+
 vi.mock('@/api/workflows', () => ({
   useWorkflows: () => ({
     data: { items: [] },
@@ -104,10 +134,15 @@ describe('Commands Page', () => {
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
-    const nodeIdInput = screen.getByLabelText('Node ID *');
-    await user.clear(nodeIdInput);
-    await user.type(nodeIdInput, 'server-01');
-    await user.type(screen.getByLabelText('Service ID'), 'svc-nginx-a1b2');
+    // Select node from combobox
+    const comboboxes = screen.getAllByRole('combobox');
+    await user.click(comboboxes[0]); // Node combobox
+    await user.click(await screen.findByText('Server 01'));
+
+    // Select service from combobox
+    await user.click(comboboxes[1]); // Service combobox
+    await user.click(await screen.findByText('Nginx'));
+
     await user.click(screen.getByRole('button', { name: 'Execute' }));
 
     await waitFor(() => expect(createCommandMock).toHaveBeenCalledTimes(1));

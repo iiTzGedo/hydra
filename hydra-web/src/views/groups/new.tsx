@@ -4,12 +4,45 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { useCreateGroup } from '@/api/groups';
+import { EntityMultiSelect } from '@/components/ui/entity-multi-select';
+import { EnumMultiSelect } from '@/components/ui/enum-multi-select';
 import { PageHeader } from '@/components/layout/page-header';
-import { ROUTES } from '@/lib/constants';
+import { NODE_KIND_LABELS, ROUTES, SERVICE_RUNTIME_LABELS } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getErrorMessage } from '@/lib/api-client';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import type { GroupEntityType, GroupSelectors } from '@/types/group';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+const STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'archived', label: 'Archived' },
+  { value: 'running', label: 'Running' },
+  { value: 'stopped', label: 'Stopped' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'exited', label: 'Exited' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'restarting', label: 'Restarting' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+const KIND_OPTIONS = Object.entries(NODE_KIND_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
+
+const RUNTIME_OPTIONS = Object.entries(SERVICE_RUNTIME_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
 
 const parseList = (value: string) =>
   value
@@ -27,12 +60,13 @@ export default function NewGroupPage() {
   const [tags, setTags] = useState('');
   const [types, setTypes] = useState<GroupEntityType[]>(['node']);
 
-  const [selectorIds, setSelectorIds] = useState('');
-  const [selectorNetworks, setSelectorNetworks] = useState('');
-  const [selectorStatuses, setSelectorStatuses] = useState('');
-  const [selectorKinds, setSelectorKinds] = useState('');
-  const [selectorRuntimes, setSelectorRuntimes] = useState('');
-  const [selectorTags, setSelectorTags] = useState('');
+  // Selector state — arrays for multi-select components
+  const [selectorIds, setSelectorIds] = useState<string[]>([]);
+  const [selectorNetworks, setSelectorNetworks] = useState<string[]>([]);
+  const [selectorStatuses, setSelectorStatuses] = useState<string[]>([]);
+  const [selectorKinds, setSelectorKinds] = useState<string[]>([]);
+  const [selectorRuntimes, setSelectorRuntimes] = useState<string[]>([]);
+  const [selectorTags, setSelectorTags] = useState<string[]>([]);
   const [tagMode, setTagMode] = useState<'isAny' | 'isAll'>('isAny');
 
   const [error, setError] = useState<string | null>(null);
@@ -46,34 +80,23 @@ export default function NewGroupPage() {
   const buildSelectors = (): GroupSelectors => {
     const selectors: GroupSelectors = {};
 
-    const ids = parseList(selectorIds);
-    if (ids.length) {
-      selectors.id = { isAll: ids };
+    if (selectorIds.length) {
+      selectors.id = { isAll: selectorIds };
     }
-
-    const networks = parseList(selectorNetworks);
-    if (networks.length) {
-      selectors.network = { isAny: networks };
+    if (selectorNetworks.length) {
+      selectors.network = { isAny: selectorNetworks };
     }
-
-    const statuses = parseList(selectorStatuses);
-    if (statuses.length) {
-      selectors.status = { isAny: statuses };
+    if (selectorStatuses.length) {
+      selectors.status = { isAny: selectorStatuses };
     }
-
-    const kinds = parseList(selectorKinds);
-    if (kinds.length) {
-      selectors.kind = { isAny: kinds };
+    if (selectorKinds.length) {
+      selectors.kind = { isAny: selectorKinds };
     }
-
-    const runtimes = parseList(selectorRuntimes);
-    if (runtimes.length) {
-      selectors.runtime = { isAny: runtimes };
+    if (selectorRuntimes.length) {
+      selectors.runtime = { isAny: selectorRuntimes };
     }
-
-    const tagValues = parseList(selectorTags);
-    if (tagValues.length) {
-      selectors.tags = tagMode === 'isAll' ? { isAll: tagValues } : { isAny: tagValues };
+    if (selectorTags.length) {
+      selectors.tags = tagMode === 'isAll' ? { isAll: selectorTags } : { isAny: selectorTags };
     }
 
     return selectors;
@@ -273,22 +296,17 @@ export default function NewGroupPage() {
         >
           <h3 className="text-lg font-semibold mb-4">Selectors</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Add one or more selector lists. Each list uses comma-separated values.
+            Add one or more selectors to define group membership rules.
           </p>
 
           <div className="space-y-4">
             <div>
-              <label htmlFor="selector-ids" className="block text-sm font-medium mb-1.5">Node/Service IDs</label>
-              <input
-                id="selector-ids"
-                type="text"
-                value={selectorIds}
-                onChange={(e) => setSelectorIds(e.target.value)}
-                placeholder="e.g., node-01, node-02"
-                className={cn(
-                  'w-full rounded-lg border bg-background px-3 py-2 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-ring'
-                )}
+              <span className="block text-sm font-medium mb-1.5">Node/Service IDs</span>
+              <EntityMultiSelect
+                entityType="node"
+                values={selectorIds}
+                onValuesChange={setSelectorIds}
+                placeholder="Select nodes or services..."
               />
               <p className="mt-1 text-xs text-muted-foreground">
                 IDs must all match when provided.
@@ -296,91 +314,69 @@ export default function NewGroupPage() {
             </div>
 
             <div>
-              <label htmlFor="selector-networks" className="block text-sm font-medium mb-1.5">Networks</label>
-              <input
-                id="selector-networks"
-                type="text"
-                value={selectorNetworks}
-                onChange={(e) => setSelectorNetworks(e.target.value)}
-                placeholder="e.g., prod-vlan-10"
-                className={cn(
-                  'w-full rounded-lg border bg-background px-3 py-2 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-ring'
-                )}
+              <span className="block text-sm font-medium mb-1.5">Networks</span>
+              <EntityMultiSelect
+                entityType="network"
+                values={selectorNetworks}
+                onValuesChange={setSelectorNetworks}
+                placeholder="Select networks..."
               />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label htmlFor="selector-statuses" className="block text-sm font-medium mb-1.5">Statuses</label>
-                <input
-                  id="selector-statuses"
-                  type="text"
-                  value={selectorStatuses}
-                  onChange={(e) => setSelectorStatuses(e.target.value)}
-                  placeholder="e.g., active, pending"
-                  className={cn(
-                    'w-full rounded-lg border bg-background px-3 py-2 text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring'
-                  )}
+                <span className="block text-sm font-medium mb-1.5">Statuses</span>
+                <EnumMultiSelect
+                  values={selectorStatuses}
+                  onValuesChange={setSelectorStatuses}
+                  options={STATUS_OPTIONS}
+                  placeholder="Select statuses..."
                 />
               </div>
               <div>
-                <label htmlFor="selector-kinds" className="block text-sm font-medium mb-1.5">Kinds</label>
-                <input
-                  id="selector-kinds"
-                  type="text"
-                  value={selectorKinds}
-                  onChange={(e) => setSelectorKinds(e.target.value)}
-                  placeholder="e.g., vm, router"
-                  className={cn(
-                    'w-full rounded-lg border bg-background px-3 py-2 text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring'
-                  )}
+                <span className="block text-sm font-medium mb-1.5">Kinds</span>
+                <EnumMultiSelect
+                  values={selectorKinds}
+                  onValuesChange={setSelectorKinds}
+                  options={KIND_OPTIONS}
+                  placeholder="Select kinds..."
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="selector-runtimes" className="block text-sm font-medium mb-1.5">Runtimes</label>
-              <input
-                id="selector-runtimes"
-                type="text"
-                value={selectorRuntimes}
-                onChange={(e) => setSelectorRuntimes(e.target.value)}
-                placeholder="e.g., docker, kubernetes"
-                className={cn(
-                  'w-full rounded-lg border bg-background px-3 py-2 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-ring'
-                )}
+              <span className="block text-sm font-medium mb-1.5">Runtimes</span>
+              <EnumMultiSelect
+                values={selectorRuntimes}
+                onValuesChange={setSelectorRuntimes}
+                options={RUNTIME_OPTIONS}
+                placeholder="Select runtimes..."
               />
             </div>
 
             <div>
-              <label htmlFor="selector-tags" className="block text-sm font-medium mb-1.5">Tags</label>
-              <div className="flex flex-col gap-2 md:flex-row md:items-center">
-                <input
-                  type="text"
-                  id="selector-tags"
-                  value={selectorTags}
-                  onChange={(e) => setSelectorTags(e.target.value)}
-                  placeholder="e.g., critical, edge"
-                  className={cn(
-                    'flex-1 rounded-lg border bg-background px-3 py-2 text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring'
-                  )}
+              <span className="block text-sm font-medium mb-1.5">Tags</span>
+              <div className="flex flex-col gap-2 md:flex-row md:items-start">
+                <EnumMultiSelect
+                  values={selectorTags}
+                  onValuesChange={setSelectorTags}
+                  options={[]}
+                  allowFreeText
+                  placeholder="Enter tags..."
+                  className="flex-1"
                 />
-                <select
+                <Select
                   value={tagMode}
-                  onChange={(e) => setTagMode(e.target.value as 'isAny' | 'isAll')}
-                  className={cn(
-                    'rounded-lg border bg-background px-3 py-2 text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring'
-                  )}
+                  onValueChange={(v) => setTagMode(v as 'isAny' | 'isAll')}
                 >
-                  <option value="isAny">Match any tag</option>
-                  <option value="isAll">Match all tags</option>
-                </select>
+                  <SelectTrigger className="w-[160px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="isAny">Match any tag</SelectItem>
+                    <SelectItem value="isAll">Match all tags</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>

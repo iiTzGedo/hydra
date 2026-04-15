@@ -89,6 +89,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
+import { EntityCombobox } from '@/components/ui/entity-combobox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -1305,6 +1306,28 @@ export default function DashboardPage() {
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                  );
+                }
+
+                // Entity selector for node/service/network/group fields
+                if (field.fieldType === 'entity' && field.entityType) {
+                  const entityValue = typeof widgetConfigDraft[field.key] === 'string'
+                    ? (widgetConfigDraft[field.key] as string)
+                    : '';
+                  return (
+                    <div key={field.key} className="space-y-2">
+                      <Label>{field.label}</Label>
+                      {field.description ? <p className="text-xs text-muted-foreground">{field.description}</p> : null}
+                      <EntityCombobox
+                        entityType={field.entityType}
+                        value={entityValue}
+                        onValueChange={(val) =>
+                          setWidgetConfigDraft((current) => ({ ...current, [field.key]: val }))
+                        }
+                        clearable
+                        placeholder={field.placeholder ?? `Select a ${field.entityType}...`}
+                      />
                     </div>
                   );
                 }

@@ -2,6 +2,7 @@ import { Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SERVICE_RUNTIME_LABELS } from '@/lib/constants';
 import { ServiceRuntime, ServiceStatus } from '@/types/service';
+import { EntityCombobox } from '@/components/ui/entity-combobox';
 
 export interface ServiceFilterState {
   search: string;
@@ -82,16 +83,13 @@ export function ServiceFilters({ filters, onFiltersChange }: ServiceFiltersProps
             <option value="unknown">Unknown</option>
           </select>
 
-          <input
-            type="text"
+          <EntityCombobox
+            entityType="node"
+            value={filters.nodeId ?? ''}
+            onValueChange={(val) => updateFilter('nodeId', val || null)}
+            clearable
             placeholder="Filter by node..."
-            value={filters.nodeId || ''}
-            onChange={(e) => updateFilter('nodeId', e.target.value || null)}
-            className={cn(
-              'rounded-lg border bg-background px-3 py-2 text-sm w-40',
-              'focus:outline-none focus:ring-2 focus:ring-ring',
-              'placeholder:text-muted-foreground'
-            )}
+            className="w-48"
           />
 
           {hasActiveFilters && (

@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Download,
   Loader2,
+  Network as NetworkIcon,
   Radar,
   Search,
   Server,
@@ -26,6 +27,7 @@ import {
 } from '@/api/discovery';
 import { InstallDialog } from './components/install-dialog';
 import { InstallProgress } from './components/install-progress';
+import { useNetworks } from '@/api/networks';
 import { useNodes } from '@/api/nodes';
 import { PermissionGate } from '@/components/auth/permission-gate';
 import { PageHeaderLayout } from '@/components/layout/page-header-layout';
@@ -40,6 +42,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { EntityCombobox } from '@/components/ui/entity-combobox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
@@ -209,6 +212,22 @@ export default function DiscoveryPage() {
     agentTier: 'max',
   });
   const scanners = useMemo(() => scannersData?.items ?? [], [scannersData?.items]);
+
+  // Fetch networks for CIDR suggestions in scan dialog
+  const { data: networksData } = useNetworks({ limit: 200 });
+  const networkCidrOptions = useMemo(
+    () =>
+      (networksData?.items ?? [])
+        .filter((n) => n.cidr)
+        .map((n) => ({
+          id: n.cidr!,
+          label: `${n.name} (${n.cidr})`,
+          sublabel: n.type,
+          icon: NetworkIcon,
+          iconColorClass: 'text-network' as const,
+        })),
+    [networksData],
+  );
 
   const {
     data: scansResponse,
@@ -885,14 +904,16 @@ export default function DiscoveryPage() {
                       <div className="mt-4 grid gap-4">
                         <div className="grid gap-4 sm:grid-cols-2">
                           <div className="space-y-2">
-                            <Label htmlFor="node-id">Node ID Override</Label>
-                            <Input
-                              id="node-id"
+                            <Label>Node ID Override</Label>
+                            <EntityCombobox
+                              entityType="node"
                               value={reviewForm.nodeId}
-                              onChange={(event) =>
-                                setReviewForm((current) => ({ ...current, nodeId: event.target.value }))
+                              onValueChange={(val) =>
+                                setReviewForm((current) => ({ ...current, nodeId: val }))
                               }
-                              placeholder="node-id"
+                              allowFreeText
+                              clearable
+                              placeholder="Enter new or check existing IDs..."
                             />
                           </div>
                           <div className="space-y-2">
@@ -1098,14 +1119,15 @@ export default function DiscoveryPage() {
 
           <div className="grid gap-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="scan-subnet">Target Subnet</Label>
-              <Input
-                id="scan-subnet"
-                placeholder="192.168.1.0/24"
+              <Label>Target Subnet</Label>
+              <EntityCombobox
                 value={scanForm.subnet}
-                onChange={(event) =>
-                  setScanForm((current) => ({ ...current, subnet: event.target.value }))
+                onValueChange={(val) =>
+                  setScanForm((current) => ({ ...current, subnet: val }))
                 }
+                items={networkCidrOptions}
+                allowFreeText
+                placeholder="Select network or enter CIDR (e.g. 192.168.1.0/24)..."
               />
             </div>
 

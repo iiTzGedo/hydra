@@ -19,6 +19,7 @@ import { getErrorMessage } from '@/lib/api-client';
 import { staggerContainerVariants, staggerItemVariants } from '@/lib/animations';
 import { EntityDashboardPanel } from '@/components/dashboard/entity-dashboard-panel';
 import { Button } from '@/components/ui/button';
+import { EntityCombobox } from '@/components/ui/entity-combobox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -399,13 +400,15 @@ export default function NetworkDetailPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label className="text-foreground text-sm">Router Node ID</Label>
-              <Input
+              <Label className="text-foreground text-sm">Router Node</Label>
+              <EntityCombobox
+                entityType="node"
                 value={editForm.routerNodeId}
-                onChange={(e) =>
-                  setEditForm((prev) => ({ ...prev, routerNodeId: e.target.value }))
+                onValueChange={(val) =>
+                  setEditForm((prev) => ({ ...prev, routerNodeId: val }))
                 }
-                className="bg-muted border-border text-foreground"
+                clearable
+                placeholder="Select router node..."
               />
             </div>
             <div className="space-y-2">

@@ -45,6 +45,14 @@ vi.mock('@/api/nodes', () => ({
   useNodes: () => useNodesMock(),
 }));
 
+vi.mock('@/api/networks', () => ({
+  useNetworks: () => ({
+    data: { items: [], total: 0, limit: 200, offset: 0 },
+    isLoading: false,
+    error: null,
+  }),
+}));
+
 import DiscoveryPage from '@/views/discovery';
 import { ROUTES } from '@/lib/constants';
 import { renderWithRoute } from '../page-test-utils';
@@ -239,7 +247,15 @@ describe('Discovery Page', () => {
     });
 
     await user.click(screen.getByRole('button', { name: /start scan/i }));
-    await user.type(screen.getByLabelText(/target subnet/i), '192.168.50.0/24');
+
+    // Target subnet — combobox with free text entry
+    const subnetCombobox = screen.getAllByRole('combobox')[0];
+    await user.click(subnetCombobox);
+    const subnetInput = screen.getByPlaceholderText(/search/i);
+    await user.type(subnetInput, '192.168.50.0/24');
+    await user.click(await screen.findByText('192.168.50.0/24'));
+
+    // Delegated scanner — select dropdown
     await user.click(screen.getByRole('combobox', { name: /delegated scanner/i }));
     await user.click(await screen.findByText(/scanner node/i));
     await user.click(screen.getByRole('button', { name: /queue scan/i }));

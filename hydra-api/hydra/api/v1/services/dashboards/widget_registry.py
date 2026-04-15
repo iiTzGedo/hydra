@@ -480,10 +480,11 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
             {
                 "key": "nodeId",
-                "label": "Node ID",
-                "fieldType": "text",
-                "description": "Target node identifier.",
-                "placeholder": "proxmox-01",
+                "label": "Node",
+                "fieldType": "entity",
+                "entityType": "node",
+                "description": "Target node.",
+                "placeholder": "Select a node...",
             }
         ],
         repeatable=True,
@@ -710,10 +711,11 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
             {
                 "key": "serviceId",
-                "label": "Service ID",
-                "fieldType": "text",
-                "description": "Target service identifier.",
-                "placeholder": "svc-nginx-a1b2",
+                "label": "Service",
+                "fieldType": "entity",
+                "entityType": "service",
+                "description": "Target service.",
+                "placeholder": "Select a service...",
             }
         ],
         repeatable=True,
@@ -748,10 +750,11 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
             {
                 "key": "nodeId",
-                "label": "Node ID",
-                "fieldType": "text",
-                "description": "Target node identifier.",
-                "placeholder": "proxmox-01",
+                "label": "Node",
+                "fieldType": "entity",
+                "entityType": "node",
+                "description": "Target node.",
+                "placeholder": "Select a node...",
             }
         ],
         repeatable=True,
@@ -782,10 +785,11 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
             {
                 "key": "networkId",
-                "label": "Network ID",
-                "fieldType": "text",
-                "description": "Target network identifier.",
-                "placeholder": "net-lan-192-168-1",
+                "label": "Network",
+                "fieldType": "entity",
+                "entityType": "network",
+                "description": "Target network.",
+                "placeholder": "Select a network...",
             }
         ],
         repeatable=True,
@@ -841,10 +845,11 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         config_schema=COMMON_WIDGET_CONFIG_SCHEMA + [
             {
                 "key": "nodeId",
-                "label": "Node ID",
-                "fieldType": "text",
-                "description": "Target node identifier.",
-                "placeholder": "proxmox-01",
+                "label": "Node",
+                "fieldType": "entity",
+                "entityType": "node",
+                "description": "Target node.",
+                "placeholder": "Select a node...",
             }
         ],
     ),

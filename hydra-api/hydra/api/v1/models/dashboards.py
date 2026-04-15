@@ -670,7 +670,10 @@ class WidgetConfigField(BaseModel):
 
     key: str
     label: str
-    field_type: Literal["text", "boolean", "number", "select"] = Field(alias="fieldType")
+    field_type: Literal["text", "boolean", "number", "select", "entity"] = Field(alias="fieldType")
+    entity_type: Literal["node", "service", "network", "group"] | None = Field(
+        default=None, alias="entityType"
+    )
     description: str | None = None
     placeholder: str | None = None
     min_value: int | None = Field(default=None, alias="minValue")

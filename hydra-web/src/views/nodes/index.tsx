@@ -52,6 +52,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { EntityCombobox } from '@/components/ui/entity-combobox';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -514,13 +515,13 @@ export default function NodesPage() {
                   </div>
 
                   <div className="grid gap-2">
-                    <Label htmlFor="parentNodeId" className="text-foreground">Parent Node</Label>
-                    <Input
-                      id="parentNodeId"
+                    <Label className="text-foreground">Parent Node</Label>
+                    <EntityCombobox
+                      entityType="node"
                       value={parentNodeId}
-                      onChange={(e) => setParentNodeId(e.target.value)}
-                      placeholder="Optional"
-                      className="bg-background"
+                      onValueChange={setParentNodeId}
+                      clearable
+                      placeholder="Select parent node..."
                     />
                   </div>
                 </div>
