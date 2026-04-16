@@ -143,6 +143,29 @@ class CreateExclusionRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=512)
 
 
+class RegisterDeviceRequest(BaseModel):
+    """Request to register a discovered device as a node.
+
+    Unlike approve, register always creates a node. Fields override
+    classification suggestions when provided.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    node_id: str | None = Field(alias="nodeId", default=None)
+    display_name: str | None = Field(alias="displayName", default=None)
+    description: str | None = None
+    node_class: str | None = Field(alias="class", default=None)
+    node_type: str | None = Field(alias="type", default=None)
+    kind: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    override_classification: bool = Field(
+        alias="overrideClassification",
+        default=False,
+        description="If true, use provided values even if classification disagrees",
+    )
+
+
 class ExclusionListParams(BaseModel):
     """Parameters for listing exclusions."""
 

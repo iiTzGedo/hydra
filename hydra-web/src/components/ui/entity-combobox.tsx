@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Check, ChevronsUpDown, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -45,6 +45,9 @@ interface EntityComboboxProps {
   disabled?: boolean;
   className?: string;
   triggerClassName?: string;
+  triggerId?: string;
+  triggerAriaLabel?: string;
+  searchAriaLabel?: string;
 }
 
 export function EntityCombobox({
@@ -61,9 +64,13 @@ export function EntityCombobox({
   disabled = false,
   className,
   triggerClassName,
+  triggerId,
+  triggerAriaLabel,
+  searchAriaLabel,
 }: EntityComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const searchLabelId = useId();
 
   // Fetch options from API if no external items provided
   const fetchEnabled = !externalItems && !!entityType;
@@ -114,9 +121,11 @@ export function EntityCombobox({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
+            id={triggerId}
             variant="outline"
             role="combobox"
             aria-expanded={open}
+            aria-label={triggerAriaLabel}
             disabled={disabled}
             className={cn(
               'w-full justify-between font-normal',
@@ -140,7 +149,14 @@ export function EntityCombobox({
         </PopoverTrigger>
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <Command shouldFilter={false}>
+            {searchAriaLabel ? (
+              <div id={searchLabelId} className="sr-only">
+                {searchAriaLabel}
+              </div>
+            ) : null}
             <CommandInput
+              aria-labelledby={searchAriaLabel ? searchLabelId : undefined}
+              aria-label={searchAriaLabel ?? triggerAriaLabel}
               placeholder={`Search${entityType ? ` ${entityType}s` : ''}...`}
               value={search}
               onValueChange={setSearch}

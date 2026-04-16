@@ -8,6 +8,7 @@ const useDiscoveryDevicesMock = vi.fn();
 const useDiscoveryDeviceMock = vi.fn();
 const startDiscoveryScanMock = vi.fn();
 const approveDiscoveryMock = vi.fn();
+const registerDiscoveryMock = vi.fn();
 const rejectDiscoveryMock = vi.fn();
 const dismissDiscoveryMock = vi.fn();
 const useNodesMock = vi.fn();
@@ -24,6 +25,10 @@ vi.mock('@/api/discovery', () => ({
   }),
   useApproveDiscovery: () => ({
     mutateAsync: approveDiscoveryMock,
+    isPending: false,
+  }),
+  useRegisterDiscovery: () => ({
+    mutateAsync: registerDiscoveryMock,
     isPending: false,
   }),
   useRejectDiscovery: () => ({
@@ -224,8 +229,15 @@ describe('Discovery Page', () => {
     });
     approveDiscoveryMock.mockResolvedValue({
       discoveryId: 'disc-001',
+      status: 'approved',
+      matchedNodeId: null,
+    });
+    registerDiscoveryMock.mockResolvedValue({
+      nodeId: 'edge-switch',
+      registeredBy: 'user-001',
+      registeredAt: '2026-04-06T08:05:00Z',
       status: 'registered',
-      matchedNodeId: 'edge-switch',
+      fromDiscovery: 'disc-001',
     });
     rejectDiscoveryMock.mockResolvedValue({
       discoveryId: 'disc-001',
@@ -248,8 +260,10 @@ describe('Discovery Page', () => {
 
     await user.click(screen.getByRole('button', { name: /start scan/i }));
 
+    await user.click(screen.getByRole('button', { name: /agent delegated/i }));
+
     // Target subnet — combobox with free text entry
-    const subnetCombobox = screen.getAllByRole('combobox')[0];
+    const subnetCombobox = screen.getByRole('combobox', { name: /target subnet/i });
     await user.click(subnetCombobox);
     const subnetInput = screen.getByPlaceholderText(/search/i);
     await user.type(subnetInput, '192.168.50.0/24');
@@ -291,12 +305,12 @@ describe('Discovery Page', () => {
     await user.type(screen.getByLabelText(/tags/i), 'edge, switching');
     await user.click(screen.getByRole('button', { name: /register node/i }));
 
-    await waitFor(() => expect(approveDiscoveryMock).toHaveBeenCalledTimes(1));
-    expect(approveDiscoveryMock).toHaveBeenCalledWith({
-      autoRegister: true,
+    await waitFor(() => expect(registerDiscoveryMock).toHaveBeenCalledTimes(1));
+    expect(registerDiscoveryMock).toHaveBeenCalledWith({
       nodeId: 'edge-switch',
-      nodeClass: undefined,
+      class: undefined,
       tags: ['edge', 'switching'],
+      overrideClassification: false,
     });
   });
 });

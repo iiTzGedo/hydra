@@ -17,6 +17,8 @@ import type {
   Installation,
   InstallationListParams,
   InstallationSummary,
+  RegisterDiscoveryRequest,
+  RegisterDiscoveryResponse,
   RejectDiscoveryRequest,
   ScanDiffResult,
   StartDiscoveryScanRequest,
@@ -96,6 +98,8 @@ export function useStartDiscoveryScan() {
 }
 
 export function useDiscoveryDevices(params?: DiscoveryDeviceListParams) {
+  const queryClient = useQueryClient();
+
   return useQuery({
     queryKey: queryKeys.discovery.devices(params),
     queryFn: async (): Promise<PaginatedResponse<DiscoveredDevice>> => {
@@ -124,6 +128,15 @@ export function useDiscoveryDevices(params?: DiscoveryDeviceListParams) {
         limit: response.data.meta?.limit ?? params?.limit ?? 50,
         offset: response.data.meta?.offset ?? params?.offset ?? 0,
       };
+    },
+    refetchInterval: () => {
+      const scanQueries = queryClient.getQueriesData<PaginatedResponse<DiscoveryScanSummary>>({
+        queryKey: queryKeys.discovery.scans(),
+      });
+      const hasActiveScans = scanQueries.some(([, data]) =>
+        (data?.items ?? []).some((scan) => scan.status === 'pending' || scan.status === 'running')
+      );
+      return hasActiveScans ? 3000 : false;
     },
   });
 }
@@ -191,6 +204,25 @@ export function useDismissDiscovery(discoveryId: string | null | undefined) {
     mutationFn: async (request: DismissDiscoveryRequest): Promise<DiscoveredDevice> => {
       const response = await apiClient.post<ApiResponse<DiscoveredDevice>>(
         `/discovery/devices/${discoveryId}/dismiss`,
+        request
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      invalidateDiscovery(queryClient);
+    },
+  });
+}
+
+export function useRegisterDiscovery(discoveryId: string | null | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (
+      request: RegisterDiscoveryRequest
+    ): Promise<RegisterDiscoveryResponse> => {
+      const response = await apiClient.post<ApiResponse<RegisterDiscoveryResponse>>(
+        `/discovery/devices/${discoveryId}/register`,
         request
       );
       return response.data.data;

@@ -542,3 +542,37 @@ class ScanDiffResult(BaseModel):
     departed: list[DiffDeviceSummary] = Field(default_factory=list)
     changed: list[DiffChangedDevice] = Field(default_factory=list)
     unchanged: int = 0
+
+
+# ── Drift Detection ──────────────────────────────────────────────────
+
+
+class DriftChange(BaseModel):
+    """A single field that drifted between scans."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    field: str
+    previous: Any = None
+    current: Any = None
+
+
+class DriftReport(BaseModel):
+    """Drift detection report for a re-scanned device."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    drift_id: Annotated[str, Field(alias="driftId")]
+    discovery_id: Annotated[str, Field(alias="discoveryId")]
+    node_id: Annotated[str | None, Field(default=None, alias="nodeId")]
+    severity: Literal["info", "warning"]
+    changes: list[DriftChange] = Field(default_factory=list)
+    previous_classification: Annotated[
+        str | None,
+        Field(default=None, alias="previousClassification"),
+    ]
+    current_classification: Annotated[
+        str | None,
+        Field(default=None, alias="currentClassification"),
+    ]
+    detected_at: Annotated[datetime, Field(alias="detectedAt")]

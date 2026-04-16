@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -266,6 +266,38 @@ class UpdateNetworkRequest(BaseModel):
                         f"Invalid tag '{tag}'. Tags must match pattern: {TAG_PATTERN}"
                     )
         return v
+
+
+class ScanConfigStatus(StrEnum):
+    """Scannability status of a network."""
+
+    API_DIRECT = "api-direct"
+    API_ROUTED = "api-routed"
+    AGENT_ONLY = "agent-only"
+    UNREACHABLE = "unreachable"
+
+
+class UpdateScanConfigRequest(BaseModel):
+    """Request to update a network's scan configuration."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    status: Annotated[
+        ScanConfigStatus | None,
+        Field(default=None, description="Scannability status"),
+    ]
+    delegate_agent_node_ids: Annotated[
+        list[str] | None,
+        Field(default=None, alias="delegateAgentNodeIds"),
+    ]
+    delegate_agent_tier_required: Annotated[
+        str | None,
+        Field(default=None, alias="delegateAgentTierRequired"),
+    ]
+    user_guidance: Annotated[
+        str | None,
+        Field(default=None, alias="userGuidance", max_length=1024),
+    ]
 
 
 class NetworkListParams(BaseModel):

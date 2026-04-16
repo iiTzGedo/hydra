@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import secrets
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ import structlog
 from pymongo import ASCENDING, DESCENDING
 
 from hydra.api.v1.core.exceptions import (
+    AuthorizationError,
     CommandNotSupportedError,
     ConflictError,
     HydraError,
@@ -30,6 +32,7 @@ from hydra.api.v1.models.discovery.requests import (
     BulkApproveRequest,
     BulkRejectRequest,
     DiscoveryListParams,
+    RegisterDeviceRequest,
     RejectDeviceRequest,
     ScanListParams,
     StartScanRequest,
@@ -146,6 +149,17 @@ class DiscoveryService:
         self.exclusions = ExclusionService(mongodb)
         self.fingerprinter = FingerprintService()
 
+    @staticmethod
+    def _has_permission(user_permissions: list[str] | None, required: str) -> bool:
+        """Check whether the caller's permissions satisfy a required permission."""
+        permissions = user_permissions or []
+        if "*:*" in permissions:
+            return True
+        if required in permissions:
+            return True
+        resource, _action = required.split(":", 1) if ":" in required else (required, "*")
+        return f"{resource}:*" in permissions
+
     # ── Scan Management ────────────────────────────────────────────────
 
     async def start_scan(
@@ -232,6 +246,12 @@ class DiscoveryService:
 
         await self.scans.insert_one(scan_doc)
 
+        # API-direct scanning: launch async background task
+        if not has_delegate:
+            asyncio.create_task(
+                self._run_api_direct_scan(scan_id, request, user_id)
+            )
+
         if has_delegate and delegate_node_id is not None:
             command = await self.commands.create_command(
                 CreateCommandRequest(
@@ -269,6 +289,267 @@ class DiscoveryService:
 
         logger.info("discovery.scan_started", scan_id=scan_id, status=initial_status)
         return scan_doc
+
+    async def _publish_scan_event(
+        self,
+        scan_id: str,
+        event_type: str,
+        data: dict[str, Any],
+    ) -> None:
+        """Publish a scan event to Redis for WebSocket streaming."""
+        import json as _json
+
+        channel = f"discovery:scan:{scan_id}"
+        payload = _json.dumps({
+            "type": event_type,
+            "scanId": scan_id,
+            "data": data,
+            "timestamp": datetime.now(UTC).isoformat(),
+        })
+        try:
+            from hydra.db.redis import get_redis
+
+            redis = get_redis()
+            await redis.publish(channel, payload)
+        except Exception:
+            pass  # Best-effort — don't fail scans over WS delivery
+
+    async def _run_api_direct_scan(
+        self,
+        scan_id: str,
+        request: StartScanRequest,
+        user_id: str,  # noqa: ARG002
+    ) -> None:
+        """Execute an API-direct scan in the background.
+
+        Scans each target subnet using asyncio TCP connect probing,
+        upserts discovered devices, and marks the scan as completed.
+        Publishes progress events to Redis for WebSocket streaming.
+
+        Args:
+            scan_id: The scan ID to update.
+            request: The original scan request.
+            user_id: The user who started the scan.
+        """
+        from hydra.api.v1.services.discovery.scanner import scan_subnet
+
+        try:
+            all_results: list[dict[str, Any]] = []
+            hosts_total = self._estimate_total_hosts(request)
+            hosts_scanned = 0
+            now = datetime.now(UTC)
+
+            for target in request.targets:
+                if not target.subnet:
+                    continue
+
+                subnet_results = await scan_subnet(
+                    target.subnet,
+                    port_tier=request.options.port_tier,
+                )
+
+                for host in subnet_results:
+                    host_banners = host.get("banners", {})
+                    device_data: dict[str, Any] = {
+                        "identity": {
+                            "primaryMac": None,
+                            "currentIp": host["ip"],
+                            "hostname": None,
+                        },
+                        "networkId": target.network_id,
+                        "openPorts": host["openPorts"],
+                        "protocols": [],
+                        "probe": {
+                            "scannedBy": "api",
+                            "scannedAt": now,
+                            "method": "tcp_port",
+                        },
+                        "rawEvidence": {
+                            "banners": host_banners,
+                        },
+                    }
+                    await self._upsert_device(
+                        device_data, now, scan_id=scan_id,
+                    )
+                    all_results.append(host)
+
+                    # Publish device_found event
+                    await self._publish_scan_event(scan_id, "device_found", {
+                        "ip": host["ip"],
+                        "openPorts": host["openPorts"],
+                    })
+
+                # Update progress after each target subnet
+                hosts_scanned += len(
+                    list(ip_network(target.subnet, strict=False).hosts())
+                )
+                pct = min(
+                    (hosts_scanned / hosts_total * 100.0) if hosts_total else 100.0,
+                    100.0,
+                )
+                await self.scans.update_one(
+                    {"scanId": scan_id},
+                    {
+                        "$set": {
+                            "progress.hostsScanned": hosts_scanned,
+                            "progress.hostsAlive": len(all_results),
+                            "progress.percentComplete": round(pct, 1),
+                        }
+                    },
+                )
+                await self._publish_scan_event(scan_id, "progress", {
+                    "hostsScanned": hosts_scanned,
+                    "hostsAlive": len(all_results),
+                    "percentComplete": round(pct, 1),
+                })
+
+            # Protocol discovery (mDNS, SSDP) for IoT-aware scans
+            if request.options.include_iot_protocols:
+                from hydra.api.v1.services.discovery.protocols import (
+                    query_snmp_device,
+                    run_protocol_discovery,
+                )
+
+                proto_results = await run_protocol_discovery(
+                    include_mdns=True,
+                    include_ssdp=True,
+                    include_lldp=False,
+                    timeout=5.0,
+                )
+
+                # Query SNMP on hosts that have port 161 open
+                for host in all_results:
+                    if 161 in host.get("openPorts", []):
+                        snmp_result = await query_snmp_device(host["ip"])
+                        if snmp_result:
+                            proto_results.snmp.append(snmp_result)
+
+                # Merge protocol data into existing device records
+                by_ip = proto_results.results_by_ip()
+                for ip, proto_data in by_ip.items():
+                    protocols_list = list(proto_data.keys())
+                    await self.devices.update_one(
+                        {"identity.currentIp": ip},
+                        {
+                            "$set": {
+                                "rawEvidence.protocolDetails": proto_data,
+                            },
+                            "$addToSet": {
+                                "protocols": {"$each": protocols_list},
+                            },
+                        },
+                    )
+
+                    # Create device entries for hosts found only via protocol
+                    # discovery (not by TCP scan)
+                    known_ips = {h["ip"] for h in all_results}
+                    if ip not in known_ips:
+                        device_data = {
+                            "identity": {
+                                "primaryMac": None,
+                                "currentIp": ip,
+                                "hostname": proto_data.get("mdns", {}).get("hostname"),
+                            },
+                            "networkId": request.targets[0].network_id if request.targets else None,
+                            "openPorts": [],
+                            "protocols": protocols_list,
+                            "probe": {
+                                "scannedBy": "api",
+                                "scannedAt": now,
+                                "method": protocols_list[0] if protocols_list else "mdns",
+                            },
+                            "rawEvidence": {
+                                "protocolDetails": proto_data,
+                            },
+                        }
+                        await self._upsert_device(device_data, now, scan_id=scan_id)
+
+                # Re-enrich devices that got protocol data
+                for ip in by_ip:
+                    device = await self.devices.find_one({"identity.currentIp": ip})
+                    if device and device.get("discoveryId"):
+                        await self.enrich_discovery(device["discoveryId"])
+
+            # Mark scan completed
+            completed_at = datetime.now(UTC)
+            summary = {
+                "hostsScanned": hosts_total,
+                "hostsAlive": len(all_results),
+                "newDiscoveries": len(all_results),
+                "returningDevices": 0,
+                "departedSinceLast": 0,
+                "alreadyRegistered": 0,
+            }
+            await self.scans.update_one(
+                {"scanId": scan_id},
+                {
+                    "$set": {
+                        "status": ScanStatus.COMPLETED,
+                        "summary": summary,
+                        "resultCount": len(all_results),
+                        "completedAt": completed_at,
+                        "updatedAt": completed_at,
+                        "progress.phase": "completed",
+                        "progress.percentComplete": 100.0,
+                        "progress.hostsScanned": hosts_total,
+                        "progress.hostsAlive": len(all_results),
+                    }
+                },
+            )
+            await self._publish_scan_event(scan_id, "scan_complete", {
+                "summary": summary,
+            })
+
+            # Update scanConfig on scanned networks
+            for target in request.targets:
+                if target.network_id:
+                    await self.db.db["networks"].update_one(
+                        {"networkId": target.network_id},
+                        {
+                            "$set": {
+                                "scanConfig.status": "api-direct",
+                                "scanConfig.apiReachable": True,
+                                "scanConfig.apiReachabilityTest": {
+                                    "lastTested": completed_at,
+                                    "method": "tcp-connect",
+                                    "result": "success",
+                                    "gatewayReachable": None,
+                                    "sampleHostReachable": len(all_results) > 0,
+                                    "errorDetails": None,
+                                },
+                            }
+                        },
+                    )
+
+            logger.info(
+                "discovery.api_direct_scan_completed",
+                scan_id=scan_id,
+                hosts_alive=len(all_results),
+            )
+
+        except Exception as exc:
+            await self._publish_scan_event(scan_id, "scan_failed", {
+                "error": str(exc),
+            })
+            logger.error(
+                "discovery.api_direct_scan_failed",
+                scan_id=scan_id,
+                error=str(exc),
+            )
+            await self.scans.update_one(
+                {"scanId": scan_id},
+                {
+                    "$set": {
+                        "status": ScanStatus.FAILED,
+                        "error": {
+                            "code": "SCAN_FAILED",
+                            "message": str(exc),
+                        },
+                        "updatedAt": datetime.now(UTC),
+                        "progress.phase": "failed",
+                    }
+                },
+            )
 
     async def get_scan(self, scan_id: str) -> dict[str, Any]:
         """Get a scan by ID.
@@ -485,7 +766,25 @@ class DiscoveryService:
             if existing_discovery_id and set(new_ports) != set(
                 existing.get("openPorts", [])
             ):
+                # Store previous classification for drift detection
+                prev_class = (existing.get("classification") or {}).get(
+                    "suggestedClass"
+                )
+                if prev_class and existing.get("matchedNodeId"):
+                    await self.devices.update_one(
+                        {"discoveryId": existing_discovery_id},
+                        {"$set": {"_previousClassification": prev_class}},
+                    )
+
                 await self.enrich_discovery(existing_discovery_id)
+
+                # Check for drift on registered devices
+                if existing.get("matchedNodeId"):
+                    refreshed = await self.devices.find_one(
+                        {"discoveryId": existing_discovery_id}
+                    )
+                    if refreshed:
+                        await self.check_drift(existing_discovery_id, refreshed)
         else:
             # Generate spec-format discoveryId
             discovery_id = generate_discovery_id(primary_mac, network_id, current_ip)
@@ -801,11 +1100,20 @@ class DiscoveryService:
         primary_mac = identity.get("primaryMac")
         hostname = identity.get("hostname")
 
+        banners = raw_evidence.get("banners") or {}
+        protocol_details = raw_evidence.get("protocolDetails") or {}
+        # Extract structured protocol data if it has protocol-specific keys
+        protocol_data: dict[str, Any] | None = None
+        if any(k in protocol_details for k in ("snmp", "mdns", "ssdp", "lldp")):
+            protocol_data = protocol_details
+
         fingerprint = self.fingerprinter.fingerprint_device(
             open_ports,
             protocols,
             primary_mac=primary_mac,
             raw_vendor=raw_evidence.get("vendor"),
+            banners=banners,
+            protocol_data=protocol_data,
         )
         classification = self.fingerprinter.classify_device(
             fingerprint,
@@ -891,6 +1199,8 @@ class DiscoveryService:
         discovery_id: str,
         request: ApproveDeviceRequest,
         user_id: str,
+        *,
+        user_permissions: list[str] | None = None,
     ) -> dict[str, Any]:
         """Approve a discovered device, optionally auto-registering it as a node.
 
@@ -911,99 +1221,51 @@ class DiscoveryService:
         if device["status"] != DiscoveryStatus.PENDING:
             raise DiscoveryNotPendingError(discovery_id, device["status"])
 
-        now = datetime.now(UTC)
-        matched_node_id: str | None = None
-
         if request.auto_register:
-            node_id = self._derive_node_id(device, request.node_id)
+            if not self._has_permission(user_permissions, "nodes:create"):
+                raise AuthorizationError("nodes:create")
 
-            # Check for nodeId collision before inserting
-            existing_node = await self.nodes.find_one({"nodeId": node_id})
-            if existing_node:
-                raise ConflictError("node", node_id)
-
-            # Determine node metadata from request overrides or classification
-            classification = device.get("classification") or {}
-            node_class = request.node_class or classification.get(
-                "suggestedClass", "compute"
-            )
-            if node_class == "unknown":
-                node_class = "compute"
-
-            node_type = request.node_type or classification.get("suggestedType")
-            kind = request.kind or classification.get("suggestedKind")
-            display_name = (
-                request.display_name
-                or classification.get("suggestedDisplayName")
-                or node_id
-            )
-            description = (
-                request.description
-                or f"Auto-registered from discovery {discovery_id}"
-            )
-
-            node_doc: dict[str, Any] = {
-                "nodeId": node_id,
-                "class": node_class,
-                "type": node_type,
-                "kind": kind,
-                "displayName": display_name,
-                "description": description,
-                "tags": request.tags,
-                "parentNodeId": None,
-                "networkIds": (
-                    [device["networkId"]] if device.get("networkId") else []
+            registration = await self._register_device_from_discovery(
+                device,
+                discovery_id,
+                RegisterDeviceRequest(
+                    node_id=request.node_id,
+                    display_name=request.display_name,
+                    description=request.description,
+                    node_class=request.node_class,
+                    node_type=request.node_type,
+                    kind=request.kind,
+                    tags=request.tags,
+                    override_classification=any(
+                        value is not None
+                        for value in (request.node_class, request.node_type, request.kind)
+                    ),
                 ),
-                "location": None,
-                "agentTier": "normal",
-                "registeredAt": now,
-                "registeredBy": user_id,
-                "registeredVia": "discovery",
-                "lastUpdated": now,
-                "lastProfileAt": None,
-                "status": "active",
+                user_id=user_id,
+            )
+            return {
+                "discoveryId": discovery_id,
+                "status": DiscoveryStatus.REGISTERED,
+                "matchedNodeId": registration["nodeId"],
             }
 
-            await self.nodes.insert_one(node_doc)
-            matched_node_id = node_id
-
-            await self.devices.update_one(
-                {"discoveryId": discovery_id},
-                {
-                    "$set": {
-                        "status": DiscoveryStatus.REGISTERED,
-                        "approvedAt": now,
-                        "approvedBy": user_id,
-                        "matchedNodeId": node_id,
-                    }
-                },
-            )
-            final_status = DiscoveryStatus.REGISTERED
-            logger.info(
-                "discovery.device_registered",
-                discovery_id=discovery_id,
-                node_id=node_id,
-            )
-        else:
-            await self.devices.update_one(
-                {"discoveryId": discovery_id},
-                {
-                    "$set": {
-                        "status": DiscoveryStatus.APPROVED,
-                        "approvedAt": now,
-                        "approvedBy": user_id,
-                    }
-                },
-            )
-            final_status = DiscoveryStatus.APPROVED
-            logger.info(
-                "discovery.device_approved",
-                discovery_id=discovery_id,
-            )
+        now = datetime.now(UTC)
+        await self.devices.update_one(
+            {"discoveryId": discovery_id},
+            {
+                "$set": {
+                    "status": DiscoveryStatus.APPROVED,
+                    "approvedAt": now,
+                    "approvedBy": user_id,
+                }
+            },
+        )
+        logger.info(
+            "discovery.device_approved",
+            discovery_id=discovery_id,
+        )
 
         refresh_entities: list[tuple[str, str]] = []
-        if matched_node_id:
-            refresh_entities.append(("node", matched_node_id))
         if device.get("networkId"):
             refresh_entities.append(("network", str(device["networkId"])))
 
@@ -1023,9 +1285,232 @@ class DiscoveryService:
 
         return {
             "discoveryId": discovery_id,
-            "status": final_status,
-            "matchedNodeId": matched_node_id,
+            "status": DiscoveryStatus.APPROVED,
+            "matchedNodeId": None,
         }
+
+    async def register_device(
+        self,
+        discovery_id: str,
+        request: RegisterDeviceRequest,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Register a discovered device as a node.
+
+        Unlike approve, register always creates a node. Provides spec-aligned
+        request/response with field overrides from the caller.
+
+        Args:
+            discovery_id: The discovery to register.
+            request: Registration options with optional field overrides.
+            user_id: ID of the registering user.
+
+        Returns:
+            Dict with nodeId, registeredBy, registeredAt, status, fromDiscovery.
+
+        Raises:
+            DiscoveryNotFoundError: If the device does not exist.
+            DiscoveryNotPendingError: If the device is not in pending status.
+            ConflictError: If the derived nodeId already exists.
+        """
+        device = await self.get_discovery(discovery_id)
+        return await self._register_device_from_discovery(
+            device,
+            discovery_id,
+            request,
+            user_id,
+        )
+
+    async def _register_device_from_discovery(
+        self,
+        device: dict[str, Any],
+        discovery_id: str,
+        request: RegisterDeviceRequest,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Create a node from an existing discovery document."""
+        if device["status"] not in (
+            DiscoveryStatus.PENDING,
+            DiscoveryStatus.APPROVED,
+        ):
+            raise DiscoveryNotPendingError(discovery_id, device["status"])
+
+        now = datetime.now(UTC)
+        classification = device.get("classification") or {}
+
+        # Derive node metadata — request overrides classification suggestions
+        node_id = self._derive_node_id(device, request.node_id)
+
+        existing_node = await self.nodes.find_one({"nodeId": node_id})
+        if existing_node:
+            raise ConflictError("node", node_id)
+
+        use_overrides = request.override_classification
+        node_class = (
+            request.node_class
+            if (request.node_class and use_overrides)
+            else classification.get("suggestedClass", "compute")
+        )
+        if node_class == "unknown":
+            node_class = "compute"
+
+        node_type = (
+            request.node_type
+            if (request.node_type and use_overrides)
+            else classification.get("suggestedType")
+        )
+        kind = (
+            request.kind
+            if (request.kind and use_overrides)
+            else classification.get("suggestedKind")
+        )
+        display_name = (
+            request.display_name
+            or classification.get("suggestedDisplayName")
+            or node_id
+        )
+        description = (
+            request.description
+            or f"Registered from discovery {discovery_id}"
+        )
+
+        node_doc: dict[str, Any] = {
+            "nodeId": node_id,
+            "class": node_class,
+            "type": node_type,
+            "kind": kind,
+            "displayName": display_name,
+            "description": description,
+            "tags": request.tags,
+            "parentNodeId": None,
+            "networkIds": (
+                [device["networkId"]] if device.get("networkId") else []
+            ),
+            "location": None,
+            "agentTier": "normal",
+            "registeredAt": now,
+            "registeredBy": user_id,
+            "registeredVia": "discovery",
+            "lastUpdated": now,
+            "lastProfileAt": None,
+            "status": "active",
+        }
+
+        await self.nodes.insert_one(node_doc)
+
+        await self.devices.update_one(
+            {"discoveryId": discovery_id},
+            {
+                "$set": {
+                    "status": DiscoveryStatus.REGISTERED,
+                    "approvedAt": now,
+                    "approvedBy": user_id,
+                    "matchedNodeId": node_id,
+                }
+            },
+        )
+
+        # Refresh linked documents
+        refresh_entities: list[tuple[str, str]] = [("node", node_id)]
+        if device.get("networkId"):
+            refresh_entities.append(("network", str(device["networkId"])))
+        try:
+            await self.docs.refresh_documents_for_entities(
+                refresh_entities,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "discovery_register_docs_refresh_failed",
+                discovery_id=discovery_id,
+                error=str(exc),
+            )
+
+        logger.info(
+            "discovery.device_registered",
+            discovery_id=discovery_id,
+            node_id=node_id,
+        )
+
+        return {
+            "nodeId": node_id,
+            "registeredBy": user_id,
+            "registeredAt": now,
+            "status": "registered",
+            "fromDiscovery": discovery_id,
+        }
+
+    async def check_drift(
+        self,
+        discovery_id: str,
+        device: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Check for classification drift on a re-scanned device.
+
+        Compares the current classification against the previous one.
+        Only applies to IoT/networking devices (compute with agent is skipped).
+
+        Args:
+            discovery_id: The discovery to check.
+            device: The current device document.
+
+        Returns:
+            A drift report dict if drift was detected, else None.
+        """
+        classification = device.get("classification") or {}
+        matched_node_id = device.get("matchedNodeId")
+        if not matched_node_id:
+            return None
+
+        # Skip drift check for compute nodes that have an active agent
+        if classification.get("suggestedClass") == "compute":
+            node = await self.nodes.find_one({"nodeId": matched_node_id})
+            if node and node.get("lastProfileAt"):
+                # Node has agent profiling — skip re-fingerprinting
+                return None
+
+        # Check if there's a previous classification to compare against
+        previous_class = device.get("_previousClassification")
+        current_class = classification.get("suggestedClass")
+
+        if previous_class is None or previous_class == current_class:
+            return None
+
+        # Classification has changed — generate drift report
+        changes: list[dict[str, Any]] = []
+        if previous_class != current_class:
+            changes.append({
+                "field": "suggestedClass",
+                "previous": previous_class,
+                "current": current_class,
+            })
+
+        # Determine severity — class change is a warning, confidence-only is info
+        severity = "warning" if previous_class != current_class else "info"
+
+        drift_id = f"drift_{secrets.token_hex(8)}"
+        drift_report = {
+            "driftId": drift_id,
+            "discoveryId": discovery_id,
+            "nodeId": matched_node_id,
+            "severity": severity,
+            "changes": changes,
+            "previousClassification": previous_class,
+            "currentClassification": current_class,
+            "detectedAt": datetime.now(UTC),
+        }
+
+        await self.db.db["discovery_drift"].insert_one(drift_report)
+        logger.info(
+            "discovery.drift_detected",
+            discovery_id=discovery_id,
+            node_id=matched_node_id,
+            severity=severity,
+            previous=previous_class,
+            current=current_class,
+        )
+
+        return drift_report
 
     async def reject_device(
         self,
@@ -1081,6 +1566,8 @@ class DiscoveryService:
         self,
         request: BulkApproveRequest,
         user_id: str,
+        *,
+        user_permissions: list[str] | None = None,
     ) -> dict[str, Any]:
         """Bulk approve multiple discovered devices.
 
@@ -1099,7 +1586,12 @@ class DiscoveryService:
                 approve_req = ApproveDeviceRequest(
                     auto_register=request.auto_register,
                 )
-                result = await self.approve_device(disc_id, approve_req, user_id)
+                result = await self.approve_device(
+                    disc_id,
+                    approve_req,
+                    user_id,
+                    user_permissions=user_permissions,
+                )
                 results.append(result)
             except Exception as exc:
                 errors.append({

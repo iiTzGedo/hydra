@@ -1022,6 +1022,181 @@ async def list_audit_entries(args: dict[str, Any]) -> str:
     return _format_list_response("auditEntries", items)
 
 
+# =============================================================================
+# Network Discovery Tools
+# =============================================================================
+
+@tool(
+    name="scan_network",
+    description="Start a network discovery scan to find devices on a subnet. Supports API-direct TCP probing or delegation to an agent node for deeper scanning.",
+    schema={
+        "type": "object",
+        "properties": {
+            "subnet": {
+                "type": "string",
+                "description": "CIDR subnet to scan (e.g. 192.168.1.0/24)",
+            },
+            "networkId": {
+                "type": "string",
+                "description": "Network ID to associate discoveries with",
+            },
+            "portTier": {
+                "type": "string",
+                "enum": ["tier1", "tier2"],
+                "default": "tier1",
+                "description": "Port scan depth: tier1 (~32 ports) or tier2 (~100 ports)",
+            },
+            "includeIoTProtocols": {
+                "type": "boolean",
+                "default": False,
+                "description": "Include mDNS, SSDP, CoAP protocol discovery",
+            },
+            "delegateToNodeId": {
+                "type": "string",
+                "description": "Delegate scan to a specific agent node (omit for API-direct scan)",
+            },
+        },
+        "required": ["subnet"],
+    },
+    required_permission="discovery:scan",
+    internal_only=True,
+)
+async def scan_network(args: dict[str, Any]) -> str:
+    """Start a network discovery scan."""
+    result = await client.scan_network(
+        subnet=args["subnet"],
+        network_id=args.get("networkId"),
+        port_tier=args.get("portTier", "tier1"),
+        include_iot_protocols=args.get("includeIoTProtocols", False),
+        delegate_to_node_id=args.get("delegateToNodeId"),
+    )
+    return toon.format(result)
+
+
+@tool(
+    name="list_discoveries",
+    description="List discovered devices from network scans with optional filtering by status, device class, and confidence threshold.",
+    schema={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "enum": ["pending", "approved", "rejected", "dismissed", "registered"],
+                "description": "Filter by discovery status",
+            },
+            "networkId": {
+                "type": "string",
+                "description": "Filter by network",
+            },
+            "deviceClass": {
+                "type": "string",
+                "enum": ["compute", "networking", "iot", "unknown"],
+                "description": "Filter by classified device class",
+            },
+            "minConfidence": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Minimum classification confidence threshold",
+            },
+            "agentCompatible": {
+                "type": "boolean",
+                "description": "Filter to devices compatible with agent installation",
+            },
+            "limit": {
+                "type": "integer",
+                "default": 50,
+                "description": "Maximum results",
+            },
+        },
+    },
+    required_permission="discovery:read",
+)
+async def list_discoveries(args: dict[str, Any]) -> str:
+    """List discovered devices from network scans."""
+    devices, _ = await client.list_discoveries(
+        status=args.get("status"),
+        network_id=args.get("networkId"),
+        device_class=args.get("deviceClass"),
+        min_confidence=args.get("minConfidence"),
+        agent_compatible=args.get("agentCompatible"),
+        limit=args.get("limit", 50),
+    )
+    return _format_list_response("discoveries", devices)
+
+
+@tool(
+    name="assess_discovery",
+    description="Get detailed assessment of a discovered device including fingerprint, classification signals, eligibility for agent installation, and profiling strategy.",
+    schema={
+        "type": "object",
+        "properties": {
+            "discoveryId": {
+                "type": "string",
+                "description": "The discovery ID to assess",
+            },
+        },
+        "required": ["discoveryId"],
+    },
+    required_permission="discovery:read",
+)
+async def assess_discovery(args: dict[str, Any]) -> str:
+    """Get detailed assessment of a discovered device."""
+    device = await client.get_discovery(args["discoveryId"])
+    return toon.format(device)
+
+
+@tool(
+    name="register_discovery",
+    description="Register a discovered device as a managed Hydra node. Optionally override the suggested node ID, display name, class, or tags.",
+    schema={
+        "type": "object",
+        "properties": {
+            "discoveryId": {
+                "type": "string",
+                "description": "The discovery ID to register",
+            },
+            "nodeId": {
+                "type": "string",
+                "description": "Override suggested node ID",
+            },
+            "displayName": {
+                "type": "string",
+                "description": "Override suggested display name",
+            },
+            "nodeClass": {
+                "type": "string",
+                "enum": ["compute", "networking", "iot"],
+                "description": "Override suggested class",
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Tags to apply to the new node",
+            },
+        },
+        "required": ["discoveryId"],
+    },
+    required_permission="nodes:create",
+    internal_only=True,
+)
+async def register_discovery(args: dict[str, Any]) -> str:
+    """Register a discovered device as a managed node."""
+    overrides: dict[str, Any] = {}
+    for key in ("nodeId", "displayName", "nodeClass", "tags"):
+        if key in args:
+            overrides[key] = args[key]
+    result = await client.register_discovery(
+        discovery_id=args["discoveryId"],
+        overrides=overrides or None,
+    )
+    return toon.format(result)
+
+
+# =============================================================================
+# Audit Log Tools
+# =============================================================================
+
 @tool(
     name="delete_audit_entries",
     description="Delete audit log entries within a specified time range. Both 'since' and 'until' are required to prevent accidental bulk deletion.",

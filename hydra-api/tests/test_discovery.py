@@ -1244,6 +1244,38 @@ async def test_approve_device_auto_register_refreshes_docs(
 
 
 @pytest.mark.asyncio
+async def test_approve_device_auto_register_requires_nodes_create(
+    client: AsyncClient,
+    mock_mongodb: MagicMock,
+    mock_devices_collection: MagicMock,
+    viewer_token: str,
+    sample_user: dict,
+    sample_device_with_classification: dict,
+) -> None:
+    """Auto-registering through approve still requires nodes:create."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={
+            **sample_user,
+            "userId": "user_viewer123",
+            "role": "viewer",
+            "permissions": ["discovery:scan"],
+        }
+    )
+    mock_devices_collection.find_one = AsyncMock(
+        return_value=sample_device_with_classification
+    )
+
+    response = await client.post(
+        f"/api/v1/discovery/devices/{sample_device_with_classification['discoveryId']}/approve",
+        json={"autoRegister": True},
+        headers={"Authorization": f"Bearer {viewer_token}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["details"]["required_permission"] == "nodes:create"
+
+
+@pytest.mark.asyncio
 async def test_approve_device_without_auto_register(
     client: AsyncClient,
     mock_mongodb: MagicMock,
@@ -1641,7 +1673,10 @@ async def test_status_lifecycle_pending_to_registered(
 
     request = ApproveDeviceRequest(auto_register=True)
     result = await service.approve_device(
-        sample_device_with_classification["discoveryId"], request, "user_admin123"
+        sample_device_with_classification["discoveryId"],
+        request,
+        "user_admin123",
+        user_permissions=["*:*"],
     )
 
     assert result["status"] == "registered"
@@ -1701,7 +1736,12 @@ async def test_node_id_derived_from_hostname(
     mock_nodes_collection.insert_one = AsyncMock()
 
     request = ApproveDeviceRequest(auto_register=True)
-    result = await service.approve_device("disc::mac::aa-bb-cc-dd-ee-f0", request, "user_admin123")
+    result = await service.approve_device(
+        "disc::mac::aa-bb-cc-dd-ee-f0",
+        request,
+        "user_admin123",
+        user_permissions=["*:*"],
+    )
 
     # Hostname "My_Server.Home" -> "my-server.home"
     assert result["matchedNodeId"] == "my-server.home"
@@ -1753,7 +1793,12 @@ async def test_node_id_derived_from_ip_fallback(
     mock_nodes_collection.insert_one = AsyncMock()
 
     request = ApproveDeviceRequest(auto_register=True)
-    result = await service.approve_device("disc::ip::unknown::10.0.0.5", request, "user_admin123")
+    result = await service.approve_device(
+        "disc::ip::unknown::10.0.0.5",
+        request,
+        "user_admin123",
+        user_permissions=["*:*"],
+    )
 
     assert result["matchedNodeId"] == "disc-10-0-0-5"
 
@@ -1829,7 +1874,12 @@ async def test_unknown_class_defaults_to_compute(
     mock_nodes_collection.insert_one = AsyncMock()
 
     request = ApproveDeviceRequest(auto_register=True)
-    await service.approve_device("disc::ip::unknown::10.0.0.99", request, "user_admin123")
+    await service.approve_device(
+        "disc::ip::unknown::10.0.0.99",
+        request,
+        "user_admin123",
+        user_permissions=["*:*"],
+    )
 
     node_doc = mock_nodes_collection.insert_one.call_args[0][0]
     assert node_doc["class"] == "compute"
@@ -2092,3 +2142,290 @@ class TestScanDiffComputation:
         new = {"identity": {"currentIp": "10.0.0.1"}, "openPorts": [], "classification": {"suggestedClass": "compute"}}
         changes = DiscoveryService._compute_device_changes(old, new)
         assert any(c["field"] == "suggestedClass" for c in changes)
+
+
+# ── Wave 2 Tests ──────────────────────────────────────────────────
+
+
+class TestScannerModule:
+    """Tests for the API-direct TCP scanner."""
+
+    @pytest.mark.asyncio
+    async def test_scan_subnet_returns_alive_hosts(self, monkeypatch: pytest.MonkeyPatch):
+        """Verify scan_subnet returns hosts with open ports."""
+        from hydra.api.v1.services.discovery import scanner
+
+        # Mock _scan_host to simulate finding two hosts
+        async def mock_scan_host(host, ports, timeout, semaphore):
+            if host == "192.168.1.1":
+                return {"ip": "192.168.1.1", "openPorts": [22, 80]}
+            if host == "192.168.1.2":
+                return {"ip": "192.168.1.2", "openPorts": [443]}
+            return None
+
+        monkeypatch.setattr(scanner, "_scan_host", mock_scan_host)
+
+        results = await scanner.scan_subnet("192.168.1.0/30", port_tier="tier1")
+        assert len(results) == 2
+        assert results[0]["ip"] == "192.168.1.1"
+        assert 22 in results[0]["openPorts"]
+        assert results[1]["ip"] == "192.168.1.2"
+
+    @pytest.mark.asyncio
+    async def test_scan_subnet_empty_returns_no_hosts(self, monkeypatch: pytest.MonkeyPatch):
+        """Verify scan_subnet returns empty list when no hosts are alive."""
+        from hydra.api.v1.services.discovery import scanner
+
+        async def mock_scan_host(host, ports, timeout, semaphore):
+            return None
+
+        monkeypatch.setattr(scanner, "_scan_host", mock_scan_host)
+
+        results = await scanner.scan_subnet("192.168.1.0/30")
+        assert results == []
+
+    def test_port_lists_match_spec(self):
+        """Verify tier1 and tier2 port lists have spec-level coverage."""
+        from hydra.api.v1.services.discovery.scanner import TIER1_PORTS, TIER2_PORTS
+
+        assert len(TIER1_PORTS) >= 20  # spec requires ~20 tier1
+        assert len(TIER2_PORTS) >= 50  # spec requires +60 tier2
+        # Key ports must be in tier1
+        assert 22 in TIER1_PORTS  # SSH
+        assert 80 in TIER1_PORTS  # HTTP
+        assert 443 in TIER1_PORTS  # HTTPS
+        assert 8006 in TIER1_PORTS  # Proxmox
+        assert 8123 in TIER1_PORTS  # Home Assistant
+
+
+class TestRegisterService:
+    """Tests for the register_device service method."""
+
+    @pytest.mark.asyncio
+    async def test_register_device_creates_node(self):
+        """Verify register_device creates a node and returns spec-aligned response."""
+        from hydra.api.v1.models.discovery.requests import RegisterDeviceRequest
+        from hydra.api.v1.services.discovery.service import DiscoveryService
+
+        discovery_id = "disc::mac::aa-bb-cc-dd-ee-ff"
+        device_doc = {
+            "discoveryId": discovery_id,
+            "status": "pending",
+            "identity": {
+                "primaryMac": "aa:bb:cc:dd:ee:ff",
+                "currentIp": "192.168.1.100",
+                "hostname": "test-server",
+            },
+            "networkId": "net-lan",
+            "classification": {
+                "suggestedClass": "compute",
+                "suggestedType": "server",
+                "suggestedKind": "generic",
+                "suggestedNodeId": "test-server",
+                "suggestedDisplayName": "Test Server",
+                "confidence": 0.8,
+                "explanation": "Port-based classification",
+            },
+            "openPorts": [22, 80],
+            "protocols": [],
+            "probe": {"scannedBy": "api", "scannedAt": "2026-04-15T00:00:00Z"},
+            "firstSeen": "2026-04-15T00:00:00Z",
+            "lastSeen": "2026-04-15T00:00:00Z",
+            "seenCount": 1,
+            "matchedNodeId": None,
+        }
+
+        mock_devices = create_mock_collection()
+        mock_devices.find_one = AsyncMock(return_value=device_doc)
+        mock_devices.update_one = AsyncMock()
+        mock_nodes = create_mock_collection()
+        mock_nodes.find_one = AsyncMock(return_value=None)
+        mock_nodes.insert_one = AsyncMock()
+        mock_docs = MagicMock(spec=DocsService)
+        mock_docs.refresh_documents_for_entities = AsyncMock()
+
+        service = DiscoveryService.__new__(DiscoveryService)
+        service.devices = mock_devices
+        service.nodes = mock_nodes
+        service.docs = mock_docs
+
+        request = RegisterDeviceRequest(
+            display_name="My Test Server",
+            tags=["datacenter"],
+        )
+
+        result = await service.register_device(discovery_id, request, user_id="user_admin")
+
+        assert result["nodeId"] == "test-server"
+        assert result["status"] == "registered"
+        assert result["fromDiscovery"] == discovery_id
+        assert "registeredAt" in result
+        assert result["registeredBy"] == "user_admin"
+
+        # Verify node was inserted
+        mock_nodes.insert_one.assert_called_once()
+        inserted = mock_nodes.insert_one.call_args.args[0]
+        assert inserted["nodeId"] == "test-server"
+        assert inserted["displayName"] == "My Test Server"
+        assert inserted["tags"] == ["datacenter"]
+        assert inserted["registeredVia"] == "discovery"
+
+    @pytest.mark.asyncio
+    async def test_register_rejects_non_pending_device(self):
+        """Verify register_device rejects already-registered devices."""
+        from hydra.api.v1.models.discovery.requests import RegisterDeviceRequest
+        from hydra.api.v1.services.discovery.service import DiscoveryService
+
+        device_doc = {
+            "discoveryId": "disc::mac::aa-bb-cc-dd-ee-ff",
+            "status": "registered",
+            "identity": {"primaryMac": "aa:bb:cc:dd:ee:ff", "currentIp": "10.0.0.1"},
+            "matchedNodeId": "existing-node",
+        }
+
+        mock_devices = create_mock_collection()
+        mock_devices.find_one = AsyncMock(return_value=device_doc)
+
+        service = DiscoveryService.__new__(DiscoveryService)
+        service.devices = mock_devices
+
+        request = RegisterDeviceRequest()
+
+        from hydra.api.v1.services.discovery.service import DiscoveryNotPendingError
+
+        with pytest.raises(DiscoveryNotPendingError):
+            await service.register_device(
+                "disc::mac::aa-bb-cc-dd-ee-ff",
+                request,
+                user_id="user_admin",
+            )
+
+
+class TestDriftDetection:
+    """Tests for post-registration drift detection."""
+
+    @pytest.mark.asyncio
+    async def test_check_drift_detects_class_change(self):
+        """Verify check_drift generates a report when classification changes."""
+        from hydra.api.v1.services.discovery.service import DiscoveryService
+
+        mock_db = MagicMock()
+        mock_nodes = create_mock_collection()
+        mock_nodes.find_one = AsyncMock(return_value={
+            "nodeId": "test-node",
+            "lastProfileAt": None,  # No agent profile — allow drift check
+        })
+        mock_db.db = {
+            "nodes": mock_nodes,
+            "discovery_drift": create_mock_collection(),
+        }
+        mock_db.db["discovery_drift"].insert_one = AsyncMock()
+
+        service = DiscoveryService.__new__(DiscoveryService)
+        service.nodes = mock_nodes
+        service.db = mock_db
+
+        device = {
+            "discoveryId": "disc::mac::aa-bb-cc-dd-ee-ff",
+            "matchedNodeId": "test-node",
+            "classification": {"suggestedClass": "networking"},
+            "_previousClassification": "compute",
+        }
+
+        result = await service.check_drift("disc::mac::aa-bb-cc-dd-ee-ff", device)
+
+        assert result is not None
+        assert result["severity"] == "warning"
+        assert result["previousClassification"] == "compute"
+        assert result["currentClassification"] == "networking"
+        assert len(result["changes"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_check_drift_skips_compute_with_agent(self):
+        """Verify drift check is skipped for compute nodes with active agent."""
+        from hydra.api.v1.services.discovery.service import DiscoveryService
+
+        mock_nodes = create_mock_collection()
+        mock_nodes.find_one = AsyncMock(return_value={
+            "nodeId": "test-node",
+            "lastProfileAt": datetime.now(UTC),  # Has agent profile
+        })
+
+        service = DiscoveryService.__new__(DiscoveryService)
+        service.nodes = mock_nodes
+
+        device = {
+            "discoveryId": "disc::mac::aa-bb-cc-dd-ee-ff",
+            "matchedNodeId": "test-node",
+            "classification": {"suggestedClass": "compute"},
+            "_previousClassification": "unknown",
+        }
+
+        result = await service.check_drift("disc::mac::aa-bb-cc-dd-ee-ff", device)
+        assert result is None  # Should skip — compute with agent
+
+    @pytest.mark.asyncio
+    async def test_check_drift_no_drift_when_same_class(self):
+        """Verify no drift report when classification hasn't changed."""
+        from hydra.api.v1.services.discovery.service import DiscoveryService
+
+        mock_nodes = create_mock_collection()
+        mock_nodes.find_one = AsyncMock(return_value={
+            "nodeId": "test-node",
+            "lastProfileAt": None,
+        })
+
+        service = DiscoveryService.__new__(DiscoveryService)
+        service.nodes = mock_nodes
+
+        device = {
+            "discoveryId": "disc::mac::aa-bb-cc-dd-ee-ff",
+            "matchedNodeId": "test-node",
+            "classification": {"suggestedClass": "iot"},
+            "_previousClassification": "iot",
+        }
+
+        result = await service.check_drift("disc::mac::aa-bb-cc-dd-ee-ff", device)
+        assert result is None
+
+
+class TestScanConfigEndpoint:
+    """Tests for the PATCH /networks/{id}/scan-config endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_update_scan_config_sets_status(self):
+        """Verify update_scan_config persists status and guidance."""
+        from hydra.api.v1.models.networks import UpdateScanConfigRequest
+        from hydra.api.v1.services.networks import NetworksService
+
+        mock_db = MagicMock()
+        mock_networks = create_mock_collection()
+        mock_networks.find_one = AsyncMock(return_value={
+            "networkId": "net-lan",
+            "type": "physical",
+            "name": "LAN",
+            "scanConfig": {"status": "unreachable"},
+            "origin": {"createdBy": "manual"},
+            "tags": [],
+            "createdAt": datetime.now(UTC),
+            "updatedAt": datetime.now(UTC),
+        })
+        mock_networks.update_one = AsyncMock()
+        mock_db.networks = mock_networks
+        mock_db.nodes = create_mock_collection()
+
+        service = NetworksService(mock_db)
+
+        request = UpdateScanConfigRequest(
+            status="agent-only",
+            delegate_agent_node_ids=None,
+            user_guidance="Use node-01 to scan this network",
+        )
+
+        await service.update_scan_config("net-lan", request)
+
+        mock_networks.update_one.assert_called_once()
+        update_args = mock_networks.update_one.call_args
+        set_fields = update_args.args[1]["$set"]
+        assert set_fields["scanConfig.status"] == "agent-only"
+        assert set_fields["scanConfig.userGuidance"] == "Use node-01 to scan this network"

@@ -15,6 +15,7 @@ from hydra.api.v1.models.networks import (
     NetworkSummary,
     NetworkType,
     UpdateNetworkRequest,
+    UpdateScanConfigRequest,
 )
 from hydra.api.v1.services.networks import NetworksService
 
@@ -190,6 +191,24 @@ async def update_network(
         HTTPException 403: Insufficient permissions.
     """
     network = await networks_service.update_network(network_id, request)
+    return SuccessResponse(data=NetworkResponse(**network))
+
+
+@router.patch(
+    "/{network_id}/scan-config",
+    response_model=SuccessResponse[NetworkResponse],
+    response_model_by_alias=True,
+    summary="Update Scan Config",
+    description="Update the scan configuration for a network.",
+    dependencies=[Depends(require_permission("networks:update"))],
+)
+async def update_scan_config(
+    network_id: str,
+    request: UpdateScanConfigRequest,
+    networks_service: NetworksServiceDep,
+) -> SuccessResponse[NetworkResponse]:
+    """Update network scan configuration."""
+    network = await networks_service.update_scan_config(network_id, request)
     return SuccessResponse(data=NetworkResponse(**network))
 
 

@@ -290,6 +290,42 @@ export interface DismissDiscoveryRequest {
   permanent?: boolean;
 }
 
+export interface RegisterDiscoveryRequest {
+  nodeId?: string | null;
+  displayName?: string | null;
+  description?: string | null;
+  class?: string | null;
+  type?: string | null;
+  kind?: string | null;
+  tags?: string[];
+  overrideClassification?: boolean;
+}
+
+export interface RegisterDiscoveryResponse {
+  nodeId: string;
+  registeredBy: string;
+  registeredAt: string;
+  status: string;
+  fromDiscovery: string;
+}
+
+export interface DriftChange {
+  field: string;
+  previous: unknown;
+  current: unknown;
+}
+
+export interface DriftReport {
+  driftId: string;
+  discoveryId: string;
+  nodeId?: string | null;
+  severity: 'info' | 'warning';
+  changes: DriftChange[];
+  previousClassification?: string | null;
+  currentClassification?: string | null;
+  detectedAt: string;
+}
+
 export interface DiscoveryScanListParams extends Omit<ListParams, 'search'> {
   status?: DiscoveryScanStatus;
 }

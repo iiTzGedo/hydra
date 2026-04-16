@@ -124,6 +124,18 @@ class BulkOperationResponse(BaseModel):
     errors: list[dict[str, str]] = Field(default_factory=list)
 
 
+class RegisterDeviceResponse(BaseModel):
+    """Response from device registration (register endpoint)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    node_id: str = Field(alias="nodeId")
+    registered_by: str = Field(alias="registeredBy")
+    registered_at: datetime = Field(alias="registeredAt")
+    status: str
+    from_discovery: str = Field(alias="fromDiscovery")
+
+
 class ExclusionResponse(BaseModel):
     """Response model for a discovery exclusion."""
 

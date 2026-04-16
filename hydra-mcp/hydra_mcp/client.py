@@ -926,6 +926,142 @@ class HydraClient:
         params = {"since": since, "until": until}
         return await self._request_object("DELETE", "/audit", params=params)
 
+    # ------------------------------------------------------------------
+    # Network Discovery
+    # ------------------------------------------------------------------
+
+    async def scan_network(
+        self,
+        subnet: str,
+        network_id: str | None = None,
+        port_tier: str = "tier1",
+        include_iot_protocols: bool = False,
+        delegate_to_node_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Start a network discovery scan.
+
+        Args:
+            subnet: CIDR subnet to scan (e.g. ``192.168.1.0/24``).
+            network_id: Network ID to associate discoveries with.
+            port_tier: Port scan depth (``tier1`` or ``tier2``).
+            include_iot_protocols: Include mDNS/SSDP/CoAP discovery.
+            delegate_to_node_id: Delegate scan to a specific agent node.
+
+        Returns:
+            Scan document with scanId, status, and configuration.
+        """
+        target: dict[str, Any] = {"subnet": subnet}
+        if network_id:
+            target["networkId"] = network_id
+        body: dict[str, Any] = {
+            "targets": [target],
+            "options": {
+                "portTier": port_tier,
+                "includeIoTProtocols": include_iot_protocols,
+            },
+        }
+        if delegate_to_node_id:
+            body["delegateToNodeId"] = delegate_to_node_id
+        return await self._request_object("POST", "/discovery/scans", json_data=body)
+
+    async def list_discovery_scans(
+        self,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List discovery scans.
+
+        Args:
+            status: Filter by scan status.
+            limit: Maximum number of results.
+
+        Returns:
+            List of scan summary dictionaries.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if status:
+            params["status"] = status
+        result = await self._request("GET", "/discovery/scans", params=params)
+        return self._expect_list_result(result, "/discovery/scans")
+
+    async def list_discoveries(
+        self,
+        status: str | None = None,
+        network_id: str | None = None,
+        device_class: str | None = None,
+        min_confidence: float | None = None,
+        agent_compatible: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List discovered devices with optional filtering.
+
+        Args:
+            status: Filter by discovery status.
+            network_id: Filter by network.
+            device_class: Filter by classified device class.
+            min_confidence: Minimum classification confidence.
+            agent_compatible: Filter by agent compatibility.
+            limit: Maximum number of results.
+            offset: Number of results to skip.
+
+        Returns:
+            Tuple of (list of device dictionaries, total count).
+        """
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if status:
+            params["status"] = status
+        if network_id:
+            params["networkId"] = network_id
+        if device_class:
+            params["deviceClass"] = device_class
+        if min_confidence is not None:
+            params["minConfidence"] = min_confidence
+        if agent_compatible is not None:
+            params["agentCompatible"] = agent_compatible
+        result, meta = await self._request_with_meta(
+            "GET", "/discovery/devices", params=params,
+        )
+        items: list[dict[str, Any]] = self._expect_list_result(
+            result, "/discovery/devices",
+        )
+        return items, self._extract_list_total(meta, items)
+
+    async def get_discovery(self, discovery_id: str) -> dict[str, Any]:
+        """Get detailed information about a discovered device.
+
+        Args:
+            discovery_id: The discovery identifier.
+
+        Returns:
+            Device details including fingerprint, classification, and eligibility.
+        """
+        return await self._request_object(
+            "GET", f"/discovery/devices/{discovery_id}",
+        )
+
+    async def register_discovery(
+        self,
+        discovery_id: str,
+        overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Register a discovered device as a managed node.
+
+        Args:
+            discovery_id: The discovery identifier.
+            overrides: Optional field overrides (nodeId, displayName,
+                nodeClass, tags, etc.).
+
+        Returns:
+            Registration result with the new nodeId.
+        """
+        body = overrides or {}
+        return await self._request_object(
+            "POST",
+            f"/discovery/devices/{discovery_id}/register",
+            json_data=body,
+        )
+
     async def health_check(self) -> dict[str, Any]:
         """Check API health status.
 

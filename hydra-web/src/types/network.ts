@@ -54,6 +54,13 @@ export interface ScanConfig {
   userGuidance?: string | null;
 }
 
+export interface UpdateScanConfigRequest {
+  status?: ScanConfigStatus;
+  delegateAgentNodeIds?: string[];
+  delegateAgentTierRequired?: string;
+  userGuidance?: string | null;
+}
+
 export interface Network extends NetworkSummary {
   description?: string;
   cidrV6?: string | null;

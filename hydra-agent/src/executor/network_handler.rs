@@ -20,7 +20,7 @@ use super::CommandResult;
 
 const MAX_SCAN_HOSTS: usize = 1024;
 const HOST_SCAN_CONCURRENCY: usize = 64;
-const PORT_SCAN_CONCURRENCY: usize = 16;
+const PORT_SCAN_CONCURRENCY: usize = 32;
 
 #[derive(Debug, Clone)]
 struct ScanTarget {
@@ -218,12 +218,29 @@ fn parse_scan_request(parameters: &Option<Value>, timeout_secs: u64) -> Result<S
 }
 
 fn ports_for_tier(port_tier: &str, include_iot_protocols: bool) -> Vec<u16> {
-    let mut ports = vec![22, 53, 80, 161, 443, 1883, 1900, 5353, 5683, 8080, 8123, 8443];
+    // Tier 1: ~32 core infrastructure ports (aligned with API scanner.py)
+    let mut ports = vec![
+        22, 23, 25, 53, 80, 110, 143, 161, 389, 443, 445,
+        554, 623, 993, 995, 1194, 1433, 1883, 1900, 2375,
+        2376, 3306, 3389, 5353, 5432, 5683, 5900, 6379,
+        8006, 8080, 8123, 8443,
+    ];
     if port_tier == "tier2" {
-        ports.extend_from_slice(&[623, 2375, 2376, 3000, 3389, 6443, 8006, 8291, 9090, 9100, 10001, 10250]);
+        // Tier 2: ~70 additional ports for deeper fingerprinting
+        ports.extend_from_slice(&[
+            21, 69, 111, 135, 179, 427, 500, 514, 515, 548,
+            587, 631, 636, 873, 902, 993, 1080, 1521, 1723,
+            2049, 2222, 2379, 2380, 3000, 3260, 3478, 4243,
+            4505, 4506, 5000, 5001, 5060, 5222, 5269, 5672,
+            5984, 6000, 6443, 6633, 6881, 7001, 7077, 7474,
+            8000, 8008, 8081, 8088, 8090, 8139, 8291, 8444,
+            8883, 8888, 9000, 9042, 9090, 9100, 9200, 9300,
+            9418, 9999, 10000, 10001, 10250, 10255, 11211, 15672,
+            25565, 27017, 28017, 50000,
+        ]);
     }
     if !include_iot_protocols {
-        ports.retain(|port| !matches!(port, 1883 | 1900 | 5353 | 5683 | 8123 | 10001));
+        ports.retain(|port| !matches!(port, 1883 | 1900 | 5353 | 5683 | 8123 | 8883 | 10001));
     }
     ports.sort_unstable();
     ports.dedup();
@@ -329,10 +346,7 @@ async fn scan_host(
             "macOui": Value::Null,
             "dnsNames": dns_names,
             "banners": banners,
-            "protocolDetails": {
-                "scanMethods": methods,
-                "sourceSubnet": target.subnet,
-            },
+            "protocolDetails": build_protocol_details(&protocols, &banners),
             "signals": signals,
         },
     }))
@@ -351,19 +365,53 @@ async fn port_is_open(ip: &str, port: u16) -> bool {
 
 async fn collect_banners(ip: &str, open_ports: &[u16]) -> HashMap<String, String> {
     let mut banners = HashMap::new();
-    let http_ports = [80_u16, 8080, 8006, 8123];
+    let port_set: std::collections::HashSet<u16> = open_ports.iter().copied().collect();
+
+    // SSH banner (port 22): servers send version string on connect (RFC 4253)
+    if port_set.contains(&22) {
+        if let Some(banner) = grab_ssh_banner(ip).await {
+            banners.insert("22".to_string(), banner);
+        }
+    }
+
+    // SNMP sysDescr (port 161): raw SNMPv1 GET via UDP
+    if port_set.contains(&161) {
+        if let Some(banner) = grab_snmp_sysdescr(ip).await {
+            banners.insert("161".to_string(), banner);
+        }
+    }
+
+    // MQTT CONNACK (port 1883): send CONNECT, read return code
+    if port_set.contains(&1883) {
+        if let Some(banner) = grab_mqtt_banner(ip, 1883).await {
+            banners.insert("1883".to_string(), banner);
+        }
+    }
+    if port_set.contains(&8883) {
+        if let Some(banner) = grab_mqtt_banner(ip, 8883).await {
+            banners.insert("8883".to_string(), banner);
+        }
+    }
+
+    // HTTP banners via reqwest
+    let http_ports = [
+        80_u16, 443, 3000, 5000, 8000, 8006, 8008,
+        8080, 8081, 8123, 8443, 8888, 9090, 9100,
+    ];
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_millis(1200))
+        .danger_accept_invalid_certs(true)
         .build()
     {
         Ok(client) => client,
         Err(_) => return banners,
     };
     for port in open_ports {
-        if !http_ports.contains(port) {
+        if !http_ports.contains(port) || banners.contains_key(&port.to_string()) {
             continue;
         }
-        let url = format!("http://{}:{}/", ip, port);
+        let scheme = if *port == 443 || *port == 8443 { "https" } else { "http" };
+        let url = format!("{}://{}:{}/", scheme, ip, port);
         if let Ok(response) = client.get(&url).send().await {
             if let Some(server) = response.headers().get(reqwest::header::SERVER) {
                 if let Ok(server_str) = server.to_str() {
@@ -375,6 +423,155 @@ async fn collect_banners(ip: &str, open_ports: &[u16]) -> HashMap<String, String
         }
     }
     banners
+}
+
+async fn grab_ssh_banner(ip: &str) -> Option<String> {
+    let addr = format!("{}:22", ip);
+    let stream = timeout(Duration::from_millis(800), TcpStream::connect(&addr))
+        .await
+        .ok()?
+        .ok()?;
+    let mut buf = vec![0u8; 256];
+    stream.readable().await.ok()?;
+    let n = stream.try_read(&mut buf).ok()?;
+    if n == 0 {
+        return None;
+    }
+    let banner = String::from_utf8_lossy(&buf[..n]).trim().to_string();
+    if banner.starts_with("SSH-") {
+        Some(banner)
+    } else {
+        None
+    }
+}
+
+async fn grab_snmp_sysdescr(ip: &str) -> Option<String> {
+    use tokio::net::UdpSocket;
+
+    // BER-encoded SNMPv1 GET-REQUEST for sysDescr.0 (1.3.6.1.2.1.1.1.0)
+    // community = "public"
+    let pdu: &[u8] = &[
+        0x30, 0x29, // SEQUENCE, length 41
+        0x02, 0x01, 0x00, // INTEGER version=0 (SNMPv1)
+        0x04, 0x06, 0x70, 0x75, 0x62, 0x6c, 0x69, 0x63, // OCTET STRING "public"
+        0xa0, 0x1c, // GetRequest-PDU, length 28
+        0x02, 0x01, 0x01, // INTEGER request-id=1
+        0x02, 0x01, 0x00, // INTEGER error-status=0
+        0x02, 0x01, 0x00, // INTEGER error-index=0
+        0x30, 0x11, // SEQUENCE (VarBindList), length 17
+        0x30, 0x0f, // SEQUENCE (VarBind), length 15
+        0x06, 0x08, 0x2b, 0x06, 0x01, 0x02, 0x01, 0x01, 0x01, 0x00, // OID 1.3.6.1.2.1.1.1.0
+        0x05, 0x00, // NULL
+    ];
+
+    let sock = UdpSocket::bind("0.0.0.0:0").await.ok()?;
+    let dest = format!("{}:161", ip);
+    sock.send_to(pdu, &dest).await.ok()?;
+
+    let mut buf = vec![0u8; 2048];
+    let n = timeout(Duration::from_millis(1500), sock.recv(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
+
+    // Minimal BER parse: find the first OCTET STRING (0x04) value in the response
+    // after the GetResponse-PDU tag (0xA2)
+    let data = &buf[..n];
+    extract_snmp_octet_string(data)
+}
+
+fn extract_snmp_octet_string(data: &[u8]) -> Option<String> {
+    // Walk through BER to find tag 0xA2 (GetResponse), then find first 0x04 (OCTET STRING)
+    let mut found_response = false;
+    let mut i = 0;
+    while i < data.len() {
+        let tag = data[i];
+        i += 1;
+        if i >= data.len() {
+            break;
+        }
+        let (length, consumed) = ber_read_length(data, i)?;
+        i += consumed;
+
+        if tag == 0xA2 {
+            found_response = true;
+            // Don't skip content — parse inside the response PDU
+            continue;
+        }
+        if found_response && tag == 0x04 && length > 0 && i + length <= data.len() {
+            return Some(String::from_utf8_lossy(&data[i..i + length]).to_string());
+        }
+        // Skip content of structured types we don't care about at this level
+        if tag == 0x30 || tag == 0xA0 {
+            continue; // parse inside sequences
+        }
+        i += length;
+    }
+    None
+}
+
+fn ber_read_length(data: &[u8], offset: usize) -> Option<(usize, usize)> {
+    if offset >= data.len() {
+        return None;
+    }
+    let first = data[offset] as usize;
+    if first < 0x80 {
+        return Some((first, 1));
+    }
+    let num_bytes = first & 0x7f;
+    if num_bytes == 0 || offset + 1 + num_bytes > data.len() {
+        return None;
+    }
+    let mut length = 0usize;
+    for j in 0..num_bytes {
+        length = (length << 8) | (data[offset + 1 + j] as usize);
+    }
+    Some((length, 1 + num_bytes))
+}
+
+async fn grab_mqtt_banner(ip: &str, port: u16) -> Option<String> {
+    let addr = format!("{}:{}", ip, port);
+    let stream = timeout(Duration::from_millis(800), TcpStream::connect(&addr))
+        .await
+        .ok()?
+        .ok()?;
+
+    // MQTT 3.1.1 CONNECT: client ID "hydra-probe"
+    let connect_packet: &[u8] = &[
+        0x10, 0x1d, // Fixed header: CONNECT, remaining length 29
+        0x00, 0x04, b'M', b'Q', b'T', b'T', // Protocol Name
+        0x04, // Protocol Level (3.1.1)
+        0x02, // Connect Flags (Clean Session)
+        0x00, 0x3c, // Keep Alive (60s)
+        0x00, 0x0b, // Client ID length (11)
+        b'h', b'y', b'd', b'r', b'a', b'-', b'p', b'r', b'o', b'b', b'e',
+    ];
+
+    stream.writable().await.ok()?;
+    stream.try_write(connect_packet).ok()?;
+
+    let mut buf = [0u8; 4];
+    stream.readable().await.ok()?;
+    let n = timeout(Duration::from_millis(800), async {
+        loop {
+            match stream.try_read(&mut buf) {
+                Ok(n) => return n,
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    stream.readable().await.ok();
+                }
+                Err(_) => return 0,
+            }
+        }
+    })
+    .await
+    .ok()?;
+
+    if n >= 4 && buf[0] == 0x20 {
+        // CONNACK: byte[3] is return code
+        Some(format!("mqtt:connack:{}", buf[3]))
+    } else {
+        None
+    }
 }
 
 async fn reverse_dns_names(ip: &str) -> Vec<String> {
@@ -443,6 +640,41 @@ fn build_signals(
         signals.push(format!("banner:{}:{}", port, banner));
     }
     signals
+}
+
+fn build_protocol_details(
+    protocols: &[String],
+    banners: &HashMap<String, String>,
+) -> Value {
+    let mut details = serde_json::Map::new();
+
+    // If SNMP banner was captured, populate snmp protocol details
+    if protocols.contains(&"snmp".to_string()) {
+        if let Some(snmp_banner) = banners.get("161") {
+            let mut snmp = serde_json::Map::new();
+            snmp.insert("sysDescr".to_string(), json!(snmp_banner));
+            details.insert("snmp".to_string(), Value::Object(snmp));
+        }
+    }
+
+    // Mark presence of other protocols for classification
+    for proto in protocols {
+        match proto.as_str() {
+            "mdns" => {
+                if !details.contains_key("mdns") {
+                    details.insert("mdns".to_string(), json!({"services": [], "hostname": null}));
+                }
+            }
+            "ssdp" => {
+                if !details.contains_key("ssdp") {
+                    details.insert("ssdp".to_string(), json!({"server": null, "deviceType": null}));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Value::Object(details)
 }
 
 fn expand_ipv4_cidr(input: &str) -> Result<Vec<String>, String> {

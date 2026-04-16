@@ -10,38 +10,43 @@ Implements additive confidence scoring per the Phase 2D specification:
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from hydra.api.v1.models.discovery.schemas import (
     Classification,
     DetailedPort,
     Fingerprint,
+    LldpDetail,
     MdnsDetail,
+    PortInference,
     ProtocolDetails,
     SnmpDetail,
     SsdpDetail,
 )
 
-# ── Port Lists ─────────────────────────────────────────────────────────
+# ── Port Lists (aligned with scanner.py) ─────────────────────────────
 
-# Tier 1: Always scanned (~30 ports covering core infrastructure services)
+# Tier 1: Always scanned (~32 ports covering core infrastructure services)
 TIER1_PORTS: frozenset[int] = frozenset({
-    22, 53, 80, 161, 179, 443, 554, 623,
-    1883, 1900, 2375, 2376, 3000, 3306, 3389,
-    5353, 5432, 5683, 5900, 6379, 6443,
-    8006, 8080, 8123, 8291, 8443, 8883,
-    9090, 9100, 10001, 10250, 27017,
+    22, 23, 25, 53, 80, 110, 143, 161, 389, 443, 445,
+    554, 623, 993, 995, 1194, 1433, 1883, 1900, 2375,
+    2376, 3306, 3389, 5353, 5432, 5683, 5900, 6379,
+    8006, 8080, 8123, 8443,
 })
 
-# Tier 2: Extended scan (~60 additional ports for deeper fingerprinting)
+# Tier 2: Extended scan (~70 additional ports for deeper fingerprinting)
 TIER2_PORTS: frozenset[int] = frozenset({
-    21, 23, 25, 110, 143, 389, 445, 636, 993, 995,
-    1433, 1521, 2049, 2222, 3128, 3260, 3478, 4443,
-    5000, 5001, 5060, 5222, 5601, 5672, 5984,
-    6000, 6667, 7070, 7443, 7474,
-    8000, 8081, 8181, 8333, 8444, 8500, 8834, 8888, 8983,
-    9000, 9001, 9042, 9092, 9200, 9300, 9418, 9443, 9999,
-    10000, 11211, 15672, 19132, 25565,
-    27018, 28017, 32400, 49152, 51820, 61616,
+    21, 69, 111, 135, 179, 427, 500, 514, 515, 548,
+    587, 631, 636, 873, 902, 993, 1080, 1521, 1723,
+    2049, 2222, 2379, 2380, 3000, 3128, 3260, 3478, 4243,
+    4505, 4506, 5000, 5001, 5060, 5222, 5269, 5601, 5672,
+    5984, 6000, 6443, 6633, 6667, 6881, 7001, 7070, 7077,
+    7443, 7474, 8000, 8008, 8081, 8088, 8090, 8139, 8181,
+    8291, 8333, 8444, 8500, 8834, 8883, 8888, 8983,
+    9000, 9001, 9042, 9090, 9092, 9100, 9200, 9300,
+    9418, 9443, 9999, 10000, 10001, 10250, 10255,
+    11211, 15672, 19132, 25565, 27017, 27018, 28017,
+    32400, 49152, 50000, 51820, 61616,
 })
 
 
@@ -144,42 +149,65 @@ _SBC_VENDORS = frozenset({
 class FingerprintService:
     """Multi-signal device fingerprinting and additive-confidence classification."""
 
-    # Well-known port -> service name mapping
+    # Well-known port -> service name mapping (covers all tier1+tier2 ports)
     PORT_SERVICE_MAP: dict[int, str] = {
         21: "ftp",
         22: "ssh",
         23: "telnet",
         25: "smtp",
         53: "dns",
+        69: "tftp",
         80: "http",
         110: "pop3",
+        111: "rpcbind",
+        135: "msrpc",
         143: "imap",
         161: "snmp",
         179: "bgp",
         389: "ldap",
+        427: "svrloc",
         443: "https",
         445: "smb",
+        500: "isakmp",
+        514: "syslog",
+        515: "lpd",
+        548: "afp",
         554: "rtsp",
+        587: "submission",
         623: "ipmi",
+        631: "ipp",
         636: "ldaps",
+        873: "rsync",
+        902: "vmware-auth",
         993: "imaps",
         995: "pop3s",
+        1080: "socks",
+        1194: "openvpn",
         1433: "mssql",
         1521: "oracle",
+        1723: "pptp",
         1883: "mqtt",
         1900: "ssdp",
         2049: "nfs",
+        2222: "ssh-alt",
         2375: "docker-api",
         2376: "docker-tls",
+        2379: "etcd-client",
+        2380: "etcd-peer",
         3000: "grafana",
         3128: "squid-proxy",
         3260: "iscsi",
         3306: "mysql",
         3389: "rdp",
         3478: "stun",
+        4243: "docker-alt",
+        4505: "salt-publish",
+        4506: "salt-return",
         5000: "upnp",
+        5001: "synology-https",
         5060: "sip",
         5222: "xmpp",
+        5269: "xmpp-server",
         5353: "mdns",
         5432: "postgresql",
         5601: "kibana",
@@ -187,19 +215,31 @@ class FingerprintService:
         5683: "coap",
         5900: "vnc",
         5984: "couchdb",
+        6000: "x11",
         6379: "redis",
         6443: "k8s-api",
+        6633: "openflow",
         6667: "irc",
+        6881: "bittorrent",
+        7001: "weblogic",
+        7070: "realserver",
+        7077: "spark-master",
         7443: "https-alt",
         7474: "neo4j",
         8000: "http-alt",
         8006: "proxmox-web",
+        8008: "http-alt",
         8080: "http-alt",
         8081: "http-alt",
+        8088: "http-alt",
+        8090: "http-alt",
         8123: "homeassistant",
+        8139: "puppet",
         8181: "http-alt",
         8291: "mikrotik-api",
+        8333: "bitcoin",
         8443: "https-alt",
+        8444: "https-alt",
         8500: "consul",
         8834: "nessus",
         8883: "mqtts",
@@ -214,8 +254,12 @@ class FingerprintService:
         9200: "elasticsearch",
         9300: "elasticsearch-transport",
         9418: "git-daemon",
+        9443: "https-alt",
+        9999: "http-alt",
+        10000: "webmin",
         10001: "ubiquiti-discovery",
         10250: "kubelet",
+        10255: "kubelet-readonly",
         11211: "memcached",
         15672: "rabbitmq-mgmt",
         19132: "minecraft-bedrock",
@@ -225,9 +269,71 @@ class FingerprintService:
         28017: "mongodb-web",
         32400: "plex",
         49152: "upnp-nat",
+        50000: "jenkins-agent",
         51820: "wireguard",
         61616: "activemq",
     }
+
+    # Banner-based inference rules: port -> (service, banner_regex -> PortInference)
+    # Used to populate DetailedPort.inference when banners are available.
+    _BANNER_PARSERS: dict[int, tuple[str, str]] = {
+        22: ("ssh", r"SSH-[\d.]+-(.+?)(?:\s|$)"),
+        80: ("http", r"^(.+?)(?:/[\d.]+)?$"),
+        443: ("https", r"^(.+?)(?:/[\d.]+)?$"),
+        161: ("snmp", r"(.+)"),
+        1883: ("mqtt", r"(.+)"),
+        3306: ("mysql", r"^([\d.]+)"),
+        5432: ("postgresql", r"^([\d.]+)"),
+        8006: ("proxmox", r"^(.+?)(?:/[\d.]+)?$"),
+        8080: ("http", r"^(.+?)(?:/[\d.]+)?$"),
+        8123: ("homeassistant", r"(.+)"),
+        8443: ("https", r"^(.+?)(?:/[\d.]+)?$"),
+        27017: ("mongodb", r"^([\d.]+)"),
+    }
+
+    @classmethod
+    def infer_from_port(
+        cls,
+        port: int,
+        banner: str | None = None,
+    ) -> PortInference | None:
+        """Derive a PortInference from a port number and optional banner.
+
+        Uses PORT_SERVICE_MAP for the application name and _BANNER_PARSERS
+        to extract version information from banner strings.
+        """
+        service = cls.PORT_SERVICE_MAP.get(port)
+        if not service:
+            return None
+
+        application = service
+        version: str | None = None
+
+        if banner and port in cls._BANNER_PARSERS:
+            _, pattern = cls._BANNER_PARSERS[port]
+            match = re.search(pattern, banner)
+            if match:
+                captured = match.group(1).strip()
+                # Check if captured looks like a version (digits and dots)
+                if re.match(r"^\d", captured):
+                    version = captured
+                else:
+                    application = captured
+
+        os_hint: str | None = None
+        if port == 22 and banner:
+            if "ubuntu" in banner.lower() or "debian" in banner.lower():
+                os_hint = "linux"
+            elif "windows" in banner.lower():
+                os_hint = "windows"
+        elif port == 3389:
+            os_hint = "windows"
+
+        return PortInference(
+            os=os_hint,
+            application=application,
+            version=version,
+        )
 
     def fingerprint_device(
         self,
@@ -235,6 +341,8 @@ class FingerprintService:
         protocols: list[str] | None = None,
         primary_mac: str | None = None,
         raw_vendor: str | None = None,
+        banners: dict[str, str] | None = None,
+        protocol_data: dict[str, Any] | None = None,
     ) -> Fingerprint:
         """Generate a fingerprint from open ports and protocols.
 
@@ -243,11 +351,15 @@ class FingerprintService:
             protocols: List of detected protocols (e.g. mdns, ssdp, snmp).
             primary_mac: MAC address for vendor lookup.
             raw_vendor: Pre-resolved vendor name.
+            banners: Port-keyed banner strings from banner grabbing.
+            protocol_data: Structured protocol discovery results
+                (keys: ``mdns``, ``ssdp``, ``snmp``, ``lldp``).
 
         Returns:
             A Fingerprint with detailed ports, service hints, and metadata.
         """
         protocols = protocols or []
+        banners = banners or {}
         service_hints: list[str] = []
         detailed_ports: list[DetailedPort] = []
 
@@ -255,12 +367,16 @@ class FingerprintService:
             service_name = self.PORT_SERVICE_MAP.get(port)
             if service_name:
                 service_hints.append(service_name)
+            banner = banners.get(str(port))
+            inference = self.infer_from_port(port, banner)
             detailed_ports.append(
                 DetailedPort(
                     port=port,
                     protocol="tcp",
                     state="open",
                     service=service_name,
+                    banner=banner,
+                    inference=inference,
                 )
             )
 
@@ -268,7 +384,7 @@ class FingerprintService:
         mac_oui = self._extract_oui(primary_mac)
         vendor = raw_vendor or self.lookup_vendor(primary_mac)
         device_family = self._guess_device_family(open_ports, protocols, vendor)
-        protocol_details = self._build_protocol_details(protocols)
+        protocol_details = self._build_protocol_details(protocols, protocol_data)
 
         return Fingerprint(
             open_ports=detailed_ports,
@@ -601,23 +717,84 @@ class FingerprintService:
     # ── Protocol Detail Builder ────────────────────────────────────────
 
     @staticmethod
-    def _build_protocol_details(protocols: list[str]) -> ProtocolDetails | None:
+    def _build_protocol_details(
+        protocols: list[str],
+        protocol_data: dict[str, Any] | None = None,
+    ) -> ProtocolDetails | None:
         """Convert a flat protocol list into structured ProtocolDetails.
 
-        Flat protocol names like 'snmp', 'mdns', 'ssdp' get mapped to
-        placeholder detail objects so the classifier can detect them.
+        When ``protocol_data`` is provided (from actual protocol discovery
+        or banner grabbing), the structured data is used to populate detail
+        models with real values.  Otherwise flat protocol names are mapped
+        to placeholder detail objects so the classifier can still detect them.
+
+        Args:
+            protocols: Flat list of detected protocol names.
+            protocol_data: Structured data keyed by protocol name with
+                sub-dicts matching the detail model fields.  Example::
+
+                    {
+                        "snmp": {"sysDescr": "...", "sysName": "..."},
+                        "mdns": {"services": [...], "hostname": "..."},
+                    }
         """
-        if not protocols:
+        if not protocols and not protocol_data:
             return None
 
         proto_set = {p.lower() for p in protocols}
-        mdns = MdnsDetail(services=[], hostname=None, txt_records={}) if "mdns" in proto_set else None
-        ssdp = SsdpDetail(server=None, location=None, usn=None, device_type=None) if "ssdp" in proto_set else None
-        snmp = SnmpDetail(sys_descr=None, sys_name=None, sys_object_id=None) if "snmp" in proto_set else None
-        if "bgp" in proto_set and snmp is None:
+        data = protocol_data or {}
+
+        # ── mDNS ──────────────────────────────────────────────────────
+        mdns: MdnsDetail | None = None
+        if "mdns" in data:
+            d = data["mdns"]
+            mdns = MdnsDetail(
+                services=d.get("services", []),
+                hostname=d.get("hostname"),
+                txt_records=d.get("txtRecords", d.get("txt_records", {})),
+            )
+        elif "mdns" in proto_set:
+            mdns = MdnsDetail(services=[], hostname=None, txt_records={})
+
+        # ── SSDP ──────────────────────────────────────────────────────
+        ssdp: SsdpDetail | None = None
+        if "ssdp" in data:
+            d = data["ssdp"]
+            ssdp = SsdpDetail(
+                server=d.get("server"),
+                location=d.get("location"),
+                usn=d.get("usn"),
+                device_type=d.get("deviceType", d.get("device_type")),
+            )
+        elif "ssdp" in proto_set:
+            ssdp = SsdpDetail(server=None, location=None, usn=None, device_type=None)
+
+        # ── SNMP ──────────────────────────────────────────────────────
+        snmp: SnmpDetail | None = None
+        if "snmp" in data:
+            d = data["snmp"]
+            snmp = SnmpDetail(
+                sys_descr=d.get("sysDescr", d.get("sys_descr")),
+                sys_name=d.get("sysName", d.get("sys_name")),
+                sys_object_id=d.get("sysObjectID", d.get("sys_object_id")),
+            )
+        elif "snmp" in proto_set or "bgp" in proto_set:
             snmp = SnmpDetail(sys_descr=None, sys_name=None, sys_object_id=None)
 
-        if not any([mdns, ssdp, snmp]):
+        # ── LLDP ──────────────────────────────────────────────────────
+        lldp: LldpDetail | None = None
+        if "lldp" in data:
+            d = data["lldp"]
+            lldp = LldpDetail(
+                chassis_id=d.get("chassisId", d.get("chassis_id")),
+                port_id=d.get("portId", d.get("port_id")),
+                system_name=d.get("systemName", d.get("system_name")),
+                system_description=d.get(
+                    "systemDescription", d.get("system_description"),
+                ),
+            )
+
+        if not any([mdns, ssdp, snmp, lldp]):
             return None
 
-        return ProtocolDetails(mdns=mdns, ssdp=ssdp, snmp=snmp)
+        return ProtocolDetails(mdns=mdns, ssdp=ssdp, snmp=snmp, lldp=lldp)

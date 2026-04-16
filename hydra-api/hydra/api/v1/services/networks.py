@@ -19,6 +19,7 @@ from hydra.api.v1.models.networks import (
     NetworkListParams,
     NetworkType,
     UpdateNetworkRequest,
+    UpdateScanConfigRequest,
 )
 from hydra.api.v1.models.profiles import NetworkProfile
 from hydra.db.mongodb import MongoDB
@@ -177,7 +178,7 @@ class NetworksService:
 
         now = datetime.now(UTC)
 
-        network_doc = {
+        network_doc: dict[str, Any] = {
             "networkId": request.network_id,
             "type": request.type.value,
             "name": request.name,
@@ -192,6 +193,14 @@ class NetworksService:
             "routerNodeId": request.router_node_id,
             "dhcp": request.dhcp.model_dump(by_alias=True) if request.dhcp else None,
             "dns": request.dns.model_dump(by_alias=True) if request.dns else None,
+            "scanConfig": {
+                "status": "unreachable",
+                "apiReachable": False,
+                "apiReachabilityTest": None,
+                "delegateAgentNodeIds": [],
+                "delegateAgentTierRequired": "max",
+                "userGuidance": None,
+            },
             "nodeCount": 0,
             "origin": {
                 "createdBy": created_by,
@@ -266,6 +275,69 @@ class NetworksService:
             logger.warning("network_update_no_changes", network_id=network_id)
 
         logger.info("network_updated", network_id=network_id, fields=list(update_fields.keys()))
+
+        return await self.get_network(network_id)
+
+    async def update_scan_config(
+        self,
+        network_id: str,
+        request: UpdateScanConfigRequest,
+    ) -> dict[str, Any]:
+        """Update a network's scan configuration.
+
+        Args:
+            network_id: The network to update.
+            request: Scan config fields to update.
+
+        Returns:
+            The updated network document.
+
+        Raises:
+            NetworkNotFoundError: If no network exists with the given ID.
+        """
+        existing = await self.db.networks.find_one({"networkId": network_id})
+        if not existing:
+            raise NetworkNotFoundError(network_id)
+
+        update_fields: dict[str, Any] = {"updatedAt": datetime.now(UTC)}
+
+        if request.status is not None:
+            update_fields["scanConfig.status"] = request.status.value
+        if request.delegate_agent_node_ids is not None:
+            # Validate that referenced nodes exist
+            for node_id in request.delegate_agent_node_ids:
+                node = await self.db.nodes.find_one({"nodeId": node_id})
+                if not node:
+                    raise NodeNotFoundError(node_id)
+            update_fields["scanConfig.delegateAgentNodeIds"] = (
+                request.delegate_agent_node_ids
+            )
+        if request.delegate_agent_tier_required is not None:
+            update_fields["scanConfig.delegateAgentTierRequired"] = (
+                request.delegate_agent_tier_required
+            )
+        if request.user_guidance is not None:
+            update_fields["scanConfig.userGuidance"] = request.user_guidance or None
+
+        # Generate guidance for unreachable networks if not explicitly set
+        status = request.status.value if request.status else None
+        if status == "unreachable" and request.user_guidance is None:
+            update_fields["scanConfig.userGuidance"] = (
+                "This network is not reachable from the API server. "
+                "Configure a delegate agent on a node within this network "
+                "to enable discovery scanning."
+            )
+
+        await self.db.networks.update_one(
+            {"networkId": network_id},
+            {"$set": update_fields},
+        )
+
+        logger.info(
+            "network_scan_config_updated",
+            network_id=network_id,
+            fields=list(update_fields.keys()),
+        )
 
         return await self.get_network(network_id)
 

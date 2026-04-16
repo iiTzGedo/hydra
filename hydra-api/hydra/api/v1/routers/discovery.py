@@ -8,7 +8,13 @@ from typing import Annotated, Literal
 import structlog
 from fastapi import APIRouter, Depends, Query
 
-from hydra.api.v1.core.deps import CurrentUser, MongoDBDep, require_permission
+from hydra.api.v1.core.deps import (
+    CurrentUser,
+    MongoDBDep,
+    get_authenticated_auth_source,
+    get_authenticated_client_id,
+    require_permission,
+)
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.discovery import (
     ApprovalResponse,
@@ -23,6 +29,8 @@ from hydra.api.v1.models.discovery import (
     DismissDeviceRequest,
     ExclusionListParams,
     ExclusionResponse,
+    RegisterDeviceRequest,
+    RegisterDeviceResponse,
     RejectDeviceRequest,
     ScanDiffResponse,
     ScanListParams,
@@ -38,6 +46,20 @@ from hydra.api.v1.services.discovery.exclusions import ExclusionService
 
 router = APIRouter(prefix="/discovery", tags=["Discovery"])
 logger = structlog.get_logger(__name__)
+
+
+def _get_scan_trigger(current_user: dict[str, object]) -> ScanTrigger:
+    """Map request provenance to a discovery trigger source."""
+    auth_source = get_authenticated_auth_source(current_user)
+    client_id = get_authenticated_client_id(current_user)
+
+    if auth_source == "cookie":
+        return ScanTrigger.WEB
+    if auth_source == "internal" and client_id == "hydra-web":
+        return ScanTrigger.WEB
+    if auth_source == "internal" and client_id == "hydra-mcp":
+        return ScanTrigger.MCP
+    return ScanTrigger.API
 
 
 def get_discovery_service(mongodb: MongoDBDep) -> DiscoveryService:
@@ -77,7 +99,7 @@ async def start_scan(
         user_id=user["userId"],
         user_role=user.get("role", "operator"),
         user_permissions=user.get("permissions", []),
-        triggered_via=ScanTrigger.API,
+        triggered_via=_get_scan_trigger(user),
     )
     return SuccessResponse(data=ScanResponse(**scan))
 
@@ -249,7 +271,11 @@ async def bulk_approve(
     user: CurrentUser,
 ) -> SuccessResponse[BulkOperationResponse]:
     """Bulk approve discovered devices."""
-    result = await service.bulk_approve(request, user_id=user["userId"])
+    result = await service.bulk_approve(
+        request,
+        user_id=user["userId"],
+        user_permissions=user.get("permissions", []),
+    )
     return SuccessResponse(data=BulkOperationResponse(**result))
 
 
@@ -304,7 +330,10 @@ async def approve_device(
 ) -> SuccessResponse[ApprovalResponse]:
     """Approve a discovered device."""
     result = await service.approve_device(
-        discovery_id, request, user_id=user["userId"]
+        discovery_id,
+        request,
+        user_id=user["userId"],
+        user_permissions=user.get("permissions", []),
     )
     return SuccessResponse(data=ApprovalResponse(**result))
 
@@ -328,6 +357,28 @@ async def reject_device(
         discovery_id, request, user_id=user["userId"]
     )
     return SuccessResponse(data=ApprovalResponse(**result))
+
+
+@router.post(
+    "/devices/{discovery_id}/register",
+    response_model=SuccessResponse[RegisterDeviceResponse],
+    response_model_by_alias=True,
+    status_code=201,
+    summary="Register Discovered Device",
+    description="Register a discovered device as a node with optional field overrides.",
+    dependencies=[Depends(require_permission("nodes:create"))],
+)
+async def register_device(
+    discovery_id: str,
+    request: RegisterDeviceRequest,
+    service: DiscoveryServiceDep,
+    user: CurrentUser,
+) -> SuccessResponse[RegisterDeviceResponse]:
+    """Register a discovered device as a node."""
+    result = await service.register_device(
+        discovery_id, request, user_id=user["userId"]
+    )
+    return SuccessResponse(data=RegisterDeviceResponse(**result))
 
 
 @router.post(

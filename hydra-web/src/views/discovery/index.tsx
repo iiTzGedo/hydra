@@ -22,6 +22,7 @@ import {
   useDiscoveryScans,
   useDismissDiscovery,
   useInstallations,
+  useRegisterDiscovery,
   useRejectDiscovery,
   useStartDiscoveryScan,
 } from '@/api/discovery';
@@ -182,8 +183,10 @@ export default function DiscoveryPage() {
   const [deviceStatus, setDeviceStatus] = useState<DiscoveryDeviceStatus | 'all'>('pending');
   const [deviceSearch, setDeviceSearch] = useState('');
   const [deviceClassFilter, setDeviceClassFilter] = useState<DiscoveryClass | 'all'>('all');
+  const [scanMode, setScanMode] = useState<'api-direct' | 'agent-delegated'>('api-direct');
   const [scanForm, setScanForm] = useState({
     subnet: '',
+    networkId: '',
     delegateToNodeId: '',
     portTier: 'tier1' as DiscoveryPortTier,
     timeoutSeconds: '60',
@@ -306,6 +309,7 @@ export default function DiscoveryPage() {
 
   const startScan = useStartDiscoveryScan();
   const approveDiscovery = useApproveDiscovery(selectedDeviceId);
+  const registerDiscovery = useRegisterDiscovery(selectedDeviceId);
   const rejectDiscovery = useRejectDiscovery(selectedDeviceId);
   const dismissDiscovery = useDismissDiscovery(selectedDeviceId);
 
@@ -340,7 +344,7 @@ export default function DiscoveryPage() {
       toast.error('A subnet or CIDR range is required.');
       return;
     }
-    if (!scanForm.delegateToNodeId) {
+    if (scanMode === 'agent-delegated' && !scanForm.delegateToNodeId) {
       toast.error('Select a max-tier scanner node to run the delegated scan.');
       return;
     }
@@ -349,15 +353,19 @@ export default function DiscoveryPage() {
       return;
     }
 
+    const isApiDirect = scanMode === 'api-direct';
+    const delegateNodeId = isApiDirect ? null : scanForm.delegateToNodeId;
+
     try {
       const scan = await startScan.mutateAsync({
         targets: [
           {
             subnet: scanForm.subnet.trim(),
-            delegateToNodeId: scanForm.delegateToNodeId,
+            networkId: scanForm.networkId || undefined,
+            delegateToNodeId: delegateNodeId,
           },
         ],
-        delegateToNodeId: scanForm.delegateToNodeId,
+        delegateToNodeId: delegateNodeId,
         options: {
           methods,
           portTier: scanForm.portTier,
@@ -365,11 +373,16 @@ export default function DiscoveryPage() {
           includeIoTProtocols: scanForm.includeIoTProtocols,
         },
       });
-      toast.success('Delegated scan queued.');
+      toast.success(
+        isApiDirect
+          ? 'API-direct scan started. Results will appear as hosts are probed.'
+          : 'Delegated scan queued for agent execution.'
+      );
       setSelectedScanId(scan.scanId);
       setScanDialogOpen(false);
       setScanForm({
         subnet: '',
+        networkId: '',
         delegateToNodeId: '',
         portTier: 'tier1',
         timeoutSeconds: '60',
@@ -411,6 +424,26 @@ export default function DiscoveryPage() {
     }
   };
 
+  const handleRegister = async () => {
+    if (!selectedDevice) {
+      return;
+    }
+    try {
+      const result = await registerDiscovery.mutateAsync({
+        nodeId: reviewForm.nodeId.trim() || undefined,
+        class: reviewForm.nodeClass === 'auto' ? undefined : reviewForm.nodeClass,
+        tags: reviewForm.tags
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+        overrideClassification: reviewForm.nodeClass !== 'auto',
+      });
+      toast.success(`Registered ${deviceLabel(selectedDevice)} as ${result.nodeId}.`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to register discovery.'));
+    }
+  };
+
   const handleReject = async () => {
     if (!selectedDevice) {
       return;
@@ -443,11 +476,11 @@ export default function DiscoveryPage() {
     <div className="space-y-6">
       <PageHeaderLayout
         title="Discovery"
-        subtitle="Queue delegated subnet scans, review raw evidence, and promote new devices into managed nodes."
+        subtitle="Scan subnets directly from the API or delegate to agents, review raw evidence, and promote new devices into managed nodes."
         showBackButton={false}
         actions={
           <PermissionGate permissions={['discovery:scan']}>
-            <Button onClick={() => setScanDialogOpen(true)} disabled={!scanners.length}>
+            <Button onClick={() => setScanDialogOpen(true)}>
               <Radar className="mr-2 h-4 w-4" />
               Start Scan
             </Button>
@@ -473,7 +506,7 @@ export default function DiscoveryPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Recent Scans</CardTitle>
-                <CardDescription>Delegated scans update here as agents claim work and post results.</CardDescription>
+                <CardDescription>API-direct and delegated scans update here as results arrive.</CardDescription>
               </CardHeader>
               <CardContent>
                 {scansLoading ? (
@@ -484,7 +517,7 @@ export default function DiscoveryPage() {
                   </div>
                 ) : !scans.length ? (
                   <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                    No discovery scans yet. Queue a delegated scan to start building a review backlog.
+                    No discovery scans yet. Start an API-direct scan or delegate to an agent to begin discovering devices.
                   </div>
                 ) : (
                   <Table>
@@ -570,11 +603,22 @@ export default function DiscoveryPage() {
 
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-lg border p-3">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Delegated To</p>
-                      <p className="mt-1 font-medium">{selectedScan.delegation?.delegatedTo || 'Not assigned'}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {selectedScan.delegation?.commandStatus || selectedScan.progress.phase}
-                      </p>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Execution</p>
+                      {selectedScan.execution?.method === 'api-direct' ? (
+                        <>
+                          <p className="mt-1 font-medium">API Direct</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            TCP connect probing from the API server
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="mt-1 font-medium">{selectedScan.delegation?.delegatedTo || 'Not assigned'}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {selectedScan.delegation?.commandStatus || selectedScan.progress.phase}
+                          </p>
+                        </>
+                      )}
                     </div>
                     <div className="rounded-lg border p-3">
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Methods</p>
@@ -995,6 +1039,8 @@ export default function DiscoveryPage() {
                               allowFreeText
                               clearable
                               placeholder="Enter new or check existing IDs..."
+                              triggerAriaLabel="Node ID override"
+                              searchAriaLabel="Search node IDs"
                             />
                           </div>
                           <div className="space-y-2">
@@ -1059,17 +1105,22 @@ export default function DiscoveryPage() {
                         </div>
 
                         <div className="flex flex-wrap gap-2">
-                          <Button
-                            onClick={() => handleApprove(true)}
-                            disabled={selectedDevice.status !== 'pending' || approveDiscovery.isPending}
-                          >
-                            {approveDiscovery.isPending ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="mr-2 h-4 w-4" />
-                            )}
-                            Register Node
-                          </Button>
+                          <PermissionGate permissions={['nodes:create']}>
+                            <Button
+                              onClick={handleRegister}
+                              disabled={
+                                !['pending', 'approved'].includes(selectedDevice.status) ||
+                                registerDiscovery.isPending
+                              }
+                            >
+                              {registerDiscovery.isPending ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="mr-2 h-4 w-4" />
+                              )}
+                              Register Node
+                            </Button>
+                          </PermissionGate>
                           <Button
                             variant="outline"
                             onClick={() => handleApprove(false)}
@@ -1192,49 +1243,98 @@ export default function DiscoveryPage() {
       <Dialog open={scanDialogOpen} onOpenChange={setScanDialogOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Start Delegated Scan</DialogTitle>
+            <DialogTitle>Start Discovery Scan</DialogTitle>
             <DialogDescription>
-              Discovery scans run through a max-tier agent so Hydra can inspect the target subnet and return evidence-rich results.
+              Scan subnets using the API server directly (TCP connect probing) or delegate to a max-tier agent for richer evidence collection.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 py-2">
             <div className="space-y-2">
-              <Label>Target Subnet</Label>
-              <EntityCombobox
-                value={scanForm.subnet}
-                onValueChange={(val) =>
-                  setScanForm((current) => ({ ...current, subnet: val }))
-                }
-                items={networkCidrOptions}
-                allowFreeText
-                placeholder="Select network or enter CIDR (e.g. 192.168.1.0/24)..."
-              />
+              <div className="text-sm font-medium">Scan Mode</div>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setScanMode('api-direct')}
+                  aria-pressed={scanMode === 'api-direct'}
+                  className={`rounded-lg border p-3 text-left transition-colors ${
+                    scanMode === 'api-direct'
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                      : 'hover:bg-muted/50'
+                  }`}
+                >
+                  <p className="font-medium text-sm">API Direct</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Scan from the API server using TCP connect probes. No agent required.
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScanMode('agent-delegated')}
+                  aria-pressed={scanMode === 'agent-delegated'}
+                  className={`rounded-lg border p-3 text-left transition-colors ${
+                    scanMode === 'agent-delegated'
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                      : 'hover:bg-muted/50'
+                  }`}
+                >
+                  <p className="font-medium text-sm">Agent Delegated</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Delegate to a max-tier agent for ARP, banner grabbing, and protocol discovery.
+                  </p>
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">
-              <div className="text-sm font-medium">Delegated Scanner</div>
-              <Select
-                value={scanForm.delegateToNodeId || undefined}
-                onValueChange={(value) =>
-                  setScanForm((current) => ({ ...current, delegateToNodeId: value }))
-                }
-              >
-                <SelectTrigger aria-label="Delegated scanner">
-                  <SelectValue placeholder="Select a max-tier node" />
-                </SelectTrigger>
-                <SelectContent>
-                  {scanners.map((scanner) => (
-                    <SelectItem key={scanner.nodeId} value={scanner.nodeId}>
-                      {scanner.displayName} ({scanner.nodeId})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!scanners.length ? (
-                <p className="text-sm text-warning">No active max-tier scanners are available right now.</p>
-              ) : null}
+              <Label htmlFor="scan-target-subnet">Target Subnet</Label>
+              <EntityCombobox
+                triggerId="scan-target-subnet"
+                value={scanForm.subnet}
+                onValueChange={(val) => {
+                  // When selecting a network CIDR, also store the network ID
+                  const matchedNetwork = (networksData?.items ?? []).find(
+                    (n) => n.cidr === val
+                  );
+                  setScanForm((current) => ({
+                    ...current,
+                    subnet: val,
+                    networkId: matchedNetwork?.networkId ?? '',
+                  }));
+                }}
+                items={networkCidrOptions}
+                allowFreeText
+                placeholder="Select network or enter CIDR (e.g. 192.168.1.0/24)..."
+                triggerAriaLabel="Target subnet"
+                searchAriaLabel="Search network subnets"
+              />
             </div>
+
+            {scanMode === 'agent-delegated' && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Delegated Scanner</div>
+                <Select
+                  value={scanForm.delegateToNodeId || undefined}
+                  onValueChange={(value) =>
+                    setScanForm((current) => ({ ...current, delegateToNodeId: value }))
+                  }
+                >
+                  <SelectTrigger aria-label="Delegated scanner">
+                    <SelectValue placeholder="Select a max-tier node" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {scanners.map((scanner) => (
+                      <SelectItem key={scanner.nodeId} value={scanner.nodeId}>
+                        {scanner.displayName} ({scanner.nodeId})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!scanners.length ? (
+                  <p className="text-sm text-warning">No active max-tier scanners are available. Switch to API Direct mode or register an agent first.</p>
+                ) : null}
+              </div>
+            )}
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -1279,6 +1379,7 @@ export default function DiscoveryPage() {
                   <Switch
                     checked={scanForm.methods[option.value]}
                     onCheckedChange={(checked) => handleMethodToggle(option.value, checked)}
+                    aria-label={`${option.label} scan method`}
                   />
                 </div>
               ))}
@@ -1294,6 +1395,7 @@ export default function DiscoveryPage() {
                 onCheckedChange={(checked) =>
                   setScanForm((current) => ({ ...current, includeIoTProtocols: checked }))
                 }
+                aria-label="Include IoT protocols"
               />
             </div>
           </div>
@@ -1302,9 +1404,15 @@ export default function DiscoveryPage() {
             <Button variant="outline" onClick={() => setScanDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleStartScan} disabled={startScan.isPending || !scanners.length}>
+            <Button
+              onClick={handleStartScan}
+              disabled={
+                startScan.isPending ||
+                (scanMode === 'agent-delegated' && !scanners.length)
+              }
+            >
               {startScan.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Radar className="mr-2 h-4 w-4" />}
-              Queue Scan
+              {scanMode === 'api-direct' ? 'Start Scan' : 'Queue Scan'}
             </Button>
           </DialogFooter>
         </DialogContent>
