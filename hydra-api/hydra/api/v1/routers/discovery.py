@@ -32,6 +32,7 @@ from hydra.api.v1.models.discovery import (
     RegisterDeviceRequest,
     RegisterDeviceResponse,
     RejectDeviceRequest,
+    ResolveMacRequest,
     ScanDiffResponse,
     ScanListParams,
     ScanResponse,
@@ -180,6 +181,38 @@ async def submit_scan_results(
     """Submit scan results."""
     scan = await service.submit_scan_results(scan_id, request)
     return SuccessResponse(data=ScanResponse(**scan))
+
+
+@router.delete(
+    "/scans/{scan_id}",
+    response_model=SuccessResponse[dict[str, str | bool | int]],
+    response_model_by_alias=True,
+    summary="Delete Scan",
+    description=(
+        "Hard-delete a scan record. When ``cascade=true`` is set, also "
+        "delete every unregistered discovery produced by that scan. "
+        "Registered discoveries (already promoted to nodes) are preserved."
+    ),
+    dependencies=[Depends(require_permission("discovery:configure"))],
+)
+async def delete_scan(
+    scan_id: str,
+    service: DiscoveryServiceDep,
+    user: CurrentUser,
+    cascade: bool = Query(
+        default=False,
+        description="Also delete unregistered discoveries produced by this scan",
+    ),
+) -> SuccessResponse[dict[str, str | bool | int]]:
+    """Permanently delete a scan, optionally cascading to its discoveries."""
+    result = await service.delete_scan(scan_id, user_id=user["userId"], cascade=cascade)
+    return SuccessResponse(
+        data={
+            "deleted": True,
+            "scanId": scan_id,
+            "cascadeDeleted": result.get("cascadeDeleted", 0),
+        },
+    )
 
 
 # ── Scan Diff ───────────────────────────────────────────────────────────
@@ -381,6 +414,30 @@ async def register_device(
     return SuccessResponse(data=RegisterDeviceResponse(**result))
 
 
+@router.delete(
+    "/devices/{discovery_id}",
+    response_model=SuccessResponse[dict[str, str | bool]],
+    response_model_by_alias=True,
+    summary="Delete Discovered Device",
+    description=(
+        "Hard-delete a discovery record from the database. Unlike dismiss "
+        "(soft delete), this removes the entry entirely so the next scan "
+        "re-discovers the device from scratch."
+    ),
+    dependencies=[Depends(require_permission("discovery:dismiss"))],
+)
+async def delete_discovery(
+    discovery_id: str,
+    service: DiscoveryServiceDep,
+    user: CurrentUser,
+) -> SuccessResponse[dict[str, str | bool]]:
+    """Permanently delete a discovered device."""
+    await service.delete_discovery(discovery_id, user_id=user["userId"])
+    return SuccessResponse(
+        data={"deleted": True, "discoveryId": discovery_id},
+    )
+
+
 @router.post(
     "/devices/{discovery_id}/dismiss",
     response_model=SuccessResponse[DiscoveredDeviceResponse],
@@ -403,6 +460,36 @@ async def dismiss_discovery(
         permanent=request.permanent,
     )
     return SuccessResponse(data=DiscoveredDeviceResponse(**device))
+
+
+# ── MAC Resolution ──────────────────────────────────────────────────────
+
+
+@router.post(
+    "/devices/_resolve-mac",
+    response_model=SuccessResponse[DiscoveredDeviceResponse | None],
+    response_model_by_alias=True,
+    summary="Submit MAC Resolution",
+    description=(
+        "Agent-submitted MAC for an IP-only discovery. Rekeys the discovery "
+        "from disc::ip::* to disc::mac::* (or merges into the existing MAC "
+        "record). See spec §2.4.3."
+    ),
+    dependencies=[Depends(require_permission("discovery:scan"))],
+)
+async def submit_mac_resolution(
+    request: ResolveMacRequest,
+    service: DiscoveryServiceDep,
+) -> SuccessResponse[DiscoveredDeviceResponse | None]:
+    """Apply an agent-reported MAC to an existing IP-only discovery."""
+    result = await service.submit_mac_resolution(
+        ip=request.ip,
+        mac=request.mac,
+        network_id=request.network_id,
+    )
+    return SuccessResponse(
+        data=DiscoveredDeviceResponse(**result) if result else None,
+    )
 
 
 # ── Exclusions ──────────────────────────────────────────────────────────

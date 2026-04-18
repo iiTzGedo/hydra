@@ -6,6 +6,7 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 
 from hydra.api.v1.core.deps import MongoDBDep, require_permission
+from hydra.api.v1.core.model_factory import safe_materialize_many
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.query import AuditAction
 from hydra.api.v1.models.services import (
@@ -105,7 +106,9 @@ async def list_services(
     services, total = await services_service.list_services(params)
 
     return SuccessResponse(
-        data=[ServiceSummary(**service) for service in services],
+        data=safe_materialize_many(
+            ServiceSummary, services, context="services_list", id_field="serviceId",
+        ),
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
 
@@ -134,7 +137,12 @@ async def list_known_services(
     )
 
     return SuccessResponse(
-        data=[KnownServiceResponse(**item) for item in results],
+        data=safe_materialize_many(
+            KnownServiceResponse,
+            results,
+            context="known_services_list",
+            id_field="knownServiceId",
+        ),
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
 
@@ -336,6 +344,11 @@ async def get_node_services(
     )
 
     return SuccessResponse(
-        data=[ServiceSummary(**service) for service in services],
+        data=safe_materialize_many(
+            ServiceSummary,
+            services,
+            context="node_services_list",
+            id_field="serviceId",
+        ),
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )

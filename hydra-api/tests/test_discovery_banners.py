@@ -7,16 +7,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from hydra.api.v1.services.discovery.banners import (
+    _SNMP_SYSDESCR_OID,
     _build_mqtt_connect,
     _build_snmp_get,
     _parse_snmp_response,
-    _SNMP_SYSDESCR_OID,
     grab_banners,
     grab_http_banner,
     grab_mqtt_banner,
     grab_ssh_banner,
 )
-
 
 # ── SNMP PDU Construction ────────────────────────────────────────────
 

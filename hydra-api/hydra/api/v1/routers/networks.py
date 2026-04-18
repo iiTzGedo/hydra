@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 import structlog
 from fastapi import APIRouter, Depends, Query
 
+from hydra.api.v1.core.model_factory import safe_materialize_many
+
 from hydra.api.v1.core.deps import CurrentUser, MongoDBDep, require_permission
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.networks import (
@@ -91,7 +93,12 @@ async def list_networks(
     networks, total = await networks_service.list_networks(params)
 
     return SuccessResponse(
-        data=[NetworkSummary(**network) for network in networks],
+        data=safe_materialize_many(
+            NetworkSummary,
+            networks,
+            context="networks_list",
+            id_field="networkId",
+        ),
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
 
@@ -270,4 +277,8 @@ async def get_network_nodes(
         HTTPException 403: Insufficient permissions.
     """
     nodes = await networks_service.get_network_nodes(network_id)
-    return SuccessResponse(data=[NetworkNodeInfo(**node) for node in nodes])
+    return SuccessResponse(
+        data=safe_materialize_many(
+            NetworkNodeInfo, nodes, context="network_nodes", id_field="nodeId",
+        ),
+    )

@@ -173,3 +173,22 @@ class ExclusionListParams(BaseModel):
 
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
+
+
+class ResolveMacRequest(BaseModel):
+    """Agent-submitted MAC resolution result for an IP-only discovery."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    ip: str = Field(min_length=7, max_length=15, description="IPv4 address")
+    mac: str = Field(
+        min_length=11,
+        max_length=17,
+        description="Resolved MAC address (any case/separator)",
+    )
+    network_id: str = Field(alias="networkId", description="Network the IP lives on")
+    source_node_id: str | None = Field(
+        alias="sourceNodeId",
+        default=None,
+        description="Agent node that performed the resolution",
+    )

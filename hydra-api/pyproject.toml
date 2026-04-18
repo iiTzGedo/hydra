@@ -21,6 +21,9 @@ dependencies = [
     "aiosmtplib>=3.0.0",
     "minio>=7.2.0",
     "PyYAML>=6.0.0",
+    "psutil>=5.9.0",
+    "scapy>=2.5.0",
+    "mac-vendor-lookup>=0.1.12",
 ]
 
 [project.optional-dependencies]
@@ -72,6 +75,9 @@ known-first-party = ["hydra"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --cov=hydra --cov-report=term-missing --cov-fail-under=60"
+markers = [
+    "perf: marks performance benchmarks (skipped unless RUN_PERF_TESTS=1)",
+]
 
 [tool.mypy]
 python_version = "3.12"
@@ -85,7 +91,7 @@ init_forbid_extra = true
 init_typed = true
 
 [[tool.mypy.overrides]]
-module = ["motor.*", "minio.*", "aiosmtplib.*"]
+module = ["motor.*", "minio.*", "aiosmtplib.*", "scapy.*", "mac_vendor_lookup.*", "psutil.*"]
 ignore_missing_imports = true
 
 [dependency-groups]

@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import struct
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from hydra.api.v1.services.discovery.protocols import (
     MdnsResult,
     ProtocolDiscoveryResults,
-    SsdpResult,
     SnmpDeviceResult,
+    SsdpResult,
     _parse_dns_name,
     _parse_dns_txt,
     _parse_lldp_frame,
@@ -19,7 +19,6 @@ from hydra.api.v1.services.discovery.protocols import (
     discover_lldp,
     run_protocol_discovery,
 )
-
 
 # ── DNS Parsing ──────────────────────────────────────────────────────
 

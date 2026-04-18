@@ -48,6 +48,16 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     # Ensure indexes
     await ensure_indexes(mongodb.db)
 
+    # Heal known enum-drift in legacy MongoDB documents BEFORE any list
+    # endpoint becomes reachable. Idempotent — safe to run every boot.
+    from hydra.db.migrations import heal_enum_drift
+    await heal_enum_drift(mongodb.db)
+
+    # Seed Network records from local host interfaces (spec §2.2.1).
+    # Failures here must not abort startup.
+    from hydra.api.v1.services.discovery.host_interfaces import introspect_and_seed
+    await introspect_and_seed(mongodb.db)
+
     # Seed built-in command definitions
     from hydra.api.v1.services.commands.registry import CommandRegistryService
     registry_service = CommandRegistryService(mongodb)

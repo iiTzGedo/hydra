@@ -8,6 +8,7 @@ Each grabber returns a banner string or ``None`` on timeout/failure.
 from __future__ import annotations
 
 import asyncio
+import re
 import socket
 import struct
 from typing import Any
@@ -326,15 +327,67 @@ async def grab_mqtt_banner(
         return None
 
 
+_HTTP_TITLE_TAG_RE = re.compile(
+    rb"<title[^>]*>([^<]+)</title>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+async def _http_get_title(
+    host: str,
+    port: int,
+    timeout: float,
+) -> str | None:
+    """GET / and pull the first ``<title>`` value, if any.
+
+    Caps the read at 8 KiB so a giant SPA payload can't hang the scanner.
+    """
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port),
+            timeout=timeout,
+        )
+        try:
+            request = (
+                f"GET / HTTP/1.0\r\n"
+                f"Host: {host}\r\n"
+                f"Accept: text/html\r\n"
+                f"Connection: close\r\n"
+                f"\r\n"
+            )
+            writer.write(request.encode())
+            await writer.drain()
+            body = await asyncio.wait_for(reader.read(8192), timeout=timeout)
+        finally:
+            writer.close()
+            await writer.wait_closed()
+    except (OSError, TimeoutError, ConnectionRefusedError, ConnectionResetError):
+        return None
+
+    match = _HTTP_TITLE_TAG_RE.search(body)
+    if not match:
+        return None
+    try:
+        title = match.group(1).decode("utf-8", errors="replace").strip()
+    except (UnicodeDecodeError, AttributeError):
+        return None
+    # Collapse internal whitespace (titles often span lines).
+    title = " ".join(title.split())
+    return title or None
+
+
 async def grab_http_banner(
     host: str,
     port: int,
     timeout: float = 2.0,
 ) -> str | None:
-    """Send an HTTP HEAD request and extract the Server header.
+    """Send an HTTP HEAD request, extract the Server header and `<title>`.
 
-    Falls back to the status line if no Server header is present.
+    Returns a semicolon-separated banner string with `server=...` and
+    optionally `; title=...`. Falls back to the status line if no Server
+    header is present.
     """
+    server: str | None = None
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port),
@@ -356,17 +409,28 @@ async def grab_http_banner(
             text = response.decode("utf-8", errors="replace")
             for line in text.split("\r\n"):
                 if line.lower().startswith("server:"):
-                    return line.split(":", 1)[1].strip()
-            # Fallback: return status line
-            first_line = text.split("\r\n", 1)[0]
-            if first_line.startswith("HTTP/"):
-                return first_line
-            return None
+                    server = line.split(":", 1)[1].strip()
+                    break
+            if server is None:
+                # Fallback: status line provides a coarse identity hint
+                first_line = text.split("\r\n", 1)[0]
+                if first_line.startswith("HTTP/"):
+                    server = first_line
         finally:
             writer.close()
             await writer.wait_closed()
     except (OSError, TimeoutError, ConnectionRefusedError, ConnectionResetError):
-        return None
+        server = None
+
+    title = await _http_get_title(host, port, timeout)
+
+    if server and title:
+        return f"server={server}; title={title}"
+    if server:
+        return server
+    if title:
+        return f"title={title}"
+    return None
 
 
 # ── HTTP Ports ───────────────────────────────────────────────────────

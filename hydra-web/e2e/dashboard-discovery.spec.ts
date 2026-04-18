@@ -485,6 +485,27 @@ test.describe('Dashboard and Discovery', () => {
       });
     });
 
+    // The Register Node button now uses the dedicated `/register` endpoint
+    // (spec §2.7.5). Historically it multiplexed through `/approve`.
+    await page.route('**/api/v1/discovery/devices/disc-e2e/register', async (route) => {
+      device.status = 'registered';
+      device.matchedNodeId = 'edge-router-01';
+
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          apiResponse({
+            nodeId: 'edge-router-01',
+            registeredBy: 'user-001',
+            registeredAt: '2026-04-06T00:05:00Z',
+            status: 'registered',
+            fromDiscovery: 'disc-e2e',
+          }),
+        ),
+      });
+    });
+
     await page.route('**/api/v1/discovery/devices/disc-e2e', async (route) => {
       await route.fulfill({
         status: 200,

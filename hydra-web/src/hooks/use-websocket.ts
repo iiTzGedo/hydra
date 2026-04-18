@@ -309,7 +309,10 @@ export function useWebSocket(options: UseWebSocketOptions): UseWebSocketReturn {
         };
 
         ws.onerror = (event) => {
-          wsDebug.error('Connection error', event);
+          // Use warn (not error) — connection errors are expected during
+          // normal operation (reconnects, transient network drops) and
+          // should not trigger Next.js's dev error overlay.
+          wsDebug.warn('Connection error', event);
         };
 
         ws.onmessage = (event) => {

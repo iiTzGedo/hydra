@@ -13,9 +13,12 @@ import {
   Server,
   ShieldCheck,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 import {
   useApproveDiscovery,
+  useDeleteDiscovery,
+  useDeleteDiscoveryScan,
   useDiscoveryDevice,
   useDiscoveryDevices,
   useDiscoveryScan,
@@ -28,6 +31,7 @@ import {
 } from '@/api/discovery';
 import { InstallDialog } from './components/install-dialog';
 import { InstallProgress } from './components/install-progress';
+import { useDiscoveryScanStream } from '@/hooks/use-discovery-scan-stream';
 import { useNetworks } from '@/api/networks';
 import { useNodes } from '@/api/nodes';
 import { PermissionGate } from '@/components/auth/permission-gate';
@@ -35,6 +39,16 @@ import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -294,6 +308,14 @@ export default function DiscoveryPage() {
   const { data: selectedScan } = useDiscoveryScan(selectedScanId);
   const { data: selectedDevice } = useDiscoveryDevice(selectedDeviceId);
 
+  // Spec §2.7.2 — open the WS stream for API-direct scans only.
+  // Agent-delegated scans rely on the existing 3s polling in useDiscoveryScan.
+  useDiscoveryScanStream({
+    scanId: selectedScanId,
+    delegateToNodeId: selectedScan?.delegateToNodeId,
+    status: selectedScan?.status,
+  });
+
   useEffect(() => {
     if (!selectedDevice) {
       return;
@@ -312,6 +334,18 @@ export default function DiscoveryPage() {
   const registerDiscovery = useRegisterDiscovery(selectedDeviceId);
   const rejectDiscovery = useRejectDiscovery(selectedDeviceId);
   const dismissDiscovery = useDismissDiscovery(selectedDeviceId);
+  const deleteDiscovery = useDeleteDiscovery();
+  const deleteScan = useDeleteDiscoveryScan();
+
+  // Confirmation state for destructive actions. Keeping both delete flows in
+  // one place makes it easy to reason about concurrent dialogs.
+  const [deviceDeleteTargetId, setDeviceDeleteTargetId] = useState<string | null>(null);
+  const [scanDeleteTarget, setScanDeleteTarget] = useState<{
+    scanId: string;
+    status: string;
+    discoveryCount: number;
+  } | null>(null);
+  const [scanDeleteCascade, setScanDeleteCascade] = useState(false);
 
   const stats = useMemo(() => {
     const pendingScans = scans.filter((scan) => scan.status === 'pending' || scan.status === 'running').length;
@@ -472,6 +506,47 @@ export default function DiscoveryPage() {
     }
   };
 
+  const handleDeleteDevice = async () => {
+    if (!deviceDeleteTargetId) {
+      return;
+    }
+    const target = devices.find((d) => d.discoveryId === deviceDeleteTargetId);
+    const label = target ? deviceLabel(target) : deviceDeleteTargetId;
+    try {
+      await deleteDiscovery.mutateAsync(deviceDeleteTargetId);
+      if (selectedDeviceId === deviceDeleteTargetId) {
+        setSelectedDeviceId(null);
+      }
+      setDeviceDeleteTargetId(null);
+      toast.success(`Deleted discovery ${label}.`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to delete discovery.'));
+    }
+  };
+
+  const handleDeleteScan = async () => {
+    if (!scanDeleteTarget) {
+      return;
+    }
+    try {
+      const result = await deleteScan.mutateAsync({
+        scanId: scanDeleteTarget.scanId,
+        cascade: scanDeleteCascade,
+      });
+      if (selectedScanId === scanDeleteTarget.scanId) {
+        setSelectedScanId(null);
+      }
+      setScanDeleteTarget(null);
+      setScanDeleteCascade(false);
+      const cascadeSuffix = result.cascadeDeleted
+        ? ` (${result.cascadeDeleted} ${result.cascadeDeleted === 1 ? 'discovery' : 'discoveries'} removed)`
+        : '';
+      toast.success(`Deleted scan ${scanDeleteTarget.scanId}${cascadeSuffix}.`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to delete scan.'));
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeaderLayout
@@ -528,6 +603,7 @@ export default function DiscoveryPage() {
                         <TableHead>Progress</TableHead>
                         <TableHead>Results</TableHead>
                         <TableHead>Started</TableHead>
+                        <TableHead className="w-12 text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -564,6 +640,34 @@ export default function DiscoveryPage() {
                           <TableCell>{scan.resultCount}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {scan.startedAt ? formatRelativeTime(scan.startedAt) : 'Queued'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <PermissionGate permissions={['discovery:configure']}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Delete scan ${scan.scanId}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setScanDeleteTarget({
+                                    scanId: scan.scanId,
+                                    status: scan.status,
+                                    discoveryCount: scan.resultCount,
+                                  });
+                                  setScanDeleteCascade(false);
+                                }}
+                                disabled={
+                                  scan.status === 'running' || scan.status === 'pending'
+                                }
+                                title={
+                                  scan.status === 'running' || scan.status === 'pending'
+                                    ? 'Cannot delete an in-flight scan'
+                                    : 'Delete this scan'
+                                }
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </PermissionGate>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -775,6 +879,7 @@ export default function DiscoveryPage() {
                         <TableHead>Status</TableHead>
                         <TableHead>Evidence</TableHead>
                         <TableHead>Last Seen</TableHead>
+                        <TableHead className="w-12 text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -787,7 +892,14 @@ export default function DiscoveryPage() {
                         >
                           <TableCell>
                             <div className="space-y-1">
-                              <div className="font-medium">{deviceLabel(device)}</div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{deviceLabel(device)}</span>
+                                {device.identity.hostname && device.identity.hostnameSources?.[0] && (
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {device.identity.hostnameSources[0]}
+                                  </Badge>
+                                )}
+                              </div>
                               <div className="text-xs text-muted-foreground">
                                 {device.identity.currentIp}
                                 {device.identity.macVendor ? ` • ${device.identity.macVendor}` : device.rawEvidence?.macOui ? ` • ${device.rawEvidence.macOui}` : ''}
@@ -814,6 +926,23 @@ export default function DiscoveryPage() {
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {formatRelativeTime(device.lastSeen)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <PermissionGate permissions={['discovery:dismiss']}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Delete discovery ${deviceLabel(device)}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeviceDeleteTargetId(device.discoveryId);
+                                }}
+                                disabled={deleteDiscovery.isPending}
+                                title="Permanently delete this discovery"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </PermissionGate>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -849,6 +978,37 @@ export default function DiscoveryPage() {
                     <span className="text-sm text-muted-foreground">
                       Seen {selectedDevice.seenCount} time{selectedDevice.seenCount === 1 ? '' : 's'}
                     </span>
+                  </div>
+
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Identity</p>
+                    <div className="mt-2 grid gap-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Hostname</span>
+                        {selectedDevice.identity.hostname ? (
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{selectedDevice.identity.hostname}</span>
+                            {selectedDevice.identity.hostnameSources?.map((source) => (
+                              <Badge key={source} variant="outline" className="text-xs">
+                                {source}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">Not resolved</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">IP</span>
+                        <span className="font-mono text-xs">{selectedDevice.identity.currentIp}</span>
+                      </div>
+                      {selectedDevice.identity.primaryMac && (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">MAC</span>
+                          <span className="font-mono text-xs">{selectedDevice.identity.primaryMac}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -1143,6 +1303,7 @@ export default function DiscoveryPage() {
                                 selectedDevice.status !== 'approved') ||
                               dismissDiscovery.isPending
                             }
+                            title="Mark as dismissed — discovery remains in the database; next scan will re-find it."
                           >
                             Dismiss
                           </Button>
@@ -1156,6 +1317,15 @@ export default function DiscoveryPage() {
                           >
                             <Download className="mr-2 h-4 w-4" />
                             Install Agent
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            onClick={() => setDeviceDeleteTargetId(selectedDevice.discoveryId)}
+                            disabled={deleteDiscovery.isPending}
+                            title="Permanently remove this discovery record from the database."
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
                           </Button>
                         </div>
                       </div>
@@ -1417,6 +1587,93 @@ export default function DiscoveryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Confirm delete — single discovery */}
+      <AlertDialog
+        open={deviceDeleteTargetId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeviceDeleteTargetId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this discovery?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The record is permanently removed from the database. If the device is still on the
+              network, the next scan will re-discover it as a new pending entry.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteDiscovery.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteDevice}
+              disabled={deleteDiscovery.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteDiscovery.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirm delete — scan (with cascade option) */}
+      <AlertDialog
+        open={scanDeleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setScanDeleteTarget(null);
+            setScanDeleteCascade(false);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this scan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {scanDeleteTarget
+                ? `${scanDeleteTarget.scanId} (${scanDeleteTarget.status}) — ${scanDeleteTarget.discoveryCount} discoveries produced.`
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <label className="flex items-start gap-3 rounded-md border p-3 text-sm">
+            <input
+              type="checkbox"
+              checked={scanDeleteCascade}
+              onChange={(e) => setScanDeleteCascade(e.target.checked)}
+              className="mt-0.5 h-4 w-4"
+              aria-label="Also delete unregistered discoveries from this scan"
+            />
+            <span>
+              <span className="font-medium">Also delete unregistered discoveries from this scan.</span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Registered discoveries (already promoted to nodes) are always preserved.
+              </span>
+            </span>
+          </label>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteScan.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteScan}
+              disabled={deleteScan.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteScan.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

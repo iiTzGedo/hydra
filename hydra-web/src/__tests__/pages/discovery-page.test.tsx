@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const useDiscoveryScansMock = vi.fn();
@@ -11,6 +11,8 @@ const approveDiscoveryMock = vi.fn();
 const registerDiscoveryMock = vi.fn();
 const rejectDiscoveryMock = vi.fn();
 const dismissDiscoveryMock = vi.fn();
+const deleteDiscoveryMock = vi.fn();
+const deleteScanMock = vi.fn();
 const useNodesMock = vi.fn();
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -37,6 +39,14 @@ vi.mock('@/api/discovery', () => ({
   }),
   useDismissDiscovery: () => ({
     mutateAsync: dismissDiscoveryMock,
+    isPending: false,
+  }),
+  useDeleteDiscovery: () => ({
+    mutateAsync: deleteDiscoveryMock,
+    isPending: false,
+  }),
+  useDeleteDiscoveryScan: () => ({
+    mutateAsync: deleteScanMock,
     isPending: false,
   }),
   useInstallations: () => ({ data: undefined, isLoading: false }),
@@ -248,6 +258,15 @@ describe('Discovery Page', () => {
       ...discoveryDevice,
       status: 'dismissed',
     });
+    deleteDiscoveryMock.mockResolvedValue({
+      deleted: true,
+      discoveryId: 'disc-001',
+    });
+    deleteScanMock.mockResolvedValue({
+      deleted: true,
+      scanId: 'scan-001',
+      cascadeDeleted: 2,
+    });
     setupPage();
   });
 
@@ -311,6 +330,93 @@ describe('Discovery Page', () => {
       class: undefined,
       tags: ['edge', 'switching'],
       overrideClassification: false,
+    });
+  });
+
+  it('deletes a discovery through the confirmation dialog', async () => {
+    const user = userEvent.setup();
+    renderWithRoute(<DiscoveryPage />, {
+      path: ROUTES.DISCOVERY,
+      route: ROUTES.DISCOVERY,
+    });
+
+    await user.click(screen.getByRole('tab', { name: /discoveries/i }));
+    await user.click(
+      await screen.findByRole('button', { name: /delete discovery edge-switch/i }),
+    );
+
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: /^delete$/i }));
+
+    await waitFor(() => expect(deleteDiscoveryMock).toHaveBeenCalledTimes(1));
+    expect(deleteDiscoveryMock).toHaveBeenCalledWith('disc-001');
+  });
+
+  it('cancel on the scan delete dialog leaves the scan intact', async () => {
+    // Scan must be in a terminal state for the delete button to be enabled.
+    useDiscoveryScansMock.mockReturnValue({
+      data: {
+        items: [{ ...scanSummary, status: 'completed' }],
+        total: 1,
+        limit: 12,
+        offset: 0,
+      },
+      isLoading: false,
+      error: null,
+    });
+
+    const user = userEvent.setup();
+    renderWithRoute(<DiscoveryPage />, {
+      path: ROUTES.DISCOVERY,
+      route: ROUTES.DISCOVERY,
+    });
+
+    await user.click(screen.getByRole('tab', { name: /scans/i }));
+    await user.click(
+      await screen.findByRole('button', { name: /delete scan scan-001/i }),
+    );
+
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: /^cancel$/i }));
+
+    expect(deleteScanMock).not.toHaveBeenCalled();
+  });
+
+  it('deletes a scan with cascade when the checkbox is ticked', async () => {
+    useDiscoveryScansMock.mockReturnValue({
+      data: {
+        items: [{ ...scanSummary, status: 'completed' }],
+        total: 1,
+        limit: 12,
+        offset: 0,
+      },
+      isLoading: false,
+      error: null,
+    });
+
+    const user = userEvent.setup();
+    renderWithRoute(<DiscoveryPage />, {
+      path: ROUTES.DISCOVERY,
+      route: ROUTES.DISCOVERY,
+    });
+
+    await user.click(screen.getByRole('tab', { name: /scans/i }));
+    await user.click(
+      await screen.findByRole('button', { name: /delete scan scan-001/i }),
+    );
+
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(
+      within(dialog).getByRole('checkbox', {
+        name: /also delete unregistered discoveries/i,
+      }),
+    );
+    await user.click(within(dialog).getByRole('button', { name: /^delete$/i }));
+
+    await waitFor(() => expect(deleteScanMock).toHaveBeenCalledTimes(1));
+    expect(deleteScanMock).toHaveBeenCalledWith({
+      scanId: 'scan-001',
+      cascade: true,
     });
   });
 });

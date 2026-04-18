@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
 
+from hydra.api.v1.core.model_factory import safe_materialize_many
 from hydra.api.v1.core.deps import (
     AuthServiceDep,
     CurrentUser,
@@ -123,7 +124,9 @@ async def list_nodes(
     nodes, total = await node_service.list_nodes(params)
 
     return SuccessResponse(
-        data=[NodeSummary(**node) for node in nodes],
+        data=safe_materialize_many(
+            NodeSummary, nodes, context="nodes_list", id_field="nodeId",
+        ),
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
 
@@ -298,7 +301,11 @@ async def get_node_children(
         HTTPException 403: Insufficient permissions.
     """
     children = await node_service.get_node_children(node_id)
-    return SuccessResponse(data=[NodeSummary(**child) for child in children])
+    return SuccessResponse(
+        data=safe_materialize_many(
+            NodeSummary, children, context="node_children", id_field="nodeId",
+        ),
+    )
 
 
 @router.get(

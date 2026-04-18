@@ -1,8 +1,14 @@
-"""API-direct network scanner using asyncio TCP connect probes.
+"""API-direct network scanner — TCP connect plus optional ARP/ICMP layers.
 
-Provides subnet scanning without requiring an agent — uses pure asyncio
-``open_connection`` calls with configurable concurrency and timeout.
-No ``CAP_NET_RAW`` or external libraries (scapy/nmap) needed.
+Layer 4 (TCP connect) works without elevated privileges. Layers 1
+(ARP scan, ICMP echo sweep) are optional: enabled when the requested
+``ScanMethod`` set includes them and the process holds ``CAP_NET_RAW``.
+When the capability is missing the scanner silently degrades to TCP-only
+and surfaces this through the returned ``capability_status``.
+
+``python-nmap`` is intentionally not used: the asyncio TCP scanner
+matches the spec §2.9.3 perf budget without requiring an external
+``nmap`` binary on every API host.
 """
 
 from __future__ import annotations
@@ -12,6 +18,17 @@ from ipaddress import IPv4Network, ip_network
 from typing import Any
 
 import structlog
+
+from hydra.api.v1.models.discovery.enums import ScanMethod
+from hydra.api.v1.services.discovery.capabilities import (
+    capability_status,
+    has_cap_net_raw,
+)
+from hydra.api.v1.services.discovery.layer1 import (
+    CapabilityError,
+    arp_scan,
+    icmp_sweep,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -67,11 +84,24 @@ async def _scan_host(
     ports: list[int],
     timeout: float,
     semaphore: asyncio.Semaphore,
+    *,
+    mac: str | None = None,
+    force_alive: bool = False,
 ) -> dict[str, Any] | None:
     """Scan a single host for open ports and grab banners.
 
-    Returns a result dict with ``ip``, ``openPorts``, and ``banners``
-    if any ports are open, else ``None``.
+    Args:
+        host: IPv4 address.
+        ports: Ports to probe.
+        timeout: Per-port TCP connect timeout.
+        semaphore: Bounds concurrent host scans.
+        mac: Pre-resolved MAC address from a Layer 1 scan, if any.
+        force_alive: When True (host known alive via ARP/ICMP), return a
+            result dict even if no TCP ports are open.
+
+    Returns a result dict with ``ip``, ``openPorts``, ``banners``, and
+    optional ``mac``; or ``None`` when the host appears down and was not
+    independently confirmed alive.
     """
     from .banners import grab_banners
 
@@ -80,17 +110,24 @@ async def _scan_host(
         results = await asyncio.gather(*tasks)
         open_ports = sorted(p for p in results if p is not None)
 
-        if not open_ports:
+        if not open_ports and not force_alive:
             return None
 
         # Grab protocol-specific banners from open ports
-        banners = await grab_banners(host, open_ports, timeout=min(timeout, 2.0))
+        banners = (
+            await grab_banners(host, open_ports, timeout=min(timeout, 2.0))
+            if open_ports
+            else {}
+        )
 
-        return {
+        result: dict[str, Any] = {
             "ip": host,
             "openPorts": open_ports,
             "banners": banners,
         }
+        if mac:
+            result["mac"] = mac
+        return result
 
 
 async def scan_subnet(
@@ -99,31 +136,52 @@ async def scan_subnet(
     port_tier: str = "tier1",
     concurrency: int = 64,
     port_timeout: float = 1.5,
-) -> list[dict[str, Any]]:
-    """Scan a subnet for hosts with open ports.
-
-    Uses asyncio TCP connect probing — no raw sockets or elevated
-    privileges required.
+    scan_methods: list[ScanMethod] | None = None,
+) -> dict[str, Any]:
+    """Scan a subnet, optionally combining Layer 1 (ARP/ICMP) + TCP probing.
 
     Args:
         cidr: Subnet in CIDR notation (e.g. ``192.168.1.0/24``).
         port_tier: ``tier1`` (~32 ports) or ``tier2`` (~100 ports).
         concurrency: Maximum concurrent connection attempts.
         port_timeout: Timeout in seconds per TCP connect attempt.
+        scan_methods: Methods to attempt. ``ARP`` and ``ICMP`` require
+            ``CAP_NET_RAW``; when missing they are silently skipped and
+            the result's ``capabilities`` block reflects the degradation.
+            Defaults to ``[TCP_PORT]`` for backward compatibility.
 
     Returns:
-        List of dicts with ``ip`` and ``openPorts`` for each alive host.
+        Dict with ``hosts`` (list of alive host dicts) and ``capabilities``
+        (privilege snapshot for the scan). Each host dict carries ``ip``,
+        ``openPorts``, ``banners`` and an optional ``mac`` (when ARP found one).
     """
     network = ip_network(cidr, strict=False)
 
     if not isinstance(network, IPv4Network):
         logger.warning("scanner.ipv6_not_supported", cidr=cidr)
-        return []
+        return {"hosts": [], "capabilities": capability_status()}
 
+    methods = set(scan_methods or [ScanMethod.TCP_PORT])
     ports = TIER1_PORTS if port_tier == "tier1" else TIER1_PORTS + TIER2_PORTS
-
-    # Enumerate hosts (skip network and broadcast addresses)
     hosts = [str(host) for host in network.hosts()]
+
+    # Layer 1: ARP scan for IP→MAC and host liveness
+    ip_to_mac: dict[str, str] = {}
+    if ScanMethod.ARP in methods and has_cap_net_raw():
+        try:
+            ip_to_mac = await arp_scan(cidr)
+        except (CapabilityError, OSError, ValueError) as exc:
+            logger.warning("scanner.arp_skipped", cidr=cidr, error=str(exc))
+
+    # Layer 1: ICMP echo sweep for additional liveness signal
+    icmp_alive: set[str] = set()
+    if ScanMethod.ICMP in methods and has_cap_net_raw():
+        try:
+            icmp_alive = await icmp_sweep(cidr)
+        except (CapabilityError, OSError, ValueError) as exc:
+            logger.warning("scanner.icmp_skipped", cidr=cidr, error=str(exc))
+
+    layer1_alive = set(ip_to_mac.keys()) | icmp_alive
 
     logger.info(
         "scanner.scan_started",
@@ -131,10 +189,22 @@ async def scan_subnet(
         host_count=len(hosts),
         port_count=len(ports),
         concurrency=concurrency,
+        methods=sorted(m.value for m in methods),
+        layer1_alive=len(layer1_alive),
     )
 
     semaphore = asyncio.Semaphore(concurrency)
-    tasks = [_scan_host(host, ports, port_timeout, semaphore) for host in hosts]
+    tasks = [
+        _scan_host(
+            host,
+            ports,
+            port_timeout,
+            semaphore,
+            mac=ip_to_mac.get(host),
+            force_alive=host in layer1_alive,
+        )
+        for host in hosts
+    ]
     results = await asyncio.gather(*tasks)
 
     alive_hosts = [r for r in results if r is not None]
@@ -146,4 +216,7 @@ async def scan_subnet(
         hosts_total=len(hosts),
     )
 
-    return alive_hosts
+    return {
+        "hosts": alive_hosts,
+        "capabilities": capability_status(),
+    }

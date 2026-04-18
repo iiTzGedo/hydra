@@ -17,6 +17,7 @@ class ScanMethod(StrEnum):
     """Network scanning methods."""
 
     ARP = "arp"
+    ICMP = "icmp"
     TCP_PORT = "tcp_port"
     MDNS = "mdns"
     SSDP = "ssdp"

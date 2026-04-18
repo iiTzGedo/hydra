@@ -42,10 +42,43 @@ from hydra.api.v1.services.commands.service import CommandsService
 from hydra.api.v1.services.discovery.eligibility import assess_eligibility
 from hydra.api.v1.services.discovery.exclusions import ExclusionService
 from hydra.api.v1.services.discovery.fingerprint import FingerprintService
+from hydra.api.v1.services.discovery.hostname_resolver import resolve_hostname
+from hydra.api.v1.services.discovery.mac_resolver import (
+    migrate_ip_to_mac,
+    resolve_mac,
+)
 from hydra.api.v1.services.docs import DocsService
 from hydra.db.mongodb import MongoDB
 
 logger = structlog.get_logger(__name__)
+
+
+# ── Hostname Source Priority ──────────────────────────────────────────
+
+# Lower rank = more authoritative. Used to decide whether a new probe's
+# hostname should overwrite the previously stored one.
+_HOSTNAME_SOURCE_PRIORITY: dict[str, int] = {
+    "mdns": 0,
+    "snmp": 1,
+    "netbios": 2,
+    "http-title": 3,
+    "ssh-banner": 4,
+    "dns-reverse": 5,
+}
+
+
+def _hostname_source_rank(sources: list[str] | None) -> int:
+    """Return the best (lowest) priority rank present in a sources list.
+
+    Unknown or empty source lists rank lowest of all (highest int value)
+    so any populated probe wins on a previously empty record.
+    """
+    if not sources:
+        return 99
+    return min(
+        _HOSTNAME_SOURCE_PRIORITY.get(s, 99)
+        for s in sources
+    )
 
 
 # ── Discovery ID Generation ───────────────────────────────────────────
@@ -339,6 +372,7 @@ class DiscoveryService:
             hosts_scanned = 0
             now = datetime.now(UTC)
 
+            scan_capabilities: dict[str, Any] = {}
             for target in request.targets:
                 if not target.subnet:
                     continue
@@ -346,13 +380,18 @@ class DiscoveryService:
                 subnet_results = await scan_subnet(
                     target.subnet,
                     port_tier=request.options.port_tier,
+                    scan_methods=request.options.methods,
                 )
+                subnet_hosts = subnet_results["hosts"]
+                scan_capabilities = subnet_results["capabilities"]
 
-                for host in subnet_results:
+                for host in subnet_hosts:
                     host_banners = host.get("banners", {})
+                    host_mac = host.get("mac")
+                    method_used = "arp" if host_mac else "tcp_port"
                     device_data: dict[str, Any] = {
                         "identity": {
-                            "primaryMac": None,
+                            "primaryMac": host_mac,
                             "currentIp": host["ip"],
                             "hostname": None,
                         },
@@ -362,7 +401,7 @@ class DiscoveryService:
                         "probe": {
                             "scannedBy": "api",
                             "scannedAt": now,
-                            "method": "tcp_port",
+                            "method": method_used,
                         },
                         "rawEvidence": {
                             "banners": host_banners,
@@ -377,6 +416,7 @@ class DiscoveryService:
                     await self._publish_scan_event(scan_id, "device_found", {
                         "ip": host["ip"],
                         "openPorts": host["openPorts"],
+                        "mac": host_mac,
                     })
 
                 # Update progress after each target subnet
@@ -428,16 +468,45 @@ class DiscoveryService:
                 by_ip = proto_results.results_by_ip()
                 for ip, proto_data in by_ip.items():
                     protocols_list = list(proto_data.keys())
+
+                    # Re-resolve hostname now that mDNS/SNMP/LLDP details are
+                    # available — these are higher-priority sources than TCP
+                    # banners alone.
+                    proto_hostname, proto_sources = await resolve_hostname(
+                        ip=ip,
+                        protocol_details=proto_data,
+                        do_dns_reverse=False,  # Already attempted at create time
+                    )
+
+                    update_doc: dict[str, Any] = {
+                        "$set": {
+                            "rawEvidence.protocolDetails": proto_data,
+                        },
+                        "$addToSet": {
+                            "protocols": {"$each": protocols_list},
+                        },
+                    }
+                    if proto_hostname:
+                        existing_dev = await self.devices.find_one(
+                            {"identity.currentIp": ip},
+                            {"identity.hostname": 1, "identity.hostnameSources": 1},
+                        )
+                        existing_sources = (
+                            existing_dev.get("identity", {}).get("hostnameSources", [])
+                            if existing_dev else []
+                        )
+                        new_source_values = [s.value for s in proto_sources]
+                        if not existing_dev or _hostname_source_rank(
+                            new_source_values
+                        ) <= _hostname_source_rank(existing_sources):
+                            update_doc["$set"]["identity.hostname"] = proto_hostname
+                            update_doc["$set"]["identity.hostnameSources"] = sorted(
+                                set(existing_sources) | set(new_source_values),
+                            )
+
                     await self.devices.update_one(
                         {"identity.currentIp": ip},
-                        {
-                            "$set": {
-                                "rawEvidence.protocolDetails": proto_data,
-                            },
-                            "$addToSet": {
-                                "protocols": {"$each": protocols_list},
-                            },
-                        },
+                        update_doc,
                     )
 
                     # Create device entries for hosts found only via protocol
@@ -493,11 +562,13 @@ class DiscoveryService:
                         "progress.percentComplete": 100.0,
                         "progress.hostsScanned": hosts_total,
                         "progress.hostsAlive": len(all_results),
+                        "capabilities": scan_capabilities,
                     }
                 },
             )
             await self._publish_scan_event(scan_id, "scan_complete", {
                 "summary": summary,
+                "capabilities": scan_capabilities,
             })
 
             # Update scanConfig on scanned networks
@@ -667,6 +738,41 @@ class DiscoveryService:
         logger.info("discovery.scan_completed", scan_id=scan_id)
         return updated
 
+    # ── Hostname helpers ───────────────────────────────────────────────
+
+    async def _resolve_device_hostname(
+        self,
+        device_data: dict[str, Any],
+        *,
+        do_dns_reverse: bool,
+    ) -> tuple[str | None, list[str]]:
+        """Pick a hostname for the device from probe + protocol evidence.
+
+        Returns ``(hostname, source_values)`` where ``source_values`` is a
+        list of ``HostnameSource.value`` strings ready to persist.
+        ``do_dns_reverse`` is gated by the caller — agent-submitted scans
+        skip the PTR call because the API host's DNS is not authoritative
+        for remote subnets.
+        """
+        identity = device_data.get("identity") or {}
+        raw_evidence = device_data.get("rawEvidence") or {}
+        banners = raw_evidence.get("banners") or {}
+        protocol_details = raw_evidence.get("protocolDetails") or {}
+
+        # If the caller already supplied a hostname (e.g. agent-side resolution),
+        # treat it as ground truth from the probing component.
+        seeded = identity.get("hostname")
+        if seeded:
+            return seeded, list({*identity.get("hostnameSources", [])})
+
+        chosen, sources = await resolve_hostname(
+            ip=identity.get("currentIp"),
+            banners=banners,
+            protocol_details=protocol_details,
+            do_dns_reverse=do_dns_reverse,
+        )
+        return chosen, [s.value for s in sources]
+
     # ── Device Upsert ──────────────────────────────────────────────────
 
     async def _upsert_device(
@@ -753,6 +859,25 @@ class DiscoveryService:
             if mac_vendor:
                 update_set["identity.macVendor"] = mac_vendor
 
+            # Hostname re-resolution: only overwrite if the new probe yielded a
+            # higher-priority source than what's already recorded (or if no
+            # hostname was previously known).
+            new_hostname, new_sources = await self._resolve_device_hostname(
+                device_data,
+                do_dns_reverse=device_data.get("probe", {}).get("scannedBy") == "api",
+            )
+            if new_hostname:
+                existing_identity = existing.get("identity", {})
+                existing_hostname = existing_identity.get("hostname")
+                existing_sources = existing_identity.get("hostnameSources", [])
+                if not existing_hostname or _hostname_source_rank(
+                    new_sources
+                ) <= _hostname_source_rank(existing_sources):
+                    update_set["identity.hostname"] = new_hostname
+                    update_set["identity.hostnameSources"] = sorted(
+                        set(existing_sources) | set(new_sources),
+                    )
+
             await self.devices.update_one(
                 match_query,
                 {
@@ -798,6 +923,12 @@ class DiscoveryService:
             ] if current_ip else []
             observed_macs = [primary_mac] if primary_mac else []
 
+            # Resolve the best hostname from probe + protocol evidence.
+            chosen_hostname, hostname_sources = await self._resolve_device_hostname(
+                device_data,
+                do_dns_reverse=device_data.get("probe", {}).get("scannedBy") == "api",
+            )
+
             # Populate identity with new fields
             enriched_identity: dict[str, Any] = {
                 **identity,
@@ -805,7 +936,8 @@ class DiscoveryService:
                 "macVendor": mac_vendor,
                 "macResolved": bool(primary_mac),
                 "observedIps": observed_ips,
-                "hostnameSources": [],
+                "hostname": chosen_hostname or identity.get("hostname"),
+                "hostnameSources": hostname_sources,
             }
 
             doc: dict[str, Any] = {
@@ -839,6 +971,39 @@ class DiscoveryService:
             # Enrich new devices that have open ports or protocols
             if device_data.get("openPorts") or device_data.get("protocols"):
                 await self.enrich_discovery(discovery_id)
+            # Spec §2.4.3 — when no MAC was learned and we know the network,
+            # try the resolution strategies fire-and-forget. The agent path
+            # reports back via POST /discovery/results/_resolve-mac.
+            if not primary_mac and network_id:
+                asyncio.create_task(
+                    self._kick_off_mac_resolution(current_ip, network_id),
+                )
+
+    async def _kick_off_mac_resolution(
+        self,
+        ip: str,
+        network_id: str,
+    ) -> None:
+        """Background task wrapper around :func:`resolve_mac`.
+
+        Exceptions are logged but never propagate — this runs detached.
+        """
+        try:
+            mac = await resolve_mac(
+                ip,
+                network_id,
+                self.db.db,
+                commands_service=self.commands,
+            )
+            if mac:
+                await self.submit_mac_resolution(ip, mac, network_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "discovery.mac_resolution_failed",
+                ip=ip,
+                network_id=network_id,
+                error=str(exc),
+            )
 
     # ── Discovery Listing & Detail ─────────────────────────────────────
 
@@ -1077,6 +1242,31 @@ class DiscoveryService:
 
         return changes
 
+    # ── MAC Resolution ─────────────────────────────────────────────────
+
+    async def submit_mac_resolution(
+        self,
+        ip: str,
+        mac: str,
+        network_id: str,
+    ) -> dict[str, Any] | None:
+        """Apply a MAC resolution result to an IP-only discovery.
+
+        Called when an agent or background task learns the MAC for a
+        device that was previously known only by IP. Rekeys or merges
+        per spec §2.4.3.
+
+        Returns:
+            The migrated discovery document, or ``None`` if no IP-only
+            record exists for this ``(network_id, ip)`` pair.
+        """
+        return await migrate_ip_to_mac(
+            self.devices,
+            target_ip=ip,
+            mac=mac,
+            network_id=network_id,
+        )
+
     # ── Enrichment ─────────────────────────────────────────────────────
 
     async def enrich_discovery(self, discovery_id: str) -> dict[str, Any]:
@@ -1191,6 +1381,72 @@ class DiscoveryService:
         )
 
         return await self.get_discovery(discovery_id)
+
+    async def delete_discovery(
+        self,
+        discovery_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Permanently delete a discovery record from the database.
+
+        Unlike ``dismiss_discovery`` (soft delete via status flag), this
+        removes the document entirely. The next scan that encounters the
+        same device will re-discover it from scratch.
+
+        Raises:
+            DiscoveryNotFoundError: If no discovery matches the given ID.
+        """
+        device = await self.get_discovery(discovery_id)
+        await self.devices.delete_one({"discoveryId": discovery_id})
+        logger.info(
+            "discovery.deleted",
+            discovery_id=discovery_id,
+            user_id=user_id,
+            previous_status=device.get("status"),
+        )
+        return device
+
+    async def delete_scan(
+        self,
+        scan_id: str,
+        user_id: str,
+        *,
+        cascade: bool = False,
+    ) -> dict[str, Any]:
+        """Permanently delete a scan record.
+
+        Args:
+            scan_id: The scan to remove.
+            user_id: Who initiated the delete (audit trail).
+            cascade: When ``True``, also delete every ``discovered_nodes``
+                record whose ``probe.delegatedByScanId`` matches, cleaning
+                up the discoveries that scan produced. Discoveries already
+                registered as nodes are preserved regardless.
+
+        Raises:
+            ScanNotFoundError: If the scan does not exist.
+        """
+        scan = await self.get_scan(scan_id)
+
+        cascade_deleted = 0
+        if cascade:
+            result = await self.devices.delete_many(
+                {
+                    "probe.delegatedByScanId": scan_id,
+                    "status": {"$ne": DiscoveryStatus.REGISTERED.value},
+                },
+            )
+            cascade_deleted = result.deleted_count
+
+        await self.scans.delete_one({"scanId": scan_id})
+        logger.info(
+            "discovery.scan_deleted",
+            scan_id=scan_id,
+            user_id=user_id,
+            cascade=cascade,
+            cascade_deleted=cascade_deleted,
+        )
+        return {**scan, "cascadeDeleted": cascade_deleted}
 
     # ── Approval / Rejection ───────────────────────────────────────────
 

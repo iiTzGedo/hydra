@@ -10,7 +10,10 @@ Implements additive confidence scoring per the Phase 2D specification:
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Any
+
+import structlog
 
 from hydra.api.v1.models.discovery.schemas import (
     Classification,
@@ -23,6 +26,56 @@ from hydra.api.v1.models.discovery.schemas import (
     SnmpDetail,
     SsdpDetail,
 )
+
+_logger = structlog.get_logger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _get_mac_lookup() -> Any:
+    """Lazy-import ``mac-vendor-lookup`` to avoid the IEEE download at startup.
+
+    Returns a configured ``MacLookup`` instance on success, ``None`` if the
+    library is missing or its OUI database cannot be loaded.
+    """
+    try:
+        from mac_vendor_lookup import MacLookup
+    except ImportError:
+        return None
+    try:
+        # ``MacLookup`` lazily loads its OUI cache on first ``lookup()`` call,
+        # so we don't need to pre-warm it here. Pre-warming via
+        # ``load_vendors()`` returns an unawaited coroutine in the async
+        # variant which the caller never sees.
+        return MacLookup()
+    except Exception as exc:  # noqa: BLE001
+        _logger.debug("fingerprint.mac_vendor_lookup_unavailable", error=str(exc))
+        return None
+
+
+def _lookup_vendor_lib(primary_mac: str) -> str | None:
+    """Look up a MAC vendor via the offline ``mac-vendor-lookup`` IEEE DB.
+
+    Returns ``None`` when the library is missing, the OUI is unknown, or
+    the synchronous ``lookup()`` cannot run inside the current event loop
+    (the library spins up its own loop, which fails when one is already
+    running). Callers should never see an exception from this helper.
+    """
+    lookup = _get_mac_lookup()
+    if lookup is None:
+        return None
+    try:
+        result = lookup.lookup(primary_mac)
+    except Exception:  # noqa: BLE001 — third-party lib; never break callers
+        return None
+    # Some versions of the lib return a coroutine (the AsyncMacLookup
+    # variant) when called from a thread that already has an event loop.
+    # We can't await here, so close the coroutine to silence the
+    # "never awaited" warning and treat it as "no result".
+    if not isinstance(result, str):
+        if hasattr(result, "close"):
+            result.close()
+        return None
+    return result
 
 # ── Port Lists (aligned with scanner.py) ─────────────────────────────
 
@@ -583,11 +636,26 @@ class FingerprintService:
     # ── Vendor Lookup ──────────────────────────────────────────────────
 
     def lookup_vendor(self, primary_mac: str | None) -> str | None:
-        """Resolve a vendor from the MAC OUI when available."""
+        """Resolve a vendor from the MAC OUI when available.
+
+        Resolution order:
+        1. Inline ``OUI_VENDOR_MAP`` — fast, covers the OUIs we have
+           classification rules for.
+        2. ``mac-vendor-lookup`` library — broad IEEE coverage (~30k OUIs)
+           for vendor strings we don't classify but still want to surface.
+
+        Returns ``None`` if both lookups fail.
+        """
+        if not primary_mac:
+            return None
         oui = self._extract_oui(primary_mac)
         if not oui:
             return None
-        return OUI_VENDOR_MAP.get(oui)
+        # Prefer our curated map (classification depends on the canonical name)
+        vendor = OUI_VENDOR_MAP.get(oui)
+        if vendor:
+            return vendor
+        return _lookup_vendor_lib(primary_mac)
 
     @staticmethod
     def _extract_oui(primary_mac: str | None) -> str | None:

@@ -2156,7 +2156,7 @@ class TestScannerModule:
         from hydra.api.v1.services.discovery import scanner
 
         # Mock _scan_host to simulate finding two hosts
-        async def mock_scan_host(host, ports, timeout, semaphore):
+        async def mock_scan_host(host, ports, timeout, semaphore, *, mac=None, force_alive=False):
             if host == "192.168.1.1":
                 return {"ip": "192.168.1.1", "openPorts": [22, 80]}
             if host == "192.168.1.2":
@@ -2165,24 +2165,27 @@ class TestScannerModule:
 
         monkeypatch.setattr(scanner, "_scan_host", mock_scan_host)
 
-        results = await scanner.scan_subnet("192.168.1.0/30", port_tier="tier1")
-        assert len(results) == 2
-        assert results[0]["ip"] == "192.168.1.1"
-        assert 22 in results[0]["openPorts"]
-        assert results[1]["ip"] == "192.168.1.2"
+        result = await scanner.scan_subnet("192.168.1.0/30", port_tier="tier1")
+        hosts = result["hosts"]
+        assert len(hosts) == 2
+        assert hosts[0]["ip"] == "192.168.1.1"
+        assert 22 in hosts[0]["openPorts"]
+        assert hosts[1]["ip"] == "192.168.1.2"
+        assert "capabilities" in result
 
     @pytest.mark.asyncio
     async def test_scan_subnet_empty_returns_no_hosts(self, monkeypatch: pytest.MonkeyPatch):
         """Verify scan_subnet returns empty list when no hosts are alive."""
         from hydra.api.v1.services.discovery import scanner
 
-        async def mock_scan_host(host, ports, timeout, semaphore):
+        async def mock_scan_host(host, ports, timeout, semaphore, *, mac=None, force_alive=False):
             return None
 
         monkeypatch.setattr(scanner, "_scan_host", mock_scan_host)
 
-        results = await scanner.scan_subnet("192.168.1.0/30")
-        assert results == []
+        result = await scanner.scan_subnet("192.168.1.0/30")
+        assert result["hosts"] == []
+        assert result["capabilities"]["fallbackMode"] in ("full", "tcp-only")
 
     def test_port_lists_match_spec(self):
         """Verify tier1 and tier2 port lists have spec-level coverage."""
@@ -2429,3 +2432,204 @@ class TestScanConfigEndpoint:
         set_fields = update_args.args[1]["$set"]
         assert set_fields["scanConfig.status"] == "agent-only"
         assert set_fields["scanConfig.userGuidance"] == "Use node-01 to scan this network"
+
+
+# ── Delete endpoints ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_delete_discovery_hard_deletes_record(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_devices_collection,
+    admin_token,
+    sample_user,
+    sample_device,
+):
+    """DELETE /discovery/devices/{id} removes the record from the database."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"},
+    )
+    mock_devices_collection.find_one = AsyncMock(return_value=sample_device)
+    mock_devices_collection.delete_one = AsyncMock()
+
+    response = await client.delete(
+        f"/api/v1/discovery/devices/{sample_device['discoveryId']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["deleted"] is True
+    assert data["discoveryId"] == sample_device["discoveryId"]
+    mock_devices_collection.delete_one.assert_awaited_once_with(
+        {"discoveryId": sample_device["discoveryId"]},
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_discovery_missing_returns_404(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_devices_collection,
+    admin_token,
+    sample_user,
+):
+    """DELETE on a missing discovery returns 404."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"},
+    )
+    mock_devices_collection.find_one = AsyncMock(return_value=None)
+
+    response = await client.delete(
+        "/api/v1/discovery/devices/disc::mac::missing",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_discovery_allows_rediscovery(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_devices_collection,
+    admin_token,
+    sample_user,
+    sample_device,
+):
+    """After a hard delete, a fresh upsert treats the device as brand-new."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"},
+    )
+    mock_devices_collection.find_one = AsyncMock(return_value=sample_device)
+    mock_devices_collection.delete_one = AsyncMock()
+
+    # 1. Delete the existing discovery.
+    delete_resp = await client.delete(
+        f"/api/v1/discovery/devices/{sample_device['discoveryId']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert delete_resp.status_code == 200
+
+    # 2. On the next scan the device is no longer present — _upsert_device
+    #    must take the "new record" branch, not the "merge" branch.
+    from hydra.api.v1.services.discovery.service import DiscoveryService
+
+    mock_devices_collection.find_one = AsyncMock(return_value=None)
+    mock_devices_collection.insert_one = AsyncMock()
+    mock_mongodb.discovered_nodes = mock_devices_collection
+    service = DiscoveryService(mock_mongodb)
+    service.exclusions.is_excluded = AsyncMock(return_value=False)
+
+    # Use empty openPorts/protocols so _upsert_device doesn't trigger the
+    # enrich path (which would fetch the doc we haven't actually persisted).
+    await service._upsert_device(
+        {
+            "identity": {
+                "primaryMac": sample_device["identity"]["primaryMac"],
+                "currentIp": sample_device["identity"]["currentIp"],
+            },
+            "networkId": sample_device["networkId"],
+            "openPorts": [],
+            "protocols": [],
+            "probe": {"scannedBy": "api", "method": "arp", "scannedAt": "now"},
+            "rawEvidence": {},
+        },
+        datetime.now(UTC),
+        scan_id="scan-rescan",
+    )
+
+    mock_devices_collection.insert_one.assert_awaited_once()
+    new_doc = mock_devices_collection.insert_one.call_args.args[0]
+    assert new_doc["status"] == "pending"
+    assert new_doc["seenCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_scan_removes_scan_record(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_scans_collection,
+    mock_devices_collection,
+    admin_token,
+    sample_user,
+    sample_scan,
+):
+    """DELETE /discovery/scans/{id} removes the scan and does not touch devices by default."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"},
+    )
+    completed_scan = {**sample_scan, "status": "completed"}
+    mock_scans_collection.find_one = AsyncMock(return_value=completed_scan)
+    mock_scans_collection.delete_one = AsyncMock()
+
+    response = await client.delete(
+        f"/api/v1/discovery/scans/{completed_scan['scanId']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["deleted"] is True
+    assert data["cascadeDeleted"] == 0
+    mock_scans_collection.delete_one.assert_awaited_once_with(
+        {"scanId": completed_scan["scanId"]},
+    )
+    # Devices untouched when cascade is false
+    mock_devices_collection.delete_many.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_scan_cascade_removes_unregistered_discoveries(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_scans_collection,
+    mock_devices_collection,
+    admin_token,
+    sample_user,
+    sample_scan,
+):
+    """DELETE ?cascade=true removes unregistered discoveries from the scan."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"},
+    )
+    completed_scan = {**sample_scan, "status": "completed"}
+    mock_scans_collection.find_one = AsyncMock(return_value=completed_scan)
+    mock_scans_collection.delete_one = AsyncMock()
+    delete_many_result = MagicMock(deleted_count=3)
+    mock_devices_collection.delete_many = AsyncMock(return_value=delete_many_result)
+
+    response = await client.delete(
+        f"/api/v1/discovery/scans/{completed_scan['scanId']}?cascade=true",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["cascadeDeleted"] == 3
+    cascade_query = mock_devices_collection.delete_many.call_args.args[0]
+    assert cascade_query["probe.delegatedByScanId"] == completed_scan["scanId"]
+    # Registered discoveries are excluded from cascade
+    assert cascade_query["status"]["$ne"] == "registered"
+
+
+@pytest.mark.asyncio
+async def test_delete_scan_missing_returns_404(
+    client: AsyncClient,
+    mock_mongodb,
+    mock_scans_collection,
+    admin_token,
+    sample_user,
+):
+    """DELETE on a missing scan returns 404."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"},
+    )
+    mock_scans_collection.find_one = AsyncMock(return_value=None)
+
+    response = await client.delete(
+        "/api/v1/discovery/scans/scan_missing",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 404

@@ -233,6 +233,43 @@ export function useRegisterDiscovery(discoveryId: string | null | undefined) {
   });
 }
 
+export function useDeleteDiscovery() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (discoveryId: string): Promise<{ deleted: boolean; discoveryId: string }> => {
+      const response = await apiClient.delete<
+        ApiResponse<{ deleted: boolean; discoveryId: string }>
+      >(`/discovery/devices/${discoveryId}`);
+      return response.data.data;
+    },
+    onSuccess: () => {
+      invalidateDiscovery(queryClient);
+    },
+  });
+}
+
+export function useDeleteDiscoveryScan() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: {
+      scanId: string;
+      cascade?: boolean;
+    }): Promise<{ deleted: boolean; scanId: string; cascadeDeleted: number }> => {
+      const response = await apiClient.delete<
+        ApiResponse<{ deleted: boolean; scanId: string; cascadeDeleted: number }>
+      >(`/discovery/scans/${params.scanId}`, {
+        params: { cascade: params.cascade ?? false },
+      });
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.discovery.all });
+    },
+  });
+}
+
 // ── Exclusion Hooks ────────────────────────────────────────────────
 
 const exclusionKeys = {

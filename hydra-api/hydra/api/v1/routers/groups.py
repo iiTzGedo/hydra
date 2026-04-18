@@ -6,6 +6,7 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 
 from hydra.api.v1.core.deps import MongoDBDep, require_permission
+from hydra.api.v1.core.model_factory import safe_materialize_many
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.groups import (
     CreateGroupRequest,
@@ -85,7 +86,9 @@ async def list_groups(
     groups, total = await groups_service.list_groups(params)
 
     return SuccessResponse(
-        data=[GroupSummary(**group) for group in groups],
+        data=safe_materialize_many(
+            GroupSummary, groups, context="groups_list", id_field="groupId",
+        ),
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
     )
 
