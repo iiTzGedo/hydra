@@ -4,7 +4,6 @@
 //! and that the data contract with the API is maintained.
 
 use hydra_agent::collectors::*;
-use serde_json;
 
 // =============================================================================
 // Hardware Collector Tests

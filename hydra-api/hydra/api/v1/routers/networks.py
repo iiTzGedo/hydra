@@ -5,9 +5,8 @@ from typing import Annotated, Literal
 import structlog
 from fastapi import APIRouter, Depends, Query
 
-from hydra.api.v1.core.model_factory import safe_materialize_many
-
 from hydra.api.v1.core.deps import CurrentUser, MongoDBDep, require_permission
+from hydra.api.v1.core.model_factory import safe_materialize_many
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.networks import (
     CreateNetworkRequest,

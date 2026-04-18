@@ -41,7 +41,7 @@ export const TopologyNodeComponent = memo(({ data, selected }: NodeProps<Topolog
         className={cn(
           'rounded-xl border-2 bg-card shadow-lg min-w-[140px] transition-all duration-200',
           selected ? 'ring-2 ring-primary border-primary scale-105' : 'border-border hover:border-primary/50',
-          isHighlighted && !selected && 'ring-2 ring-amber-400 border-amber-400 shadow-amber-400/50 shadow-lg',
+          isHighlighted && !selected && 'ring-2 ring-warning border-warning shadow-warning/50 shadow-lg',
           'cursor-pointer'
         )}
       >

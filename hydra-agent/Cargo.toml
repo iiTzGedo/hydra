@@ -43,6 +43,11 @@ subtle = "2.6"
 # DNS resolution
 dns-lookup = "2.0"
 
+# Multicast protocol discovery (mDNS service browse + SSDP M-SEARCH)
+mdns-sd = { version = "0.19", default-features = false, features = ["async"] }
+ssdp-client = "2.1"
+futures-util = "0.3"
+
 # System info collectors
 sysinfo = "0.30"
 hostname = "0.3"

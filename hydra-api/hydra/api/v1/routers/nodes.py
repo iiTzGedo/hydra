@@ -5,7 +5,6 @@ from typing import Annotated, Literal
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
 
-from hydra.api.v1.core.model_factory import safe_materialize_many
 from hydra.api.v1.core.deps import (
     AuthServiceDep,
     CurrentUser,
@@ -13,6 +12,7 @@ from hydra.api.v1.core.deps import (
     RegistrationAuth,
     require_permission,
 )
+from hydra.api.v1.core.model_factory import safe_materialize_many
 from hydra.api.v1.models.auth import (
     NodeApiKeyRefreshResponse,
     NodeRegistrationRequest,

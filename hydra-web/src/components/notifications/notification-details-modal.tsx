@@ -107,7 +107,7 @@ export function NotificationDetailsModal({
                   {notification.status}
                 </Badge>
                 {notification.acknowledgedAt && notification.status === 'active' && (
-                  <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                  <span className="flex items-center gap-1 text-xs text-success">
                     <Check className="h-3 w-3" />
                     Acknowledged
                   </span>

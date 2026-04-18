@@ -19,6 +19,7 @@ from hydra.api.v1.models.discovery.schemas import (
     Classification,
     DetailedPort,
     Fingerprint,
+    HttpResponseDetail,
     LldpDetail,
     MdnsDetail,
     PortInference,
@@ -78,8 +79,14 @@ def _lookup_vendor_lib(primary_mac: str) -> str | None:
     return result
 
 # ── Port Lists (aligned with scanner.py) ─────────────────────────────
+# These frozensets MUST match ``scanner.TIER1_PORTS`` / ``TIER2_PORTS``
+# and ``hydra-agent::ports_for_tier`` exactly so classification rules,
+# the scanner, and the agent see the same evidence surface.
+# ``PORT_SERVICE_MAP`` below retains service labels for ports that are
+# advertised but not currently scanned — cheap metadata, useful for
+# future agent-reported discoveries.
 
-# Tier 1: Always scanned (~32 ports covering core infrastructure services)
+# Tier 1: Always scanned (32 ports covering core infrastructure services)
 TIER1_PORTS: frozenset[int] = frozenset({
     22, 23, 25, 53, 80, 110, 143, 161, 389, 443, 445,
     554, 623, 993, 995, 1194, 1433, 1883, 1900, 2375,
@@ -87,19 +94,17 @@ TIER1_PORTS: frozenset[int] = frozenset({
     8006, 8080, 8123, 8443,
 })
 
-# Tier 2: Extended scan (~70 additional ports for deeper fingerprinting)
+# Tier 2: Extended scan (71 additional ports for deeper fingerprinting)
 TIER2_PORTS: frozenset[int] = frozenset({
     21, 69, 111, 135, 179, 427, 500, 514, 515, 548,
-    587, 631, 636, 873, 902, 993, 1080, 1521, 1723,
-    2049, 2222, 2379, 2380, 3000, 3128, 3260, 3478, 4243,
-    4505, 4506, 5000, 5001, 5060, 5222, 5269, 5601, 5672,
-    5984, 6000, 6443, 6633, 6667, 6881, 7001, 7070, 7077,
-    7443, 7474, 8000, 8008, 8081, 8088, 8090, 8139, 8181,
-    8291, 8333, 8444, 8500, 8834, 8883, 8888, 8983,
-    9000, 9001, 9042, 9090, 9092, 9100, 9200, 9300,
-    9418, 9443, 9999, 10000, 10001, 10250, 10255,
-    11211, 15672, 19132, 25565, 27017, 27018, 28017,
-    32400, 49152, 50000, 51820, 61616,
+    587, 631, 636, 873, 902, 1080, 1521, 1723,
+    2049, 2222, 2379, 2380, 3000, 3260, 3478, 4243,
+    4505, 4506, 5000, 5001, 5060, 5222, 5269, 5672,
+    5984, 6000, 6443, 6633, 6881, 7001, 7077, 7474,
+    8000, 8008, 8081, 8088, 8090, 8139, 8291, 8444,
+    8883, 8888, 9000, 9042, 9090, 9100, 9200, 9300,
+    9418, 9999, 10000, 10001, 10250, 10255,
+    11211, 15672, 25565, 27017, 28017, 50000,
 })
 
 
@@ -344,6 +349,91 @@ class FingerprintService:
         27017: ("mongodb", r"^([\d.]+)"),
     }
 
+    # Banner-driven classification rules.
+    #
+    # Each rule is ``(needle, signal_label, target_class, boost)``.
+    # ``needle`` is a lowercase substring matched against the banner.
+    # Signals follow the ``<category>:<key>-><class>(+<boost>)`` format used
+    # by ``classify_device`` and the explanation generator.
+    # Vendor-specific SSH banners (ROSSSH, Cisco IOS, MikroTik) are near-
+    # certain identifications — stronger than the baseline compute signal
+    # from ``ssh+linux`` (+0.3) so they can flip classification for routers
+    # that also look like Linux hosts. Generic distro hints stay modest.
+    _SSH_BANNER_RULES: tuple[tuple[str, str, str, float], ...] = (
+        ("openssh", "banner:ssh:openssh", "compute", 0.1),
+        ("dropbear", "banner:ssh:dropbear", "networking", 0.2),
+        ("rosssh", "banner:ssh:mikrotik", "networking", 0.4),
+        ("routeros", "banner:ssh:mikrotik", "networking", 0.4),
+        ("mikrotik", "banner:ssh:mikrotik", "networking", 0.4),
+        ("cisco", "banner:ssh:cisco", "networking", 0.4),
+        ("ubuntu", "banner:ssh:linux-distro", "compute", 0.1),
+        ("debian", "banner:ssh:linux-distro", "compute", 0.1),
+        ("raspbian", "banner:ssh:linux-distro", "compute", 0.1),
+        ("windows", "banner:ssh:windows", "compute", 0.1),
+    )
+
+    _SNMP_BANNER_RULES: tuple[tuple[str, str, str, float], ...] = (
+        ("cisco", "banner:snmp:cisco", "networking", 0.4),
+        ("ios software", "banner:snmp:cisco", "networking", 0.4),
+        ("juniper", "banner:snmp:juniper", "networking", 0.4),
+        ("junos", "banner:snmp:juniper", "networking", 0.4),
+        ("mikrotik", "banner:snmp:mikrotik", "networking", 0.4),
+        ("routeros", "banner:snmp:mikrotik", "networking", 0.4),
+        ("ubiquiti", "banner:snmp:ubiquiti", "networking", 0.4),
+        ("unifi", "banner:snmp:ubiquiti", "networking", 0.4),
+        ("edgeos", "banner:snmp:ubiquiti", "networking", 0.4),
+        ("fortinet", "banner:snmp:fortinet", "networking", 0.4),
+        ("fortigate", "banner:snmp:fortinet", "networking", 0.4),
+        ("arista", "banner:snmp:arista", "networking", 0.4),
+        ("laserjet", "banner:snmp:printer", "iot", 0.3),
+        ("officejet", "banner:snmp:printer", "iot", 0.3),
+        ("printer", "banner:snmp:printer", "iot", 0.3),
+        ("linux", "banner:snmp:linux", "compute", 0.2),
+        ("ubuntu", "banner:snmp:linux", "compute", 0.2),
+    )
+
+    _HTTP_SERVER_RULES: tuple[tuple[str, str, str, float], ...] = (
+        ("nginx", "banner:http:webserver", "compute", 0.1),
+        ("apache", "banner:http:webserver", "compute", 0.1),
+        ("lighttpd", "banner:http:webserver", "compute", 0.1),
+        ("gunicorn", "banner:http:webserver", "compute", 0.1),
+        ("uvicorn", "banner:http:webserver", "compute", 0.1),
+        ("caddy", "banner:http:webserver", "compute", 0.1),
+        ("boa", "banner:http:embedded-httpd", "iot", 0.2),
+        ("mini_httpd", "banner:http:embedded-httpd", "iot", 0.2),
+        ("micro_httpd", "banner:http:embedded-httpd", "iot", 0.2),
+        ("go-ahead", "banner:http:embedded-httpd", "iot", 0.2),
+        ("mongoose", "banner:http:embedded-httpd", "iot", 0.2),
+        ("mikrotik", "banner:http:mikrotik", "networking", 0.3),
+        ("ubiquiti", "banner:http:ubiquiti", "networking", 0.3),
+    )
+
+    # HTTP title rules include an ``identified_as`` hint for
+    # ``HttpResponseDetail`` and for type promotion in ``_suggest_type``.
+    _HTTP_TITLE_RULES: tuple[tuple[str, str, str, str, float], ...] = (
+        # (needle, identified_as, signal_label, target_class, boost)
+        ("proxmox", "proxmox", "banner:http:proxmox", "compute", 0.3),
+        ("pfsense", "pfsense", "banner:http:pfsense", "networking", 0.4),
+        ("opnsense", "opnsense", "banner:http:pfsense", "networking", 0.4),
+        ("home assistant", "home-assistant", "banner:http:homeassistant", "iot", 0.3),
+        ("unifi", "unifi", "banner:http:unifi", "networking", 0.3),
+        ("grafana", "grafana", "banner:http:devtool", "compute", 0.2),
+        ("prometheus", "prometheus", "banner:http:devtool", "compute", 0.2),
+        ("kibana", "kibana", "banner:http:devtool", "compute", 0.2),
+        ("portainer", "portainer", "banner:http:devtool", "compute", 0.2),
+        ("jenkins", "jenkins", "banner:http:devtool", "compute", 0.2),
+        ("gitea", "gitea", "banner:http:devtool", "compute", 0.2),
+        ("gitlab", "gitlab", "banner:http:devtool", "compute", 0.2),
+        ("synology", "synology", "banner:http:nas", "compute", 0.3),
+        ("qnap", "qnap", "banner:http:nas", "compute", 0.3),
+        ("truenas", "truenas", "banner:http:nas", "compute", 0.3),
+        ("freenas", "freenas", "banner:http:nas", "compute", 0.3),
+        ("idrac", "idrac", "banner:http:bmc", "compute", 0.2),
+        ("ipmi", "ipmi", "banner:http:bmc", "compute", 0.2),
+        ("ilo", "ilo", "banner:http:bmc", "compute", 0.2),
+        ("supermicro", "supermicro", "banner:http:bmc", "compute", 0.2),
+    )
+
     @classmethod
     def infer_from_port(
         cls,
@@ -387,6 +477,123 @@ class FingerprintService:
             application=application,
             version=version,
         )
+
+    @staticmethod
+    def _parse_http_banner(banner: str) -> tuple[str | None, str | None]:
+        """Split a ``grab_http_banner`` output string into ``(server, title)``.
+
+        Input formats produced by ``services/discovery/banners.py``:
+          - ``"server=X; title=Y"`` — both present
+          - ``"server=X"`` — server only
+          - ``"title=Y"`` — title only (server grab failed)
+          - ``"HTTP/1.1 200 OK"`` — status-line fallback when no Server header
+          - bare vendor string (rare; defensive path)
+        """
+        text = banner.strip()
+        if not text:
+            return None, None
+
+        server: str | None = None
+        title: str | None = None
+
+        # Structured form: "server=...; title=..." in either order.
+        if "server=" in text or "title=" in text:
+            for chunk in text.split("; "):
+                key, sep, value = chunk.partition("=")
+                if not sep:
+                    continue
+                if key == "server" and value:
+                    server = value.strip()
+                elif key == "title" and value:
+                    title = value.strip()
+            return server, title
+
+        # Fallback paths: bare "HTTP/..." status line or vendor string → server.
+        return text, None
+
+    @classmethod
+    def _match_http_title(
+        cls, title: str
+    ) -> tuple[str, str, str, float] | None:
+        """Return the first matching title rule ``(hint, label, class, boost)``."""
+        needle = title.lower()
+        for rule in cls._HTTP_TITLE_RULES:
+            haystack, hint, label, klass, boost = rule
+            if haystack in needle:
+                return hint, label, klass, boost
+        return None
+
+    @classmethod
+    def _identify_http_response(
+        cls, server: str | None, title: str | None
+    ) -> str | None:
+        """Derive the ``identified_as`` value for an HTTP response.
+
+        Prefers title-based matches (specific products) over generic server
+        headers. Falls back to the raw server header when nothing matches
+        but a header was captured.
+        """
+        if title:
+            match = cls._match_http_title(title)
+            if match is not None:
+                return match[0]
+        if server:
+            return server
+        return None
+
+    # Recognizable HTTP-server substrings used to distinguish HTTP banners
+    # from SSH/SNMP/MQTT fallbacks. Matched case-insensitively.
+    _HTTP_SERVER_NEEDLES: frozenset[str] = frozenset({
+        "nginx", "apache", "lighttpd", "caddy", "gunicorn", "uvicorn",
+        "mongoose", "boa", "mikrotik", "ubiquiti", "mini_httpd",
+        "micro_httpd", "go-ahead", "iis",
+    })
+
+    @classmethod
+    def _looks_like_http_banner(
+        cls, banner: str, server: str | None, title: str | None
+    ) -> bool:
+        """True if ``banner`` was produced by ``grab_http_banner``.
+
+        The grabber only emits ``server=``/``title=``/``HTTP/...`` formats,
+        plus bare Server-header strings from known web servers. SSH,
+        SNMP (``sysDescr=...``) and MQTT banners never match.
+        """
+        if title is not None:
+            return True
+        if server is None:
+            return False
+        if banner.startswith("server="):
+            return True
+        if server.startswith("HTTP/"):
+            return True
+        low = server.lower()
+        return any(needle in low for needle in cls._HTTP_SERVER_NEEDLES)
+
+    def _build_http_responses(
+        self,
+        detailed_ports: list[DetailedPort],
+    ) -> list[HttpResponseDetail]:
+        """Convert HTTP-port banners into structured ``HttpResponseDetail`` entries."""
+        responses: list[HttpResponseDetail] = []
+        for detail in detailed_ports:
+            if not detail.banner:
+                continue
+            server, title = self._parse_http_banner(detail.banner)
+            if not self._looks_like_http_banner(detail.banner, server, title):
+                continue
+            responses.append(
+                HttpResponseDetail(
+                    port=detail.port,
+                    status_code=None,
+                    server=server,
+                    title=title,
+                    redirect_to=None,
+                    identified_as=self._identify_http_response(server, title),
+                )
+            )
+        responses.sort(key=lambda item: item.port)
+        return responses
 
     def fingerprint_device(
         self,
@@ -438,13 +645,14 @@ class FingerprintService:
         vendor = raw_vendor or self.lookup_vendor(primary_mac)
         device_family = self._guess_device_family(open_ports, protocols, vendor)
         protocol_details = self._build_protocol_details(protocols, protocol_data)
+        http_responses = self._build_http_responses(detailed_ports)
 
         return Fingerprint(
             open_ports=detailed_ports,
             port_numbers=sorted(set(open_ports)),
             service_hints=sorted(set(service_hints)),
             protocols=protocol_details,
-            http_responses=[],
+            http_responses=http_responses,
             os_hint=os_hint,
             vendor=vendor,
             mac_oui=mac_oui,
@@ -590,6 +798,16 @@ class FingerprintService:
                 scores["iot"] += 0.3
                 signals.append(f"mac:{vendor}->iot(+0.3)")
 
+        # ── Banner-Driven Signals ──────────────────────────────────────
+        # Banners are high-confidence when the match is vendor-specific
+        # (RouterOS, Cisco IOS, Proxmox) and weak when generic (nginx).
+        # ``banner_hints`` flows into ``_suggest_type`` to promote kinds
+        # like firewall / hypervisor / printer / nas.
+        banner_signals, banner_hints = self._banner_signals(fingerprint)
+        for label, target_class, boost in banner_signals:
+            scores[target_class] += boost
+            signals.append(f"{label}->{target_class}(+{boost})")
+
         # ── Determine Winner ───────────────────────────────────────────
         max_score = max(scores.values())
         if max_score == 0:
@@ -609,7 +827,9 @@ class FingerprintService:
         confidence = min(max_score, 0.95)
 
         port_numbers = fingerprint.port_numbers
-        suggested_type = self._suggest_type(best_class, port_numbers)
+        suggested_type = self._suggest_type(
+            best_class, port_numbers, banner_hints=banner_hints,
+        )
         suggested_kind = self._suggest_kind(best_class, port_numbers, vendor)
         suggested_node_id = self._suggest_node_id(hostname, suggested_kind, primary_mac)
         suggested_display_name = self._suggest_display_name(
@@ -696,27 +916,148 @@ class FingerprintService:
             return "single-board-computer"
         return None
 
+    # ── Banner Classification Helpers ──────────────────────────────────
+
+    @classmethod
+    def _apply_rules(
+        cls,
+        banner: str,
+        rules: tuple[tuple[str, str, str, float], ...],
+    ) -> list[tuple[str, str, float]]:
+        """Match ``banner`` against a rule table; return triples we should apply.
+
+        Deduplicates by signal-label so multiple rule rows that share a label
+        (``mikrotik`` + ``routeros`` → ``banner:ssh:mikrotik``) only count once.
+        """
+        needle = banner.lower()
+        matched: dict[str, tuple[str, str, float]] = {}
+        for rule_needle, label, klass, boost in rules:
+            if rule_needle in needle and label not in matched:
+                matched[label] = (label, klass, boost)
+        return list(matched.values())
+
+    def _banner_signals(
+        self, fingerprint: Fingerprint
+    ) -> tuple[list[tuple[str, str, float]], list[str]]:
+        """Derive classification signals and identity hints from banner text.
+
+        Returns ``(signals, banner_hints)``:
+          - ``signals`` — list of ``(label, target_class, boost)`` to apply
+            additively to the classifier's score table.
+          - ``banner_hints`` — lowercase string hints (``"proxmox"``,
+            ``"pfsense"``, ``"printer"``, ...) consumed by ``_suggest_type``
+            to promote a more specific device type when possible.
+        """
+        signals: list[tuple[str, str, float]] = []
+        hints: list[str] = []
+        # Track labels we've already emitted across all banner sources so a
+        # shared signal (e.g. ``banner:snmp:linux`` from two different ports)
+        # never double-boosts.
+        emitted_labels: set[str] = set()
+
+        def _add(triples: list[tuple[str, str, float]]) -> None:
+            for label, klass, boost in triples:
+                if label in emitted_labels:
+                    continue
+                emitted_labels.add(label)
+                signals.append((label, klass, boost))
+
+        # SSH banner — lives on DetailedPort(port=22).
+        for detail in fingerprint.open_ports:
+            if detail.port == 22 and detail.banner:
+                _add(self._apply_rules(detail.banner, self._SSH_BANNER_RULES))
+                break
+
+        # SNMP — prefer structured sys_descr; fall back to port 161 banner.
+        snmp_text: str | None = None
+        if fingerprint.protocols and fingerprint.protocols.snmp:
+            snmp_text = fingerprint.protocols.snmp.sys_descr
+        if not snmp_text:
+            for detail in fingerprint.open_ports:
+                if detail.port == 161 and detail.banner:
+                    snmp_text = detail.banner
+                    break
+        if snmp_text:
+            _add(self._apply_rules(snmp_text, self._SNMP_BANNER_RULES))
+            if "printer" in snmp_text.lower() or "laserjet" in snmp_text.lower() \
+                    or "officejet" in snmp_text.lower():
+                hints.append("printer")
+
+        # MQTT — CONNACK with return-code 0 indicates a live broker.
+        for detail in fingerprint.open_ports:
+            if (
+                detail.port in (1883, 8883)
+                and detail.banner
+                and "connack:0" in detail.banner.lower()
+                and "banner:mqtt:connack-ok" not in emitted_labels
+            ):
+                emitted_labels.add("banner:mqtt:connack-ok")
+                signals.append(("banner:mqtt:connack-ok", "iot", 0.1))
+
+        # HTTP — iterate all HTTP-port banners; server rules + title rules.
+        for detail in fingerprint.open_ports:
+            if not detail.banner:
+                continue
+            server, title = self._parse_http_banner(detail.banner)
+            if server is None and title is None:
+                continue
+            if server:
+                _add(self._apply_rules(server, self._HTTP_SERVER_RULES))
+            if title:
+                match = self._match_http_title(title)
+                if match is not None:
+                    hint, label, klass, boost = match
+                    if label not in emitted_labels:
+                        emitted_labels.add(label)
+                        signals.append((label, klass, boost))
+                    if hint not in hints:
+                        hints.append(hint)
+
+        return signals, hints
+
     # ── Type / Kind / Name Derivation ──────────────────────────────────
 
-    def _suggest_type(self, device_class: str, port_numbers: list[int]) -> str | None:
-        """Suggest a specific device type within a class."""
+    def _suggest_type(
+        self,
+        device_class: str,
+        port_numbers: list[int],
+        banner_hints: list[str] | None = None,
+    ) -> str | None:
+        """Suggest a specific device type within a class.
+
+        ``banner_hints`` is an optional list of lowercase identity tokens
+        (e.g. ``"proxmox"``, ``"pfsense"``, ``"home-assistant"``, ``"printer"``)
+        produced by ``_banner_signals``. When present, they can promote a
+        more specific type than ports alone would yield.
+        """
+        hints = set(banner_hints or ())
         if device_class == "compute":
-            if 8006 in port_numbers:
+            if 8006 in port_numbers or "proxmox" in hints:
                 return "hypervisor"
+            if "idrac" in hints or "ilo" in hints or "ipmi" in hints \
+                    or "supermicro" in hints:
+                return "baseboard-management"
+            if "synology" in hints or "qnap" in hints or "truenas" in hints \
+                    or "freenas" in hints:
+                return "nas"
             if 6443 in port_numbers or 10250 in port_numbers:
                 return "kubernetes-node"
             if 2375 in port_numbers or 2376 in port_numbers:
                 return "docker-host"
             return "server"
         if device_class == "networking":
+            if "pfsense" in hints or "opnsense" in hints:
+                return "firewall"
             if 179 in port_numbers:
                 return "router"
             if 8291 in port_numbers:
                 return "mikrotik"
             return "network-device"
         if device_class == "iot":
-            if 8123 in port_numbers:
+            if "home-assistant" in hints or 8123 in port_numbers:
                 return "home-automation"
+            if "printer" in hints:
+                return "printer"
             if 1883 in port_numbers:
                 return "mqtt-device"
             return "sensor"

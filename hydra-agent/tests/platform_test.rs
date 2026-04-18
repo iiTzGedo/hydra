@@ -450,7 +450,7 @@ fn test_paths_debug() {
 #[test]
 fn test_platform_clone() {
     let p1 = Platform::Linux;
-    let p2 = p1.clone();
+    let p2 = p1;
     assert_eq!(p1, p2);
 }
 

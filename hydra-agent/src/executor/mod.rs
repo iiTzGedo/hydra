@@ -10,6 +10,7 @@ pub mod agent_handler;
 pub mod network_handler;
 pub mod node_handler;
 pub mod process;
+pub mod protocol_discovery;
 pub mod service_handler;
 
 use std::path::PathBuf;

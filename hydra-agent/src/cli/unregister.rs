@@ -120,6 +120,7 @@ pub async fn execute(args: &UnregisterArgs, config: &AgentConfig, vault: &Vault)
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{execute, UnregisterArgs};
     use crate::config::{

@@ -191,3 +191,60 @@ fn test_command_result_error_helper() {
     assert_eq!(result.error.as_deref(), Some("test error message"));
     assert!(result.data.is_none());
 }
+
+// =============================================================================
+// Protocol Discovery Integration (mDNS + SSDP) — Wave 4
+// =============================================================================
+
+#[tokio::test]
+async fn test_scan_with_iot_protocols_enabled_does_not_error() {
+    // Enables multicast discovery; scans TEST-NET-2 so no real hosts reply.
+    // The goal: confirm the orchestration runs end-to-end, the scan
+    // succeeds, and the result structure is intact even when multicast
+    // returns nothing (or fails to bind on minimal CI hosts).
+    let config = make_config();
+    let params = Some(json!({
+        "scanId": "scan-iot",
+        "targetSpecs": [
+            {"subnet": "198.51.100.1/32", "networkId": "net-1"}
+        ],
+        "methods": ["tcp_port"],
+        "portTier": "tier1",
+        "includeIoTProtocols": true,
+        "timeoutSeconds": 4,
+    }));
+    let result = network_handler::execute(&params, 5, config).await;
+    assert!(result.success, "scan should succeed, got {:?}", result.error);
+    let data = result.data.expect("scan should return data");
+    assert_eq!(data["scanId"], "scan-iot");
+    assert_eq!(data["summary"]["hostsAlive"], 0);
+    // ``results`` is a list (may be empty); never missing.
+    assert!(data.get("results").and_then(|v| v.as_array()).is_some());
+}
+
+#[tokio::test]
+async fn test_scan_with_iot_protocols_disabled_skips_multicast() {
+    // With includeIoTProtocols=false, the scan must run fast (no multicast
+    // budget) and still produce a valid result envelope.
+    let config = make_config();
+    let params = Some(json!({
+        "scanId": "scan-no-iot",
+        "targetSpecs": [
+            {"subnet": "198.51.100.1/32", "networkId": "net-1"}
+        ],
+        "methods": ["tcp_port"],
+        "portTier": "tier1",
+        "includeIoTProtocols": false,
+    }));
+    let start = std::time::Instant::now();
+    let result = network_handler::execute(&params, 3, config).await;
+    let elapsed = start.elapsed();
+    assert!(result.success);
+    // A 1-host scan with no multicast budget should complete in well under
+    // the 5s multicast cap.
+    assert!(
+        elapsed.as_secs() < 4,
+        "scan without IoT protocols took {:?}, expected < 4s",
+        elapsed
+    );
+}

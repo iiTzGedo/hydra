@@ -73,6 +73,67 @@ export default {
           4: 'hsl(var(--chart-4))',
           5: 'hsl(var(--chart-5))',
         },
+        // Event-type palette - Time Machine / audit events
+        event: {
+          profile: {
+            DEFAULT: 'hsl(var(--event-profile))',
+            foreground: 'hsl(var(--event-profile-foreground))',
+          },
+          'service-added': {
+            DEFAULT: 'hsl(var(--event-service-added))',
+            foreground: 'hsl(var(--event-service-added-foreground))',
+          },
+          'service-removed': {
+            DEFAULT: 'hsl(var(--event-service-removed))',
+            foreground: 'hsl(var(--event-service-removed-foreground))',
+          },
+          topology: {
+            DEFAULT: 'hsl(var(--event-topology))',
+            foreground: 'hsl(var(--event-topology-foreground))',
+          },
+          'node-added': {
+            DEFAULT: 'hsl(var(--event-node-added))',
+            foreground: 'hsl(var(--event-node-added-foreground))',
+          },
+          'node-removed': {
+            DEFAULT: 'hsl(var(--event-node-removed))',
+            foreground: 'hsl(var(--event-node-removed-foreground))',
+          },
+          network: {
+            DEFAULT: 'hsl(var(--event-network))',
+            foreground: 'hsl(var(--event-network-foreground))',
+          },
+          group: {
+            DEFAULT: 'hsl(var(--event-group))',
+            foreground: 'hsl(var(--event-group-foreground))',
+          },
+        },
+        // Severity palette - notification tiers
+        severity: {
+          critical: {
+            DEFAULT: 'hsl(var(--severity-critical))',
+            foreground: 'hsl(var(--severity-critical-foreground))',
+          },
+          high: {
+            DEFAULT: 'hsl(var(--severity-high))',
+            foreground: 'hsl(var(--severity-high-foreground))',
+          },
+          medium: {
+            DEFAULT: 'hsl(var(--severity-medium))',
+            foreground: 'hsl(var(--severity-medium-foreground))',
+          },
+          low: {
+            DEFAULT: 'hsl(var(--severity-low))',
+            foreground: 'hsl(var(--severity-low-foreground))',
+          },
+        },
+        // Surface elevation layers
+        surface: {
+          1: 'hsl(var(--surface-1))',
+          2: 'hsl(var(--surface-2))',
+          3: 'hsl(var(--surface-3))',
+          4: 'hsl(var(--surface-4))',
+        },
         // Sidebar
         sidebar: {
           DEFAULT: 'hsl(var(--sidebar))',

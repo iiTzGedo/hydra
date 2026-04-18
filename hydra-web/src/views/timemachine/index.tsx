@@ -82,42 +82,42 @@ const EVENT_CATEGORIES = [
     label: 'Node Events',
     types: ['node_registered', 'node_archived'],
     icon: Server,
-    color: 'bg-emerald-500'
+    color: 'bg-event-node-added'
   },
   {
     id: 'services',
     label: 'Service Events',
     types: ['service_discovered', 'service_removed'],
     icon: Boxes,
-    color: 'bg-blue-500'
+    color: 'bg-event-service-added'
   },
   {
     id: 'networks',
     label: 'Network Events',
     types: ['network_created'],
     icon: Network,
-    color: 'bg-cyan-500'
+    color: 'bg-event-network'
   },
   {
     id: 'groups',
     label: 'Group Events',
     types: ['group_created'],
     icon: FolderOpen,
-    color: 'bg-lime-500'
+    color: 'bg-event-group'
   },
   {
     id: 'topology',
     label: 'Topology Events',
     types: ['topology_generated'],
     icon: GitBranch,
-    color: 'bg-purple-500'
+    color: 'bg-event-topology'
   },
   {
     id: 'profiles',
     label: 'Profile Events',
     types: ['profile_submitted'],
     icon: FileText,
-    color: 'bg-amber-500'
+    color: 'bg-event-profile'
   },
 ];
 

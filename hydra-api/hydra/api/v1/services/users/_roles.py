@@ -255,7 +255,8 @@ class RolesMixin:
             "revoked_at": now,
         }
 
-    def _get_role_permissions(self, role: str) -> list[str]:
+    @staticmethod
+    def _get_role_permissions(role: str) -> list[str]:
         """Get permissions for a role."""
         role_permissions = {
             Role.ADMIN.value: ["*:*"],

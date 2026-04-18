@@ -149,7 +149,7 @@ async def _apply_migration(db: Any, migration: FieldMigration) -> int:
         return 0
 
     valid_values = {v.value for v in migration.enum_cls}
-    bulk = []
+    bulk: list[dict[str, dict[str, Any]]] = []
     for old_value, new_value in migration.mappings.items():
         if old_value in valid_values:
             # Defensive: if a "legacy" value somehow re-entered the enum,

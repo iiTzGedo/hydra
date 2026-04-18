@@ -32,7 +32,10 @@ from hydra.api.v1.services.discovery.layer1 import (
 
 logger = structlog.get_logger(__name__)
 
-# Default port lists aligned with spec §2.3.1
+# Default port lists aligned with spec §2.3.1.
+# MUST stay in lock-step with:
+#   hydra-agent/src/executor/network_handler.rs :: ports_for_tier()
+#   hydra-api/hydra/api/v1/services/discovery/fingerprint.py :: TIER1_PORTS / TIER2_PORTS
 TIER1_PORTS: list[int] = [
     22, 23, 25, 53, 80, 110, 143, 161, 389, 443, 445,
     554, 623, 993, 995, 1194, 1433, 1883, 1900, 2375,
@@ -42,7 +45,7 @@ TIER1_PORTS: list[int] = [
 
 TIER2_PORTS: list[int] = [
     21, 69, 111, 135, 179, 427, 500, 514, 515, 548,
-    587, 631, 636, 873, 902, 993, 1080, 1521, 1723,
+    587, 631, 636, 873, 902, 1080, 1521, 1723,
     2049, 2222, 2379, 2380, 3000, 3260, 3478, 4243,
     4505, 4506, 5000, 5001, 5060, 5222, 5269, 5672,
     5984, 6000, 6443, 6633, 6881, 7001, 7077, 7474,

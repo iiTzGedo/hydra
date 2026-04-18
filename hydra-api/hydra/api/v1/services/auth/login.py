@@ -94,10 +94,10 @@ class LoginMixin:
             else get_active_temporary_roles(user.get("temporaryRoles", []))
         )
 
-        effective_permissions = RolesMixin._get_role_permissions(self, user["role"])
+        effective_permissions = RolesMixin._get_role_permissions(user["role"])
         for temp_role in active_temp_roles:
             effective_permissions.extend(
-                RolesMixin._get_role_permissions(self, temp_role["role"])
+                RolesMixin._get_role_permissions(temp_role["role"])
             )
         effective_permissions.extend(user.get("permissions", []))
 
@@ -567,6 +567,10 @@ class LoginMixin:
         session_id = session_record["sessionId"]
         csrf_token = session_record["csrfToken"]
 
+        user: dict[str, Any] | None = None
+        temp_roles: list[dict[str, Any]] = []
+        effective_permissions: list[str] = []
+
         if sub_type == "user":
             user = await self.db.users.find_one({"userId": subject})
             if not user:
@@ -609,6 +613,7 @@ class LoginMixin:
         )
 
         if sub_type == "user":
+            assert user is not None  # narrowed above; raised UserNotFoundError otherwise
             return {
                 **token_bundle,
                 "user": {

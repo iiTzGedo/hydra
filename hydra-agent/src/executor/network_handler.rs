@@ -16,6 +16,7 @@ use tracing::{info, warn};
 
 use crate::config::AgentConfig;
 
+use super::protocol_discovery;
 use super::CommandResult;
 
 const MAX_SCAN_HOSTS: usize = 1024;
@@ -58,6 +59,19 @@ pub async fn execute(
         Err(error) => return CommandResult::error(&error),
     };
 
+    // Run mDNS + SSDP discovery once per scan before the host fan-out, when
+    // IoT protocols are enabled. Multicast is network-wide; doing it per-host
+    // would waste N×timeout seconds. A panic in either crate is contained by
+    // the spawn boundary and degrades to an empty map.
+    let protocol_details_by_ip = if request.include_iot_protocols {
+        let budget = Duration::from_secs(request.timeout_seconds / 2)
+            .min(Duration::from_secs(5));
+        run_multicast_discovery(budget).await
+    } else {
+        HashMap::new()
+    };
+    let protocol_details_by_ip = Arc::new(protocol_details_by_ip);
+
     let host_semaphore = Arc::new(Semaphore::new(HOST_SCAN_CONCURRENCY));
     let mut tasks = Vec::with_capacity(expanded_hosts.len());
 
@@ -67,6 +81,7 @@ pub async fn execute(
         let methods = request.methods.clone();
         let ports = ports.clone();
         let scan_id = request.scan_id.clone();
+        let proto_details = protocol_details_by_ip.clone();
         tasks.push(tokio::spawn(async move {
             let _permit = permit.acquire_owned().await.ok()?;
             scan_host(
@@ -77,6 +92,7 @@ pub async fn execute(
                 &methods,
                 &ports,
                 started_at.to_rfc3339(),
+                proto_details.as_ref(),
             )
             .await
         }));
@@ -217,8 +233,10 @@ fn parse_scan_request(parameters: &Option<Value>, timeout_secs: u64) -> Result<S
     })
 }
 
+// MUST match hydra-api/hydra/api/v1/services/discovery/scanner.py
+// and hydra-api/hydra/api/v1/services/discovery/fingerprint.py.
 fn ports_for_tier(port_tier: &str, include_iot_protocols: bool) -> Vec<u16> {
-    // Tier 1: ~32 core infrastructure ports (aligned with API scanner.py)
+    // Tier 1: 32 core infrastructure ports
     let mut ports = vec![
         22, 23, 25, 53, 80, 110, 143, 161, 389, 443, 445,
         554, 623, 993, 995, 1194, 1433, 1883, 1900, 2375,
@@ -226,10 +244,10 @@ fn ports_for_tier(port_tier: &str, include_iot_protocols: bool) -> Vec<u16> {
         8006, 8080, 8123, 8443,
     ];
     if port_tier == "tier2" {
-        // Tier 2: ~70 additional ports for deeper fingerprinting
+        // Tier 2: 71 additional ports for deeper fingerprinting
         ports.extend_from_slice(&[
             21, 69, 111, 135, 179, 427, 500, 514, 515, 548,
-            587, 631, 636, 873, 902, 993, 1080, 1521, 1723,
+            587, 631, 636, 873, 902, 1080, 1521, 1723,
             2049, 2222, 2379, 2380, 3000, 3260, 3478, 4243,
             4505, 4506, 5000, 5001, 5060, 5222, 5269, 5672,
             5984, 6000, 6443, 6633, 6881, 7001, 7077, 7474,
@@ -272,6 +290,7 @@ fn expanded_hosts_count(targets: &[ScanTarget]) -> usize {
         .sum()
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn scan_host(
     ip: &str,
     target: &ScanTarget,
@@ -280,6 +299,7 @@ async fn scan_host(
     methods: &[String],
     ports: &[u16],
     scanned_at: String,
+    protocol_details_by_ip: &HashMap<String, Value>,
 ) -> Option<Value> {
     let port_semaphore = Arc::new(Semaphore::new(PORT_SCAN_CONCURRENCY));
     let mut port_tasks = Vec::with_capacity(ports.len());
@@ -310,9 +330,30 @@ async fn scan_host(
     }
 
     open_ports.sort_unstable();
-    let protocols = infer_protocols(&open_ports, methods);
+    let mut protocols = infer_protocols(&open_ports, methods);
     let banners = collect_banners(ip, &open_ports).await;
     let dns_names = reverse_dns_names(ip).await;
+
+    // Merge multicast discovery results, when present, on top of the
+    // port-inferred stubs. Real mDNS data also promotes ``mdns`` and
+    // ``ssdp`` into the protocols list so the signal list and the
+    // primary-method heuristic see them even when ports 5353/1900 are
+    // closed (the host answered via multicast alone).
+    let mut protocol_details =
+        merge_protocol_details(&protocols, &banners, protocol_details_by_ip.get(ip));
+    if protocol_details.get("mdns").is_some()
+        && !protocols.iter().any(|p| p == "mdns")
+    {
+        protocols.push("mdns".to_string());
+    }
+    if protocol_details.get("ssdp").is_some()
+        && !protocols.iter().any(|p| p == "ssdp")
+    {
+        protocols.push("ssdp".to_string());
+    }
+    protocols.sort();
+    protocols.dedup();
+
     let signals = build_signals(&open_ports, &protocols, &banners);
     let primary_method = if protocols.iter().any(|protocol| protocol == "snmp") {
         "snmp"
@@ -324,11 +365,23 @@ async fn scan_host(
         "tcp_port"
     };
 
+    // Prefer the hostname reported by mDNS over reverse-DNS when both exist.
+    let hostname = protocol_details
+        .get("mdns")
+        .and_then(|v| v.get("hostname"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| dns_names.first().cloned());
+
+    // Remove internal bookkeeping keys from protocol_details before
+    // serialization (no-op today; forward-compatible).
+    let _ = protocol_details.remove("_internal");
+
     Some(json!({
         "identity": {
             "primaryMac": Value::Null,
             "currentIp": ip,
-            "hostname": dns_names.first().cloned(),
+            "hostname": hostname,
         },
         "networkId": target.network_id,
         "probe": {
@@ -346,10 +399,65 @@ async fn scan_host(
             "macOui": Value::Null,
             "dnsNames": dns_names,
             "banners": banners,
-            "protocolDetails": build_protocol_details(&protocols, &banners),
+            "protocolDetails": Value::Object(protocol_details),
             "signals": signals,
         },
     }))
+}
+
+/// Run mDNS + SSDP discovery in parallel with a shared budget.
+///
+/// Spawns both in `tokio::spawn` so a panic in either third-party crate
+/// is contained and degrades to an empty map instead of failing the scan.
+async fn run_multicast_discovery(budget: Duration) -> HashMap<String, Value> {
+    let mdns_handle =
+        tokio::spawn(async move { protocol_discovery::discover_mdns(budget).await });
+    let ssdp_handle =
+        tokio::spawn(async move { protocol_discovery::discover_ssdp(budget).await });
+
+    let mdns = match mdns_handle.await {
+        Ok(m) => m,
+        Err(err) => {
+            warn!(error = %err, "mdns task panicked");
+            HashMap::new()
+        }
+    };
+    let ssdp = match ssdp_handle.await {
+        Ok(s) => s,
+        Err(err) => {
+            warn!(error = %err, "ssdp task panicked");
+            HashMap::new()
+        }
+    };
+
+    info!(
+        mdns_hosts = mdns.len(),
+        ssdp_hosts = ssdp.len(),
+        "Multicast discovery finished"
+    );
+    protocol_discovery::build_per_host_details(&mdns, &ssdp)
+}
+
+/// Merge port-inferred protocol stubs with real multicast evidence.
+///
+/// The final object wins for each key: multicast data replaces the stub
+/// for ``mdns``/``ssdp`` when present; ``snmp`` populated from banner
+/// grabbing continues unchanged.
+fn merge_protocol_details(
+    protocols: &[String],
+    banners: &HashMap<String, String>,
+    multicast: Option<&Value>,
+) -> serde_json::Map<String, Value> {
+    let mut details = match build_protocol_details(protocols, banners) {
+        Value::Object(m) => m,
+        _ => serde_json::Map::new(),
+    };
+    if let Some(Value::Object(src)) = multicast {
+        for (key, value) in src {
+            details.insert(key.clone(), value.clone());
+        }
+    }
+    details
 }
 
 async fn port_is_open(ip: &str, port: u16) -> bool {
@@ -711,4 +819,63 @@ fn expand_ipv4_cidr(input: &str) -> Result<Vec<String>, String> {
     }
 
     Ok(hosts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn ports_for_tier_tier1_has_no_duplicates() {
+        let ports = ports_for_tier("tier1", true);
+        let unique: HashSet<u16> = ports.iter().copied().collect();
+        assert_eq!(unique.len(), ports.len(), "tier1 has duplicates: {ports:?}");
+    }
+
+    #[test]
+    fn ports_for_tier_tier2_has_no_duplicates() {
+        let ports = ports_for_tier("tier2", true);
+        let unique: HashSet<u16> = ports.iter().copied().collect();
+        assert_eq!(unique.len(), ports.len(), "tier2 has duplicates: {ports:?}");
+    }
+
+    #[test]
+    fn ports_for_tier_tier1_yields_32_ports() {
+        let ports = ports_for_tier("tier1", true);
+        assert_eq!(ports.len(), 32, "tier1 port count drifted from 32");
+    }
+
+    #[test]
+    fn ports_for_tier_tier2_yields_tier1_plus_70() {
+        let tier1 = ports_for_tier("tier1", true);
+        let tier2 = ports_for_tier("tier2", true);
+        assert_eq!(
+            tier2.len(),
+            tier1.len() + 70,
+            "tier2 should be tier1 (32) + 70 additional ports after 993 dedup"
+        );
+    }
+
+    #[test]
+    fn ports_for_tier_key_infra_in_tier1() {
+        let ports = ports_for_tier("tier1", true);
+        for required in [22, 80, 443, 8006, 8123, 5353, 1883] {
+            assert!(
+                ports.contains(&required),
+                "tier1 missing well-known port {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn ports_for_tier_include_iot_false_strips_iot_ports() {
+        let ports = ports_for_tier("tier2", false);
+        for stripped in [1883, 1900, 5353, 5683, 8123, 8883, 10001] {
+            assert!(
+                !ports.contains(&stripped),
+                "tier2 with includeIoTProtocols=false should not contain {stripped}"
+            );
+        }
+    }
 }

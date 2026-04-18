@@ -47,8 +47,8 @@ export function NotificationBell({ className }: NotificationBellProps) {
     const hasCritical = (stats?.byTier?.critical ?? 0) > 0;
     const hasHigh = (stats?.byTier?.high ?? 0) > 0;
     
-    if (hasCritical) return 'bg-red-500 text-white';
-    if (hasHigh) return 'bg-orange-500 text-white';
+    if (hasCritical) return 'bg-severity-critical text-severity-critical-foreground';
+    if (hasHigh) return 'bg-severity-high text-severity-high-foreground';
     return 'bg-primary text-primary-foreground';
   }, [stats]);
 

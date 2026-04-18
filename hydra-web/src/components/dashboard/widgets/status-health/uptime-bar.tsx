@@ -52,11 +52,11 @@ export function UptimeBarWidget({
           let title: string;
 
           if (!hasData) {
-            colorClass = 'bg-gray-300 dark:bg-gray-600';
+            colorClass = 'bg-muted';
             title = 'No data';
           } else {
             const day = days[idx];
-            colorClass = day.up ? 'bg-emerald-500' : 'bg-red-500';
+            colorClass = day.up ? 'bg-success' : 'bg-destructive';
             title = `${day.date}: ${day.up ? 'up' : 'down'}`;
           }
 
@@ -80,10 +80,10 @@ export function UptimeBarWidget({
             <span
               className={`text-sm font-semibold ${
                 uptimePct >= 99.5
-                  ? 'text-emerald-600'
+                  ? 'text-success'
                   : uptimePct >= 95
-                    ? 'text-yellow-600'
-                    : 'text-red-600'
+                    ? 'text-warning'
+                    : 'text-destructive'
               }`}
             >
               {uptimePct.toFixed(1)}% uptime

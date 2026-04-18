@@ -23,14 +23,12 @@ This module provides two helpers:
 
 from __future__ import annotations
 
-from typing import Any, TypeVar
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, ValidationError
 
 logger = structlog.get_logger(__name__)
-
-ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 class MaterializationError(RuntimeError):
@@ -58,7 +56,7 @@ class MaterializationError(RuntimeError):
         self.validation_error = validation_error
 
 
-def safe_materialize_many(
+def safe_materialize_many[ModelT: BaseModel](
     model: type[ModelT],
     rows: list[dict[str, Any]],
     *,
@@ -110,7 +108,7 @@ def safe_materialize_many(
     return valid
 
 
-def safe_materialize_one(
+def safe_materialize_one[ModelT: BaseModel](
     model: type[ModelT],
     row: dict[str, Any],
     *,

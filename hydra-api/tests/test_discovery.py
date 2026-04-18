@@ -975,6 +975,257 @@ class TestFingerprintService:
         assert "suggestedKind" in data
         assert data["suggestedClass"] == "compute"
 
+    # ── Banner-Driven Classification Signals (Wave 4) ──────────────────
+
+    def test_classify_mikrotik_via_ssh_banner(self) -> None:
+        """SSH banner 'RouterOS'/'ROSSSH' promotes networking classification."""
+        fp = self.fp_service.fingerprint_device(
+            [22], [], banners={"22": "SSH-2.0-ROSSSH_7.1"}
+        )
+        cls = self.fp_service.classify_device(fp)
+        assert any("banner:ssh:mikrotik" in s for s in cls.signals), cls.signals
+        assert cls.suggested_class == "networking"
+
+    def test_classify_cisco_via_snmp_sysdescr(self) -> None:
+        """SNMP sys_descr 'Cisco IOS Software' reinforces networking class."""
+        fp = self.fp_service.fingerprint_device(
+            [161], ["snmp"],
+            protocol_data={"snmp": {"sysDescr": "Cisco IOS Software, C3560"}},
+        )
+        cls = self.fp_service.classify_device(fp)
+        assert any("banner:snmp:cisco" in s for s in cls.signals), cls.signals
+        assert cls.suggested_class == "networking"
+        assert cls.confidence >= 0.4
+
+    def test_classify_proxmox_via_http_title(self) -> None:
+        """Proxmox title drives compute classification + hypervisor type."""
+        fp = self.fp_service.fingerprint_device(
+            [8006, 443],
+            banners={"8006": "server=nginx; title=Proxmox Virtual Environment"},
+        )
+        cls = self.fp_service.classify_device(fp)
+        assert cls.suggested_class == "compute"
+        assert cls.suggested_type == "hypervisor"
+        assert any("banner:http:proxmox" in s for s in cls.signals), cls.signals
+
+    def test_classify_pfsense_via_http_title(self) -> None:
+        """pfSense HTTP title promotes networking→firewall, even without BGP."""
+        fp = self.fp_service.fingerprint_device(
+            [443, 80],
+            banners={"443": "server=nginx; title=pfSense - Dashboard"},
+        )
+        cls = self.fp_service.classify_device(fp)
+        assert cls.suggested_class == "networking"
+        assert cls.suggested_type == "firewall"
+        assert any("banner:http:pfsense" in s for s in cls.signals), cls.signals
+
+    def test_classify_home_assistant_via_http_title(self) -> None:
+        """Home Assistant title stacks with port 8123 on the iot side."""
+        fp = self.fp_service.fingerprint_device(
+            [8123, 443],
+            banners={
+                "8123": "server=nginx; title=Home Assistant",
+                "443": "server=nginx; title=Login",
+            },
+        )
+        cls = self.fp_service.classify_device(fp)
+        assert cls.suggested_class == "iot"
+        assert cls.suggested_type == "home-automation"
+        assert any("banner:http:homeassistant" in s for s in cls.signals)
+
+    def test_classify_embedded_iot_via_boa_httpd(self) -> None:
+        """Embedded web server (Boa) contributes an iot boost."""
+        fp = self.fp_service.fingerprint_device(
+            [80, 1883],
+            banners={
+                "80": "server=Boa/0.94.14rc21",
+                "1883": "mqtt:connack:0",
+            },
+        )
+        cls = self.fp_service.classify_device(fp)
+        # Port 1883 alone + embedded httpd + mqtt connack all target iot.
+        assert cls.suggested_class == "iot"
+        assert any("banner:http:embedded-httpd" in s for s in cls.signals)
+        assert any("banner:mqtt:connack-ok" in s for s in cls.signals)
+
+    def test_classify_printer_emits_signal_and_hint(self) -> None:
+        """SNMP sysDescr containing 'LaserJet' yields a printer signal/hint.
+
+        Weight between networking-default and iot-banner can be close; the
+        contract is that the signal is emitted and the type promotes to
+        'printer' if iot wins. We don't assert a winning class here since
+        SNMP port + proto signals reasonably bias networking.
+        """
+        fp = self.fp_service.fingerprint_device(
+            [161, 80],
+            ["snmp"],
+            protocol_data={"snmp": {"sysDescr": "HP LaserJet MFP M281fdw"}},
+        )
+        cls = self.fp_service.classify_device(fp)
+        assert any("banner:snmp:printer" in s for s in cls.signals), cls.signals
+        if cls.suggested_class == "iot":
+            assert cls.suggested_type == "printer"
+
+    def test_banner_signal_does_not_flip_strong_port_signal(self) -> None:
+        """Strong port signals (k8s) still dominate over generic HTTP server hints."""
+        fp = self.fp_service.fingerprint_device(
+            [6443, 10250, 443],
+            banners={"443": "server=nginx/1.24.0"},
+        )
+        cls = self.fp_service.classify_device(fp)
+        # K8s ports (+0.3) + web-services (+0.1) + nginx (+0.1) = 0.5 compute
+        assert cls.suggested_class == "compute"
+        assert cls.suggested_type == "kubernetes-node"
+
+    def test_banner_signal_stacks_under_0_95_cap(self) -> None:
+        """Multiple additive signals stacking never exceed the 0.95 confidence cap."""
+        fp = self.fp_service.fingerprint_device(
+            [22, 8006, 443],
+            primary_mac="b8:27:eb:11:22:33",  # Raspberry Pi (compute +0.3)
+            banners={
+                "22": "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5",
+                "8006": "server=nginx; title=Proxmox Virtual Environment",
+            },
+        )
+        cls = self.fp_service.classify_device(fp)
+        assert cls.suggested_class == "compute"
+        assert cls.confidence <= 0.95
+
+    def test_unknown_banner_contributes_no_signal(self) -> None:
+        """A banner that matches no rule produces zero banner signals."""
+        fp = self.fp_service.fingerprint_device(
+            [22], [],
+            banners={"22": "SSH-2.0-TotallyUnknownServer_1.0 SomeWeirdOS"},
+        )
+        cls = self.fp_service.classify_device(fp)
+        banner_signals = [s for s in cls.signals if s.startswith("banner:")]
+        assert banner_signals == [], f"unexpected banner signals: {banner_signals}"
+
+    def test_banner_signal_dedup_same_label(self) -> None:
+        """Multiple rule rows sharing a label only boost once."""
+        # SSH banner with 'RouterOS' and 'MikroTik' — both map to label
+        # banner:ssh:mikrotik (+0.3). Only one should fire.
+        fp = self.fp_service.fingerprint_device(
+            [22], [],
+            banners={"22": "SSH-2.0-ROSSSH_7.1 MikroTik RouterOS"},
+        )
+        cls = self.fp_service.classify_device(fp)
+        mikrotik_hits = [s for s in cls.signals if s == "banner:ssh:mikrotik->networking(+0.4)"]
+        assert len(mikrotik_hits) == 1, (
+            f"expected exactly one mikrotik banner signal, got {mikrotik_hits}"
+        )
+
+    def test_banner_hints_promote_synology_nas_type(self) -> None:
+        """Synology HTTP title promotes a compute device to nas type."""
+        fp = self.fp_service.fingerprint_device(
+            [22, 5000, 5001, 443],
+            banners={"5000": "server=nginx; title=Synology DiskStation"},
+        )
+        cls = self.fp_service.classify_device(fp)
+        assert cls.suggested_class == "compute"
+        assert cls.suggested_type == "nas"
+
+    # ── HTTP Response Population (Wave 4) ──────────────────────────────
+
+    def test_fingerprint_populates_http_responses_server_and_title(self) -> None:
+        """Both halves of a ``server=...; title=...`` banner are captured."""
+        fp = self.fp_service.fingerprint_device(
+            [8080],
+            banners={"8080": "server=nginx/1.24.0; title=Welcome"},
+        )
+        assert len(fp.http_responses) == 1
+        entry = fp.http_responses[0]
+        assert entry.port == 8080
+        assert entry.server == "nginx/1.24.0"
+        assert entry.title == "Welcome"
+
+    def test_fingerprint_populates_http_responses_server_only(self) -> None:
+        """Server-only banner leaves the title empty."""
+        fp = self.fp_service.fingerprint_device(
+            [443],
+            banners={"443": "server=Apache/2.4.58"},
+        )
+        assert len(fp.http_responses) == 1
+        assert fp.http_responses[0].server == "Apache/2.4.58"
+        assert fp.http_responses[0].title is None
+
+    def test_fingerprint_populates_http_responses_title_only(self) -> None:
+        """Title-only banner sets title and leaves server empty."""
+        fp = self.fp_service.fingerprint_device(
+            [8123],
+            banners={"8123": "title=Home Assistant"},
+        )
+        assert len(fp.http_responses) == 1
+        assert fp.http_responses[0].title == "Home Assistant"
+        assert fp.http_responses[0].server is None
+
+    def test_fingerprint_skips_non_http_ports_for_http_responses(self) -> None:
+        """SSH, SNMP, and MQTT banners do not leak into http_responses."""
+        fp = self.fp_service.fingerprint_device(
+            [22, 161, 1883],
+            banners={
+                "22": "SSH-2.0-OpenSSH_9.6",
+                "161": "sysDescr=Linux myhost 6.1.0",
+                "1883": "mqtt:connack:0",
+            },
+        )
+        assert fp.http_responses == []
+
+    def test_fingerprint_http_responses_port_ordering(self) -> None:
+        """Multiple HTTP banners are emitted sorted by port ascending."""
+        fp = self.fp_service.fingerprint_device(
+            [443, 80, 8080],
+            banners={
+                "80": "server=nginx; title=One",
+                "443": "server=apache; title=Two",
+                "8080": "server=caddy; title=Three",
+            },
+        )
+        ports = [entry.port for entry in fp.http_responses]
+        assert ports == [80, 443, 8080]
+
+    def test_fingerprint_http_responses_identified_as_proxmox(self) -> None:
+        """Title-based hint populates ``identified_as`` for Proxmox."""
+        fp = self.fp_service.fingerprint_device(
+            [8006],
+            banners={"8006": "server=nginx; title=Proxmox Virtual Environment"},
+        )
+        assert len(fp.http_responses) == 1
+        assert fp.http_responses[0].identified_as == "proxmox"
+
+    def test_fingerprint_http_responses_identified_as_falls_back_to_server(self) -> None:
+        """With no title match, ``identified_as`` falls back to the Server header."""
+        fp = self.fp_service.fingerprint_device(
+            [443],
+            banners={"443": "server=nginx/1.24.0"},
+        )
+        assert len(fp.http_responses) == 1
+        assert fp.http_responses[0].identified_as == "nginx/1.24.0"
+
+    def test_fingerprint_http_responses_serialize_camel_case(self) -> None:
+        """``HttpResponseDetail`` serializes with camelCase aliases intact."""
+        fp = self.fp_service.fingerprint_device(
+            [8006],
+            banners={"8006": "server=nginx; title=Proxmox Virtual Environment"},
+        )
+        data = fp.model_dump(by_alias=True)
+        assert data["httpResponses"]
+        entry = data["httpResponses"][0]
+        assert entry["port"] == 8006
+        assert entry["server"] == "nginx"
+        assert entry["title"] == "Proxmox Virtual Environment"
+        assert entry["identifiedAs"] == "proxmox"
+
+    def test_classify_signals_include_banner_entries_in_explanation(self) -> None:
+        """Banner signals appear in the signals list (visible in explanation)."""
+        fp = self.fp_service.fingerprint_device(
+            [8006],
+            banners={"8006": "server=nginx; title=Proxmox Virtual Environment"},
+        )
+        cls = self.fp_service.classify_device(fp)
+        banner_signal_count = sum(1 for s in cls.signals if s.startswith("banner:"))
+        assert banner_signal_count >= 1
+
 
 # ── Enrichment Integration Tests ───────────────────────────────────────
 
@@ -2199,6 +2450,37 @@ class TestScannerModule:
         assert 443 in TIER1_PORTS  # HTTPS
         assert 8006 in TIER1_PORTS  # Proxmox
         assert 8123 in TIER1_PORTS  # Home Assistant
+
+    def test_tier_ports_no_duplicates_across_tiers(self):
+        """A port must live in exactly one tier across scanner + fingerprint."""
+        from hydra.api.v1.services.discovery import fingerprint as fp
+        from hydra.api.v1.services.discovery.scanner import TIER1_PORTS, TIER2_PORTS
+
+        scanner_tier1 = set(TIER1_PORTS)
+        scanner_tier2 = set(TIER2_PORTS)
+        assert scanner_tier1.isdisjoint(scanner_tier2), (
+            f"Duplicate scanner ports across tiers: {scanner_tier1 & scanner_tier2}"
+        )
+        assert fp.TIER1_PORTS.isdisjoint(fp.TIER2_PORTS), (
+            f"Duplicate fingerprint ports across tiers: "
+            f"{fp.TIER1_PORTS & fp.TIER2_PORTS}"
+        )
+
+    def test_scanner_and_fingerprint_tier_lists_match(self):
+        """Scanner and fingerprint must advertise identical tier membership."""
+        from hydra.api.v1.services.discovery import fingerprint as fp
+        from hydra.api.v1.services.discovery.scanner import TIER1_PORTS, TIER2_PORTS
+
+        assert set(TIER1_PORTS) == fp.TIER1_PORTS, (
+            f"Tier1 drift between scanner and fingerprint: "
+            f"only-in-scanner={set(TIER1_PORTS) - fp.TIER1_PORTS}, "
+            f"only-in-fingerprint={fp.TIER1_PORTS - set(TIER1_PORTS)}"
+        )
+        assert set(TIER2_PORTS) == fp.TIER2_PORTS, (
+            f"Tier2 drift between scanner and fingerprint: "
+            f"only-in-scanner={set(TIER2_PORTS) - fp.TIER2_PORTS}, "
+            f"only-in-fingerprint={fp.TIER2_PORTS - set(TIER2_PORTS)}"
+        )
 
 
 class TestRegisterService:

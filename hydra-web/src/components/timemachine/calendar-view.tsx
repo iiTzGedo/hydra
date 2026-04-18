@@ -73,7 +73,7 @@ function EventMarkers({ events }: { events: TimelineEvent[] }) {
         return (
           <span
             key={type}
-            className={cn('h-1.5 w-1.5 rounded-full', meta?.color || 'bg-gray-400')}
+            className={cn('h-1.5 w-1.5 rounded-full', meta?.color || 'bg-muted-foreground')}
             title={`${counts[type]} ${meta?.label || type}`}
           />
         );

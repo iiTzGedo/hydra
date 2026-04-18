@@ -62,6 +62,40 @@
     --chart-4: 0 84% 60%;
     --chart-5: 258 90% 66%;
 
+    /* Event-type palette - distinct hues tuned for light theme */
+    --event-profile: 38 92% 45%;           /* amber */
+    --event-profile-foreground: 0 0% 100%;
+    --event-service-added: 160 84% 35%;    /* emerald */
+    --event-service-added-foreground: 0 0% 100%;
+    --event-service-removed: 350 89% 55%;  /* rose */
+    --event-service-removed-foreground: 0 0% 100%;
+    --event-topology: 217 91% 60%;         /* sky/blue */
+    --event-topology-foreground: 0 0% 100%;
+    --event-node-added: 258 90% 60%;       /* indigo */
+    --event-node-added-foreground: 0 0% 100%;
+    --event-node-removed: 220 9% 46%;      /* slate */
+    --event-node-removed-foreground: 0 0% 100%;
+    --event-network: 187 94% 40%;          /* cyan */
+    --event-network-foreground: 0 0% 100%;
+    --event-group: 142 71% 38%;            /* lime/green */
+    --event-group-foreground: 0 0% 100%;
+
+    /* Severity palette - for notification tiers (critical > high > medium > low) */
+    --severity-critical: 0 84% 60%;        /* red */
+    --severity-critical-foreground: 0 0% 100%;
+    --severity-high: 22 93% 53%;           /* orange */
+    --severity-high-foreground: 0 0% 100%;
+    --severity-medium: 38 92% 45%;         /* amber */
+    --severity-medium-foreground: 0 0% 100%;
+    --severity-low: 217 91% 60%;           /* blue */
+    --severity-low-foreground: 0 0% 100%;
+
+    /* Surface elevation layers - use to layer UI within dark/light theme */
+    --surface-1: 0 0% 100%;     /* base surface (same as background) */
+    --surface-2: 0 0% 98%;      /* raised surface */
+    --surface-3: 0 0% 96%;      /* overlay/dialog */
+    --surface-4: 0 0% 94%;      /* popover/tooltip */
+
     /* Hydra Design System - Spacing Scale (4px base) */
     --space-0: 0px;
     --space-1: 4px;
@@ -148,6 +182,40 @@
     --chart-3: 38 92% 50%;
     --chart-4: 0 84% 60%;
     --chart-5: 258 90% 66%;
+
+    /* Event-type palette - tuned for dark theme (slightly lighter for contrast) */
+    --event-profile: 38 92% 55%;
+    --event-profile-foreground: 0 0% 4%;
+    --event-service-added: 160 84% 45%;
+    --event-service-added-foreground: 0 0% 4%;
+    --event-service-removed: 350 89% 62%;
+    --event-service-removed-foreground: 0 0% 4%;
+    --event-topology: 217 91% 65%;
+    --event-topology-foreground: 0 0% 4%;
+    --event-node-added: 258 90% 70%;
+    --event-node-added-foreground: 0 0% 4%;
+    --event-node-removed: 220 9% 60%;
+    --event-node-removed-foreground: 0 0% 4%;
+    --event-network: 187 94% 50%;
+    --event-network-foreground: 0 0% 4%;
+    --event-group: 142 71% 48%;
+    --event-group-foreground: 0 0% 4%;
+
+    /* Severity palette - dark-optimized */
+    --severity-critical: 0 84% 62%;
+    --severity-critical-foreground: 0 0% 100%;
+    --severity-high: 22 93% 58%;
+    --severity-high-foreground: 0 0% 100%;
+    --severity-medium: 38 92% 55%;
+    --severity-medium-foreground: 0 0% 4%;
+    --severity-low: 217 91% 65%;
+    --severity-low-foreground: 0 0% 4%;
+
+    /* Surface elevation layers - layered zinc depths for dark theme */
+    --surface-1: 0 0% 4%;       /* base (matches background) */
+    --surface-2: 0 0% 7%;       /* card level */
+    --surface-3: 0 0% 10%;      /* popover / dialog */
+    --surface-4: 0 0% 13%;      /* tooltip / toast */
 
     /* Dark mode shadows - Subtle glows instead of harsh shadows */
     --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
