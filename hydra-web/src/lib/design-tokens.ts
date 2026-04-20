@@ -72,6 +72,7 @@ export const statusToken = cva('inline-flex items-center gap-1.5', {
       solid: '',
       soft: '',
       outline: '',
+      dot: '',
       none: '',
     },
   },
@@ -90,6 +91,20 @@ export const statusToken = cva('inline-flex items-center gap-1.5', {
     { status: 'failed', surface: 'soft', class: 'bg-destructive/10 text-destructive' },
     { status: 'archived', surface: 'soft', class: 'bg-destructive/10 text-destructive' },
     { status: 'offline', surface: 'soft', class: 'bg-destructive/10 text-destructive' },
+    // Dot — used for timeline/legend markers; returns raw bg class
+    { status: 'active', surface: 'dot', class: 'bg-success' },
+    { status: 'running', surface: 'dot', class: 'bg-success' },
+    { status: 'online', surface: 'dot', class: 'bg-success' },
+    { status: 'inactive', surface: 'dot', class: 'bg-muted-foreground' },
+    { status: 'stopped', surface: 'dot', class: 'bg-muted-foreground' },
+    { status: 'exited', surface: 'dot', class: 'bg-muted-foreground' },
+    { status: 'unknown', surface: 'dot', class: 'bg-muted-foreground' },
+    { status: 'pending', surface: 'dot', class: 'bg-warning' },
+    { status: 'paused', surface: 'dot', class: 'bg-warning' },
+    { status: 'restarting', surface: 'dot', class: 'bg-warning' },
+    { status: 'failed', surface: 'dot', class: 'bg-destructive' },
+    { status: 'archived', surface: 'dot', class: 'bg-destructive' },
+    { status: 'offline', surface: 'dot', class: 'bg-destructive' },
   ],
   defaultVariants: {
     status: 'unknown',
@@ -211,6 +226,137 @@ export function tierToSeverity(tier: number): SeverityLevel {
   if (tier === 2) return 'low';
   return 'info';
 }
+
+// ---------- Command-type tokens (Command Center) ----------
+
+export type CommandKind =
+  | 'service'
+  | 'node'
+  | 'agent'
+  | 'metadata'
+  | 'package'
+  | 'config'
+  | 'system'
+  | 'custom'
+  | 'workflow';
+
+export const commandToken = cva('inline-flex items-center gap-1.5', {
+  variants: {
+    kind: {
+      service: 'text-command-service',
+      node: 'text-command-node',
+      agent: 'text-command-agent',
+      metadata: 'text-command-metadata',
+      package: 'text-command-package',
+      config: 'text-command-config',
+      system: 'text-command-system',
+      custom: 'text-command-custom',
+      workflow: 'text-command-workflow',
+    },
+    surface: {
+      solid: '',
+      soft: '',
+      dot: '',
+      rail: '',
+      none: '',
+    },
+  },
+  compoundVariants: [
+    // Solid — header chips
+    { kind: 'service', surface: 'solid', class: 'bg-command-service text-command-service-foreground' },
+    { kind: 'node', surface: 'solid', class: 'bg-command-node text-command-node-foreground' },
+    { kind: 'agent', surface: 'solid', class: 'bg-command-agent text-command-agent-foreground' },
+    { kind: 'metadata', surface: 'solid', class: 'bg-command-metadata text-command-metadata-foreground' },
+    { kind: 'package', surface: 'solid', class: 'bg-command-package text-command-package-foreground' },
+    { kind: 'config', surface: 'solid', class: 'bg-command-config text-command-config-foreground' },
+    { kind: 'system', surface: 'solid', class: 'bg-command-system text-command-system-foreground' },
+    { kind: 'custom', surface: 'solid', class: 'bg-command-custom text-command-custom-foreground' },
+    { kind: 'workflow', surface: 'solid', class: 'bg-command-workflow text-command-workflow-foreground' },
+    // Soft — tinted chips
+    { kind: 'service', surface: 'soft', class: 'bg-command-service/10 text-command-service border border-command-service/20' },
+    { kind: 'node', surface: 'soft', class: 'bg-command-node/10 text-command-node border border-command-node/20' },
+    { kind: 'agent', surface: 'soft', class: 'bg-command-agent/10 text-command-agent border border-command-agent/20' },
+    { kind: 'metadata', surface: 'soft', class: 'bg-command-metadata/10 text-command-metadata border border-command-metadata/20' },
+    { kind: 'package', surface: 'soft', class: 'bg-command-package/10 text-command-package border border-command-package/20' },
+    { kind: 'config', surface: 'soft', class: 'bg-command-config/10 text-command-config border border-command-config/20' },
+    { kind: 'system', surface: 'soft', class: 'bg-command-system/10 text-command-system border border-command-system/20' },
+    { kind: 'custom', surface: 'soft', class: 'bg-command-custom/10 text-command-custom border border-command-custom/20' },
+    { kind: 'workflow', surface: 'soft', class: 'bg-command-workflow/10 text-command-workflow border border-command-workflow/20' },
+    // Dot — legend markers
+    { kind: 'service', surface: 'dot', class: 'bg-command-service' },
+    { kind: 'node', surface: 'dot', class: 'bg-command-node' },
+    { kind: 'agent', surface: 'dot', class: 'bg-command-agent' },
+    { kind: 'metadata', surface: 'dot', class: 'bg-command-metadata' },
+    { kind: 'package', surface: 'dot', class: 'bg-command-package' },
+    { kind: 'config', surface: 'dot', class: 'bg-command-config' },
+    { kind: 'system', surface: 'dot', class: 'bg-command-system' },
+    { kind: 'custom', surface: 'dot', class: 'bg-command-custom' },
+    { kind: 'workflow', surface: 'dot', class: 'bg-command-workflow' },
+    // Rail — left-edge indicator on cards
+    { kind: 'service', surface: 'rail', class: 'border-l-4 border-l-command-service' },
+    { kind: 'node', surface: 'rail', class: 'border-l-4 border-l-command-node' },
+    { kind: 'agent', surface: 'rail', class: 'border-l-4 border-l-command-agent' },
+    { kind: 'metadata', surface: 'rail', class: 'border-l-4 border-l-command-metadata' },
+    { kind: 'package', surface: 'rail', class: 'border-l-4 border-l-command-package' },
+    { kind: 'config', surface: 'rail', class: 'border-l-4 border-l-command-config' },
+    { kind: 'system', surface: 'rail', class: 'border-l-4 border-l-command-system' },
+    { kind: 'custom', surface: 'rail', class: 'border-l-4 border-l-command-custom' },
+    { kind: 'workflow', surface: 'rail', class: 'border-l-4 border-l-command-workflow' },
+  ],
+  defaultVariants: {
+    kind: 'custom',
+    surface: 'none',
+  },
+});
+
+export type CommandTokenProps = VariantProps<typeof commandToken>;
+
+// ---------- Danger-level tokens (command confirmation tiers) ----------
+
+export type DangerLevel = 'safe' | 'low' | 'medium' | 'high' | 'critical';
+
+export const dangerToken = cva('inline-flex items-center gap-1.5', {
+  variants: {
+    level: {
+      safe: 'text-danger-safe',
+      low: 'text-danger-low',
+      medium: 'text-danger-medium',
+      high: 'text-danger-high',
+      critical: 'text-danger-critical',
+    },
+    surface: {
+      solid: '',
+      soft: '',
+      dot: '',
+      none: '',
+    },
+  },
+  compoundVariants: [
+    { level: 'safe', surface: 'solid', class: 'bg-danger-safe text-danger-safe-foreground' },
+    { level: 'low', surface: 'solid', class: 'bg-danger-low text-danger-low-foreground' },
+    { level: 'medium', surface: 'solid', class: 'bg-danger-medium text-danger-medium-foreground' },
+    { level: 'high', surface: 'solid', class: 'bg-danger-high text-danger-high-foreground' },
+    { level: 'critical', surface: 'solid', class: 'bg-danger-critical text-danger-critical-foreground' },
+
+    { level: 'safe', surface: 'soft', class: 'bg-danger-safe/10 text-danger-safe border border-danger-safe/20' },
+    { level: 'low', surface: 'soft', class: 'bg-danger-low/10 text-danger-low border border-danger-low/20' },
+    { level: 'medium', surface: 'soft', class: 'bg-danger-medium/10 text-danger-medium border border-danger-medium/20' },
+    { level: 'high', surface: 'soft', class: 'bg-danger-high/10 text-danger-high border border-danger-high/20' },
+    { level: 'critical', surface: 'soft', class: 'bg-danger-critical/10 text-danger-critical border border-danger-critical/20' },
+
+    { level: 'safe', surface: 'dot', class: 'bg-danger-safe' },
+    { level: 'low', surface: 'dot', class: 'bg-danger-low' },
+    { level: 'medium', surface: 'dot', class: 'bg-danger-medium' },
+    { level: 'high', surface: 'dot', class: 'bg-danger-high' },
+    { level: 'critical', surface: 'dot', class: 'bg-danger-critical' },
+  ],
+  defaultVariants: {
+    level: 'safe',
+    surface: 'none',
+  },
+});
+
+export type DangerTokenProps = VariantProps<typeof dangerToken>;
 
 // ---------- Surface elevation tokens ----------
 

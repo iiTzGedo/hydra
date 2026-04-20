@@ -73,58 +73,123 @@ export default {
           4: 'hsl(var(--chart-4))',
           5: 'hsl(var(--chart-5))',
         },
-        // Event-type palette - Time Machine / audit events
+        // Event-type palette - Time Machine / audit events.
+        // Uses the `<alpha-value>` placeholder so Tailwind opacity modifiers
+        // (e.g. `bg-event-node-added/10`) resolve correctly against the
+        // space-separated HSL triplets defined in src/index.css.
         event: {
           profile: {
-            DEFAULT: 'hsl(var(--event-profile))',
-            foreground: 'hsl(var(--event-profile-foreground))',
+            DEFAULT: 'hsl(var(--event-profile) / <alpha-value>)',
+            foreground: 'hsl(var(--event-profile-foreground) / <alpha-value>)',
           },
           'service-added': {
-            DEFAULT: 'hsl(var(--event-service-added))',
-            foreground: 'hsl(var(--event-service-added-foreground))',
+            DEFAULT: 'hsl(var(--event-service-added) / <alpha-value>)',
+            foreground: 'hsl(var(--event-service-added-foreground) / <alpha-value>)',
           },
           'service-removed': {
-            DEFAULT: 'hsl(var(--event-service-removed))',
-            foreground: 'hsl(var(--event-service-removed-foreground))',
+            DEFAULT: 'hsl(var(--event-service-removed) / <alpha-value>)',
+            foreground: 'hsl(var(--event-service-removed-foreground) / <alpha-value>)',
           },
           topology: {
-            DEFAULT: 'hsl(var(--event-topology))',
-            foreground: 'hsl(var(--event-topology-foreground))',
+            DEFAULT: 'hsl(var(--event-topology) / <alpha-value>)',
+            foreground: 'hsl(var(--event-topology-foreground) / <alpha-value>)',
           },
           'node-added': {
-            DEFAULT: 'hsl(var(--event-node-added))',
-            foreground: 'hsl(var(--event-node-added-foreground))',
+            DEFAULT: 'hsl(var(--event-node-added) / <alpha-value>)',
+            foreground: 'hsl(var(--event-node-added-foreground) / <alpha-value>)',
           },
           'node-removed': {
-            DEFAULT: 'hsl(var(--event-node-removed))',
-            foreground: 'hsl(var(--event-node-removed-foreground))',
+            DEFAULT: 'hsl(var(--event-node-removed) / <alpha-value>)',
+            foreground: 'hsl(var(--event-node-removed-foreground) / <alpha-value>)',
           },
           network: {
-            DEFAULT: 'hsl(var(--event-network))',
-            foreground: 'hsl(var(--event-network-foreground))',
+            DEFAULT: 'hsl(var(--event-network) / <alpha-value>)',
+            foreground: 'hsl(var(--event-network-foreground) / <alpha-value>)',
           },
           group: {
-            DEFAULT: 'hsl(var(--event-group))',
-            foreground: 'hsl(var(--event-group-foreground))',
+            DEFAULT: 'hsl(var(--event-group) / <alpha-value>)',
+            foreground: 'hsl(var(--event-group-foreground) / <alpha-value>)',
           },
         },
-        // Severity palette - notification tiers
+        // Severity palette - notification tiers.
         severity: {
           critical: {
-            DEFAULT: 'hsl(var(--severity-critical))',
-            foreground: 'hsl(var(--severity-critical-foreground))',
+            DEFAULT: 'hsl(var(--severity-critical) / <alpha-value>)',
+            foreground: 'hsl(var(--severity-critical-foreground) / <alpha-value>)',
           },
           high: {
-            DEFAULT: 'hsl(var(--severity-high))',
-            foreground: 'hsl(var(--severity-high-foreground))',
+            DEFAULT: 'hsl(var(--severity-high) / <alpha-value>)',
+            foreground: 'hsl(var(--severity-high-foreground) / <alpha-value>)',
           },
           medium: {
-            DEFAULT: 'hsl(var(--severity-medium))',
-            foreground: 'hsl(var(--severity-medium-foreground))',
+            DEFAULT: 'hsl(var(--severity-medium) / <alpha-value>)',
+            foreground: 'hsl(var(--severity-medium-foreground) / <alpha-value>)',
           },
           low: {
-            DEFAULT: 'hsl(var(--severity-low))',
-            foreground: 'hsl(var(--severity-low-foreground))',
+            DEFAULT: 'hsl(var(--severity-low) / <alpha-value>)',
+            foreground: 'hsl(var(--severity-low-foreground) / <alpha-value>)',
+          },
+        },
+        // Command-type palette - Command Center category IDs
+        command: {
+          service: {
+            DEFAULT: 'hsl(var(--command-service) / <alpha-value>)',
+            foreground: 'hsl(var(--command-service-foreground) / <alpha-value>)',
+          },
+          node: {
+            DEFAULT: 'hsl(var(--command-node) / <alpha-value>)',
+            foreground: 'hsl(var(--command-node-foreground) / <alpha-value>)',
+          },
+          agent: {
+            DEFAULT: 'hsl(var(--command-agent) / <alpha-value>)',
+            foreground: 'hsl(var(--command-agent-foreground) / <alpha-value>)',
+          },
+          metadata: {
+            DEFAULT: 'hsl(var(--command-metadata) / <alpha-value>)',
+            foreground: 'hsl(var(--command-metadata-foreground) / <alpha-value>)',
+          },
+          package: {
+            DEFAULT: 'hsl(var(--command-package) / <alpha-value>)',
+            foreground: 'hsl(var(--command-package-foreground) / <alpha-value>)',
+          },
+          config: {
+            DEFAULT: 'hsl(var(--command-config) / <alpha-value>)',
+            foreground: 'hsl(var(--command-config-foreground) / <alpha-value>)',
+          },
+          system: {
+            DEFAULT: 'hsl(var(--command-system) / <alpha-value>)',
+            foreground: 'hsl(var(--command-system-foreground) / <alpha-value>)',
+          },
+          custom: {
+            DEFAULT: 'hsl(var(--command-custom) / <alpha-value>)',
+            foreground: 'hsl(var(--command-custom-foreground) / <alpha-value>)',
+          },
+          workflow: {
+            DEFAULT: 'hsl(var(--command-workflow) / <alpha-value>)',
+            foreground: 'hsl(var(--command-workflow-foreground) / <alpha-value>)',
+          },
+        },
+        // Danger-level palette - command confirmation tiers
+        danger: {
+          safe: {
+            DEFAULT: 'hsl(var(--danger-safe) / <alpha-value>)',
+            foreground: 'hsl(var(--danger-safe-foreground) / <alpha-value>)',
+          },
+          low: {
+            DEFAULT: 'hsl(var(--danger-low) / <alpha-value>)',
+            foreground: 'hsl(var(--danger-low-foreground) / <alpha-value>)',
+          },
+          medium: {
+            DEFAULT: 'hsl(var(--danger-medium) / <alpha-value>)',
+            foreground: 'hsl(var(--danger-medium-foreground) / <alpha-value>)',
+          },
+          high: {
+            DEFAULT: 'hsl(var(--danger-high) / <alpha-value>)',
+            foreground: 'hsl(var(--danger-high-foreground) / <alpha-value>)',
+          },
+          critical: {
+            DEFAULT: 'hsl(var(--danger-critical) / <alpha-value>)',
+            foreground: 'hsl(var(--danger-critical-foreground) / <alpha-value>)',
           },
         },
         // Surface elevation layers

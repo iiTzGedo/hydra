@@ -90,6 +90,38 @@
     --severity-low: 217 91% 60%;           /* blue */
     --severity-low-foreground: 0 0% 100%;
 
+    /* Command-type palette - distinct hues per category for Command Center */
+    --command-service: 142 71% 38%;        /* green */
+    --command-service-foreground: 0 0% 100%;
+    --command-node: 258 90% 60%;           /* indigo */
+    --command-node-foreground: 0 0% 100%;
+    --command-agent: 38 92% 45%;           /* amber */
+    --command-agent-foreground: 0 0% 100%;
+    --command-metadata: 220 9% 46%;        /* slate */
+    --command-metadata-foreground: 0 0% 100%;
+    --command-package: 187 94% 40%;        /* cyan */
+    --command-package-foreground: 0 0% 100%;
+    --command-config: 280 70% 55%;         /* violet */
+    --command-config-foreground: 0 0% 100%;
+    --command-system: 22 93% 53%;          /* orange */
+    --command-system-foreground: 0 0% 100%;
+    --command-custom: 217 91% 60%;         /* blue */
+    --command-custom-foreground: 0 0% 100%;
+    --command-workflow: 173 80% 40%;       /* teal */
+    --command-workflow-foreground: 0 0% 100%;
+
+    /* Danger-level palette - reuses severity scale with an explicit alias for commands */
+    --danger-safe: 142 71% 38%;
+    --danger-safe-foreground: 0 0% 100%;
+    --danger-low: 217 91% 60%;
+    --danger-low-foreground: 0 0% 100%;
+    --danger-medium: 38 92% 45%;
+    --danger-medium-foreground: 0 0% 100%;
+    --danger-high: 22 93% 53%;
+    --danger-high-foreground: 0 0% 100%;
+    --danger-critical: 0 84% 60%;
+    --danger-critical-foreground: 0 0% 100%;
+
     /* Surface elevation layers - use to layer UI within dark/light theme */
     --surface-1: 0 0% 100%;     /* base surface (same as background) */
     --surface-2: 0 0% 98%;      /* raised surface */
@@ -210,6 +242,38 @@
     --severity-medium-foreground: 0 0% 4%;
     --severity-low: 217 91% 65%;
     --severity-low-foreground: 0 0% 4%;
+
+    /* Command-type palette - dark-optimized (slightly lighter for contrast on dark surfaces) */
+    --command-service: 142 71% 48%;
+    --command-service-foreground: 0 0% 4%;
+    --command-node: 258 90% 70%;
+    --command-node-foreground: 0 0% 4%;
+    --command-agent: 38 92% 55%;
+    --command-agent-foreground: 0 0% 4%;
+    --command-metadata: 220 9% 60%;
+    --command-metadata-foreground: 0 0% 4%;
+    --command-package: 187 94% 50%;
+    --command-package-foreground: 0 0% 4%;
+    --command-config: 280 70% 65%;
+    --command-config-foreground: 0 0% 4%;
+    --command-system: 22 93% 58%;
+    --command-system-foreground: 0 0% 100%;
+    --command-custom: 217 91% 65%;
+    --command-custom-foreground: 0 0% 4%;
+    --command-workflow: 173 70% 48%;
+    --command-workflow-foreground: 0 0% 4%;
+
+    /* Danger-level palette - dark-optimized */
+    --danger-safe: 142 71% 48%;
+    --danger-safe-foreground: 0 0% 4%;
+    --danger-low: 217 91% 65%;
+    --danger-low-foreground: 0 0% 4%;
+    --danger-medium: 38 92% 55%;
+    --danger-medium-foreground: 0 0% 4%;
+    --danger-high: 22 93% 58%;
+    --danger-high-foreground: 0 0% 100%;
+    --danger-critical: 0 84% 62%;
+    --danger-critical-foreground: 0 0% 100%;
 
     /* Surface elevation layers - layered zinc depths for dark theme */
     --surface-1: 0 0% 4%;       /* base (matches background) */

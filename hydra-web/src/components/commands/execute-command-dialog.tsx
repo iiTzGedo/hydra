@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Clock, ShieldCheck } from 'lucide-react';
 import type { CommandDefinitionSummary } from '@/api/commands';
 import { useCreateCommand } from '@/api/commands';
 import { getErrorMessage } from '@/lib/api-client';
@@ -18,6 +18,18 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { EntityCombobox } from '@/components/ui/entity-combobox';
+import { HydraIcon } from '@/components/icons/hydra-icon';
+import { categoryToCommandKind, getCommandIconDescriptor } from '@/lib/command-icons';
+import { commandToken, dangerToken } from '@/lib/design-tokens';
+import { cn } from '@/lib/utils';
+
+const DANGER_LABELS: Record<string, string> = {
+  safe: 'Safe',
+  low: 'Low risk',
+  medium: 'Medium risk',
+  high: 'High risk',
+  critical: 'Critical',
+};
 
 interface ExecuteCommandDialogProps {
   open: boolean;
@@ -100,21 +112,88 @@ export function ExecuteCommandDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Execute Command</DialogTitle>
-          {definition && (
-            <DialogDescription>
-              {definition.displayName}
-              {definition.description ? ` - ${definition.description}` : ''}
-            </DialogDescription>
-          )}
+          <div className="flex items-start gap-3">
+            {definition && (
+              <div
+                className={cn(
+                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border',
+                  commandToken({
+                    kind: categoryToCommandKind(definition.category),
+                    surface: 'soft',
+                  }),
+                )}
+              >
+                <HydraIcon
+                  icon={getCommandIconDescriptor({
+                    registryId: definition.registryId,
+                    category: definition.category,
+                  })}
+                  fallback="terminal"
+                  size={20}
+                />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <DialogTitle>
+                {definition?.displayName ?? 'Execute Command'}
+              </DialogTitle>
+              {definition?.description && (
+                <DialogDescription className="mt-1">
+                  {definition.description}
+                </DialogDescription>
+              )}
+              {definition && (
+                <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+                  {definition.registryId}
+                </p>
+              )}
+            </div>
+          </div>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {definition && (
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <Badge variant="outline">{definition.category}</Badge>
-              <span>Timeout: {definition.timeout}s</span>
-              <span>Min Role: {definition.minimumRole}</span>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium capitalize',
+                  commandToken({
+                    kind: categoryToCommandKind(definition.category),
+                    surface: 'soft',
+                  }),
+                )}
+              >
+                {definition.category}
+              </span>
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium capitalize',
+                  dangerToken({
+                    level: definition.dangerLevel ?? 'safe',
+                    surface: 'soft',
+                  }),
+                )}
+              >
+                <span
+                  className={cn(
+                    'inline-block h-1.5 w-1.5 rounded-full',
+                    dangerToken({
+                      level: definition.dangerLevel ?? 'safe',
+                      surface: 'dot',
+                    }),
+                  )}
+                  aria-hidden="true"
+                />
+                {DANGER_LABELS[definition.dangerLevel ?? 'safe'] ?? definition.dangerLevel}
+              </span>
+              <Badge variant="outline" className="h-5 px-1.5">
+                <ShieldCheck className="mr-1 h-3 w-3" />
+                {definition.minimumRole}
+              </Badge>
+              <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+                <Clock className="h-3 w-3" />
+                {definition.timeout}s
+              </span>
             </div>
           )}
 

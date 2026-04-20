@@ -8,12 +8,41 @@ import {
 } from 'lucide-react';
 import { useCommands, useCancelCommand, type CommandStatus } from '@/api/commands';
 import { getErrorMessage } from '@/lib/api-client';
-import { formatRelativeTime } from '@/lib/utils';
+import { cn, formatRelativeTime } from '@/lib/utils';
 import { CommandStatusBadge } from '@/components/commands/command-status-badge';
+import { HydraIcon } from '@/components/icons/hydra-icon';
+import { categoryToCommandKind, getCommandIconDescriptor } from '@/lib/command-icons';
+import { commandToken } from '@/lib/design-tokens';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import type { CommandSummary } from '@/api/commands';
+
+function CommandActionCell({ cmd }: { cmd: CommandSummary }) {
+  const kind = categoryToCommandKind(
+    cmd.type === 'service' || cmd.type === 'node' || cmd.type === 'agent' ? cmd.type : null,
+    cmd.type,
+  );
+  const icon = getCommandIconDescriptor({
+    registryId: cmd.registryId ?? null,
+    type: cmd.type,
+  });
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className={cn(
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border',
+          commandToken({ kind, surface: 'soft' }),
+        )}
+        aria-hidden="true"
+      >
+        <HydraIcon icon={icon} fallback="terminal" size={14} />
+      </span>
+      <span className="truncate">{cmd.action}</span>
+    </div>
+  );
+}
 import {
   Table,
   TableBody,
@@ -135,7 +164,9 @@ export function ExecutionQueue() {
               <TableBody>
                 {running.map((cmd) => (
                   <TableRow key={cmd.commandId} className="border-border">
-                    <TableCell className="font-medium">{cmd.action}</TableCell>
+                    <TableCell className="font-medium">
+                      <CommandActionCell cmd={cmd} />
+                    </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground font-mono">
                         {cmd.target.nodeId}
@@ -187,7 +218,9 @@ export function ExecutionQueue() {
               <TableBody>
                 {queued.map((cmd) => (
                   <TableRow key={cmd.commandId} className="border-border">
-                    <TableCell className="font-medium">{cmd.action}</TableCell>
+                    <TableCell className="font-medium">
+                      <CommandActionCell cmd={cmd} />
+                    </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground font-mono">
                         {cmd.target.nodeId}

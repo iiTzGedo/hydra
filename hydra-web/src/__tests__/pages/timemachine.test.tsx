@@ -155,8 +155,10 @@ describe('Time Machine Integration', () => {
 
     expect(await screen.findByRole('heading', { name: 'Time Machine' })).toBeInTheDocument();
 
+    // Details panel renders the event label as an h3; the Timeline card uses a p.
+    // Waiting for the h3 is how we confirm the default selection (latest event).
     await waitFor(() => {
-      expect(screen.getByText('node: node-beta')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: 'Node Archived' })).toBeInTheDocument();
     });
     expect(screen.getByText('Topology timestamp: 2026-03-12T15:00:00.000Z')).toBeInTheDocument();
     expect(screen.getByText('Nodes captured: 1')).toBeInTheDocument();
@@ -171,7 +173,7 @@ describe('Time Machine Integration', () => {
     await user.click(timelineEvent);
 
     await waitFor(() => {
-      expect(screen.getByText('node: node-alpha')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 3, name: 'Node Registered' })).toBeInTheDocument();
     });
     expect(screen.getByText('Topology timestamp: 2026-03-10T09:30:00.000Z')).toBeInTheDocument();
 

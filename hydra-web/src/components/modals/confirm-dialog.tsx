@@ -73,7 +73,7 @@ export function ConfirmDialog({
             className={
               variant === 'destructive'
                 ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                : 'bg-primary hover:bg-primary/90 text-primary-foreground'
             }
           >
             {isLoading ? (

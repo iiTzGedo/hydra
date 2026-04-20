@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge';
+import { statusToken } from '@/lib/design-tokens';
 import { cn } from '@/lib/utils';
 
 export type StatusType =
@@ -20,20 +21,51 @@ export interface StatusBadgeProps {
   className?: string;
 }
 
-const statusConfig: Record<
-  string,
-  { variant: 'success' | 'destructive' | 'warning' | 'secondary' | 'outline'; label: string; dotColor: string }
-> = {
-  active: { variant: 'success', label: 'Active', dotColor: 'bg-success' },
-  online: { variant: 'success', label: 'Online', dotColor: 'bg-success' },
-  running: { variant: 'success', label: 'Running', dotColor: 'bg-success' },
-  inactive: { variant: 'destructive', label: 'Inactive', dotColor: 'bg-destructive' },
-  offline: { variant: 'destructive', label: 'Offline', dotColor: 'bg-destructive' },
-  stopped: { variant: 'secondary', label: 'Stopped', dotColor: 'bg-muted-foreground' },
-  failed: { variant: 'destructive', label: 'Failed', dotColor: 'bg-destructive' },
-  pending: { variant: 'warning', label: 'Pending', dotColor: 'bg-warning' },
-  archived: { variant: 'secondary', label: 'Archived', dotColor: 'bg-muted-foreground' },
-  unknown: { variant: 'outline', label: 'Unknown', dotColor: 'bg-muted-foreground' },
+type KnownStatus =
+  | 'active'
+  | 'running'
+  | 'online'
+  | 'inactive'
+  | 'stopped'
+  | 'exited'
+  | 'unknown'
+  | 'pending'
+  | 'paused'
+  | 'restarting'
+  | 'failed'
+  | 'archived'
+  | 'offline';
+
+const KNOWN_STATUSES: ReadonlySet<KnownStatus> = new Set<KnownStatus>([
+  'active',
+  'running',
+  'online',
+  'inactive',
+  'stopped',
+  'exited',
+  'unknown',
+  'pending',
+  'paused',
+  'restarting',
+  'failed',
+  'archived',
+  'offline',
+]);
+
+const STATUS_LABELS: Record<KnownStatus, string> = {
+  active: 'Active',
+  running: 'Running',
+  online: 'Online',
+  inactive: 'Inactive',
+  stopped: 'Stopped',
+  exited: 'Exited',
+  unknown: 'Unknown',
+  pending: 'Pending',
+  paused: 'Paused',
+  restarting: 'Restarting',
+  failed: 'Failed',
+  archived: 'Archived',
+  offline: 'Offline',
 };
 
 export function StatusBadge({
@@ -42,28 +74,37 @@ export function StatusBadge({
   size = 'default',
   className,
 }: StatusBadgeProps) {
-  const config = statusConfig[status.toLowerCase()] || {
-    variant: 'outline' as const,
-    label: status.charAt(0).toUpperCase() + status.slice(1),
-    dotColor: 'bg-muted-foreground',
-  };
+  const lower = status.toLowerCase();
+  const known = KNOWN_STATUSES.has(lower as KnownStatus)
+    ? (lower as KnownStatus)
+    : null;
+
+  const label = known
+    ? STATUS_LABELS[known]
+    : status.charAt(0).toUpperCase() + status.slice(1);
+
+  const surfaceClass = known
+    ? statusToken({ status: known, surface: 'soft' })
+    : 'bg-muted text-muted-foreground';
+  const dotClass = known ? statusToken({ status: known, surface: 'dot' }) : 'bg-muted-foreground';
 
   return (
     <Badge
-      variant={config.variant}
+      variant="outline"
       className={cn(
-        'gap-1.5',
+        'gap-1.5 border-transparent',
+        surfaceClass,
         size === 'sm' && 'px-1.5 py-0.5 text-[10px]',
         className
       )}
     >
       {showDot && (
         <span
-          className={cn('h-1.5 w-1.5 rounded-full', config.dotColor)}
+          className={cn('h-1.5 w-1.5 rounded-full', dotClass)}
           aria-hidden="true"
         />
       )}
-      {config.label}
+      {label}
     </Badge>
   );
 }

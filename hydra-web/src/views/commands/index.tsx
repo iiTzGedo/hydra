@@ -9,6 +9,7 @@ import {
   Server,
   Boxes,
   Bot,
+  ShieldCheck,
 } from 'lucide-react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import {
@@ -22,6 +23,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { HydraIcon } from '@/components/icons/hydra-icon';
+import { categoryToCommandKind, getCommandIconDescriptor } from '@/lib/command-icons';
+import { commandToken, dangerToken } from '@/lib/design-tokens';
+import { cn } from '@/lib/utils';
 import { WorkflowList } from './components/workflow-list';
 import { ExecutionQueue } from './components/execution-queue';
 import { CommandHistory } from './components/command-history';
@@ -37,6 +42,37 @@ const CATEGORY_LABELS: Record<CommandCategory, string> = {
   service: 'Service',
   node: 'Node',
   agent: 'Agent',
+};
+
+/**
+ * Fall back to a capitalised, hyphen-split label for plugin categories that
+ * the API surfaces beyond the three core types (e.g. "ansible", "home-assistant").
+ * Known abbreviations (ha, ssh, k8s) get their full display name instead of
+ * being naïvely capitalised.
+ */
+const PLUGIN_CATEGORY_OVERRIDES: Record<string, string> = {
+  ha: 'Home Assistant',
+  homeassistant: 'Home Assistant',
+  'home-assistant': 'Home Assistant',
+  k8s: 'Kubernetes',
+  ssh: 'SSH',
+};
+
+function formatCategoryLabel(category: CommandCategory | string): string {
+  if (category in CATEGORY_LABELS) return CATEGORY_LABELS[category as CommandCategory];
+  if (PLUGIN_CATEGORY_OVERRIDES[category]) return PLUGIN_CATEGORY_OVERRIDES[category];
+  return category
+    .split(/[-_]/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+const DANGER_LABELS: Record<string, string> = {
+  safe: 'Safe',
+  low: 'Low risk',
+  medium: 'Medium risk',
+  high: 'High risk',
+  critical: 'Critical',
 };
 
 // ── Catalog Tab ───────────────────────────────────────────────────────────
@@ -109,55 +145,125 @@ function CatalogTab() {
         {categories.map((category) => {
           const CategoryIcon = CATEGORY_ICONS[category] ?? Terminal;
           const items = grouped[category] ?? [];
+          const kind = categoryToCommandKind(category);
+          const isPluginCategory = !(category in CATEGORY_ICONS);
+          // For plugin categories (ansible, docker, etc.), resolve the brand
+          // icon via HydraIcon instead of the generic Terminal fallback.
+          const pluginIconSlug = isPluginCategory ? category : null;
 
           return (
             <div key={category} className="space-y-3">
               <div className="flex items-center gap-2">
-                <CategoryIcon className="h-5 w-5 text-muted-foreground" />
-                <h3 className="text-lg font-semibold">
-                  {CATEGORY_LABELS[category] ?? category} Commands
+                <span
+                  className={cn(
+                    'flex h-7 w-7 items-center justify-center rounded-md',
+                    commandToken({ kind, surface: 'soft' }),
+                  )}
+                >
+                  {pluginIconSlug ? (
+                    <HydraIcon
+                      icon={{ source: 'fallback', slug: pluginIconSlug }}
+                      fallback="terminal"
+                      size={16}
+                    />
+                  ) : (
+                    <CategoryIcon className="h-4 w-4" />
+                  )}
+                </span>
+                <h3 className="text-base font-semibold tracking-tight">
+                  {formatCategoryLabel(category)} Commands
                 </h3>
-                <Badge variant="secondary">{items.length}</Badge>
+                <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                  {items.length}
+                </Badge>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {items.map((def) => (
-                  <Card
-                    key={def.registryId}
-                    className="cursor-pointer transition-colors hover:border-primary/40 hover:bg-muted/30"
-                    onClick={() => {
-                      setSelectedDef(def);
-                      setDialogOpen(true);
-                    }}
-                  >
-                    <CardContent className="p-4 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="text-sm font-medium leading-tight">
-                          {def.displayName}
-                        </h4>
-                        <Play className="h-4 w-4 text-muted-foreground shrink-0" />
-                      </div>
-                      {def.description && (
-                        <p className="text-xs text-muted-foreground line-clamp-2">
-                          {def.description}
-                        </p>
+                {items.map((def) => {
+                  const icon = getCommandIconDescriptor({
+                    registryId: def.registryId,
+                    category: def.category,
+                  });
+                  const danger = def.dangerLevel ?? 'safe';
+
+                  return (
+                    <Card
+                      key={def.registryId}
+                      className={cn(
+                        'group cursor-pointer overflow-hidden transition-all',
+                        'hover:border-primary/40 hover:shadow-md hover:-translate-y-0.5',
+                        commandToken({ kind, surface: 'rail' }),
                       )}
-                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                          {def.minimumRole}
-                        </Badge>
-                        <span className="text-[10px] text-muted-foreground">
-                          {def.timeout}s timeout
-                        </span>
-                        {def.requiresConfirmation && (
-                          <Badge variant="warning" className="text-[10px] px-1.5 py-0">
-                            Confirm
-                          </Badge>
+                      onClick={() => {
+                        setSelectedDef(def);
+                        setDialogOpen(true);
+                      }}
+                    >
+                      <CardContent className="p-4 space-y-3">
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={cn(
+                              'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border',
+                              commandToken({ kind, surface: 'soft' }),
+                            )}
+                          >
+                            <HydraIcon icon={icon} fallback="terminal" size={20} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h4 className="truncate text-sm font-semibold leading-tight">
+                              {def.displayName}
+                            </h4>
+                            <p className="mt-0.5 font-mono text-[10px] text-muted-foreground truncate">
+                              {def.registryId}
+                            </p>
+                          </div>
+                          <Play className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                        </div>
+
+                        {def.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-2">
+                            {def.description}
+                          </p>
                         )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          <span
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize',
+                              dangerToken({ level: danger, surface: 'soft' }),
+                            )}
+                            title={`Danger level: ${DANGER_LABELS[danger] ?? danger}`}
+                          >
+                            <span
+                              className={cn(
+                                'inline-block h-1.5 w-1.5 rounded-full',
+                                dangerToken({ level: danger, surface: 'dot' }),
+                              )}
+                              aria-hidden="true"
+                            />
+                            {DANGER_LABELS[danger] ?? danger}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className="h-5 px-1.5 text-[10px] font-medium capitalize"
+                          >
+                            <ShieldCheck className="mr-1 h-3 w-3" />
+                            {def.minimumRole}
+                          </Badge>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-mono tabular-nums text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            {def.timeout}s
+                          </span>
+                          {def.requiresConfirmation && (
+                            <Badge variant="warning" className="h-5 px-1.5 text-[10px]">
+                              Confirm
+                            </Badge>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </div>
           );

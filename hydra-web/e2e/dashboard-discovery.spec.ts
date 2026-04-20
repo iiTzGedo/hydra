@@ -51,6 +51,44 @@ async function mockAuthenticatedSession(page: Page) {
     });
   });
 
+  // User settings endpoint — the real API returns ``UserSettingsResponse``
+  // directly (not wrapped in ``{data: ...}``). Mirror that shape so
+  // ``useUserSettings`` reads ``settings.dashboard.*`` correctly and the
+  // ``lastOpenedBoardId`` effect in the dashboard view reaches a fixed point.
+  // Returning ``lastOpenedBoardId: 'board-e2e'`` from the start prevents a
+  // mutate-refetch loop that otherwise keeps ``isMutating`` true indefinitely.
+  const userSettingsBody = {
+    userId: 'user-001',
+    ui: {},
+    views: {},
+    notifications: {},
+    dashboard: {
+      pinnedBoardIds: [],
+      lastOpenedBoardId: 'board-e2e',
+    },
+    updatedAt: '2026-04-06T00:00:00Z',
+  };
+  await page.route('**/api/v1/settings', async (route) => {
+    const method = route.request().method();
+    if (method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(userSettingsBody),
+      });
+      return;
+    }
+    if (method === 'PUT' || method === 'PATCH') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(userSettingsBody),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
   await page.route('**/api/v1/notifications**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -58,6 +96,21 @@ async function mockAuthenticatedSession(page: Page) {
       body: JSON.stringify({ data: [], meta: { total: 0, limit: 50, offset: 0 } }),
     });
   });
+
+  // Sidebar workspace summary queries — answer with empty lists so the
+  // dashboard page isn't blocked by unmocked 401s from the real backend.
+  for (const resource of ['groups', 'networks', 'nodes']) {
+    await page.route(`**/api/v1/${resource}**`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [],
+          meta: { total: 0, limit: 10, offset: 0 },
+        }),
+      });
+    });
+  }
 
   await page.route('**/api/v1/dashboards/templates**', async (route) => {
     await route.fulfill({
@@ -300,6 +353,10 @@ test.describe('Dashboard and Discovery', () => {
     const editButton = page.getByRole('button', { name: /^Edit Board$/ });
     await expect(editButton).toBeEnabled({ timeout: 15_000 });
     await editButton.click();
+
+    // In edit mode the widget list lives inside the Customize popover — open
+    // it so the per-widget Configure buttons become clickable.
+    await page.getByRole('button', { name: /^Customize$/ }).click();
     await page.getByRole('button', { name: /Configure Service Summary/i }).click();
     await page.locator('#widget-config-title').fill('Executive Services');
     await page.getByRole('button', { name: /^Save Settings$/ }).click();

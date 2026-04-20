@@ -9,6 +9,8 @@ import {
   XCircle,
   ChevronDown,
   ChevronUp,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useDocumentTitle } from '@/hooks/use-document-title';
@@ -19,13 +21,26 @@ import { ControlConfirmationDialog } from '@/components/commands/control-confirm
 import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import { CommandStatusBadge } from '@/components/commands/command-status-badge';
 import { CommandOutput } from '@/components/commands/command-output';
+import { HydraIcon } from '@/components/icons/hydra-icon';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
+import { categoryToCommandKind, getCommandIconDescriptor } from '@/lib/command-icons';
+import { commandToken, dangerToken } from '@/lib/design-tokens';
+import { cn } from '@/lib/utils';
+
+const DANGER_LABELS: Record<string, string> = {
+  safe: 'Safe',
+  low: 'Low risk',
+  medium: 'Medium risk',
+  high: 'High risk',
+  critical: 'Critical',
+};
 
 export default function CommandDetailPage() {
-  const { commandId } = useParams<{ commandId: string }>()!
+  const { commandId } = useParams<{ commandId: string }>()!;
   const { data: command, isLoading, error } = useCommand(commandId);
   const cancelCommand = useCancelCommand();
   const confirmCommand = useConfirmCommand();
@@ -82,6 +97,22 @@ export default function CommandDetailPage() {
   const hasResult = command.result?.output || command.result?.error;
   const hasError = command.error;
 
+  const kind = categoryToCommandKind(
+    // The detail payload doesn't carry category; infer from type.
+    (command.type === 'service' || command.type === 'node' || command.type === 'agent'
+      ? command.type
+      : null),
+    command.type,
+  );
+  const icon = getCommandIconDescriptor({
+    registryId: command.registryId ?? null,
+    type: command.type,
+    category: command.type === 'service' || command.type === 'node' || command.type === 'agent'
+      ? command.type
+      : null,
+  });
+  const danger = (command.dangerLevel as DangerLevel | null) ?? 'safe';
+
   const handleConfirm = async () => {
     if (!commandId) return;
     try {
@@ -126,12 +157,47 @@ export default function CommandDetailPage() {
         }
       />
 
-      {/* Status badge - large */}
+      {/* Icon + kind header */}
       <div className="flex items-center gap-3">
-        <CommandStatusBadge status={command.status} className="text-sm px-3 py-1" />
-        {['queued', 'executing', 'pending_confirmation'].includes(command.status) && (
-          <span className="text-xs text-muted-foreground animate-pulse">Auto-refreshing...</span>
-        )}
+        <div
+          className={cn(
+            'flex h-12 w-12 items-center justify-center rounded-lg border',
+            commandToken({ kind, surface: 'soft' }),
+          )}
+        >
+          <HydraIcon icon={icon} fallback="terminal" size={22} />
+        </div>
+        <div className="flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <CommandStatusBadge status={command.status} className="text-sm px-3 py-1" />
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize',
+                dangerToken({ level: danger, surface: 'soft' }),
+              )}
+            >
+              {danger === 'safe' ? (
+                <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+              )}
+              {DANGER_LABELS[danger] ?? danger}
+            </span>
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize',
+                commandToken({ kind, surface: 'soft' }),
+              )}
+            >
+              {command.type}
+            </span>
+            {['queued', 'executing', 'pending_confirmation'].includes(command.status) && (
+              <span className="text-xs text-muted-foreground animate-pulse">
+                Auto-refreshing…
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Pending confirmation banner */}
@@ -183,7 +249,7 @@ export default function CommandDetailPage() {
             <InfoItem label="Command ID" value={command.commandId} mono />
             <InfoItem
               label="Registry ID"
-              value={command.registryId ?? '-'}
+              value={command.registryId ?? '—'}
               mono
             />
             <InfoItem
@@ -203,7 +269,7 @@ export default function CommandDetailPage() {
             <InfoItem label="Type" value={command.type} />
             <InfoItem
               label="Execution Method"
-              value={command.executionMethod ?? '-'}
+              value={command.executionMethod ?? '—'}
             />
             <InfoItem
               label="Timeout"
@@ -277,16 +343,22 @@ export default function CommandDetailPage() {
           >
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Parameters</CardTitle>
-              {paramsExpanded ? (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              )}
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                  {Object.keys(command.parameters ?? {}).length} field
+                  {Object.keys(command.parameters ?? {}).length === 1 ? '' : 's'}
+                </Badge>
+                {paramsExpanded ? (
+                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                )}
+              </div>
             </div>
           </CardHeader>
           {paramsExpanded && (
             <CardContent>
-              <pre className="bg-zinc-950 text-zinc-100 rounded-lg p-4 font-mono text-sm overflow-auto max-h-64">
+              <pre className="rounded-lg border border-border bg-surface-3 p-4 font-mono text-sm text-foreground overflow-auto max-h-64">
                 {JSON.stringify(command.parameters, null, 2)}
               </pre>
             </CardContent>
@@ -307,7 +379,7 @@ export default function CommandDetailPage() {
               )}
             </div>
             {command.result?.exitCode != null && (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground font-mono tabular-nums">
                 Exit code: {command.result.exitCode}
               </p>
             )}
@@ -338,7 +410,7 @@ export default function CommandDetailPage() {
               </p>
             )}
             {command.error!.details && (
-              <pre className="bg-zinc-950 text-red-400 rounded-lg p-4 font-mono text-sm overflow-auto max-h-48">
+              <pre className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 font-mono text-sm text-destructive overflow-auto max-h-48">
                 {JSON.stringify(command.error!.details, null, 2)}
               </pre>
             )}
@@ -363,10 +435,14 @@ function InfoItem({
 }) {
   return (
     <div className="space-y-1">
-      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
       <div className="flex items-center gap-1.5">
         {icon}
-        <p className={`text-sm ${mono ? 'font-mono' : ''} break-all`}>{value}</p>
+        <p className={cn('text-sm break-all', mono && 'font-mono tabular-nums')}>
+          {value}
+        </p>
       </div>
     </div>
   );

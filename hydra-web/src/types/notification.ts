@@ -118,13 +118,53 @@ export const INFO_MAX_TIER: NotificationTier = 2;
 /** Minimum tier that shows a details modal on click (Orange+). */
 export const DETAILS_MODAL_MIN_TIER: NotificationTier = 4;
 
-/** Tier color mapping for UI rendering. */
+/**
+ * Tier color mapping for UI rendering.
+ * Uses semantic severity tokens from tailwind config (see `src/index.css` and
+ * `src/lib/design-tokens.ts`) so colours respond to light/dark themes.
+ *
+ * Tier 1 (low user) → low severity (blue)
+ * Tier 2 (low system) → success (green)
+ * Tier 3 (warning) → medium severity (amber/warning)
+ * Tier 4 (high) → high severity (orange)
+ * Tier 5 (critical) → critical severity (red)
+ */
 export const TIER_COLORS: Record<NotificationTier, { bg: string; text: string; border: string; dot: string; label: string }> = {
-  1: { bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-200 dark:border-blue-800', dot: 'bg-blue-500', label: 'Info' },
-  2: { bg: 'bg-green-50 dark:bg-green-950/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-200 dark:border-green-800', dot: 'bg-green-500', label: 'System' },
-  3: { bg: 'bg-yellow-50 dark:bg-yellow-950/30', text: 'text-yellow-700 dark:text-yellow-400', border: 'border-yellow-200 dark:border-yellow-800', dot: 'bg-yellow-500', label: 'Warning' },
-  4: { bg: 'bg-orange-50 dark:bg-orange-950/30', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-800', dot: 'bg-orange-500', label: 'High' },
-  5: { bg: 'bg-red-50 dark:bg-red-950/30', text: 'text-red-700 dark:text-red-400', border: 'border-red-200 dark:border-red-800', dot: 'bg-red-500', label: 'Critical' },
+  1: {
+    bg: 'bg-severity-low/10',
+    text: 'text-severity-low',
+    border: 'border-severity-low/20',
+    dot: 'bg-severity-low',
+    label: 'Info',
+  },
+  2: {
+    bg: 'bg-success/10',
+    text: 'text-success',
+    border: 'border-success/20',
+    dot: 'bg-success',
+    label: 'System',
+  },
+  3: {
+    bg: 'bg-severity-medium/10',
+    text: 'text-severity-medium',
+    border: 'border-severity-medium/20',
+    dot: 'bg-severity-medium',
+    label: 'Warning',
+  },
+  4: {
+    bg: 'bg-severity-high/10',
+    text: 'text-severity-high',
+    border: 'border-severity-high/20',
+    dot: 'bg-severity-high',
+    label: 'High',
+  },
+  5: {
+    bg: 'bg-severity-critical/10',
+    text: 'text-severity-critical',
+    border: 'border-severity-critical/20',
+    dot: 'bg-severity-critical',
+    label: 'Critical',
+  },
 };
 
 /** Tier label to tier number mapping. */
