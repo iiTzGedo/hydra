@@ -111,32 +111,26 @@ vi.mock('@/api/dashboards', () => ({
             {
               key: 'title',
               label: 'Title',
-              fieldType: 'text',
+              type: 'string',
               description: 'Optional display title override for the widget header.',
-              placeholder: 'Leave blank to use the default title',
-              options: [],
             },
             {
               key: 'subtitle',
               label: 'Subtitle',
-              fieldType: 'text',
+              type: 'string',
               description: 'Short supporting text shown under the title.',
-              placeholder: 'Optional supporting context',
-              options: [],
             },
             {
               key: 'collapsible',
               label: 'Collapsible',
-              fieldType: 'boolean',
+              type: 'boolean',
               description: 'Allow the widget body to be collapsed from the header.',
-              options: [],
             },
             {
               key: 'defaultCollapsed',
               label: 'Start collapsed',
-              fieldType: 'boolean',
+              type: 'boolean',
               description: 'Collapse the widget body when the board first loads.',
-              options: [],
             },
           ],
           capabilities: {
@@ -499,10 +493,10 @@ describe('Dashboard Page', () => {
       expect(screen.getByTestId('edit-mode-status')).toHaveTextContent('editing');
     });
 
-    // Edit mode shows the widget picker (Add Widget) and save/discard controls inline
+    // Edit mode shows the widget picker (Add Widget) and edit-mode toolbar with save/discard
     expect(screen.getByRole('button', { name: /Add Widget/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Save Layout/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Discard/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Save$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Discard$/i })).toBeInTheDocument();
 
     // Clone and Delete are available via the board-actions overflow menu
     await act(async () => {
@@ -597,7 +591,7 @@ describe('Dashboard Page', () => {
       expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
     );
     await act(async () => {
-      await user.click(screen.getByRole('button', { name: /Save Layout/i }));
+      await user.click(screen.getByRole('button', { name: /^Save$/i }));
     });
 
     await waitFor(() => expect(updateDashboardMock).toHaveBeenCalled());

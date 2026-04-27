@@ -24,6 +24,7 @@ dependencies = [
     "psutil>=5.9.0",
     "scapy>=2.5.0",
     "mac-vendor-lookup>=0.1.12",
+    "bcrypt>=5.0.0",
 ]
 
 [project.optional-dependencies]

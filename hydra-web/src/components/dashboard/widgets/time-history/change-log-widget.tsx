@@ -2,13 +2,23 @@
  * ChangeLogWidget -- chronological list of infrastructure change events,
  * each with a type badge, timestamp, entity name, and description.
  *
- * Data shape:
- *   { changes: { timestamp: string; type: string; entity: string;
- *     description: string }[] }
+ * Data binding:
+ *   source: hydra::timeline
+ *   endpoint: /timemachine/timeline
+ *   params: { limit: 50 }
+ *
+ * Accepts two data shapes:
+ *   1. Explicit envelope: { changes: ChangeEntry[] }
+ *   2. TimelineResponse from /timemachine/timeline: { events: TimelineEvent[], ... }
+ *      Maps: eventType → type (profile_submitted→update, node_registered→create,
+ *            service_removed/node_archived→delete, else→update),
+ *            entityId → entity, description → description
+ *   3. Raw array: TimelineEvent[]
  *
  * Type badge colors: create=green, update=blue, delete=red, default=gray.
  */
 
+import { useMemo } from 'react';
 import { History } from 'lucide-react';
 import type { WidgetComponentProps } from '@/types/dashboard';
 import { WidgetLoadingState } from '../shared/widget-loading-state';
@@ -23,6 +33,69 @@ interface ChangeEntry {
 
 interface ChangeLogData {
   changes: ChangeEntry[];
+}
+
+/**
+ * Map timeline event type to a change type badge: create | update | delete.
+ */
+function eventTypeToChangeType(eventType: string): string {
+  switch (eventType) {
+    case 'node_registered':
+    case 'service_discovered':
+    case 'network_created':
+    case 'group_created':
+      return 'create';
+    case 'node_archived':
+    case 'service_removed':
+      return 'delete';
+    default:
+      return 'update';
+  }
+}
+
+/**
+ * Normalize incoming data to ChangeLogData.
+ *
+ * Handles:
+ *   - Explicit { changes: ChangeEntry[] } envelope
+ *   - TimelineResponse from /timemachine/timeline
+ *   - Raw TimelineEvent[]
+ */
+function normalizeChangeLogData(raw: unknown): ChangeLogData | null {
+  if (raw == null) return null;
+
+  // Explicit envelope
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.changes)) {
+      return { changes: obj.changes as ChangeEntry[] };
+    }
+    // TimelineResponse: { events: [...], since, until, total }
+    if (Array.isArray(obj.events)) {
+      return {
+        changes: (obj.events as Record<string, unknown>[]).map((e) => ({
+          timestamp: String(e.timestamp ?? ''),
+          type: eventTypeToChangeType(String(e.eventType ?? '')),
+          entity: String(e.entityId ?? e.entityType ?? ''),
+          description: String(e.description ?? ''),
+        })),
+      };
+    }
+  }
+
+  // Raw array
+  if (Array.isArray(raw)) {
+    return {
+      changes: (raw as Record<string, unknown>[]).map((e) => ({
+        timestamp: String(e.timestamp ?? ''),
+        type: eventTypeToChangeType(String(e.eventType ?? e.type ?? '')),
+        entity: String(e.entityId ?? e.entity ?? ''),
+        description: String(e.description ?? ''),
+      })),
+    };
+  }
+
+  return null;
 }
 
 const TYPE_STYLES: Record<string, { bg: string; text: string }> = {
@@ -45,10 +118,12 @@ function formatTimestamp(isoString: string): string {
 }
 
 export function ChangeLogWidget({
-  data,
+  data: rawData,
   isLoading,
   error,
-}: WidgetComponentProps<ChangeLogData>) {
+}: WidgetComponentProps<unknown>) {
+  const data = useMemo(() => normalizeChangeLogData(rawData), [rawData]);
+
   if (isLoading) return <WidgetLoadingState />;
   if (error) return <WidgetErrorState error={error} />;
 

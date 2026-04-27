@@ -68,6 +68,17 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     dashboard_service = DashboardService(mongodb)
     await dashboard_service.seed_builtin_templates()
 
+    # Seed system-default entity panel boards (node, service, network).
+    # Failures here must not abort startup — panel endpoints will raise
+    # RuntimeError on GET if panels aren't seeded, which is preferable to
+    # a crashed server.
+    try:
+        from hydra.api.v1.services.dashboards.seed_panels import seed_system_panels
+        await seed_system_panels(mongodb.db)
+        logger.info("seeded_system_panels")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("system_panel_seed_failed", error=str(exc))
+
     # Seed core plugin manifests and their contributed commands
     from hydra.api.v1.models.plugins import PluginManifest
     from hydra.api.v1.services.plugins import PLUGIN_REGISTRY

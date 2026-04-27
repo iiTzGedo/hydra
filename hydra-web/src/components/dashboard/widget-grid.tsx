@@ -1,4 +1,4 @@
-import React, { ReactNode, useState, useMemo, useCallback } from 'react';
+import React, { ReactNode, useState, useMemo, useCallback, useEffect } from 'react';
 import {
   ResponsiveGridLayout,
   useContainerWidth,
@@ -16,7 +16,18 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { normalizeDashboardLayout, type DashboardBoardLayout, type DashboardWidgetInstance } from '@/types/dashboard';
+import {
+  normalizeDashboardLayout,
+  type DashboardBoardLayout,
+  type DashboardWidgetInstance,
+  type FreeformPosition,
+  type LayoutMode,
+  type WidgetTypeDefinition,
+} from '@/types/dashboard';
+import { WidgetConfiguratorPopover } from '@/components/dashboard/widget-configurator-popover';
+import { FreeformCanvas } from '@/components/dashboard/freeform-canvas';
+import { gridToFreeform } from '@/lib/freeform-layout';
+import { useIsMobile } from '@/hooks/use-media-query';
 
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -129,26 +140,65 @@ export function applyLayoutToWidgets(
   });
 }
 
+// ── Configurator callbacks passed in from the dashboard page ──────
+
+export interface WidgetConfiguratorCallbacks {
+  /** Map of widgetType → WidgetTypeDefinition, for looking up configSchema */
+  widgetDefinitions: Map<string, WidgetTypeDefinition>;
+  /** Update a config key on a widget */
+  onWidgetConfigChange: (instanceId: string, key: string, value: unknown) => void;
+  /** Resize a widget to a preset w × h */
+  onWidgetSizeChange: (instanceId: string, w: number, h: number) => void;
+  /** Change widget refresh interval */
+  onWidgetRefreshChange?: (instanceId: string, seconds: number) => void;
+  /** Duplicate a widget */
+  onWidgetDuplicate: (instanceId: string) => void;
+  /** Open the data binding editor for a widget */
+  onWidgetOpenDataBinding: (instanceId: string) => void;
+}
+
+// ── WidgetGrid props ───────────────────────────────────────────────
+
 interface WidgetGridProps {
   widgets: DashboardWidgetInstance[];
   layout: DashboardBoardLayout;
+  /**
+   * Overrides layout mode for rendering. When `'freeform'`, the grid uses
+   * `FreeformCanvas` instead of RGL, regardless of the `layout.mode` field.
+   */
+  layoutMode?: LayoutMode;
   isEditMode: boolean;
   onLayoutChange?: (layout: Layout) => void;
   onRemoveWidget?: (instanceId: string) => void;
+  /** Called when a widget's freeform position changes (move/resize). */
+  onFreeformPositionChange?: (instanceId: string, position: FreeformPosition) => void;
   rowHeight?: number;
   children: ReactNode;
+  /** When provided, clicking a widget in edit mode opens the configurator popover */
+  configurator?: WidgetConfiguratorCallbacks;
 }
 
 export function WidgetGrid({
   widgets,
   layout,
+  layoutMode,
   isEditMode,
   onLayoutChange,
   onRemoveWidget,
+  onFreeformPositionChange,
   rowHeight = 80,
   children,
+  configurator,
 }: WidgetGridProps) {
+  const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
   const { width, containerRef, mounted } = useContainerWidth({ initialWidth: 1200 });
+  const isMobile = useIsMobile();
+
+  useEffect(() => {
+    if (!isEditMode) {
+      setSelectedWidgetId(null);
+    }
+  }, [isEditMode]);
   const childArray = React.Children.toArray(children);
   const normalizedLayout = normalizeDashboardLayout(layout);
 
@@ -174,8 +224,224 @@ export function WidgetGrid({
     [isEditMode, onLayoutChange]
   );
 
+  const toggleSelection = useCallback(
+    (instanceId: string) => {
+      setSelectedWidgetId((prev) => (prev === instanceId ? null : instanceId));
+    },
+    [],
+  );
+
+  /**
+   * Render a single widget wrapper — shared by both grid and columns modes.
+   * Handles configurator popover (click to select), drag handle, and remove button.
+   */
+  const renderWidgetWrapper = useCallback(
+    (widget: DashboardWidgetInstance, child: React.ReactNode) => {
+      const isSelected = selectedWidgetId === widget.instanceId;
+      const typeDef = configurator?.widgetDefinitions.get(widget.widgetType);
+      const hasConfigurator = isEditMode && !!configurator && !!typeDef;
+
+      const handleClick = (e: React.MouseEvent) => {
+        if (!hasConfigurator) return;
+        // Ignore clicks on drag handles and remove buttons
+        const target = e.target as HTMLElement;
+        if (
+          target.closest('.widget-drag-handle') ||
+          target.closest('[data-widget-remove]')
+        )
+          return;
+        e.stopPropagation();
+        toggleSelection(widget.instanceId);
+      };
+
+      const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (!hasConfigurator) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          toggleSelection(widget.instanceId);
+        }
+      };
+
+      const handleContextMenu = (e: React.MouseEvent) => {
+        if (!hasConfigurator) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedWidgetId(widget.instanceId);
+      };
+
+      const closePopover = () => setSelectedWidgetId(null);
+
+      const widgetEl = (
+        <div
+          className={cn(
+            'relative h-full',
+            hasConfigurator && 'cursor-pointer',
+            isSelected && 'ring-2 ring-primary ring-offset-1 rounded-xl',
+          )}
+          role={hasConfigurator ? 'button' : undefined}
+          tabIndex={hasConfigurator ? 0 : undefined}
+          aria-label={hasConfigurator ? `Configure ${widgetTypeLabel(widget.widgetType)}` : undefined}
+          aria-pressed={hasConfigurator ? isSelected : undefined}
+          onClick={handleClick}
+          onKeyDown={hasConfigurator ? handleKeyDown : undefined}
+          onContextMenu={handleContextMenu}
+        >
+          {isEditMode && onRemoveWidget && (
+            <button
+              type="button"
+              data-widget-remove
+              className="absolute -top-2 -right-2 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-md hover:bg-destructive/90 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveWidget(widget.instanceId);
+                closePopover();
+              }}
+              aria-label={`Remove ${widgetTypeLabel(widget.widgetType)}`}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {isEditMode && (
+            <div className="widget-drag-handle absolute top-0 left-0 right-0 h-8 cursor-grab z-10" />
+          )}
+          {child}
+        </div>
+      );
+
+      if (hasConfigurator && typeDef) {
+        return (
+          <WidgetConfiguratorPopover
+            key={widget.instanceId}
+            typeDef={typeDef}
+            instance={widget}
+            open={isSelected}
+            onOpenChange={(open) => {
+              if (!open) closePopover();
+            }}
+            trigger={widgetEl}
+            onConfigChange={(key, value) => {
+              configurator.onWidgetConfigChange(widget.instanceId, key, value);
+            }}
+            onSizeChange={({ w, h }) => {
+              configurator.onWidgetSizeChange(widget.instanceId, w, h);
+            }}
+            onRefreshChange={
+              configurator.onWidgetRefreshChange
+                ? (seconds) => configurator.onWidgetRefreshChange!(widget.instanceId, seconds)
+                : undefined
+            }
+            onDelete={() => {
+              onRemoveWidget?.(widget.instanceId);
+              closePopover();
+            }}
+            onDuplicate={() => {
+              configurator.onWidgetDuplicate(widget.instanceId);
+              closePopover();
+            }}
+            onOpenDataBinding={() => {
+              configurator.onWidgetOpenDataBinding(widget.instanceId);
+              closePopover();
+            }}
+          />
+        );
+      }
+
+      return widgetEl;
+    },
+    [
+      configurator,
+      isEditMode,
+      onRemoveWidget,
+      selectedWidgetId,
+      toggleSelection,
+    ],
+  );
+
+  // ── Freeform rendering path ────────────────────────────────────
+
+  const effectiveMode = layoutMode ?? normalizedLayout.mode;
+
+  if (effectiveMode === 'freeform') {
+    // Mobile fallback: vertical stack sorted by freeformPosition.y
+    if (isMobile) {
+      const sorted = [...widgets].sort(
+        (a, b) => (a.freeformPosition?.y ?? 0) - (b.freeformPosition?.y ?? 0),
+      );
+      return (
+        <div className="flex flex-col gap-2">
+          {/* m5: hint that the freeform layout stacks vertically on mobile */}
+          <p className="px-1 text-xs text-muted-foreground">
+            Freeform layout — widgets stacked on mobile
+          </p>
+          {sorted.map((widget) => {
+            // I1: match child by instanceId rather than by sorted array index.
+            // Using the sorted index would mismatch child elements when the
+            // sort order differs from the original widgets array order.
+            const origIndex = widgets.findIndex((w) => w.instanceId === widget.instanceId);
+            const child = origIndex >= 0 ? childArray[origIndex] : null;
+            return (
+              <div key={widget.instanceId}>
+                {renderWidgetWrapper(widget, child)}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // Ensure every widget has a freeformPosition by falling back to
+    // gridToFreeform conversion when none is set.
+    const freeformParams = {
+      cols: 12,
+      rowHeight: rowHeight,
+      gap: 8,
+      canvasWidth: width,
+    };
+    const widgetsWithFF = widgets.map((w) => {
+      if (w.freeformPosition) return w;
+      const grid = w.placements?.lg ?? w.position ?? { x: 0, y: 0, w: 4, h: 2 };
+      const ff = gridToFreeform(grid, freeformParams);
+      return { ...w, freeformPosition: ff };
+    });
+
+    return (
+      <div
+        ref={containerRef as React.RefObject<HTMLDivElement>}
+        className={cn('widget-grid', isEditMode && 'widget-grid--editing')}
+        onClick={() => setSelectedWidgetId(null)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setSelectedWidgetId(null);
+        }}
+        role="presentation"
+      >
+        <FreeformCanvas
+          widgets={widgetsWithFF}
+          editable={isEditMode}
+          canvasWidth={mounted ? width : 1200}
+          renderWidget={(w) => {
+            const origIndex = widgets.findIndex((orig) => orig.instanceId === w.instanceId);
+            return renderWidgetWrapper(w, childArray[origIndex] ?? null);
+          }}
+          onPositionChange={(id, pos) => onFreeformPositionChange?.(id, pos)}
+        />
+      </div>
+    );
+  }
+
+  // ── Grid / columns rendering path (existing) ───────────────────
+
   return (
-    <div ref={containerRef as React.RefObject<HTMLDivElement>} className={cn('widget-grid', isEditMode && 'widget-grid--editing')}>
+    <div
+      ref={containerRef as React.RefObject<HTMLDivElement>}
+      className={cn('widget-grid', isEditMode && 'widget-grid--editing')}
+      // Clicking/pressing outside any widget collapses the selection
+      onClick={() => setSelectedWidgetId(null)}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') setSelectedWidgetId(null);
+      }}
+      role="presentation"
+    >
       {normalizedLayout.mode === 'columns' ? (
         <div
           className="grid gap-4"
@@ -198,18 +464,8 @@ export function WidgetGrid({
                 {columnWidgets.map((widget) => {
                   const childIndex = widgets.findIndex((entry) => entry.instanceId === widget.instanceId);
                   return (
-                    <div key={widget.instanceId} className="relative">
-                      {isEditMode && onRemoveWidget ? (
-                        <button
-                          type="button"
-                          className="absolute -right-2 -top-2 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-md transition-colors hover:bg-destructive/90"
-                          onClick={() => onRemoveWidget(widget.instanceId)}
-                          aria-label={`Remove ${widgetTypeLabel(widget.widgetType)}`}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
-                      {childArray[childIndex] ?? null}
+                    <div key={widget.instanceId}>
+                      {renderWidgetWrapper(widget, childArray[childIndex] ?? null)}
                     </div>
                   );
                 })}
@@ -236,24 +492,8 @@ export function WidgetGrid({
           containerPadding={normalizedLayout.grid.padding}
         >
           {widgets.map((widget, index) => (
-            <div key={widget.instanceId} className="relative">
-              {isEditMode && onRemoveWidget && (
-                <button
-                  type="button"
-                  className="absolute -top-2 -right-2 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-md hover:bg-destructive/90 transition-colors"
-                  onClick={() => onRemoveWidget(widget.instanceId)}
-                  aria-label={`Remove ${widgetTypeLabel(widget.widgetType)}`}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-              {isEditMode && (
-                <div className="widget-drag-handle absolute top-0 left-0 right-0 h-8 cursor-grab z-10" />
-              )}
-              {/* Render the corresponding child by index.
-                 INVARIANT: parent must pass children in the same order as
-                 the `widgets` array so that index-based lookup is correct. */}
-              {childArray[index] ?? null}
+            <div key={widget.instanceId}>
+              {renderWidgetWrapper(widget, childArray[index] ?? null)}
             </div>
           ))}
         </ResponsiveGridLayout>
@@ -415,6 +655,7 @@ export function WidgetCustomizerContent({
                       disabled={isSaving}
                       onClick={() => onConfigureWidget(widget.id)}
                       aria-label={`Configure ${widgetTypeLabel(widget.type)}`}
+                      data-testid={`customizer-configure-${widget.id}`}
                     >
                       <Settings2 className="h-3.5 w-3.5" />
                     </Button>

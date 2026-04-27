@@ -1,12 +1,18 @@
 /**
  * KioskPage — renders a dashboard board in full-screen kiosk mode without
- * sidebar, header, or edit controls. Supports optional auto-scroll and
- * token-based auth via query parameter.
+ * sidebar, header, or edit controls. Authenticates via a ?token= query
+ * parameter — no session cookie required.
+ *
+ * Features preserved from authenticated kiosk:
+ *   - Auto-scroll (bounce) when kioskAutoScroll is true
+ *   - Screen wake lock to prevent display sleep
+ *   - Background image / custom CSS from board settings
+ *   - Deauthorized fallback on missing or invalid token
  */
 
-import { useCallback, useEffect, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { useDashboard } from '@/api/dashboards';
+import { useKioskBoard } from '@/api/dashboards';
 import { useCreateCommand } from '@/api/commands';
 import { getErrorMessage } from '@/lib/api-client';
 import { getWidgetComponent } from '@/components/dashboard/widgets';
@@ -54,15 +60,27 @@ function getTextConfig(config: Record<string, unknown>, key: string): string | u
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+/** Shown when the token is missing or the API rejects it. */
+function Deauthorized({ reason }: { reason: string }) {
+  return (
+    <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-background text-foreground">
+      <h1 className="text-2xl font-semibold">Kiosk unavailable</h1>
+      <p className="text-muted-foreground">{reason}</p>
+    </div>
+  );
+}
+
 function KioskWidgetContent({
   widgetType,
   config,
   dataBinding,
+  readonly,
   onExecuteCommand,
 }: {
   widgetType: string;
   config: Record<string, unknown>;
   dataBinding?: DashboardDataBinding | null;
+  readonly?: boolean;
   onExecuteCommand: (
     commandId: string,
     target: Record<string, unknown>,
@@ -88,6 +106,7 @@ function KioskWidgetContent({
       isLoading={isLoading}
       error={error}
       dimensions={{ width: 0, height: 0 }}
+      readonly={readonly}
       onExecuteCommand={onExecuteCommand}
     />
   );
@@ -99,7 +118,9 @@ export default function KioskPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
 
-  const { data: board, isLoading, error } = useDashboard(boardId ?? '');
+  const token = searchParams?.get('token') ?? null;
+
+  const { data: board, isLoading, isError } = useKioskBoard(boardId ?? '', token);
   const createCommand = useCreateCommand();
 
   const settings = (board?.settings ?? {}) as DashboardBoardSettings;
@@ -148,7 +169,7 @@ export default function KioskPage() {
     [createCommand],
   );
 
-  // Auto-scroll effect
+  // Auto-scroll effect (bounce between top and bottom)
   useEffect(() => {
     if (!autoScroll || !scrollRef.current) return;
 
@@ -162,7 +183,6 @@ export default function KioskPage() {
 
       container.scrollTop += direction * scrollSpeed * dt;
 
-      // Reverse at boundaries
       const maxScroll = container.scrollHeight - container.clientHeight;
       if (container.scrollTop >= maxScroll) {
         direction = -1;
@@ -182,7 +202,7 @@ export default function KioskPage() {
     };
   }, [autoScroll, scrollSpeed]);
 
-  // Request wake lock for kiosk displays
+  // Request wake lock to prevent display sleep on kiosk screens
   useEffect(() => {
     let wakeLock: WakeLockSentinel | null = null;
 
@@ -203,39 +223,27 @@ export default function KioskPage() {
     };
   }, []);
 
-  // Token auth — if ?token= is present, set it for API auth
-  useEffect(() => {
-    const token = searchParams?.get('token');
-    if (token) {
-      sessionStorage.setItem('hydra_kiosk_token', token);
-    }
-  }, [searchParams]);
+  // Guard: token must be present in the URL
+  if (!token) {
+    return <Deauthorized reason="Missing kiosk token" />;
+  }
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-screen w-screen items-center justify-center bg-background">
         <LoadingSpinner size="lg" />
       </div>
     );
   }
 
-  if (error || !board) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="text-center">
-          <p className="text-lg font-semibold text-foreground">Board unavailable</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {error ? getErrorMessage(error, 'Unable to load kiosk board.') : 'Board not found.'}
-          </p>
-        </div>
-      </div>
-    );
+  if (isError || !board) {
+    return <Deauthorized reason="This display has been deauthorized" />;
   }
 
   return (
     <div
       ref={scrollRef}
-      className="h-screen w-screen overflow-auto bg-background"
+      className="h-screen w-screen overflow-auto bg-background text-foreground"
       style={{
         backgroundImage: settings.backgroundImage ? `url(${settings.backgroundImage})` : undefined,
         backgroundSize: 'cover',
@@ -266,6 +274,7 @@ export default function KioskPage() {
                 widgetType={widget.widgetType}
                 config={widget.config}
                 dataBinding={widget.dataBinding as DashboardDataBinding | null | undefined}
+                readonly={widget.readonly}
                 onExecuteCommand={handleExecuteCommand}
               />
             </Widget>

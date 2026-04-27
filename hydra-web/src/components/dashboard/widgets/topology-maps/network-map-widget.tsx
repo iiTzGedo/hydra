@@ -4,8 +4,22 @@
  * Displays a compact card grid of networks. Each card shows the
  * network name, CIDR range, node count badge, and a type-based icon.
  * Designed for at-a-glance network topology awareness.
+ *
+ * Data binding:
+ *   source: hydra::networks
+ *   endpoint: /networks
+ *
+ * Accepts two data shapes:
+ *   1. Envelope: { networks: NetworkEntry[] }
+ *   2. Raw array: NetworkSummary[] from /networks API (auto-normalized)
+ *      Maps: networkId, name, type (physical/virtual/overlay/etc), cidr, nodeCount
+ *
+ * Config options:
+ *   layoutAlgorithm: "force" | "grid" | "hierarchical" (visual hint, currently grid)
+ *   showLabels: boolean
  */
 
+import { useMemo } from 'react';
 import {
   Network,
   Wifi,
@@ -28,6 +42,63 @@ interface NetworkEntry {
 
 interface NetworkMapData {
   networks: NetworkEntry[];
+}
+
+interface NetworkMapConfig extends Record<string, unknown> {
+  layoutAlgorithm?: string;
+  showLabels?: boolean;
+}
+
+/**
+ * Map NetworkSummary.type (physical/virtual/vlan/tunnel/etc.) to a display type.
+ * NetworkEntry uses simplified types; map the extended API types to the closest
+ * display variant.
+ */
+function mapNetworkType(apiType: string | undefined): string | undefined {
+  if (!apiType) return undefined;
+  switch (apiType.toLowerCase()) {
+    case 'vlan': return 'vlan';
+    case 'vxlan':
+    case 'overlay': return 'vlan';
+    case 'tunnel': return 'vpn';
+    case 'bridge': return 'bridge';
+    case 'physical': return undefined; // default icon
+    case 'virtual': return undefined;
+    default: return apiType;
+  }
+}
+
+/**
+ * Normalize incoming data to NetworkMapData envelope.
+ * Handles both explicit envelope and raw NetworkSummary[] from the API.
+ */
+function normalizeNetworkMapData(raw: unknown): NetworkMapData | null {
+  if (raw == null) return null;
+
+  // Envelope shape
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.networks)) {
+      return { networks: obj.networks as NetworkEntry[] };
+    }
+  }
+
+  // Raw array of NetworkSummary
+  if (Array.isArray(raw)) {
+    return {
+      networks: (raw as Record<string, unknown>[]).map((n) => ({
+        networkId: String(n.networkId ?? n.id ?? ''),
+        name: String(n.name ?? ''),
+        cidr: String(n.cidr ?? n.cidrV4 ?? ''),
+        nodeCount: Number(n.nodeCount ?? 0),
+        type: mapNetworkType(
+          typeof n.type === 'string' ? n.type : undefined,
+        ),
+      })),
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -81,12 +152,16 @@ function getNetworkAccent(type?: string): string {
 }
 
 export function NetworkMapWidget({
-  data,
-  config: _config,
+  data: rawData,
+  config,
   isLoading,
   error,
   onNavigate,
-}: WidgetComponentProps<NetworkMapData>) {
+}: WidgetComponentProps<unknown, NetworkMapConfig>) {
+  const data = useMemo(() => normalizeNetworkMapData(rawData), [rawData]);
+  const typedConfig = config as NetworkMapConfig;
+  const showLabels = typedConfig.showLabels !== false;
+
   if (isLoading) return <WidgetLoadingState />;
   if (error) return <WidgetErrorState error={error} />;
 
@@ -124,16 +199,23 @@ export function NetworkMapWidget({
 
           {/* Content */}
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="truncate text-sm font-medium text-foreground">
-                {net.name}
-              </span>
-              {net.type && (
-                <span className="flex-shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
-                  {net.type}
+            {showLabels && (
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-medium text-foreground">
+                  {net.name}
                 </span>
-              )}
-            </div>
+                {net.type && (
+                  <span className="flex-shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+                    {net.type}
+                  </span>
+                )}
+              </div>
+            )}
+            {!showLabels && (
+              <div className="truncate text-sm font-medium text-foreground">
+                {net.name}
+              </div>
+            )}
 
             <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
               {/* CIDR */}

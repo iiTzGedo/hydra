@@ -260,12 +260,21 @@ export const queryKeys = {
     },
     detail: (boardId: string) =>
       [...queryKeys.dashboards.all, 'detail', boardId] as const,
-    widgetRegistry: (category?: string) => {
-      if (category) {
-        return [...queryKeys.dashboards.all, 'widget-registry', category] as const;
+    widgetRegistry: (options?: { category?: string; availableOnly?: boolean }) => {
+      if (options) {
+        return [...queryKeys.dashboards.all, 'widget-registry', options] as const;
       }
       return [...queryKeys.dashboards.all, 'widget-registry'] as const;
     },
+    kioskTokens: (boardId: string) =>
+      [...queryKeys.dashboards.all, boardId, 'kiosk-tokens'] as const,
+    entityPanel: (entityType: string) =>
+      [...queryKeys.dashboards.all, 'panel', entityType] as const,
+    // Kiosk query key is intentionally outside the dashboards namespace:
+    // the kiosk read endpoint is unauthenticated and token-gated, and should
+    // NOT be invalidated when the authenticated dashboards state changes.
+    kiosk: (boardId: string, token: string | null) =>
+      ['kiosk', boardId, token] as const,
   },
 
   docs: {

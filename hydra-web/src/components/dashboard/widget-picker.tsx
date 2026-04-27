@@ -85,8 +85,8 @@ export function WidgetPicker({
   const registryQuery = useWidgetRegistry();
   const registry = registryQuery.data;
 
-  const filteredWidgets = useMemo(() => {
-    if (!registry) return [];
+  const { filteredAvailable, filteredUnavailable } = useMemo(() => {
+    if (!registry) return { filteredAvailable: [], filteredUnavailable: [] };
     let widgets = registry.widgets;
 
     if (selectedCategory) {
@@ -103,10 +103,14 @@ export function WidgetPicker({
       );
     }
 
-    return widgets;
+    return {
+      filteredAvailable: widgets.filter((w) => w.isAvailable),
+      filteredUnavailable: widgets.filter((w) => !w.isAvailable),
+    };
   }, [registry, selectedCategory, searchQuery]);
 
   const handleSelect = (widget: WidgetTypeDefinition) => {
+    if (!widget.isAvailable) return;
     onSelect(widget.widgetType, widget.defaultSize);
     setOpen(false);
     setSearchQuery('');
@@ -175,63 +179,105 @@ export function WidgetPicker({
               ))}
             </div>
 
-            {/* Widget grid */}
+            {/* Widget grid — available + unavailable sections */}
             <ScrollArea className="flex-1 -mx-1 max-h-[400px]">
-              {filteredWidgets.length === 0 ? (
+              {filteredAvailable.length === 0 && filteredUnavailable.length === 0 ? (
                 <div className="text-center py-8 text-sm text-muted-foreground">
                   No widgets match your search.
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3 px-1 pb-1">
-                  {filteredWidgets.map((widget) => {
-                    const Icon = resolveIcon(widget.icon);
-                    const alreadyAdded =
-                      !widget.capabilities.repeatable &&
-                      existingTypes.includes(widget.widgetType);
+                <div className="space-y-4 px-1 pb-1">
+                  {/* ── Available widgets ── */}
+                  {filteredAvailable.length > 0 && (
+                    <section aria-label="Available widgets">
+                      <div className="grid grid-cols-2 gap-3">
+                        {filteredAvailable.map((widget) => {
+                          const Icon = resolveIcon(widget.icon);
+                          const alreadyAdded =
+                            !widget.capabilities.repeatable &&
+                            existingTypes.includes(widget.widgetType);
 
-                    return (
-                      <button
-                        key={widget.widgetType}
-                        type="button"
-                        disabled={alreadyAdded}
-                        className={cn(
-                          'group relative flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors',
-                          'border-border hover:border-primary/50 hover:bg-muted/50',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                          alreadyAdded && 'opacity-50 cursor-not-allowed hover:border-border hover:bg-transparent'
-                        )}
-                        onClick={() => handleSelect(widget)}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted group-hover:bg-primary/10 transition-colors">
-                            <Icon className="h-4.5 w-4.5 text-primary" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-foreground truncate">
-                                {widget.displayName}
-                              </span>
-                              {alreadyAdded && (
-                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                  Added
-                                </Badge>
+                          return (
+                            <button
+                              key={widget.widgetType}
+                              type="button"
+                              disabled={alreadyAdded}
+                              className={cn(
+                                'group relative flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors',
+                                'border-border hover:border-primary/50 hover:bg-muted/50',
+                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                alreadyAdded && 'opacity-50 cursor-not-allowed hover:border-border hover:bg-transparent'
                               )}
-                            </div>
-                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                              {widget.description}
-                            </p>
+                              onClick={() => handleSelect(widget)}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted group-hover:bg-primary/10 transition-colors">
+                                  <Icon className="h-4.5 w-4.5 text-primary" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-foreground truncate">
+                                      {widget.displayName}
+                                    </span>
+                                    {alreadyAdded && (
+                                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                        Added
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                                    {widget.description}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                                <span>
+                                  {widget.defaultSize.w}x{widget.defaultSize.h}
+                                </span>
+                                <span className="text-border">|</span>
+                                <span className="capitalize">{widget.category.replace('-', ' ')}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* ── Unavailable (Tier 3) widgets ── */}
+                  {filteredUnavailable.length > 0 && (
+                    <section
+                      aria-label="Unavailable widgets"
+                      className="opacity-70"
+                    >
+                      <div className="mb-2">
+                        <h3 className="text-sm font-medium text-foreground">
+                          Unavailable &mdash; coming in Wave 5
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          These widgets require the plugin system or WebSocket real-time
+                          support, which ship in the next phase.
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        {filteredUnavailable.map((widget) => (
+                          <div
+                            key={widget.widgetType}
+                            className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 p-2 cursor-not-allowed"
+                            title="Requires Wave 5 features (plugin system or WebSocket real-time)"
+                            aria-disabled="true"
+                          >
+                            <span className="text-sm text-muted-foreground">
+                              {widget.displayName}
+                            </span>
+                            <span className="ml-auto text-[10px] text-muted-foreground">
+                              Unavailable
+                            </span>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                          <span>
-                            {widget.defaultSize.w}x{widget.defaultSize.h}
-                          </span>
-                          <span className="text-border">|</span>
-                          <span className="capitalize">{widget.category.replace('-', ' ')}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
+                        ))}
+                      </div>
+                    </section>
+                  )}
                 </div>
               )}
             </ScrollArea>

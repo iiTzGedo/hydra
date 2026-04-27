@@ -65,7 +65,12 @@ apiClient.interceptors.response.use(
       requestUrl.includes('/auth/session/login') ||
       requestUrl.includes('/auth/session/refresh') ||
       requestUrl.includes('/auth/login') ||
-      requestUrl.includes('/auth/refresh');
+      requestUrl.includes('/auth/refresh') ||
+      // Kiosk endpoints authenticate via ?token=... query param, not a session.
+      // A 401 here means the kiosk token is invalid/revoked — the page should
+      // render its Deauthorized fallback, not trigger a session-refresh/logout
+      // chain that would redirect the kiosk display to the login page.
+      requestUrl.includes('/dashboards/kiosk/');
 
     if (error.response?.status === 401 && !originalRequest._retry && !skipRefresh) {
       if (isRefreshing) {
@@ -109,9 +114,20 @@ apiClient.interceptors.response.use(
 function handleLogout() {
   useAuthStore.getState().clearAuth();
 
-  if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
-    window.location.href = '/login';
+  if (typeof window === 'undefined') {
+    return;
   }
+
+  const pathname = window.location.pathname;
+  // Skip the redirect on the login page itself, and on kiosk routes — kiosk
+  // pages authenticate via ?token= and can legitimately trigger 401s from
+  // widget data fetches without needing a session. Kiosk pages render their
+  // own Deauthorized fallback when the kiosk token itself is invalid.
+  if (pathname.includes('/login') || pathname.startsWith('/kiosk/')) {
+    return;
+  }
+
+  window.location.href = '/login';
 }
 
 /**

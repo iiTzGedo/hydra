@@ -23,6 +23,7 @@ export function WorkflowTriggerWidget({
   isLoading,
   isEditing,
   error,
+  readonly,
   onExecuteCommand,
 }: WidgetComponentProps<unknown, WorkflowTriggerConfig>) {
   const [executing, setExecuting] = useState(false);
@@ -31,7 +32,7 @@ export function WorkflowTriggerWidget({
   if (error) return <WidgetErrorState error={error} />;
 
   const label = config.label ?? 'Run Workflow';
-  const canExecute = !!config.workflowId && !!config.nodeId && !!onExecuteCommand && !isEditing;
+  const canExecute = !!config.workflowId && !!config.nodeId && !!onExecuteCommand && !isEditing && !readonly;
 
   async function handleTrigger() {
     if (!canExecute) return;
@@ -53,6 +54,7 @@ export function WorkflowTriggerWidget({
         type="button"
         disabled={!canExecute || executing}
         onClick={() => void handleTrigger()}
+        title={readonly ? 'Read-only in kiosk mode' : undefined}
         className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-muted/20 px-5 py-3 text-sm font-medium shadow-sm transition-colors hover:bg-muted/40 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {executing ? (

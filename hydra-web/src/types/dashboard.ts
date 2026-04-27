@@ -9,6 +9,67 @@ export type DashboardLayoutMode = 'grid' | 'columns' | 'freeform';
 export type DashboardGridCompaction = 'vertical' | 'horizontal' | 'none';
 export type DashboardBreakpointKey = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
+// ── Wave 4 type aliases ────────────────────────────────────────────
+
+/**
+ * Dashboard layout mode for widget rendering.
+ * Note: shares name with the `LayoutMode` in `settings.ts` (which is a UI-density
+ * preference); import with an alias when both are needed in the same scope.
+ */
+export type LayoutMode = DashboardLayoutMode;
+/** Board scope: standalone general board vs entity-panel board */
+export type BoardScope = 'standalone' | 'entity-panel';
+/** Entity type for entity-panel boards */
+export type EntityPanelType = 'node' | 'service' | 'network';
+/** Kiosk render mode per widget type */
+export type KioskMode = 'render' | 'readonly' | 'hide';
+/** Field schema type values */
+export type FieldType = 'string' | 'number' | 'boolean' | 'enum' | 'color' | 'entity-ref';
+
+// ── Freeform layout position ──────────────────────────────────────
+
+export interface FreeformPosition {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+// ── Field schema (Wave 4 widget config schema) ───────────────────
+
+/** Wave 4 field schema for widget config definitions. */
+export interface FieldSchema {
+  key: string;
+  label: string;
+  type: FieldType;
+  default?: unknown;
+  description?: string;
+  options?: Array<{ value: string; label: string }>;
+  min?: number;
+  max?: number;
+  step?: number;
+  entityType?: 'node' | 'service' | 'network' | 'group';
+  required?: boolean;
+}
+
+// ── Kiosk token types ─────────────────────────────────────────────
+
+export interface KioskTokenSummary {
+  tokenId: string;
+  boardId: string;
+  label: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+}
+
+/** Returned only on token creation — includes the raw token value */
+export interface KioskTokenCreated extends KioskTokenSummary {
+  token: string;
+}
+
 // ── Structured visibility ────────────────────────────────────────
 
 export interface DashboardSharedWith {
@@ -150,6 +211,13 @@ export interface DashboardWidgetInstance {
   dataBinding?: DashboardDataBinding | null;
   /** Multi-source data binding (spec §6.5) — alternative to dataBinding */
   multiBinding?: DashboardMultiSourceBinding | null;
+  /** Absolute position for freeform layout mode; null outside freeform boards */
+  freeformPosition?: FreeformPosition | null;
+  /**
+   * Set by the kiosk sanitizer when the board is served via a kiosk token.
+   * Undefined outside kiosk context.
+   */
+  readonly?: boolean;
 }
 
 // ── Board settings ────────────────────────────────────────────────
@@ -183,6 +251,14 @@ export interface DashboardBoardSummary {
   version: number;
   createdAt: string;
   updatedAt: string;
+  /** Primary layout mode of this board */
+  layoutMode: LayoutMode;
+  /** Whether this is a standalone general board or an entity-panel board */
+  scope: BoardScope;
+  /** For entity-panel boards: which entity type this panel belongs to */
+  entityTypeFilter: EntityPanelType | null;
+  /** True for system-owned default boards that cannot be deleted */
+  isSystemDefault: boolean;
 }
 
 export interface DashboardBoard extends DashboardBoardSummary {
@@ -263,23 +339,6 @@ export interface WidgetSize {
   h: number;
 }
 
-export interface WidgetConfigOption {
-  label: string;
-  value: string;
-}
-
-export interface WidgetConfigField {
-  key: string;
-  label: string;
-  fieldType: 'text' | 'boolean' | 'number' | 'select' | 'entity';
-  /** Entity type for fieldType === 'entity' */
-  entityType?: 'node' | 'service' | 'network' | 'group';
-  description?: string | null;
-  placeholder?: string | null;
-  minValue?: number | null;
-  maxValue?: number | null;
-  options: WidgetConfigOption[];
-}
 
 export interface WidgetCapabilities {
   configurable: boolean;
@@ -306,8 +365,12 @@ export interface WidgetTypeDefinition {
   defaultSize: WidgetSize;
   minSize: WidgetSize;
   maxSize: WidgetSize;
-  configSchema: WidgetConfigField[];
+  configSchema: FieldSchema[];
   capabilities: WidgetCapabilities;
+  /** How this widget behaves in kiosk mode */
+  kioskMode: KioskMode;
+  /** Whether this widget type is available for the current user/plan */
+  isAvailable: boolean;
 }
 
 export interface WidgetCategoryInfo {
@@ -353,6 +416,13 @@ export interface WidgetComponentProps<
   ) => Promise<void>;
   /** Callback for click-through navigation. */
   onNavigate?: (path: string) => void;
+  /**
+   * When true the widget is in kiosk read-only mode.
+   * Control widgets (quick-action, command-trigger, service-control,
+   * workflow-trigger) must disable their action buttons.
+   * Set by the kiosk page from DashboardWidgetInstance.readonly.
+   */
+  readonly?: boolean;
 }
 
 // ── Template & Sharing Types ────────────────────────────────────────

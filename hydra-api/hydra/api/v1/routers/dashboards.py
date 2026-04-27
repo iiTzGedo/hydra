@@ -11,6 +11,7 @@ from hydra.api.v1.core.deps import (
     MongoDBDep,
     require_permission,
 )
+from hydra.api.v1.core.exceptions import NotFoundError
 from hydra.api.v1.models.common import PaginationMeta, SuccessResponse
 from hydra.api.v1.models.dashboards import (
     AddWidgetRequest,
@@ -20,11 +21,14 @@ from hydra.api.v1.models.dashboards import (
     BoardType,
     CloneBoardRequest,
     CreateBoardRequest,
+    CreateKioskTokenRequest,
     DashboardListParams,
     ImportBoardRequest,
     ImportBoardResponse,
     ImportValidationIssue,
     InstantiateTemplateRequest,
+    KioskTokenCreated,
+    KioskTokenSummary,
     PatchBoardRequest,
     SaveAsTemplateRequest,
     ShareBoardRequest,
@@ -40,6 +44,9 @@ from hydra.api.v1.models.dashboards import (
     WidgetRegistryResponse,
 )
 from hydra.api.v1.services.dashboards import DashboardService
+from hydra.api.v1.services.dashboards.kiosk_service import KioskService
+from hydra.api.v1.services.dashboards.panel_service import PanelService
+from hydra.api.v1.services.dashboards.sanitizer import sanitize_for_kiosk
 
 router = APIRouter(prefix="/dashboards", tags=["Dashboards"])
 logger = structlog.get_logger(__name__)
@@ -114,6 +121,7 @@ async def list_dashboards(
     "",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     status_code=201,
     summary="Create Dashboard",
     description="Create a new dashboard board.",
@@ -134,19 +142,34 @@ async def create_dashboard(
     "/widgets/registry",
     response_model=SuccessResponse[WidgetRegistryResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     summary="Widget Registry",
-    description="Get available widget types filtered by user role.",
+    description=(
+        "Get available widget types filtered by user role. "
+        "Use ?availableOnly=true to exclude Tier 3 gated widgets from the response "
+        "(useful for the widget picker to hide features pending Wave 5)."
+    ),
     dependencies=[Depends(require_permission("dashboards:read"))],
 )
 async def get_widget_registry(
     dashboard_service: DashboardServiceDep,
     current_user: CurrentUser,
     category: str | None = Query(default=None, description="Filter by widget category"),
+    available_only: bool = Query(
+        default=False,
+        alias="availableOnly",
+        description=(
+            "When true, exclude Tier 3 widgets (isAvailable=false) from the response. "
+            "Tier 3 widgets require Wave 5 features (WebSocket real-time, plugin system) "
+            "and are hidden from the widget picker until those features ship."
+        ),
+    ),
 ) -> SuccessResponse[WidgetRegistryResponse]:
     """Get widget types the current user's role may view."""
     registry = dashboard_service.get_widget_registry(
         category=category,
         user_role=_user_role(current_user),
+        available_only=available_only,
     )
     return SuccessResponse(data=WidgetRegistryResponse(**registry))
 
@@ -210,6 +233,7 @@ async def get_template(
     "/templates/{template_id}/instantiate",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     status_code=201,
     summary="Instantiate Template",
     description="Create a new dashboard board from a template.",
@@ -330,6 +354,7 @@ async def get_version(
     "/{dashboard_id}/restore/{version}",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     summary="Restore Board Version",
     description="Restore a dashboard board to a previous version.",
     dependencies=[Depends(require_permission("dashboards:write"))],
@@ -346,6 +371,93 @@ async def restore_version(
     return SuccessResponse(data=BoardResponse(**board))
 
 
+# ── Entity Panel DI factory ────────────────────────────────────────
+
+
+def get_panel_service(mongodb: MongoDBDep) -> PanelService:
+    """Dependency: return a PanelService bound to the current database."""
+    return PanelService(mongodb.db)
+
+
+PanelServiceDep = Annotated[PanelService, Depends(get_panel_service)]
+
+
+# ── Entity Panel Endpoints ─────────────────────────────────────────
+#
+# ROUTE ORDER NOTE: these three routes use the literal prefix "/panel/"
+# and must appear BEFORE "/{dashboard_id}" so FastAPI does not swallow
+# the word "panel" as a dashboard_id path capture.
+
+
+@router.get(
+    "/panel/{entity_type}",
+    response_model=SuccessResponse[BoardResponse],
+    response_model_by_alias=True,
+    response_model_exclude_none=True,
+    summary="Get Entity Panel",
+    description=(
+        "Return the active entity-panel board for the given entity type. "
+        "Returns the user's personal override if one exists, otherwise the system default."
+    ),
+    dependencies=[Depends(require_permission("dashboards:read"))],
+)
+async def get_entity_panel(
+    panel_service: PanelServiceDep,
+    current_user: CurrentUser,
+    entity_type: Literal["node", "service", "network"] = Path(...),
+) -> SuccessResponse[BoardResponse]:
+    """Return the active entity-panel board for the given entity type."""
+    panel = await panel_service.get_active_panel(entity_type, _user_id(current_user))
+    panel.pop("_id", None)
+    return SuccessResponse(data=BoardResponse(**panel))
+
+
+@router.post(
+    "/panel/{entity_type}/customize",
+    response_model=SuccessResponse[BoardResponse],
+    response_model_by_alias=True,
+    response_model_exclude_none=True,
+    status_code=201,
+    summary="Customize Entity Panel",
+    description=(
+        "Clone the system-default entity panel into a personal override for the current user. "
+        "Idempotent: if an override already exists, it is returned unchanged."
+    ),
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def customize_entity_panel(
+    panel_service: PanelServiceDep,
+    current_user: CurrentUser,
+    entity_type: Literal["node", "service", "network"] = Path(...),
+) -> SuccessResponse[BoardResponse]:
+    """Clone the system default into a personal override for the current user."""
+    override = await panel_service.customize(entity_type, _user_id(current_user))
+    override.pop("_id", None)
+    return SuccessResponse(data=BoardResponse(**override))
+
+
+@router.delete(
+    "/panel/{entity_type}/override",
+    status_code=204,
+    summary="Delete Entity Panel Override",
+    description=(
+        "Delete the current user's personal entity-panel override, restoring the system default. "
+        "Returns 404 if no override exists."
+    ),
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def delete_panel_override(
+    panel_service: PanelServiceDep,
+    current_user: CurrentUser,
+    entity_type: Literal["node", "service", "network"] = Path(...),
+) -> Response:
+    """Delete the current user's entity-panel override. Returns 204 on success, 404 if none found."""
+    deleted = await panel_service.delete_override(entity_type, _user_id(current_user))
+    if not deleted:
+        raise NotFoundError("panel_override", entity_type)
+    return Response(status_code=204)
+
+
 # ── Single Dashboard Endpoints ─────────────────────────────────────
 
 
@@ -353,6 +465,7 @@ async def restore_version(
     "/{dashboard_id}",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     summary="Get Dashboard",
     description="Get detailed information about a specific dashboard.",
     dependencies=[Depends(require_permission("dashboards:read"))],
@@ -376,6 +489,7 @@ async def get_dashboard(
     "/{dashboard_id}",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     summary="Update Dashboard",
     description="Full replacement update: send all mutable fields you want applied.",
     dependencies=[Depends(require_permission("dashboards:write"))],
@@ -396,6 +510,7 @@ async def update_dashboard(
     "/{dashboard_id}",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     summary="Patch Dashboard",
     description="Apply discrete PATCH operations (update-settings, update-layout, update-widget, add-widget, remove-widget, reorder-widgets).",
     dependencies=[Depends(require_permission("dashboards:write"))],
@@ -416,6 +531,7 @@ async def patch_dashboard(
     "/{dashboard_id}",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     summary="Delete Dashboard",
     description="Soft delete a dashboard board.",
     dependencies=[Depends(require_permission("dashboards:write"))],
@@ -436,6 +552,7 @@ async def delete_dashboard(
     "/{dashboard_id}/clone",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     status_code=201,
     summary="Clone Dashboard",
     description="Clone an existing dashboard as a new private board owned by the current user.",
@@ -459,6 +576,7 @@ async def clone_dashboard(
     "/{dashboard_id}/set-home",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     summary="Set Home Dashboard",
     description="Mark a dashboard as the user's home board, clearing the previous home.",
     dependencies=[Depends(require_permission("dashboards:write"))],
@@ -478,6 +596,7 @@ async def set_home_dashboard(
     "/{dashboard_id}/widgets",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     status_code=201,
     summary="Add Widget",
     description="Add a widget instance to a dashboard.",
@@ -499,6 +618,7 @@ async def add_widget(
     "/{dashboard_id}/widgets/{widget_id}",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     summary="Update Widget",
     description="Update a widget instance on a dashboard.",
     dependencies=[Depends(require_permission("dashboards:write"))],
@@ -520,6 +640,7 @@ async def update_widget(
     "/{dashboard_id}/widgets/{widget_id}",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     summary="Delete Widget",
     description="Remove a widget instance from a dashboard.",
     dependencies=[Depends(require_permission("dashboards:write"))],
@@ -613,6 +734,7 @@ async def get_shares(
     "/{dashboard_id}/shares",
     response_model=SuccessResponse[BoardResponse],
     response_model_by_alias=True,
+    response_model_exclude_none=True,
     summary="Revoke Dashboard Shares",
     description="Revoke all shares on a dashboard, resetting to private.",
     dependencies=[Depends(require_permission("dashboards:write"))],
@@ -654,3 +776,141 @@ async def export_dashboard(
         )
 
     return SuccessResponse(data=BoardExport(**result["data"]))
+
+
+# ── Kiosk Token Endpoints ──────────────────────────────────────────
+
+
+def get_kiosk_service(mongodb: MongoDBDep) -> KioskService:
+    """Dependency: return a KioskService bound to the current database."""
+    return KioskService(mongodb.db)
+
+
+KioskServiceDep = Annotated[KioskService, Depends(get_kiosk_service)]
+
+
+@router.post(
+    "/{dashboard_id}/kiosk-tokens",
+    response_model=SuccessResponse[KioskTokenCreated],
+    response_model_by_alias=True,
+    status_code=201,
+    summary="Create Kiosk Token",
+    description=(
+        "Create a time-bounded or permanent kiosk token for unauthenticated read-only access "
+        "to this board. The raw token is returned exactly once — store it securely. "
+        "Admins and operators may create tokens on any board; other roles are limited to boards they own."
+    ),
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def create_kiosk_token(
+    request: CreateKioskTokenRequest,
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    kiosk_service: KioskServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+) -> SuccessResponse[KioskTokenCreated]:
+    """Create a kiosk token. Admins/operators can target any board."""
+    user_id = _user_id(current_user)
+    role = _user_role(current_user)
+    await dashboard_service.get_board_for_management(
+        dashboard_id, user_id, role, "create kiosk tokens for"
+    )
+    token = await kiosk_service.create(
+        board_id=dashboard_id,
+        label=request.label,
+        ttl_hours=request.ttl_hours,
+        created_by=user_id,
+    )
+    return SuccessResponse(data=token)
+
+
+@router.get(
+    "/{dashboard_id}/kiosk-tokens",
+    response_model=SuccessResponse[list[KioskTokenSummary]],
+    response_model_by_alias=True,
+    summary="List Kiosk Tokens",
+    description=(
+        "List all kiosk tokens for a board. Raw tokens and hashes are never returned. "
+        "Admins and operators may list tokens on any board; other roles are limited to boards they own."
+    ),
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def list_kiosk_tokens(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    kiosk_service: KioskServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+) -> SuccessResponse[list[KioskTokenSummary]]:
+    """List all kiosk tokens. Admins/operators can target any board."""
+    user_id = _user_id(current_user)
+    role = _user_role(current_user)
+    await dashboard_service.get_board_for_management(
+        dashboard_id, user_id, role, "list kiosk tokens for"
+    )
+    tokens = await kiosk_service.list_for_board(dashboard_id)
+    return SuccessResponse(data=tokens)
+
+
+@router.delete(
+    "/{dashboard_id}/kiosk-tokens/{token_id}",
+    status_code=204,
+    summary="Revoke Kiosk Token",
+    description=(
+        "Revoke a kiosk token immediately. Any request using this token will receive 401 after revocation. "
+        "Admins and operators may revoke tokens on any board; other roles are limited to boards they own."
+    ),
+    dependencies=[Depends(require_permission("dashboards:write"))],
+)
+async def revoke_kiosk_token(
+    current_user: CurrentUser,
+    dashboard_service: DashboardServiceDep,
+    kiosk_service: KioskServiceDep,
+    dashboard_id: str = Path(description="Dashboard board ID"),
+    token_id: str = Path(description="Kiosk token ID to revoke"),
+) -> Response:
+    """Revoke a kiosk token. Admins/operators can target any board. Returns 204 No Content on success."""
+    user_id = _user_id(current_user)
+    role = _user_role(current_user)
+    await dashboard_service.get_board_for_management(
+        dashboard_id, user_id, role, "revoke kiosk tokens for"
+    )
+    revoked = await kiosk_service.revoke(dashboard_id, token_id)
+    if not revoked:
+        from hydra.api.v1.core.exceptions import NotFoundError
+
+        raise NotFoundError("kiosk_token", token_id)
+    return Response(status_code=204)
+
+
+# ── Kiosk Read-Only Route ──────────────────────────────────────────
+
+
+@router.get(
+    "/kiosk/{board_id}",
+    response_model=SuccessResponse[BoardResponse],
+    response_model_by_alias=True,
+    response_model_exclude_none=True,
+    summary="Kiosk Board View",
+    description=(
+        "Return a sanitized board for kiosk/public display. Requires a valid kiosk token "
+        "as the `token` query parameter. Control widgets are hidden or marked readonly "
+        "according to their registry kioskMode. No authentication cookie is required."
+    ),
+)
+async def get_kiosk_board(
+    dashboard_service: DashboardServiceDep,
+    kiosk_service: KioskServiceDep,
+    board_id: str = Path(description="Dashboard board ID"),
+    token: str = Query(..., min_length=1, description="Kiosk bearer token"),
+) -> SuccessResponse[BoardResponse]:
+    """Return a sanitized board document to a kiosk caller presenting a valid token."""
+    from hydra.api.v1.core.exceptions import AuthenticationError
+
+    validated = await kiosk_service.validate(board_id, token)
+    if validated is None:
+        raise AuthenticationError("KIOSK_INVALID_TOKEN", "Invalid or expired kiosk token")
+
+    # Fetch the raw board document (no visibility check — token proves access).
+    board_doc = await dashboard_service.get_board(board_id)
+    sanitized = sanitize_for_kiosk(board_doc)
+    return SuccessResponse(data=BoardResponse(**sanitized))

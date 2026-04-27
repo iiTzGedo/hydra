@@ -131,8 +131,22 @@ def create_app() -> FastAPI:
         _request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         request_id = get_request_id()
-        errors = exc.errors()
-        logger.warning("validation_error", errors=errors)
+        raw_errors = exc.errors()
+        logger.warning("validation_error", errors=raw_errors)
+
+        def _make_serializable(obj: Any) -> Any:
+            """Recursively convert non-JSON-serializable objects to strings."""
+            if isinstance(obj, dict):
+                return {k: _make_serializable(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return [_make_serializable(v) for v in obj]
+            if isinstance(obj, BaseException):
+                return str(obj)
+            if isinstance(obj, (str, int, float, bool)) or obj is None:
+                return obj
+            return str(obj)
+
+        errors = _make_serializable(raw_errors)
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={

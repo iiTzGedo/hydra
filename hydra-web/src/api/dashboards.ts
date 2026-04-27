@@ -13,9 +13,12 @@ import type {
   DashboardVersionSnapshot,
   DashboardVersionSummary,
   DashboardWidgetInstance,
+  EntityPanelType,
   ExportedBoard,
   ImportBoardRequest,
   ImportBoardResponse,
+  KioskTokenCreated,
+  KioskTokenSummary,
   PatchDashboardRequest,
   SaveAsTemplateRequest,
   ShareBoardRequest,
@@ -164,13 +167,19 @@ export function useDeleteDashboard() {
   });
 }
 
+export interface CloneDashboardRequest {
+  name?: string;
+  variables?: Record<string, unknown>;
+}
+
 export function useCloneDashboard(boardId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (): Promise<DashboardBoardWithId> => {
+    mutationFn: async (request?: CloneDashboardRequest): Promise<DashboardBoardWithId> => {
       const response = await apiClient.post<ApiResponse<DashboardBoard>>(
-        `/dashboards/${boardId}/clone`
+        `/dashboards/${boardId}/clone`,
+        request ?? {}
       );
       return withBoardId(response.data.data);
     },
@@ -216,13 +225,21 @@ export function useUpdateWidget(boardId: string, widgetId: string) {
   });
 }
 
-export function useWidgetRegistry(category?: string) {
+export function useWidgetRegistry(options?: { category?: string; availableOnly?: boolean }) {
+  const category = options?.category;
+  const availableOnly = options?.availableOnly;
+  const hasFilter = category !== undefined || availableOnly === true;
   return useQuery({
-    queryKey: queryKeys.dashboards.widgetRegistry(category),
+    queryKey: hasFilter
+      ? [...queryKeys.dashboards.widgetRegistry(), { category, availableOnly }]
+      : queryKeys.dashboards.widgetRegistry(),
     queryFn: async (): Promise<WidgetRegistryResponse> => {
-      const params = category ? `?category=${category}` : '';
+      const params: Record<string, string> = {};
+      if (category) params.category = category;
+      if (availableOnly) params.availableOnly = 'true';
       const response = await apiClient.get<ApiResponse<WidgetRegistryResponse>>(
-        `/dashboards/widgets/registry${params}`
+        '/dashboards/widgets/registry',
+        { params: Object.keys(params).length > 0 ? params : undefined },
       );
       return response.data.data;
     },
@@ -445,5 +462,122 @@ export function useRestoreDashboardVersion(boardId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboards.all });
     },
+  });
+}
+
+// ── Kiosk Token Hooks ──────────────────────────────────────────────
+
+export function useKioskTokens(boardId: string) {
+  return useQuery({
+    queryKey: queryKeys.dashboards.kioskTokens(boardId),
+    queryFn: async (): Promise<KioskTokenSummary[]> => {
+      const response = await apiClient.get<ApiResponse<KioskTokenSummary[]>>(
+        `/dashboards/${boardId}/kiosk-tokens`,
+      );
+      return response.data.data;
+    },
+    enabled: !!boardId,
+  });
+}
+
+export function useCreateKioskToken(boardId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (body: {
+      label: string;
+      ttlHours: number | null;
+    }): Promise<KioskTokenCreated> => {
+      const response = await apiClient.post<ApiResponse<KioskTokenCreated>>(
+        `/dashboards/${boardId}/kiosk-tokens`,
+        body,
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboards.kioskTokens(boardId),
+      });
+    },
+  });
+}
+
+export function useRevokeKioskToken(boardId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (tokenId: string): Promise<void> => {
+      await apiClient.delete(`/dashboards/${boardId}/kiosk-tokens/${tokenId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboards.kioskTokens(boardId),
+      });
+    },
+  });
+}
+
+// ── Entity Panel Hooks ─────────────────────────────────────────────
+
+export function useEntityPanel(entityType: EntityPanelType) {
+  return useQuery({
+    queryKey: queryKeys.dashboards.entityPanel(entityType),
+    queryFn: async (): Promise<DashboardBoardWithId> => {
+      const response = await apiClient.get<ApiResponse<DashboardBoard>>(
+        `/dashboards/panel/${entityType}`,
+      );
+      return withBoardId(response.data.data);
+    },
+    enabled: !!entityType,
+  });
+}
+
+export function useCustomizeEntityPanel(entityType: EntityPanelType) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (): Promise<DashboardBoardWithId> => {
+      const response = await apiClient.post<ApiResponse<DashboardBoard>>(
+        `/dashboards/panel/${entityType}/customize`,
+      );
+      return withBoardId(response.data.data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboards.entityPanel(entityType),
+      });
+    },
+  });
+}
+
+export function useDeleteEntityPanelOverride(entityType: EntityPanelType) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (): Promise<void> => {
+      await apiClient.delete(`/dashboards/panel/${entityType}/override`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboards.entityPanel(entityType),
+      });
+    },
+  });
+}
+
+// ── Kiosk Board Hook (unauthenticated read) ────────────────────────
+
+export function useKioskBoard(boardId: string, token: string | null) {
+  return useQuery({
+    queryKey: queryKeys.dashboards.kiosk(boardId, token),
+    queryFn: async (): Promise<DashboardBoardWithId> => {
+      const response = await apiClient.get<ApiResponse<DashboardBoard>>(
+        `/dashboards/kiosk/${boardId}`,
+        { params: { token } },
+      );
+      return withBoardId(response.data.data);
+    },
+    enabled: !!token && !!boardId,
+    retry: false, // deauthorized is terminal — don't retry 401
   });
 }

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import copy
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import uuid4
@@ -27,6 +28,7 @@ from pymongo import ASCENDING, DESCENDING
 
 from hydra.api.v1.core.exceptions import NotFoundError, ValidationError
 from hydra.api.v1.models.dashboards import (
+    _ALLOWED_META_KEYS,
     AddWidgetRequest,
     BoardType,
     CreateBoardRequest,
@@ -136,6 +138,12 @@ class WidgetNotFoundError(NotFoundError):
 # ── Template variable substitution ───────────────────────────────
 
 _VAR_PATTERN = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+# Validators for values supplied via the ``value`` dict of PatchUpdateSettings.
+# Each callable receives the raw value and returns True when the value is valid.
+_META_KEY_VALIDATORS: dict[str, Callable[[Any], bool]] = {
+    "layoutMode": lambda v: v in ("grid", "columns", "freeform"),
+}
 
 
 def _substitute_variables(obj: Any, variables: dict[str, Any]) -> Any:
@@ -319,6 +327,9 @@ class DashboardService:
             "boardType": request.board_type.value,
             "visibility": visibility,
             "layout": request.layout.model_dump(by_alias=True, exclude_none=True),
+            "layoutMode": request.layout_mode,
+            "scope": request.scope,
+            "entityTypeFilter": request.entity_type_filter,
             "widgets": widgets,
             "settings": request.settings.model_dump(by_alias=True),
             "tags": request.tags,
@@ -490,6 +501,8 @@ class DashboardService:
             update_fields["widgets"] = [
                 w.model_dump(by_alias=True, exclude_none=True) for w in request.widgets
             ]
+        if request.layout_mode is not None:
+            update_fields["layoutMode"] = request.layout_mode
         if request.settings is not None:
             update_fields["settings"] = request.settings.model_dump(by_alias=True)
         if request.tags is not None:
@@ -546,11 +559,35 @@ class DashboardService:
         widgets: list[dict[str, Any]] = list(existing.get("widgets", []))
         layout: dict[str, Any] = copy.deepcopy(existing.get("layout", _default_grid_layout()))
         settings: dict[str, Any] = copy.deepcopy(existing.get("settings", _default_settings()))
+        meta_updates: dict[str, Any] = {}
         applied_ops: list[str] = []
 
         for op in operations:
             if isinstance(op, PatchUpdateSettings):
-                settings = op.settings.model_dump(by_alias=True)
+                had_real_change = False
+
+                if op.settings is not None:
+                    settings = op.settings.model_dump(by_alias=True)
+                    had_real_change = True
+
+                if op.value is not None:
+                    initial_meta_size = len(meta_updates)
+                    for key, val in op.value.items():
+                        if key not in _ALLOWED_META_KEYS:
+                            continue
+                        validator = _META_KEY_VALIDATORS.get(key)
+                        if validator is not None and not validator(val):
+                            raise ValidationError(
+                                f"Invalid value for {key!r}: {val!r}",
+                                details={"field": key, "value": str(val)},
+                            )
+                        meta_updates[key] = val
+                    if len(meta_updates) > initial_meta_size:
+                        had_real_change = True
+
+                if not had_real_change:
+                    continue
+
                 applied_ops.append("update-settings")
             elif isinstance(op, PatchUpdateLayout):
                 layout = op.layout.model_dump(by_alias=True, exclude_none=True)
@@ -616,18 +653,24 @@ class DashboardService:
             ],
         )
 
+        # If no effective operations were applied, skip write/audit/snapshot.
+        if not applied_ops:
+            logger.info("dashboard_patch_noop", board_id=board_id)
+            return await self.get_board_for_user(board_id, user_id)
+
         now = datetime.now(UTC)
+        set_fields: dict[str, Any] = {
+            "widgets": widgets,
+            "layout": layout,
+            "settings": settings,
+            "updatedAt": now,
+            "version": existing.get("version", 1) + 1,
+        }
+        if meta_updates:
+            set_fields.update(meta_updates)
         await self.collection.update_one(
             {"boardId": board_id},
-            {
-                "$set": {
-                    "widgets": widgets,
-                    "layout": layout,
-                    "settings": settings,
-                    "updatedAt": now,
-                    "version": existing.get("version", 1) + 1,
-                }
-            },
+            {"$set": set_fields},
         )
 
         logger.info(
@@ -895,6 +938,8 @@ class DashboardService:
             update_set[f"widgets.{widget_index}.column"] = request.column
         if request.order is not None:
             update_set[f"widgets.{widget_index}.order"] = request.order
+        if request.freeform_position is not None:
+            update_set[f"widgets.{widget_index}.freeformPosition"] = request.freeform_position.model_dump(by_alias=True)
         if request.config is not None:
             update_set[f"widgets.{widget_index}.config"] = request.config
         if request.data_binding is not None:
@@ -1012,24 +1057,60 @@ class DashboardService:
 
         return cast(dict[str, Any], doc)
 
+    async def get_board_for_management(
+        self,
+        board_id: str,
+        user_id: str,
+        user_role: str | None,
+        action: str,
+    ) -> dict[str, Any]:
+        """Fetch a non-archived board for kiosk token management operations.
+
+        Admins and operators may access any board regardless of ownership.
+        Other roles are restricted to boards they own.
+
+        Args:
+            board_id: The board to look up.
+            user_id: The requesting user's ID.
+            user_role: The requesting user's role (admin/operator bypass ownership check).
+            action: Human-readable description of the action (used in error messages).
+
+        Returns:
+            The raw board document.
+
+        Raises:
+            DashboardNotFoundError: If the board does not exist or is archived.
+            ValidationError: If the user is not the owner (non-admin/operator only).
+        """
+        if user_role in ("admin", "operator"):
+            doc = await self.collection.find_one({"boardId": board_id, "archivedAt": None})
+            if not doc:
+                raise DashboardNotFoundError(board_id)
+            return cast(dict[str, Any], doc)
+        return await self._get_owned_board(board_id, user_id, action)
+
     # ── Widget registry access ─────────────────────────────────────
 
     def get_widget_registry(
         self,
         category: str | None = None,
         user_role: str | None = None,
+        available_only: bool = False,
     ) -> dict[str, Any]:
         """Return role-filtered widget registry for the picker.
 
         Args:
             category: Optional spec category filter.
             user_role: Optional role for permission-based filtering.
+            available_only: When True, Tier 3 widgets (``isAvailable: False``)
+                are excluded from the response. Used by the widget picker to
+                hide widgets that depend on Wave 5 features.
         """
-        widgets = widget_registry.list_for_role(user_role)
+        widgets = widget_registry.list_for_role(user_role, available_only=available_only)
         if category:
             widgets = [w for w in widgets if w.get("category") == category]
 
-        categories = widget_registry.categories_for_role(user_role)
+        categories = widget_registry.categories_for_role(user_role, available_only=available_only)
 
         return {
             "widgets": widgets,
@@ -1051,6 +1132,9 @@ class DashboardService:
             "boardType": doc["boardType"],
             "visibility": doc.get("visibility") or _default_visibility(),
             "layout": doc.get("layout", _default_grid_layout()),
+            "layoutMode": doc.get("layoutMode", "grid"),
+            "scope": doc.get("scope", "standalone"),
+            "entityTypeFilter": doc.get("entityTypeFilter"),
             "widgets": doc.get("widgets", []),
             "settings": {**_default_settings(), **(doc.get("settings") or {})},
             "tags": doc.get("tags", []),
@@ -1073,6 +1157,9 @@ class DashboardService:
             "ownerType": doc.get("ownerType", "user"),
             "boardType": doc["boardType"],
             "visibility": doc.get("visibility") or _default_visibility(),
+            "layoutMode": doc.get("layoutMode", "grid"),
+            "scope": doc.get("scope", "standalone"),
+            "entityTypeFilter": doc.get("entityTypeFilter"),
             "widgetCount": len(doc.get("widgets", [])),
             "tags": doc.get("tags", []),
             "isHome": doc.get("isHome", False),

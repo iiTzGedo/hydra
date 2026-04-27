@@ -5,8 +5,25 @@
  * Values are normalized to [0, 1] and color-interpolated from
  * slate-100 (cold) to blue-600 (hot). Row and column labels are
  * displayed along the edges.
+ *
+ * Data binding:
+ *   source: static:: | hydra::nodes
+ *   endpoint: /nodes  (for service-count heatmap across nodes)
+ *
+ * Accepted data shapes:
+ *   1. Native: { rows: string[], columns: string[], values: number[][] }
+ *   2. [{ x, y, v }] tuples — 2D sparse data → builds rows/columns/values grid
+ *   3. Raw entity array (e.g., nodes) → builds a single-row heatmap of
+ *      numeric fields (servicesCount, profileCount, etc.)
+ *
+ * Config options:
+ *   colorScale: "blue-red" | "green-red" | "grayscale" | "spectral"
+ *   showLegend: boolean
+ *   aggregation: "sum" | "avg" | "max"
+ *   showValues: boolean
  */
 
+import { useMemo } from 'react';
 import { Grid3x3 } from 'lucide-react';
 import type { WidgetComponentProps } from '@/types/dashboard';
 import { WidgetLoadingState } from '../shared/widget-loading-state';
@@ -20,6 +37,112 @@ interface HeatmapData {
 
 interface HeatmapConfig extends Record<string, unknown> {
   showValues?: boolean;
+  colorScale?: string;
+  showLegend?: boolean;
+  aggregation?: string;
+}
+
+/**
+ * Build a HeatmapData from sparse [{ x, y, v }] tuples.
+ */
+function buildHeatmapFromTuples(
+  tuples: { x: string; y: string; v: number }[],
+): HeatmapData {
+  const rowSet = new Set<string>();
+  const colSet = new Set<string>();
+  for (const t of tuples) {
+    rowSet.add(t.y);
+    colSet.add(t.x);
+  }
+  const rows = Array.from(rowSet).sort();
+  const columns = Array.from(colSet).sort();
+  const values = rows.map((row) =>
+    columns.map((col) => {
+      const t = tuples.find((tt) => tt.y === row && tt.x === col);
+      return t ? t.v : 0;
+    }),
+  );
+  return { rows, columns, values };
+}
+
+/**
+ * Build a HeatmapData from a flat entity array.
+ * Rows are entity names, columns are numeric fields found in the first entity.
+ */
+function buildHeatmapFromEntityArray(
+  items: Record<string, unknown>[],
+): HeatmapData {
+  // Find all numeric fields across the first few items
+  const numericFields = new Set<string>();
+  for (const item of items.slice(0, 3)) {
+    for (const [key, val] of Object.entries(item)) {
+      if (typeof val === 'number') numericFields.add(key);
+    }
+  }
+  const columns = Array.from(numericFields);
+
+  // Use displayName / name / nodeId / id as row label
+  const rows = items.map((item) =>
+    String(
+      item.displayName ??
+        item.name ??
+        item.nodeId ??
+        item.serviceId ??
+        item.id ??
+        'Unknown',
+    ),
+  );
+
+  const values = items.map((item) =>
+    columns.map((col) => Number(item[col] ?? 0)),
+  );
+
+  return { rows, columns, values };
+}
+
+/**
+ * Normalize incoming data to HeatmapData.
+ *
+ * Handles:
+ *   - Native { rows, columns, values } shape
+ *   - [{ x, y, v }] sparse tuples
+ *   - Raw entity array
+ */
+function normalizeHeatmapData(raw: unknown): HeatmapData | null {
+  if (raw == null) return null;
+
+  // Native shape
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (
+      Array.isArray(obj.rows) &&
+      Array.isArray(obj.columns) &&
+      Array.isArray(obj.values)
+    ) {
+      return raw as HeatmapData;
+    }
+  }
+
+  if (Array.isArray(raw) && raw.length > 0) {
+    const first = raw[0] as Record<string, unknown>;
+
+    // [{ x, y, v }] tuples
+    if ('x' in first && 'y' in first && 'v' in first) {
+      return buildHeatmapFromTuples(
+        raw as { x: string; y: string; v: number }[],
+      );
+    }
+
+    // Raw entity array → build from numeric fields
+    if (typeof first === 'object') {
+      const result = buildHeatmapFromEntityArray(
+        raw as Record<string, unknown>[],
+      );
+      if (result.columns.length > 0 && result.rows.length > 0) return result;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -62,11 +185,12 @@ function contrastText(normalized: number): string {
 }
 
 export function HeatmapWidget({
-  data,
+  data: rawData,
   config,
   isLoading,
   error,
-}: WidgetComponentProps<HeatmapData, HeatmapConfig>) {
+}: WidgetComponentProps<unknown, HeatmapConfig>) {
+  const data = useMemo(() => normalizeHeatmapData(rawData), [rawData]);
   const typedConfig = config as HeatmapConfig;
   const showValues = typedConfig.showValues !== false;
 

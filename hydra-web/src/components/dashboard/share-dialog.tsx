@@ -1,8 +1,9 @@
 /**
  * Share Dialog for managing dashboard board sharing settings.
  *
- * Shows current shares, allows selecting roles and entering user IDs
- * to share with, and provides a revoke-all action.
+ * Two tabs:
+ *   - "Sharing" — role/user-based sharing and revoke-all
+ *   - "Kiosk Displays" — kiosk token management (create, copy, revoke)
  */
 
 import { useCallback, useState } from 'react';
@@ -26,7 +27,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getErrorMessage } from '@/lib/api-client';
+import { KioskTokensTab } from './kiosk-tokens-tab';
 
 const AVAILABLE_ROLES = ['admin', 'operator', 'viewer', 'family'] as const;
 
@@ -100,7 +103,7 @@ export function ShareDialog({ open, onOpenChange, boardId, boardName }: ShareDia
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px] bg-card border-border">
+      <DialogContent className="sm:max-w-[540px] bg-card border-border">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-foreground">
             <Share2 className="h-5 w-5 text-primary" />
@@ -111,37 +114,119 @@ export function ShareDialog({ open, onOpenChange, boardId, boardName }: ShareDia
           </DialogDescription>
         </DialogHeader>
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <LoadingSpinner />
-          </div>
-        ) : (
-          <div className="space-y-5">
-            {/* Current shares */}
-            {hasCurrentShares && (
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wide">
-                  Current shares
-                </Label>
-                <div className="rounded-lg border border-border p-3 space-y-2">
-                  {(currentShares?.roles?.length ?? 0) > 0 && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <ShieldAlert className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">Roles:</span>
-                      {currentShares?.roles.map((role) => (
-                        <Badge key={role} variant="secondary" className="text-[10px]">
-                          {role}
-                        </Badge>
-                      ))}
+        <Tabs defaultValue="sharing">
+          <TabsList className="w-full">
+            <TabsTrigger value="sharing" className="flex-1">
+              Sharing
+            </TabsTrigger>
+            <TabsTrigger value="kiosk" className="flex-1">
+              Kiosk Displays
+            </TabsTrigger>
+          </TabsList>
+
+          {/* ── Sharing tab ─────────────────────────────────────── */}
+          <TabsContent value="sharing">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <LoadingSpinner />
+              </div>
+            ) : (
+              <div className="space-y-5 pt-2">
+                {/* Current shares */}
+                {hasCurrentShares && (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                      Current shares
+                    </Label>
+                    <div className="rounded-lg border border-border p-3 space-y-2">
+                      {(currentShares?.roles?.length ?? 0) > 0 && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <ShieldAlert className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">Roles:</span>
+                          {currentShares?.roles.map((role) => (
+                            <Badge key={role} variant="secondary" className="text-[10px]">
+                              {role}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      {(currentShares?.users?.length ?? 0) > 0 && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <UserPlus className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">Users:</span>
+                          {currentShares?.users.map((userId) => (
+                            <Badge key={userId} variant="secondary" className="text-[10px]">
+                              {userId}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {(currentShares?.users?.length ?? 0) > 0 && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <UserPlus className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">Users:</span>
-                      {currentShares?.users.map((userId) => (
-                        <Badge key={userId} variant="secondary" className="text-[10px]">
+                  </div>
+                )}
+
+                {/* Role selection */}
+                <div className="space-y-2">
+                  <Label>Share with roles</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {AVAILABLE_ROLES.map((role) => (
+                      <Button
+                        key={role}
+                        variant={selectedRoles.includes(role) ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-7 text-xs capitalize"
+                        onClick={() => handleToggleRole(role)}
+                        disabled={isMutating}
+                      >
+                        {role}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* User IDs */}
+                <div className="space-y-2">
+                  <Label>Share with specific users</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Enter user ID..."
+                      value={userInput}
+                      onChange={(e) => setUserInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddUser();
+                        }
+                      }}
+                      disabled={isMutating}
+                      className="bg-muted/50 border-border"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddUser}
+                      disabled={isMutating || !userInput.trim()}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {userIds.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {userIds.map((userId) => (
+                        <Badge
+                          key={userId}
+                          variant="secondary"
+                          className="text-xs gap-1 pr-1"
+                        >
                           {userId}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveUser(userId)}
+                            className="hover:text-destructive transition-colors"
+                            disabled={isMutating}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
                         </Badge>
                       ))}
                     </div>
@@ -150,108 +235,53 @@ export function ShareDialog({ open, onOpenChange, boardId, boardName }: ShareDia
               </div>
             )}
 
-            {/* Role selection */}
-            <div className="space-y-2">
-              <Label>Share with roles</Label>
-              <div className="flex flex-wrap gap-2">
-                {AVAILABLE_ROLES.map((role) => (
-                  <Button
-                    key={role}
-                    variant={selectedRoles.includes(role) ? 'default' : 'outline'}
-                    size="sm"
-                    className="h-7 text-xs capitalize"
-                    onClick={() => handleToggleRole(role)}
-                    disabled={isMutating}
-                  >
-                    {role}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            {/* User IDs */}
-            <div className="space-y-2">
-              <Label>Share with specific users</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Enter user ID..."
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddUser();
-                    }
-                  }}
-                  disabled={isMutating}
-                  className="bg-muted/50 border-border"
-                />
+            <DialogFooter className="mt-4 flex-col sm:flex-row gap-2">
+              {hasCurrentShares && (
                 <Button
+                  variant="destructive"
                   size="sm"
-                  variant="outline"
-                  onClick={handleAddUser}
-                  disabled={isMutating || !userInput.trim()}
+                  onClick={() => void handleRevokeAll()}
+                  disabled={isMutating}
                 >
-                  Add
+                  {revokeMutation.isPending ? (
+                    <LoadingSpinner size="sm" className="mr-2 text-current" />
+                  ) : null}
+                  Revoke All
                 </Button>
-              </div>
-              {userIds.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-1">
-                  {userIds.map((userId) => (
-                    <Badge
-                      key={userId}
-                      variant="secondary"
-                      className="text-xs gap-1 pr-1"
-                    >
-                      {userId}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveUser(userId)}
-                        className="hover:text-destructive transition-colors"
-                        disabled={isMutating}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
               )}
-            </div>
-          </div>
-        )}
+              <div className="flex-1" />
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={isMutating}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void handleShare()}
+                disabled={isMutating || (selectedRoles.length === 0 && userIds.length === 0)}
+              >
+                {shareMutation.isPending ? (
+                  <LoadingSpinner size="sm" className="mr-2 text-current" />
+                ) : null}
+                Share
+              </Button>
+            </DialogFooter>
+          </TabsContent>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2">
-          {hasCurrentShares && (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => void handleRevokeAll()}
-              disabled={isMutating}
-            >
-              {revokeMutation.isPending ? (
-                <LoadingSpinner size="sm" className="mr-2 text-current" />
-              ) : null}
-              Revoke All
-            </Button>
-          )}
-          <div className="flex-1" />
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isMutating}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={() => void handleShare()}
-            disabled={isMutating || (selectedRoles.length === 0 && userIds.length === 0)}
-          >
-            {shareMutation.isPending ? (
-              <LoadingSpinner size="sm" className="mr-2 text-current" />
-            ) : null}
-            Share
-          </Button>
-        </DialogFooter>
+          {/* ── Kiosk Displays tab ──────────────────────────────── */}
+          <TabsContent value="kiosk" className="pt-2">
+            <KioskTokensTab boardId={boardId} />
+            <DialogFooter className="mt-4">
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );

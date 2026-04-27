@@ -27,6 +27,7 @@ export function ServiceControlWidget({
   isLoading,
   isEditing,
   error,
+  readonly,
   onExecuteCommand,
 }: WidgetComponentProps<unknown, ServiceControlConfig>) {
   const [executingAction, setExecutingAction] = useState<string | null>(null);
@@ -36,7 +37,7 @@ export function ServiceControlWidget({
 
   const serviceId = config.serviceId;
   const nodeId = config.nodeId;
-  const canExecute = !!serviceId && !!nodeId && !!onExecuteCommand && !isEditing;
+  const canExecute = !!serviceId && !!nodeId && !!onExecuteCommand && !isEditing && !readonly;
 
   async function handleAction(registryId: string) {
     if (!canExecute) return;
@@ -73,7 +74,7 @@ export function ServiceControlWidget({
               type="button"
               disabled={!canExecute || !!executingAction}
               onClick={() => void handleAction(registryId)}
-              title={canExecute ? label : 'Configure serviceId and nodeId in widget settings'}
+              title={readonly ? 'Read-only in kiosk mode' : canExecute ? label : 'Configure serviceId and nodeId in widget settings'}
               className={`flex flex-col items-center gap-1.5 rounded-xl border ${borderColor} px-4 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${hoverBg}`}
             >
               {isExecuting ? (

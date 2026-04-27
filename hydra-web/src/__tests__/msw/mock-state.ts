@@ -792,6 +792,10 @@ function createInitialState(): MockState {
       version: 1,
       createdAt: ISO_NOW,
       updatedAt: ISO_NOW,
+      layoutMode: 'grid' as const,
+      scope: 'standalone' as const,
+      entityTypeFilter: null,
+      isSystemDefault: false,
       layout: {
         mode: 'grid',
         grid: {

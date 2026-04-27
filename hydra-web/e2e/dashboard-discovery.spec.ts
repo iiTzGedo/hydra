@@ -208,36 +208,36 @@ test.describe('Dashboard and Discovery', () => {
                 defaultSize: { w: 6, h: 4 },
                 minSize: { w: 4, h: 3 },
                 maxSize: { w: 12, h: 6 },
+                // Wave 4 FieldSchema: `type` field takes one of
+                // 'string' | 'number' | 'boolean' | 'enum' | 'color' | 'entity-ref'.
+                // Earlier versions used `fieldType: 'text' | …` which the
+                // sanitizer silently coerces to Boolean — that made the Title
+                // field's string value round-trip as `true`, which in turn made
+                // the widget header fall back to the default label.
                 configSchema: [
                   {
                     key: 'title',
                     label: 'Title',
-                    fieldType: 'text',
+                    type: 'string',
                     description: 'Optional display title override for the widget header.',
-                    placeholder: 'Leave blank to use the default title',
-                    options: [],
                   },
                   {
                     key: 'subtitle',
                     label: 'Subtitle',
-                    fieldType: 'text',
+                    type: 'string',
                     description: 'Short supporting text shown under the title.',
-                    placeholder: 'Optional supporting context',
-                    options: [],
                   },
                   {
                     key: 'collapsible',
                     label: 'Collapsible',
-                    fieldType: 'boolean',
+                    type: 'boolean',
                     description: 'Allow the widget body to be collapsed from the header.',
-                    options: [],
                   },
                   {
                     key: 'defaultCollapsed',
                     label: 'Start collapsed',
-                    fieldType: 'boolean',
+                    type: 'boolean',
                     description: 'Collapse the widget body when the board first loads.',
-                    options: [],
                   },
                 ],
                 capabilities: {
@@ -355,9 +355,12 @@ test.describe('Dashboard and Discovery', () => {
     await editButton.click();
 
     // In edit mode the widget list lives inside the Customize popover — open
-    // it so the per-widget Configure buttons become clickable.
+    // it so the per-widget Configure buttons become clickable. The popover's
+    // per-widget Configure button uses a `customizer-configure-<id>` testid
+    // to disambiguate it from the widget card's own `aria-label="Configure …"`
+    // wrapper (which matches the same accessible name).
     await page.getByRole('button', { name: /^Customize$/ }).click();
-    await page.getByRole('button', { name: /Configure Service Summary/i }).click();
+    await page.getByTestId('customizer-configure-wi-service-summary').click();
     await page.locator('#widget-config-title').fill('Executive Services');
     await page.getByRole('button', { name: /^Save Settings$/ }).click();
 

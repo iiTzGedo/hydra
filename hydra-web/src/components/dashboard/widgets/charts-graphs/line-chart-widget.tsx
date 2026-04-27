@@ -4,8 +4,27 @@
  * Multi-series line chart using recharts. Each series is rendered
  * as a distinct colored line with tooltips and an optional legend.
  * Responsive to container dimensions.
+ *
+ * Data binding:
+ *   source: hydra::timeline | static::
+ *   endpoint: /timemachine/timeline  (for time-series views)
+ *
+ * Accepted data shapes:
+ *   1. Native: { series: [{ name, data: [{ x, y }] }] }
+ *   2. TimelineResponse from /timemachine/timeline — aggregates event count
+ *      per hour as a single "Events" series
+ *   3. Raw array (any) — treated as a single unnamed series if it has
+ *      { x, y } or { t, v } tuples; otherwise falls back to event-count
+ *      aggregation if entries have { timestamp } fields
+ *
+ * Config options:
+ *   showLegend: boolean
+ *   showGrid: boolean
+ *   smoothing: boolean
+ *   stacking: "none" | "normal" | "percent"
  */
 
+import { useMemo } from 'react';
 import { TrendingUp } from 'lucide-react';
 import {
   LineChart,
@@ -38,6 +57,110 @@ interface LineChartData {
 interface LineChartConfig extends Record<string, unknown> {
   showGrid?: boolean;
   showLegend?: boolean;
+  smoothing?: boolean;
+  stacking?: string;
+}
+
+/**
+ * Aggregate timeline events into hourly buckets for a line chart.
+ * Returns a single "Events" series keyed by hour label.
+ */
+function aggregateTimelineToSeries(
+  events: Record<string, unknown>[],
+): LineChartData {
+  const buckets = new Map<string, number>();
+
+  for (const e of events) {
+    const ts = new Date(String(e.timestamp ?? ''));
+    if (Number.isNaN(ts.getTime())) continue;
+    // Hour bucket: "HH:00"
+    const label = `${String(ts.getHours()).padStart(2, '0')}:00`;
+    buckets.set(label, (buckets.get(label) ?? 0) + 1);
+  }
+
+  const sorted = Array.from(buckets.entries()).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+
+  return {
+    series: [
+      {
+        name: 'Events',
+        data: sorted.map(([label, count]) => ({ x: label, y: count })),
+      },
+    ],
+  };
+}
+
+/**
+ * Normalize raw data to LineChartData.
+ *
+ * Handles:
+ *   - Native LineChartData with series
+ *   - TimelineResponse { events: [...], since, until, total }
+ *   - Raw array with { x, y } or { t, v } tuples
+ *   - Raw array with { timestamp } → aggregate by hour
+ */
+function normalizeLineChartData(raw: unknown): LineChartData | null {
+  if (raw == null) return null;
+
+  // Native shape
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+
+    if (Array.isArray(obj.series)) {
+      return { series: obj.series as Series[] };
+    }
+
+    // TimelineResponse
+    if (Array.isArray(obj.events)) {
+      return aggregateTimelineToSeries(
+        obj.events as Record<string, unknown>[],
+      );
+    }
+  }
+
+  // Raw array
+  if (Array.isArray(raw) && raw.length > 0) {
+    const first = raw[0] as Record<string, unknown>;
+
+    // { x, y } tuples
+    if ('x' in first && 'y' in first) {
+      return {
+        series: [
+          {
+            name: 'Value',
+            data: (raw as Record<string, unknown>[]).map((d) => ({
+              x: d.x as string | number,
+              y: Number(d.y),
+            })),
+          },
+        ],
+      };
+    }
+
+    // { t, v } tuples
+    if ('t' in first && 'v' in first) {
+      return {
+        series: [
+          {
+            name: 'Value',
+            data: (raw as Record<string, unknown>[]).map((d) => ({
+              x: String(d.t),
+              y: Number(d.v),
+            })),
+          },
+        ],
+      };
+    }
+
+    // { timestamp } → aggregate
+    if ('timestamp' in first) {
+      return aggregateTimelineToSeries(raw as Record<string, unknown>[]);
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -74,12 +197,13 @@ function mergeSeriesData(series: Series[]): Record<string, unknown>[] {
 }
 
 export function LineChartWidget({
-  data,
+  data: rawData,
   config,
   isLoading,
   error,
   dimensions,
-}: WidgetComponentProps<LineChartData, LineChartConfig>) {
+}: WidgetComponentProps<unknown, LineChartConfig>) {
+  const data = useMemo(() => normalizeLineChartData(rawData), [rawData]);
   const typedConfig = config as LineChartConfig;
   const showGrid = typedConfig.showGrid !== false;
   const showLegend = typedConfig.showLegend !== false;

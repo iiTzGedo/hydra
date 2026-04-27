@@ -6,6 +6,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+LayoutMode = Literal["grid", "columns", "freeform"]
+BoardScope = Literal["standalone", "entity-panel"]
+EntityPanelType = Literal["node", "service", "network"]
+
 
 class BoardType(StrEnum):
     """Board type classification aligned with Dashboard Technical Specification §3.2."""
@@ -78,6 +82,21 @@ class WidgetPosition(BaseModel):
     y: int = Field(ge=0, description="Vertical grid position")
     w: int = Field(ge=1, le=12, description="Width in grid columns")
     h: int = Field(ge=1, le=12, description="Height in grid rows")
+
+
+class FreeformPosition(BaseModel):
+    """Widget pixel coordinates for freeform layout mode.
+
+    Constraints per Dashboard Technical Specification §4 "Constraints":
+    - ``x``, ``y``: 0–10000 px canvas coordinates
+    - ``w``: 80–2000 px (minimum widget width)
+    - ``h``: 60–2000 px (minimum widget height)
+    """
+
+    x: float = Field(ge=0, le=10000, description="Horizontal pixel offset from canvas origin")
+    y: float = Field(ge=0, le=10000, description="Vertical pixel offset from canvas origin")
+    w: float = Field(ge=80, le=2000, description="Widget width in pixels")
+    h: float = Field(ge=60, le=2000, description="Widget height in pixels")
 
 
 DEFAULT_GRID_BREAKPOINTS: dict[str, dict[str, int]] = {
@@ -331,6 +350,11 @@ class WidgetPlacementMixin(BaseModel):
     )
     column: str | None = Field(default=None, description="Named column for column layouts")
     order: int | None = Field(default=None, description="Column order for column layouts")
+    freeform_position: FreeformPosition | None = Field(
+        default=None,
+        alias="freeformPosition",
+        description="Pixel coordinates for freeform layout mode; null in grid/columns mode",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -367,6 +391,13 @@ class WidgetInstance(WidgetPlacementMixin):
     widget_type: str = Field(alias="widgetType", description="Widget type from the registry")
     config: dict[str, Any] = Field(default_factory=dict, description="Widget-specific configuration")
     data_binding: DataBinding | None = Field(default=None, alias="dataBinding", description="Data binding configuration")
+    readonly: bool | None = Field(
+        default=None,
+        description=(
+            "Kiosk-mode flag set by the sanitizer. "
+            "True = controls disabled; False = normal display; None = not in kiosk context."
+        ),
+    )
 
 
 class BoardSettings(BaseModel):
@@ -427,6 +458,10 @@ class BoardResponse(BaseModel):
     board_type: BoardType = Field(alias="boardType")
     visibility: BoardVisibility = Field(default_factory=BoardVisibility)
     layout: BoardLayout
+    layout_mode: LayoutMode = Field(default="grid", alias="layoutMode")
+    scope: BoardScope = Field(default="standalone", alias="scope")
+    entity_type_filter: EntityPanelType | None = Field(default=None, alias="entityTypeFilter")
+    is_system_default: bool = Field(default=False, alias="isSystemDefault")
     widgets: list[WidgetInstance] = Field(default_factory=list)
     settings: BoardSettings = Field(default_factory=BoardSettings)
     tags: list[str] = Field(default_factory=list)
@@ -451,6 +486,9 @@ class BoardSummary(BaseModel):
     owner_type: OwnerType = Field(default=OwnerType.USER, alias="ownerType")
     board_type: BoardType = Field(alias="boardType")
     visibility: BoardVisibility = Field(default_factory=BoardVisibility)
+    layout_mode: LayoutMode = Field(default="grid", alias="layoutMode")
+    scope: BoardScope = Field(default="standalone", alias="scope")
+    entity_type_filter: EntityPanelType | None = Field(default=None, alias="entityTypeFilter")
     widget_count: int = Field(default=0, alias="widgetCount")
     tags: list[str] = Field(default_factory=list)
     is_home: bool = Field(default=False, alias="isHome")
@@ -472,6 +510,10 @@ class AddWidgetRequest(WidgetPlacementMixin):
     data_binding: DataBinding | None = Field(default=None, alias="dataBinding")
 
 
+# UpdateWidgetRequest does NOT inherit WidgetPlacementMixin because the mixin's
+# `ensure_widget_placement` model validator requires at least one of position/placements/column
+# to be set — a constraint that makes sense for create but not for partial updates where all
+# fields are optional. Placement fields (including freeform_position) are duplicated here.
 class UpdateWidgetRequest(BaseModel):
     """Update a widget on a board."""
 
@@ -481,6 +523,11 @@ class UpdateWidgetRequest(BaseModel):
     placements: dict[str, WidgetPosition] | None = Field(default=None)
     column: str | None = None
     order: int | None = None
+    freeform_position: FreeformPosition | None = Field(
+        default=None,
+        alias="freeformPosition",
+        description="Updated pixel coordinates for freeform layout mode",
+    )
     config: dict[str, Any] | None = Field(default=None, description="Updated widget configuration")
     data_binding: DataBinding | None = Field(default=None, alias="dataBinding")
 
@@ -501,6 +548,9 @@ class CreateBoardRequest(BaseModel):
     board_type: BoardType = Field(default=BoardType.USER, alias="boardType")
     visibility: BoardVisibility = Field(default_factory=BoardVisibility)
     layout: BoardLayout = Field(default_factory=BoardLayout)
+    layout_mode: LayoutMode = Field(default="grid", alias="layoutMode")
+    scope: BoardScope = Field(default="standalone", alias="scope")
+    entity_type_filter: EntityPanelType | None = Field(default=None, alias="entityTypeFilter")
     widgets: list[AddWidgetRequest] = Field(default_factory=list, description="Initial widgets")
     settings: BoardSettings = Field(default_factory=BoardSettings)
     tags: list[str] = Field(default_factory=list)
@@ -515,6 +565,15 @@ class CreateBoardRequest(BaseModel):
                 raise ValueError(f"Tag '{tag[:20]}...' exceeds maximum length of 64 characters")
         return v
 
+    @model_validator(mode="after")
+    def validate_entity_panel_requires_filter(self) -> "CreateBoardRequest":
+        """entity-panel scope requires entityTypeFilter to be set."""
+        if self.scope == "entity-panel" and self.entity_type_filter is None:
+            raise ValueError(
+                "entityTypeFilter is required when scope is 'entity-panel'"
+            )
+        return self
+
 
 class UpdateBoardRequest(BaseModel):
     """Update a dashboard board (PUT - full replacement of mutable fields)."""
@@ -527,6 +586,7 @@ class UpdateBoardRequest(BaseModel):
     board_type: BoardType | None = Field(default=None, alias="boardType")
     visibility: BoardVisibility | None = None
     layout: BoardLayout | None = None
+    layout_mode: LayoutMode | None = Field(default=None, alias="layoutMode")
     widgets: list[WidgetInstance] | None = None
     settings: BoardSettings | None = None
     tags: list[str] | None = None
@@ -558,13 +618,30 @@ class CloneBoardRequest(BaseModel):
 # ── PATCH Operations ────────────────────────────────────────────────
 
 
+_ALLOWED_META_KEYS: frozenset[str] = frozenset({"layoutMode"})
+
+
 class PatchUpdateSettings(BaseModel):
-    """PATCH op: update board settings."""
+    """PATCH op: update board settings or board-level meta fields.
+
+    Two usage modes (may be combined in a single operation):
+    - ``settings``: replace the full ``BoardSettings`` object (existing behaviour).
+    - ``value``: partial update of board-level meta fields from the allowed set
+      (currently: ``layoutMode``).  Immutable fields (``scope``,
+      ``entityTypeFilter``) are silently ignored if present in ``value``.
+    """
 
     model_config = ConfigDict(populate_by_name=True)
 
     op: Literal["update-settings"]
-    settings: BoardSettings
+    settings: BoardSettings | None = None
+    value: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Board-level meta updates (e.g., layoutMode). Only keys in _ALLOWED_META_KEYS "
+            "are applied; unknown keys silently ignored. Values validated in service layer."
+        ),
+    )
 
 
 class PatchUpdateLayout(BaseModel):
@@ -655,7 +732,7 @@ class WidgetCategoryInfo(BaseModel):
 
 
 class WidgetConfigOption(BaseModel):
-    """Selectable option for a widget config field."""
+    """Selectable option for a widget config field (enum type)."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -664,21 +741,27 @@ class WidgetConfigOption(BaseModel):
 
 
 class WidgetConfigField(BaseModel):
-    """Configurable setting exposed by the widget registry."""
+    """Configurable setting descriptor exposed by the widget registry.
+
+    Aligns with the ``FieldSchema`` shape emitted by ``widget_registry.py``
+    per Dashboard Technical Specification §5 (WidgetConfigurator).
+    """
 
     model_config = ConfigDict(populate_by_name=True)
 
     key: str
     label: str
-    field_type: Literal["text", "boolean", "number", "select", "entity"] = Field(alias="fieldType")
+    type: Literal["string", "number", "boolean", "enum", "color", "entity-ref"]
+    default: Any = None
+    description: str | None = None
+    options: list[WidgetConfigOption] | None = None
+    min: float | None = None
+    max: float | None = None
+    step: float | None = None
     entity_type: Literal["node", "service", "network", "group"] | None = Field(
         default=None, alias="entityType"
     )
-    description: str | None = None
-    placeholder: str | None = None
-    min_value: int | None = Field(default=None, alias="minValue")
-    max_value: int | None = Field(default=None, alias="maxValue")
-    options: list[WidgetConfigOption] = Field(default_factory=list)
+    required: bool = False
 
 
 class WidgetCapabilities(BaseModel):
@@ -707,7 +790,7 @@ class WidgetPermissions(BaseModel):
 
 
 class WidgetTypeDefinition(BaseModel):
-    """A widget type available in the registry."""
+    """A widget type available in the registry per spec §4.3."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -729,6 +812,18 @@ class WidgetTypeDefinition(BaseModel):
     min_size: WidgetSize = Field(alias="minSize")
     max_size: WidgetSize = Field(alias="maxSize")
     config_schema: list[WidgetConfigField] = Field(default_factory=list, alias="configSchema")
+    kiosk_mode: Literal["render", "readonly", "hide"] = Field(
+        default="render",
+        alias="kioskMode",
+        description="How this widget behaves in kiosk view. "
+        "'render' = normal display; 'readonly' = controls disabled; 'hide' = excluded entirely.",
+    )
+    is_available: bool = Field(
+        default=True,
+        alias="isAvailable",
+        description="False for Tier 3 widgets that require Wave 5 features (WebSocket, plugin system). "
+        "These are hidden from the widget picker but remain registered for future enablement.",
+    )
     capabilities: WidgetCapabilities = Field(default_factory=WidgetCapabilities)
 
 
@@ -1062,6 +1157,61 @@ class TemplateListParams(BaseModel):
     offset: int = Field(default=0, ge=0)
 
 
+# ── Kiosk Token Models ─────────────────────────────────────────────
+
+
+class CreateKioskTokenRequest(BaseModel):
+    """Request body for creating a new kiosk token."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    label: str = Field(min_length=1, max_length=80, description="Human-readable label for the token")
+    ttl_hours: int | None = Field(
+        default=168,
+        ge=1,
+        le=8760,
+        alias="ttlHours",
+        description="Token lifetime in hours (1–8760). Null means the token never expires. Default: 168 (7 days).",
+    )
+
+
+class KioskTokenSummary(BaseModel):
+    """Summary of a kiosk token (no raw token or hash)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    token_id: str = Field(alias="tokenId")
+    board_id: str = Field(alias="boardId")
+    label: str
+    created_by: str = Field(alias="createdBy")
+    created_at: datetime = Field(alias="createdAt")
+    expires_at: datetime | None = Field(default=None, alias="expiresAt")
+    revoked_at: datetime | None = Field(default=None, alias="revokedAt")
+    last_used_at: datetime | None = Field(default=None, alias="lastUsedAt")
+
+
+class KioskTokenCreated(KioskTokenSummary):
+    """Response for token creation — includes raw token (shown exactly once)."""
+
+    token: str = Field(description="Raw bearer token — store securely; not retrievable again")
+
+
+class KioskTokenDocument(BaseModel):
+    """Internal representation of a kiosk_tokens MongoDB document."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    token_id: str = Field(alias="tokenId")
+    board_id: str = Field(alias="boardId")
+    token_hash: str = Field(alias="tokenHash")
+    label: str
+    created_by: str = Field(alias="createdBy")
+    created_at: datetime = Field(alias="createdAt")
+    expires_at: datetime | None = Field(default=None, alias="expiresAt")
+    revoked_at: datetime | None = Field(default=None, alias="revokedAt")
+    last_used_at: datetime | None = Field(default=None, alias="lastUsedAt")
+
+
 __all__ = [
     "_BREAKPOINT_ORDER",
     "AddWidgetRequest",
@@ -1069,23 +1219,31 @@ __all__ = [
     "BoardExport",
     "BoardLayout",
     "BoardResponse",
+    "BoardScope",
     "BoardSettings",
     "BoardSummary",
     "BoardType",
     "BoardVisibility",
     "CloneBoardRequest",
+    "CreateKioskTokenRequest",
+    "KioskTokenCreated",
+    "KioskTokenDocument",
+    "KioskTokenSummary",
     "ColumnLayoutConfig",
     "CreateBoardRequest",
     "DashboardListParams",
     "DataBinding",
     "DataBindingFallback",
     "DEFAULT_GRID_BREAKPOINTS",
+    "EntityPanelType",
+    "FreeformPosition",
     "GridLayoutConfig",
     "ImportBoardRequest",
     "ImportBoardResponse",
     "ImportValidationIssue",
     "InstantiateTemplateRequest",
     "LayoutBreakpoint",
+    "LayoutMode",
     "MAX_TEMPLATE_VARIABLES",
     "OwnerType",
     "PatchAddWidget",

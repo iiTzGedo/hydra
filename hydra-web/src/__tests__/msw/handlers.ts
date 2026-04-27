@@ -1,12 +1,27 @@
 import { http, HttpResponse } from 'msw';
 import type { ChatMessageResponse, ChatToolCall } from '@/api/chat';
 import type { MCPServerResponse, MCPServerStatus } from '@/api/mcp';
+import type { KioskTokenSummary } from '@/types/dashboard';
 import { mockState } from './mock-state';
 
 // Must match NEXT_PUBLIC_API_URL set in vitest.config.ts test env block.
 // Using 'localhost' here would cause MSW to miss all requests since axios sends them to
 // 127.0.0.1, silently falling through to the real server instead of the mock.
 const BASE_URL = 'http://127.0.0.1:8080/api/v1';
+
+// ── Wave 4 in-memory state (resets via resetWave4MockState) ───────────────
+
+/** Per-board kiosk token lists (Wave 4). */
+const kioskTokensByBoard = new Map<string, KioskTokenSummary[]>();
+
+/** Per-user entity-panel overrides keyed as "userId:entityType" (Wave 4). */
+const panelOverrides = new Map<string, Record<string, unknown>>();
+
+/** Resets Wave 4 mock state — call this in beforeEach alongside resetMockState(). */
+export function resetWave4MockState() {
+  kioskTokensByBoard.clear();
+  panelOverrides.clear();
+}
 
 const mockNodes = [
   {
@@ -266,6 +281,10 @@ function toDashboardSummary(board: (typeof mockState.dashboards)[number]) {
     version: board.version,
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
+    layoutMode: board.layoutMode,
+    scope: board.scope,
+    entityTypeFilter: board.entityTypeFilter,
+    isSystemDefault: board.isSystemDefault,
   };
 }
 
@@ -559,13 +578,20 @@ export const handlers = [
     const url = new URL(request.url);
     const category = url.searchParams.get('category');
 
+    const sharedConfigSchema = [
+      { key: 'title', label: 'Title', type: 'string', description: 'Optional display title override for the widget header.' },
+      { key: 'subtitle', label: 'Subtitle', type: 'string', description: 'Short supporting text shown under the title.' },
+      { key: 'collapsible', label: 'Collapsible', type: 'boolean', description: 'Allow the widget body to be collapsed from the header.' },
+      { key: 'defaultCollapsed', label: 'Start collapsed', type: 'boolean', description: 'Collapse the widget body when the board first loads.' },
+    ];
+
     const allWidgets = [
-      { widgetType: 'hydra::stats-cards', displayName: 'Stats Overview', description: 'Key infrastructure metrics at a glance.', category: 'data-display', icon: 'bar-chart-3', source: 'hydra', defaultSize: { w: 12, h: 2 }, minSize: { w: 6, h: 2 }, maxSize: { w: 12, h: 4 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
-      { widgetType: 'hydra::capacity-overview', displayName: 'Capacity Overview', description: 'Resource utilization and capacity planning for your fleet.', category: 'infrastructure', icon: 'hard-drive', source: 'hydra', defaultSize: { w: 12, h: 4 }, minSize: { w: 6, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
-      { widgetType: 'hydra::service-summary', displayName: 'Service Summary', description: 'Overview of service health and operational status.', category: 'status', icon: 'activity', source: 'hydra', defaultSize: { w: 6, h: 4 }, minSize: { w: 4, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
-      { widgetType: 'hydra::recent-activity', displayName: 'Recent Activity', description: 'Latest infrastructure events and state changes.', category: 'activity', icon: 'clock', source: 'hydra', defaultSize: { w: 6, h: 4 }, minSize: { w: 4, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
-      { widgetType: 'hydra::mini-topology', displayName: 'Infrastructure Topology', description: 'Visual map of the current topology snapshot.', category: 'infrastructure', icon: 'network', source: 'hydra', defaultSize: { w: 12, h: 4 }, minSize: { w: 6, h: 3 }, maxSize: { w: 12, h: 8 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
-      { widgetType: 'hydra::node-status-grid', displayName: 'Node Status Grid', description: 'Grid view of node health, reachability, and role.', category: 'status', icon: 'server', source: 'hydra', defaultSize: { w: 12, h: 4 }, minSize: { w: 6, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: [{ key: 'title', label: 'Title', fieldType: 'text', description: 'Optional display title override for the widget header.', placeholder: 'Leave blank to use the default title', options: [] }, { key: 'subtitle', label: 'Subtitle', fieldType: 'text', description: 'Short supporting text shown under the title.', placeholder: 'Optional supporting context', options: [] }, { key: 'collapsible', label: 'Collapsible', fieldType: 'boolean', description: 'Allow the widget body to be collapsed from the header.', options: [] }, { key: 'defaultCollapsed', label: 'Start collapsed', fieldType: 'boolean', description: 'Collapse the widget body when the board first loads.', options: [] }], capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false } },
+      { widgetType: 'hydra::stats-cards', displayName: 'Stats Overview', description: 'Key infrastructure metrics at a glance.', category: 'data-display', icon: 'bar-chart-3', source: 'hydra', defaultSize: { w: 12, h: 2 }, minSize: { w: 6, h: 2 }, maxSize: { w: 12, h: 4 }, configSchema: sharedConfigSchema, capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false }, kioskMode: 'render', isAvailable: true },
+      { widgetType: 'hydra::capacity-overview', displayName: 'Capacity Overview', description: 'Resource utilization and capacity planning for your fleet.', category: 'infrastructure', icon: 'hard-drive', source: 'hydra', defaultSize: { w: 12, h: 4 }, minSize: { w: 6, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: sharedConfigSchema, capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false }, kioskMode: 'render', isAvailable: true },
+      { widgetType: 'hydra::service-summary', displayName: 'Service Summary', description: 'Overview of service health and operational status.', category: 'status', icon: 'activity', source: 'hydra', defaultSize: { w: 6, h: 4 }, minSize: { w: 4, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: sharedConfigSchema, capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false }, kioskMode: 'render', isAvailable: true },
+      { widgetType: 'hydra::recent-activity', displayName: 'Recent Activity', description: 'Latest infrastructure events and state changes.', category: 'activity', icon: 'clock', source: 'hydra', defaultSize: { w: 6, h: 4 }, minSize: { w: 4, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: sharedConfigSchema, capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false }, kioskMode: 'render', isAvailable: true },
+      { widgetType: 'hydra::mini-topology', displayName: 'Infrastructure Topology', description: 'Visual map of the current topology snapshot.', category: 'infrastructure', icon: 'network', source: 'hydra', defaultSize: { w: 12, h: 4 }, minSize: { w: 6, h: 3 }, maxSize: { w: 12, h: 8 }, configSchema: sharedConfigSchema, capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false }, kioskMode: 'render', isAvailable: true },
+      { widgetType: 'hydra::node-status-grid', displayName: 'Node Status Grid', description: 'Grid view of node health, reachability, and role.', category: 'status', icon: 'server', source: 'hydra', defaultSize: { w: 12, h: 4 }, minSize: { w: 6, h: 3 }, maxSize: { w: 12, h: 6 }, configSchema: sharedConfigSchema, capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false }, kioskMode: 'render', isAvailable: true },
     ];
 
     const widgets = category ? allWidgets.filter((w) => w.category === category) : allWidgets;
@@ -643,6 +669,10 @@ export const handlers = [
       },
       clonedFrom: null,
       archivedAt: null,
+      layoutMode: payload.layoutMode ?? 'grid' as const,
+      scope: payload.scope ?? 'standalone' as const,
+      entityTypeFilter: payload.entityTypeFilter ?? null,
+      isSystemDefault: payload.isSystemDefault ?? false,
     };
     mockState.dashboards.unshift(board);
     return HttpResponse.json(apiResponse(board), { status: 201 });
@@ -779,6 +809,233 @@ export const handlers = [
     mockState.dashboards[boardIndex] = updatedBoard;
     return HttpResponse.json(apiResponse(updatedBoard));
   }),
+
+  // ── Wave 4: Kiosk tokens ────────────────────────────────────────────────
+
+  http.get(`${BASE_URL}/dashboards/:boardId/kiosk-tokens`, ({ params }) => {
+    const tokens = kioskTokensByBoard.get(params.boardId as string) ?? [];
+    return HttpResponse.json(apiResponse(tokens, { total: tokens.length }));
+  }),
+
+  http.post(`${BASE_URL}/dashboards/:boardId/kiosk-tokens`, async ({ params, request }) => {
+    const body = (await request.json()) as { label: string; ttlHours: number | null };
+    const boardId = params.boardId as string;
+    const tokenId = `kt_${Math.random().toString(16).slice(2, 10)}`;
+    const now = new Date().toISOString();
+    const expiresAt =
+      body.ttlHours === null
+        ? null
+        : new Date(Date.now() + body.ttlHours * 3_600_000).toISOString();
+    const created: KioskTokenSummary & { token: string } = {
+      tokenId,
+      boardId,
+      label: body.label,
+      createdBy: 'user-001',
+      createdAt: now,
+      expiresAt,
+      revokedAt: null,
+      lastUsedAt: null,
+      token: `MOCK_RAW_${tokenId}`,
+    };
+    const list = kioskTokensByBoard.get(boardId) ?? [];
+    const { token: _token, ...summary } = created;
+    list.unshift(summary);
+    kioskTokensByBoard.set(boardId, list);
+    return HttpResponse.json(apiResponse(created), { status: 201 });
+  }),
+
+  http.delete(`${BASE_URL}/dashboards/:boardId/kiosk-tokens/:tokenId`, ({ params }) => {
+    const boardId = params.boardId as string;
+    const tokenId = params.tokenId as string;
+    const list = kioskTokensByBoard.get(boardId) ?? [];
+    const idx = list.findIndex((t) => t.tokenId === tokenId);
+    if (idx === -1) {
+      return errorResponse('KIOSK_TOKEN_NOT_FOUND', 'Kiosk token not found', 404);
+    }
+    list[idx] = { ...list[idx], revokedAt: new Date().toISOString() };
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // ── Wave 4: Kiosk board read (unauthenticated, token-gated) ────────────
+
+  http.get(`${BASE_URL}/dashboards/kiosk/:boardId`, ({ request, params }) => {
+    const url = new URL(request.url);
+    const token = url.searchParams.get('token');
+    if (!token || token === 'invalid') {
+      return HttpResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const boardId = params.boardId as string;
+    const source = mockState.dashboards.find((b) => b.boardId === boardId);
+    const board = source ?? {
+      boardId,
+      name: 'Kiosk Board',
+      description: null,
+      icon: null,
+      ownerId: 'user-001',
+      ownerType: 'user' as const,
+      boardType: 'kiosk' as const,
+      visibility: { scope: 'public' as const, sharedWith: { roles: [], users: [] } },
+      widgetCount: 0,
+      tags: [],
+      isHome: false,
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      layoutMode: 'grid' as const,
+      scope: 'standalone' as const,
+      entityTypeFilter: null,
+      isSystemDefault: false,
+      layout: {
+        mode: 'grid' as const,
+        grid: {
+          columns: 12,
+          rowHeight: 80,
+          breakpoints: {},
+          compaction: 'vertical' as const,
+          margin: [16, 16] as [number, number],
+          padding: [0, 0] as [number, number],
+        },
+      },
+      widgets: [],
+      settings: {
+        theme: 'inherit',
+        autoRefresh: true,
+        refreshInterval: 30,
+        showHeader: false,
+        kioskMode: true,
+        kioskAutoScroll: false,
+        kioskScrollSpeed: 30,
+        backgroundImage: null,
+        customCss: null,
+      },
+      clonedFrom: null,
+      archivedAt: null,
+    };
+    return HttpResponse.json(apiResponse(board));
+  }),
+
+  // ── Wave 4: Entity panels ───────────────────────────────────────────────
+
+  http.get(`${BASE_URL}/dashboards/panel/:entityType`, ({ params }) => {
+    const entityType = params.entityType as string;
+    const key = `user-001:${entityType}`;
+    const override = panelOverrides.get(key);
+    if (override) {
+      return HttpResponse.json(apiResponse(override));
+    }
+    return HttpResponse.json(
+      apiResponse({
+        boardId: `panel-default-${entityType}`,
+        name: `Default ${entityType} Panel`,
+        description: null,
+        icon: null,
+        ownerId: 'system',
+        ownerType: 'system' as const,
+        boardType: 'user' as const,
+        visibility: { scope: 'public' as const, sharedWith: { roles: [], users: [] } },
+        widgetCount: 0,
+        tags: [],
+        isHome: false,
+        version: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        layoutMode: 'grid' as const,
+        scope: 'entity-panel' as const,
+        entityTypeFilter: entityType,
+        isSystemDefault: true,
+        layout: {
+          mode: 'grid' as const,
+          grid: {
+            columns: 12,
+            rowHeight: 80,
+            breakpoints: {},
+            compaction: 'vertical' as const,
+            margin: [16, 16] as [number, number],
+            padding: [0, 0] as [number, number],
+          },
+        },
+        widgets: [],
+        settings: {
+          theme: 'inherit',
+          autoRefresh: true,
+          refreshInterval: 30,
+          showHeader: true,
+          kioskMode: false,
+          kioskAutoScroll: false,
+          kioskScrollSpeed: 30,
+          backgroundImage: null,
+          customCss: null,
+        },
+        clonedFrom: null,
+        archivedAt: null,
+      }),
+    );
+  }),
+
+  http.post(`${BASE_URL}/dashboards/panel/:entityType/customize`, ({ params }) => {
+    const entityType = params.entityType as string;
+    const key = `user-001:${entityType}`;
+    const boardId = `panel-${entityType}-user-001-${Math.random().toString(16).slice(2, 10)}`;
+    const override = {
+      boardId,
+      name: `My ${entityType} Panel`,
+      description: null,
+      icon: null,
+      ownerId: 'user-001',
+      ownerType: 'user' as const,
+      boardType: 'user' as const,
+      visibility: { scope: 'private' as const, sharedWith: { roles: [], users: [] } },
+      widgetCount: 0,
+      tags: [],
+      isHome: false,
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      layoutMode: 'grid' as const,
+      scope: 'entity-panel' as const,
+      entityTypeFilter: entityType,
+      isSystemDefault: false,
+      layout: {
+        mode: 'grid' as const,
+        grid: {
+          columns: 12,
+          rowHeight: 80,
+          breakpoints: {},
+          compaction: 'vertical' as const,
+          margin: [16, 16] as [number, number],
+          padding: [0, 0] as [number, number],
+        },
+      },
+      widgets: [],
+      settings: {
+        theme: 'inherit',
+        autoRefresh: true,
+        refreshInterval: 30,
+        showHeader: true,
+        kioskMode: false,
+        kioskAutoScroll: false,
+        kioskScrollSpeed: 30,
+        backgroundImage: null,
+        customCss: null,
+      },
+      clonedFrom: null,
+      archivedAt: null,
+    };
+    panelOverrides.set(key, override);
+    return HttpResponse.json(apiResponse(override), { status: 201 });
+  }),
+
+  http.delete(`${BASE_URL}/dashboards/panel/:entityType/override`, ({ params }) => {
+    const entityType = params.entityType as string;
+    const key = `user-001:${entityType}`;
+    if (!panelOverrides.has(key)) {
+      return errorResponse('PANEL_OVERRIDE_NOT_FOUND', 'Panel override not found', 404);
+    }
+    panelOverrides.delete(key);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // ── Networks ─────────────────────────────────────────────────────────────
 
   http.get(`${BASE_URL}/networks`, ({ request }) => {
     const { items, total, limit, offset } = paginate(mockNetworks, request);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useParams } from 'next/navigation';
 import type { Layout } from 'react-grid-layout';
@@ -16,11 +16,9 @@ import {
   Pin,
   PinOff,
   Plus,
-  Save,
   Share2,
   Trash2,
   Upload,
-  X,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -37,10 +35,13 @@ import {
   useSetHomeDashboard,
   useUpdateDashboard,
   useWidgetRegistry,
+  type CloneDashboardRequest,
 } from '@/api/dashboards';
 import { useCreateCommand } from '@/api/commands';
 import { useUpdateUserSettings, useUserSettings } from '@/api/settings';
 import { BoardTemplates } from '@/components/dashboard/board-templates';
+import { CloneWithVariablesDialog } from '@/components/dashboard/clone-with-variables-dialog';
+import { EditModeToolbar } from '@/components/dashboard/edit-mode-toolbar';
 import { ShareDialog } from '@/components/dashboard/share-dialog';
 import { TimeRangeSelector } from '@/components/dashboard/time-range-selector';
 import { getWidgetComponent } from '@/components/dashboard/widgets';
@@ -50,7 +51,9 @@ import {
   WidgetGrid,
   applyLayoutToWidgets,
   widgetTypeLabel,
+  type WidgetConfiguratorCallbacks,
 } from '@/components/dashboard/widget-grid';
+import { gridToFreeform, freeformToGrid } from '@/lib/freeform-layout';
 import { HydraIcon } from '@/components/icons/hydra-icon';
 import { PageHeaderLayout } from '@/components/layout/page-header-layout';
 import { Badge } from '@/components/ui/badge';
@@ -102,6 +105,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { useBoardEditor } from '@/hooks/use-board-editor';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useWidgetData } from '@/hooks/use-widget-data';
 import { getErrorMessage } from '@/lib/api-client';
@@ -116,7 +120,9 @@ import type {
   DashboardCreateWidgetRequest,
   DashboardDataBinding,
   DashboardWidgetInstance,
-  WidgetConfigField,
+  FieldSchema,
+  FreeformPosition,
+  LayoutMode,
   WidgetSize,
   WidgetTypeDefinition,
 } from '@/types/dashboard';
@@ -225,16 +231,16 @@ function getBooleanConfig(
   return typeof value === 'boolean' ? value : fallback;
 }
 
-function sanitizeWidgetConfig(
+export function sanitizeWidgetConfig(
   draft: Record<string, unknown>,
-  schema: WidgetConfigField[],
+  schema: FieldSchema[],
 ): Record<string, unknown> {
   const nextConfig = { ...draft };
 
   for (const field of schema) {
     const rawValue = nextConfig[field.key];
 
-    if (field.fieldType === 'text' || field.fieldType === 'select') {
+    if (field.type === 'string' || field.type === 'enum' || field.type === 'color') {
       if (typeof rawValue !== 'string' || rawValue.trim() === '') {
         delete nextConfig[field.key];
         continue;
@@ -244,7 +250,17 @@ function sanitizeWidgetConfig(
       continue;
     }
 
-    if (field.fieldType === 'number') {
+    if (field.type === 'entity-ref') {
+      if (typeof rawValue !== 'string' || rawValue.trim() === '') {
+        delete nextConfig[field.key];
+        continue;
+      }
+
+      nextConfig[field.key] = rawValue.trim();
+      continue;
+    }
+
+    if (field.type === 'number') {
       if (rawValue === '' || rawValue === null || rawValue === undefined) {
         delete nextConfig[field.key];
         continue;
@@ -257,11 +273,11 @@ function sanitizeWidgetConfig(
       }
 
       let clamped = parsed;
-      if (typeof field.minValue === 'number') {
-        clamped = Math.max(field.minValue, clamped);
+      if (typeof field.min === 'number') {
+        clamped = Math.max(field.min, clamped);
       }
-      if (typeof field.maxValue === 'number') {
-        clamped = Math.min(field.maxValue, clamped);
+      if (typeof field.max === 'number') {
+        clamped = Math.min(field.max, clamped);
       }
       nextConfig[field.key] = clamped;
       continue;
@@ -376,10 +392,31 @@ export default function DashboardPage() {
   } = useDashboardStore();
   const [configWidgetId, setConfigWidgetId] = useState<string | null>(null);
   const [widgetConfigDraft, setWidgetConfigDraft] = useState<Record<string, unknown>>({});
-  const [draftBoard, setDraftBoard] = useState<DashboardBoard | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCloneDialog, setShowCloneDialog] = useState(false);
+
+  // Board editor — undo/redo history stack. Initialized to null; re-seeded
+  // via commitSave() whenever the user begins editing a board.
+  const editor = useBoardEditor(null);
+
+  // Measure the real canvas / widget-grid container width (C3 fix).
+  // The hardcoded 1200 fallback only holds until the first ResizeObserver
+  // callback fires (typically within a single animation frame).
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+  const [measuredCanvasWidth, setMeasuredCanvasWidth] = useState<number>(1200);
+
+  useEffect(() => {
+    if (!gridContainerRef.current) return;
+    const obs = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setMeasuredCanvasWidth(entry.contentRect.width);
+      }
+    });
+    obs.observe(gridContainerRef.current);
+    return () => obs.disconnect();
+  }, []);
 
   const dashboardsQuery = useDashboards({ limit: 50, sortBy: 'updatedAt', sortOrder: 'desc' });
   const settingsQuery = useUserSettings();
@@ -421,7 +458,7 @@ export default function DashboardPage() {
 
   const selectedBoardQuery = useDashboard(effectiveBoardId ?? '');
   const selectedBoard = effectiveBoardId ? selectedBoardQuery.data : null;
-  const workingBoard = isEditMode ? draftBoard ?? selectedBoard ?? null : selectedBoard ?? null;
+  const workingBoard = isEditMode ? editor.draftBoard ?? selectedBoard ?? null : selectedBoard ?? null;
   const normalizedWorkingLayout = useMemo(
     () => normalizeDashboardLayout(workingBoard?.layout as DashboardBoardLayout | undefined),
     [workingBoard?.layout],
@@ -499,7 +536,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!isEditMode) {
-      setDraftBoard(null);
       setConfigWidgetId(null);
     }
   }, [isEditMode]);
@@ -545,31 +581,36 @@ export default function DashboardPage() {
   const openBoard = useCallback(
     (boardId: string) => {
       setEditMode(false);
-      setDraftBoard(null);
+      editor.discard();
       setActiveBoardId(boardId);
       if (isInlineLegacyDashboard) {
         return;
       }
       router.push(boardPath(boardId));
     },
-    [boardPath, isInlineLegacyDashboard, router, setActiveBoardId, setEditMode],
+    [boardPath, editor, isInlineLegacyDashboard, router, setActiveBoardId, setEditMode],
   );
 
   const beginEditing = useCallback(() => {
     if (!selectedBoard) {
       return;
     }
-    setDraftBoard({
+    // Seed the editor with a normalized copy of the current board, clearing
+    // any prior history before entering edit mode.
+    const normalizedBoard: DashboardBoard = {
       ...cloneBoardState(selectedBoard),
       layout: normalizeDashboardLayout(selectedBoard.layout as DashboardBoardLayout | undefined),
-    });
+    };
+    // commitSave serves double duty: seeds editor with current board at edit-start,
+    // and locks in changes after server save. Same state operation either way.
+    editor.commitSave(normalizedBoard);
     setEditMode(true);
-  }, [selectedBoard, setEditMode]);
+  }, [editor, selectedBoard, setEditMode]);
 
   const exitEditing = useCallback(() => {
-    setDraftBoard(null);
+    editor.discard();
     setEditMode(false);
-  }, [setEditMode]);
+  }, [editor, setEditMode]);
 
   const handleLayoutChange = useCallback(
     (layout: Layout) => {
@@ -577,12 +618,26 @@ export default function DashboardPage() {
         return;
       }
 
-      setDraftBoard({
-        ...workingBoard,
-        widgets: applyLayoutToWidgets(workingBoard.widgets, layout),
-      });
+      // Collect all changed placements into a single batch update so the
+      // entire drag produces ONE history entry (not one per widget moved).
+      const updatedWidgets = applyLayoutToWidgets(workingBoard.widgets, layout);
+      const updates: Array<{
+        instanceId: string;
+        placements?: DashboardWidgetInstance['placements'];
+      }> = [];
+      for (const widget of updatedWidgets) {
+        const original = workingBoard.widgets.find((w) => w.instanceId === widget.instanceId);
+        const placementsChanged =
+          JSON.stringify(original?.placements) !== JSON.stringify(widget.placements);
+        if (placementsChanged) {
+          updates.push({ instanceId: widget.instanceId, placements: widget.placements ?? undefined });
+        }
+      }
+      if (updates.length > 0) {
+        editor.updateAllWidgetLayouts(updates);
+      }
     },
-    [isEditMode, workingBoard],
+    [editor, isEditMode, workingBoard],
   );
 
   const handleRemoveWidget = useCallback(
@@ -592,10 +647,7 @@ export default function DashboardPage() {
       }
 
       if (isEditMode) {
-        setDraftBoard({
-          ...workingBoard,
-          widgets: workingBoard.widgets.filter((widget) => widget.instanceId !== instanceId),
-        });
+        editor.removeWidget(instanceId);
         return;
       }
 
@@ -605,8 +657,10 @@ export default function DashboardPage() {
         },
       });
     },
-    [deleteWidget, isEditMode, workingBoard],
+    [deleteWidget, editor, isEditMode, workingBoard],
   );
+
+  // ── Add widget ────────────────────────────────────────────────────
 
   const handleAddWidget = useCallback(
     (widgetType: string, defaultSize?: WidgetSize) => {
@@ -628,19 +682,13 @@ export default function DashboardPage() {
       };
 
       if (isEditMode) {
-        setDraftBoard({
-          ...workingBoard,
-          widgets: [
-            ...workingBoard.widgets,
-            {
-              instanceId: `draft_${Date.now()}`,
-              widgetType,
-              position: request.position,
-              placements: request.position ? { lg: request.position } : null,
-              config: {},
-              dataBinding: null,
-            },
-          ],
+        editor.addWidget({
+          instanceId: `draft_${Date.now()}`,
+          widgetType,
+          position: request.position,
+          placements: request.position ? { lg: request.position } : null,
+          config: {},
+          dataBinding: null,
         });
         return;
       }
@@ -651,7 +699,7 @@ export default function DashboardPage() {
         },
       });
     },
-    [addWidget, isEditMode, widgetDefinitions, workingBoard],
+    [addWidget, editor, isEditMode, widgetDefinitions, workingBoard],
   );
 
   const handleToggleWidget = useCallback(
@@ -669,7 +717,13 @@ export default function DashboardPage() {
       });
 
       if (isEditMode) {
-        setDraftBoard({ ...workingBoard, widgets: nextWidgets });
+        // Toggle hidden flag via updateWidgetConfig so it goes through the
+        // editor's history stack.
+        const widget = workingBoard.widgets.find((w) => w.instanceId === instanceId);
+        if (widget) {
+          const hidden = Boolean((widget.config as { hidden?: boolean })?.hidden);
+          editor.updateWidgetConfig(instanceId, { hidden: !hidden });
+        }
         return;
       }
 
@@ -679,7 +733,7 @@ export default function DashboardPage() {
         toast.error(getErrorMessage(error, 'Failed to update widget visibility'));
       }
     },
-    [isEditMode, updateDashboard, workingBoard],
+    [editor, isEditMode, updateDashboard, workingBoard],
   );
 
   const handleConfigureWidget = useCallback(
@@ -699,35 +753,160 @@ export default function DashboardPage() {
     [widgetDefinitions, workingBoard],
   );
 
+  // ── Widget configurator popover callbacks ─────────────────────────
+
+  const handleWidgetConfigChange = useCallback(
+    (instanceId: string, key: string, value: unknown) => {
+      if (!isEditMode) return;
+      editor.updateWidgetConfig(instanceId, { [key]: value });
+    },
+    [editor, isEditMode],
+  );
+
+  const handleWidgetSizeChange = useCallback(
+    (instanceId: string, w: number, h: number) => {
+      if (!isEditMode || !workingBoard) return;
+      const widget = workingBoard.widgets.find((entry) => entry.instanceId === instanceId);
+      if (!widget) return;
+      const existing = widget.placements ?? (widget.position ? { lg: widget.position } : null);
+      const lgPrev = existing?.lg ?? widget.position ?? { x: 0, y: 0, w, h };
+      editor.updateWidgetLayout(instanceId, {
+        ...(existing ?? {}),
+        lg: { ...lgPrev, w, h },
+      });
+    },
+    [editor, isEditMode, workingBoard],
+  );
+
+  const handleWidgetRefreshChange = useCallback(
+    (instanceId: string, seconds: number) => {
+      if (!isEditMode) return;
+      editor.updateWidgetConfig(instanceId, { refreshInterval: seconds });
+    },
+    [editor, isEditMode],
+  );
+
+  const handleWidgetDuplicate = useCallback(
+    (instanceId: string) => {
+      if (!isEditMode) return;
+      editor.duplicateWidget(instanceId);
+    },
+    [editor, isEditMode],
+  );
+
+  const handleWidgetOpenDataBinding = useCallback(
+    (instanceId: string) => {
+      handleConfigureWidget(instanceId);
+    },
+    [handleConfigureWidget],
+  );
+
+  // ── Freeform position change ──────────────────────────────────────
+
+  const handleFreeformPositionChange = useCallback(
+    (instanceId: string, position: FreeformPosition) => {
+      if (!isEditMode) return;
+      editor.updateWidgetLayout(instanceId, undefined, position);
+    },
+    [editor, isEditMode],
+  );
+
+  // ── Layout mode switch with conversion ───────────────────────────
+
+  const handleLayoutModeChange = useCallback(
+    (next: LayoutMode) => {
+      if (!editor.draftBoard) return;
+      // I4: guard against undefined layoutMode with explicit fallback
+      const current = editor.draftBoard.layoutMode ?? 'grid';
+      if (current === next) return;
+      // C3: use the real measured canvas width; fall back to 1200 if the
+      // ResizeObserver hasn't fired yet (e.g., during SSR or very first render).
+      const params = { cols: 12, rowHeight: 60, gap: 8, canvasWidth: measuredCanvasWidth };
+      let updates: Array<{
+        instanceId: string;
+        placements?: DashboardWidgetInstance['placements'];
+        freeformPosition?: FreeformPosition | null;
+      }> = [];
+
+      if (current !== 'freeform' && next === 'freeform') {
+        // Grid / columns → freeform: populate freeformPosition for every widget
+        updates = editor.draftBoard.widgets.map((w) => {
+          const grid = w.placements?.lg ?? w.position ?? { x: 0, y: 0, w: 4, h: 2 };
+          return {
+            instanceId: w.instanceId,
+            freeformPosition: gridToFreeform(grid, params),
+          };
+        });
+      } else if (current === 'freeform' && next !== 'freeform') {
+        // Freeform → grid / columns: write back placements from freeformPosition
+        updates = editor.draftBoard.widgets.map((w) => {
+          if (!w.freeformPosition) return { instanceId: w.instanceId };
+          const grid = freeformToGrid(w.freeformPosition, params);
+          return {
+            instanceId: w.instanceId,
+            placements: { ...(w.placements ?? {}), lg: grid },
+          };
+        });
+      }
+
+      // C2: use convertLayoutMode so the mode switch + position updates land in
+      // a single history entry. Two separate calls (updateAllWidgetLayouts +
+      // setLayoutMode) would create two undo steps, making undo incoherent.
+      editor.convertLayoutMode(next, updates);
+    },
+    [editor, measuredCanvasWidth],
+  );
+
+  const configuratorCallbacks = useMemo((): WidgetConfiguratorCallbacks => ({
+    widgetDefinitions,
+    onWidgetConfigChange: handleWidgetConfigChange,
+    onWidgetSizeChange: handleWidgetSizeChange,
+    onWidgetRefreshChange: handleWidgetRefreshChange,
+    onWidgetDuplicate: handleWidgetDuplicate,
+    onWidgetOpenDataBinding: handleWidgetOpenDataBinding,
+  }), [
+    widgetDefinitions,
+    handleWidgetConfigChange,
+    handleWidgetSizeChange,
+    handleWidgetRefreshChange,
+    handleWidgetDuplicate,
+    handleWidgetOpenDataBinding,
+  ]);
+
   const handleResetLayout = useCallback(() => {
     if (!workingBoard) {
       return;
     }
 
     const starter = buildStarterBoardRequest(workingBoard.name, workingBoard.isHome);
-    setDraftBoard({
+    // Re-seed the editor with the reset layout so the operation is undoable
+    // (commitSave intentionally clears history here to avoid a confusing undo
+    // that would restore the pre-reset messy layout mid-session).
+    editor.commitSave({
       ...workingBoard,
       layout: starter.layout ?? DEFAULT_BOARD_LAYOUT,
       widgets: (starter.widgets ?? []) as DashboardWidgetInstance[],
     });
-  }, [workingBoard]);
+  }, [editor, workingBoard]);
 
   const handleSaveBoard = useCallback(async () => {
-    if (!effectiveBoardId || !draftBoard) {
+    if (!effectiveBoardId || !editor.draftBoard) {
       return;
     }
 
     try {
-      await updateDashboard.mutateAsync({
-        layout: draftBoard.layout,
-        widgets: draftBoard.widgets,
+      const saved = await updateDashboard.mutateAsync({
+        layout: editor.draftBoard.layout,
+        widgets: editor.draftBoard.widgets,
       });
       toast.success('Dashboard saved');
-      exitEditing();
+      // Commit the server-returned board so baseBoard stays in sync and
+      // history is cleared — stays in edit mode with clean history.
+      editor.commitSave(saved);
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to save dashboard'));
     }
-  }, [draftBoard, effectiveBoardId, exitEditing, updateDashboard]);
+  }, [editor, effectiveBoardId, updateDashboard]);
 
   const handleSaveWidgetConfig = useCallback(async () => {
     if (!workingBoard || !configWidget || !configWidgetDefinition) {
@@ -742,7 +921,7 @@ export default function DashboardPage() {
     );
 
     if (isEditMode) {
-      setDraftBoard({ ...workingBoard, widgets: updatedWidgets });
+      editor.updateWidgetConfig(configWidget.instanceId, nextConfig);
       setConfigWidgetId(null);
       return;
     }
@@ -757,6 +936,7 @@ export default function DashboardPage() {
   }, [
     configWidget,
     configWidgetDefinition,
+    editor,
     isEditMode,
     updateDashboard,
     widgetConfigDraft,
@@ -778,15 +958,26 @@ export default function DashboardPage() {
     }
   }, [boards.length, createDashboard, openBoard]);
 
-  const handleCloneBoard = useCallback(async () => {
-    try {
-      const board = await cloneDashboard.mutateAsync();
-      toast.success('Dashboard board cloned');
-      openBoard(board.boardId);
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to clone dashboard board'));
-    }
-  }, [cloneDashboard, openBoard]);
+  /** Opens the clone dialog (or directly clones if board has no variables). */
+  const handleCloneBoard = useCallback(() => {
+    if (!selectedBoard) return;
+    setShowCloneDialog(true);
+  }, [selectedBoard]);
+
+  /** Called by CloneWithVariablesDialog on confirm. */
+  const handleCloneSubmit = useCallback(
+    async (payload: CloneDashboardRequest) => {
+      try {
+        const board = await cloneDashboard.mutateAsync(payload);
+        toast.success('Dashboard board cloned');
+        setShowCloneDialog(false);
+        openBoard(board.boardId);
+      } catch (error) {
+        toast.error(getErrorMessage(error, 'Failed to clone dashboard board'));
+      }
+    },
+    [cloneDashboard, openBoard],
+  );
 
   const handleDeleteBoard = useCallback(async () => {
     if (!effectiveBoardId) {
@@ -885,6 +1076,60 @@ export default function DashboardPage() {
   const loadError = dashboardsQuery.error || (effectiveBoardId ? selectedBoardQuery.error : null);
   const hasNoBoards = !dashboardsQuery.isLoading && boards.length === 0;
 
+  // ── Keyboard shortcuts (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y / Ctrl+S / Escape) ──
+  useEffect(() => {
+    if (!isEditMode) return;
+
+    const handler = (e: KeyboardEvent) => {
+      // Don't intercept shortcuts when user is typing in a form field
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      )
+        return;
+
+      const ctrl = e.ctrlKey || e.metaKey;
+
+      if (ctrl && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        editor.undo();
+      } else if (
+        (ctrl && e.key.toLowerCase() === 'y') ||
+        (ctrl && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        e.preventDefault();
+        editor.redo();
+      } else if (ctrl && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void handleSaveBoard();
+      } else if (e.key === 'Escape' && editor.isDirty) {
+        if (window.confirm('Discard unsaved changes?')) {
+          editor.discard();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [editor, handleSaveBoard, isEditMode]);
+
+  // ── beforeunload guard when there are unsaved changes ─────────────
+  useEffect(() => {
+    if (!editor.isDirty) return;
+
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [editor.isDirty]);
+
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-6">
       <motion.div variants={itemVariants}>
@@ -953,14 +1198,6 @@ export default function DashboardPage() {
                       disabled={isMutating}
                       existingTypes={workingBoard?.widgets.map((widget) => widget.widgetType) ?? []}
                     />
-                    <Button variant="outline" size="sm" onClick={exitEditing} disabled={isMutating}>
-                      <X className="mr-2 h-4 w-4" />
-                      Discard
-                    </Button>
-                    <Button size="sm" onClick={() => void handleSaveBoard()} disabled={isMutating}>
-                      <Save className="mr-2 h-4 w-4" />
-                      Save Layout
-                    </Button>
                   </>
                 ) : (
                   <Button size="sm" onClick={beginEditing} disabled={!selectedBoard || isMutating}>
@@ -982,7 +1219,7 @@ export default function DashboardPage() {
                   <DropdownMenuContent align="end" className="w-48">
                     <DropdownMenuLabel>Board actions</DropdownMenuLabel>
                     <DropdownMenuItem
-                      onClick={() => void handleCloneBoard()}
+                      onClick={handleCloneBoard}
                       disabled={isMutating}
                     >
                       <Copy className="mr-2 h-4 w-4" />
@@ -1152,6 +1389,16 @@ export default function DashboardPage() {
         </motion.div>
       ) : (
         <>
+          {isEditMode && (
+            <motion.div variants={itemVariants}>
+              <EditModeToolbar
+                editor={editor}
+                onSave={() => void handleSaveBoard()}
+                isSaving={updateDashboard.isPending}
+                onLayoutModeChange={handleLayoutModeChange}
+              />
+            </motion.div>
+          )}
           {visibleWidgets.length === 0 ? (
             <motion.div variants={itemVariants}>
               <EmptyState
@@ -1161,14 +1408,17 @@ export default function DashboardPage() {
               />
             </motion.div>
           ) : (
-            <motion.div variants={itemVariants}>
+            <motion.div variants={itemVariants} ref={gridContainerRef}>
               <WidgetGrid
                 widgets={visibleWidgets}
                 layout={normalizedWorkingLayout}
+                layoutMode={workingBoard?.layoutMode}
                 isEditMode={isEditMode}
                 onLayoutChange={handleLayoutChange}
                 onRemoveWidget={handleRemoveWidget}
+                onFreeformPositionChange={handleFreeformPositionChange}
                 rowHeight={normalizedWorkingLayout.mode === 'grid' ? normalizedWorkingLayout.grid.rowHeight : 80}
+                configurator={isEditMode ? configuratorCallbacks : undefined}
               >
                 {visibleWidgets.map((widget) => (
                   <Widget
@@ -1199,6 +1449,16 @@ export default function DashboardPage() {
       )}
 
       <BoardTemplates open={showTemplates} onOpenChange={setShowTemplates} onTemplateUsed={handleTemplateUsed} />
+
+      {selectedBoard && showCloneDialog ? (
+        <CloneWithVariablesDialog
+          sourceBoard={selectedBoard}
+          open={showCloneDialog}
+          onOpenChange={setShowCloneDialog}
+          onSubmit={(payload) => void handleCloneSubmit(payload)}
+          isSubmitting={cloneDashboard.isPending}
+        />
+      ) : null}
 
       {effectiveBoardId && selectedBoard ? (
         <ShareDialog
@@ -1256,7 +1516,7 @@ export default function DashboardPage() {
           {configWidget && configWidgetDefinition ? (
             <div className="space-y-4">
               {configWidgetDefinition.configSchema.map((field) => {
-                if (field.fieldType === 'boolean') {
+                if (field.type === 'boolean') {
                   return (
                     <div key={field.key} className="flex items-center justify-between gap-4 rounded-lg border border-border/60 p-3">
                       <div className="space-y-1">
@@ -1274,7 +1534,7 @@ export default function DashboardPage() {
                   );
                 }
 
-                if (field.fieldType === 'select') {
+                if (field.type === 'enum') {
                   const currentValue = widgetConfigDraft[field.key];
                   const selectValue =
                     typeof currentValue === 'string' && currentValue.length > 0
@@ -1295,11 +1555,11 @@ export default function DashboardPage() {
                         }
                       >
                         <SelectTrigger id={`widget-config-${field.key}`} className="bg-card border-border">
-                          <SelectValue placeholder={field.placeholder ?? 'Select an option'} />
+                          <SelectValue placeholder="Select an option" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__default__">Default</SelectItem>
-                          {field.options.map((option) => (
+                          {(field.options ?? []).map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               {option.label}
                             </SelectItem>
@@ -1311,7 +1571,7 @@ export default function DashboardPage() {
                 }
 
                 // Entity selector for node/service/network/group fields
-                if (field.fieldType === 'entity' && field.entityType) {
+                if (field.type === 'entity-ref' && field.entityType) {
                   const entityValue = typeof widgetConfigDraft[field.key] === 'string'
                     ? (widgetConfigDraft[field.key] as string)
                     : '';
@@ -1326,15 +1586,38 @@ export default function DashboardPage() {
                           setWidgetConfigDraft((current) => ({ ...current, [field.key]: val }))
                         }
                         clearable
-                        placeholder={field.placeholder ?? `Select a ${field.entityType}...`}
+                        placeholder={`Select a ${field.entityType}...`}
                       />
+                    </div>
+                  );
+                }
+
+                if (field.type === 'color') {
+                  return (
+                    <div key={field.key} className="space-y-2">
+                      <Label htmlFor={`widget-config-${field.key}`}>{field.label}</Label>
+                      {field.description ? <p className="text-xs text-muted-foreground">{field.description}</p> : null}
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id={`widget-config-${field.key}`}
+                          type="color"
+                          value={String(widgetConfigDraft[field.key] ?? '#000000')}
+                          onChange={(event) =>
+                            setWidgetConfigDraft((current) => ({ ...current, [field.key]: event.target.value }))
+                          }
+                          className="h-9 w-14 cursor-pointer p-0.5 bg-card border-border"
+                        />
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {String(widgetConfigDraft[field.key] ?? '#000000')}
+                        </span>
+                      </div>
                     </div>
                   );
                 }
 
                 const draftValue = widgetConfigDraft[field.key];
                 const inputValue =
-                  field.fieldType === 'number'
+                  field.type === 'number'
                     ? typeof draftValue === 'number'
                       ? String(draftValue)
                       : typeof draftValue === 'string'
@@ -1350,16 +1633,16 @@ export default function DashboardPage() {
                     {field.description ? <p className="text-xs text-muted-foreground">{field.description}</p> : null}
                     <Input
                       id={`widget-config-${field.key}`}
-                      type={field.fieldType === 'number' ? 'number' : 'text'}
+                      type={field.type === 'number' ? 'number' : 'text'}
                       value={inputValue}
-                      placeholder={field.placeholder ?? undefined}
-                      min={field.minValue ?? undefined}
-                      max={field.maxValue ?? undefined}
+                      min={field.min ?? undefined}
+                      max={field.max ?? undefined}
+                      step={field.step ?? undefined}
                       onChange={(event) =>
                         setWidgetConfigDraft((current) => ({
                           ...current,
                           [field.key]:
-                            field.fieldType === 'number'
+                            field.type === 'number'
                               ? event.target.value === ''
                                 ? ''
                                 : Number(event.target.value)

@@ -10,6 +10,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Kiosk pages authenticate via a ?token= query parameter (no session cookie).
+  // Any /kiosk/* path is publicly routable; the page itself rejects invalid
+  // tokens by rendering the Deauthorized fallback.
+  if (pathname.startsWith('/kiosk/')) {
+    return NextResponse.next();
+  }
+
   // Allow static assets and Next.js internals
   if (
     pathname.startsWith('/_next') ||

@@ -213,6 +213,26 @@ INDEXES: dict[str, list[IndexModel]] = {
             [("name", TEXT), ("description", TEXT), ("tags", TEXT)],
             default_language="english",
         ),
+        # Partial unique index: enforces at most one active user override per
+        # (user, entity_type) pair for entity-panel scope boards.  This is the
+        # DB-level safeguard that backs the application-level race handler in
+        # PanelService.customize — if two concurrent inserts both pass the
+        # find_one guard, MongoDB rejects the second with DuplicateKeyError.
+        IndexModel(
+            [
+                ("scope", ASCENDING),
+                ("entityTypeFilter", ASCENDING),
+                ("ownerId", ASCENDING),
+                ("ownerType", ASCENDING),
+            ],
+            unique=True,
+            partialFilterExpression={
+                "scope": "entity-panel",
+                "ownerType": "user",
+                "archivedAt": None,
+            },
+            name="one_user_override_per_entity_type",
+        ),
     ],
     "dashboard_templates": [
         IndexModel([("templateId", ASCENDING)], unique=True),
@@ -235,6 +255,15 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("clientId", ASCENDING)], unique=True),
         IndexModel([("type", ASCENDING)]),
         IndexModel([("registeredAt", DESCENDING)]),
+    ],
+    "kiosk_tokens": [  # keep in sync with kiosk_service.COLLECTION
+        # TTL index: MongoDB automatically deletes documents when expiresAt has passed.
+        # Tokens with expiresAt=null are never deleted by MongoDB (sparse TTL behaviour).
+        IndexModel([("expiresAt", ASCENDING)], expireAfterSeconds=0, sparse=True),
+        # Compound unique index for token lookup and revocation.
+        IndexModel([("boardId", ASCENDING), ("tokenId", ASCENDING)], unique=True),
+        # Index for listing all tokens for a board.
+        IndexModel([("boardId", ASCENDING)]),
     ],
     "discovered_nodes": [
         IndexModel([("discoveryId", ASCENDING)], unique=True),

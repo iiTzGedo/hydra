@@ -4,8 +4,28 @@
  * Multi-series area chart using recharts with gradient fills.
  * Supports stacked mode via `config.stacked`. Each series gets
  * a unique color from the preset palette and a matching gradient fill.
+ *
+ * Data binding:
+ *   source: hydra::timeline | static::
+ *   endpoint: /timemachine/timeline  (for time-series views)
+ *
+ * Accepted data shapes:
+ *   1. Native: { series: [{ name, data: [{ x, y }] }] }
+ *   2. TimelineResponse from /timemachine/timeline — aggregates event count
+ *      per hour as a single filled "Events" area
+ *   3. Raw array with { x, y } or { t, v } tuples → single series
+ *   4. Raw array with { timestamp } → aggregate by hour
+ *
+ * Config options:
+ *   stacking: "none" | "normal" | "percent"
+ *   stacked: boolean (alias for stacking=normal)
+ *   showPoints: boolean
+ *   fillOpacity: number (0-1)
+ *   showGrid: boolean
+ *   showLegend: boolean
  */
 
+import { useMemo } from 'react';
 import { AreaChart as AreaChartIcon } from 'lucide-react';
 import {
   AreaChart,
@@ -37,8 +57,96 @@ interface AreaChartData {
 
 interface AreaChartConfig extends Record<string, unknown> {
   stacked?: boolean;
+  stacking?: string;
   showGrid?: boolean;
   showLegend?: boolean;
+  showPoints?: boolean;
+  fillOpacity?: number;
+}
+
+/**
+ * Aggregate timeline events into hourly buckets for an area chart.
+ */
+function aggregateTimelineToAreaSeries(
+  events: Record<string, unknown>[],
+): AreaChartData {
+  const buckets = new Map<string, number>();
+  for (const e of events) {
+    const ts = new Date(String(e.timestamp ?? ''));
+    if (Number.isNaN(ts.getTime())) continue;
+    const label = `${String(ts.getHours()).padStart(2, '0')}:00`;
+    buckets.set(label, (buckets.get(label) ?? 0) + 1);
+  }
+  const sorted = Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b));
+  return {
+    series: [
+      {
+        name: 'Events',
+        data: sorted.map(([label, count]) => ({ x: label, y: count })),
+      },
+    ],
+  };
+}
+
+/**
+ * Normalize raw data to AreaChartData.
+ *
+ * Handles:
+ *   - Native AreaChartData
+ *   - TimelineResponse
+ *   - { x, y } or { t, v } tuples
+ *   - { timestamp } arrays
+ */
+function normalizeAreaChartData(raw: unknown): AreaChartData | null {
+  if (raw == null) return null;
+
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.series)) {
+      return { series: obj.series as Series[] };
+    }
+    if (Array.isArray(obj.events)) {
+      return aggregateTimelineToAreaSeries(obj.events as Record<string, unknown>[]);
+    }
+  }
+
+  if (Array.isArray(raw) && raw.length > 0) {
+    const first = raw[0] as Record<string, unknown>;
+
+    if ('x' in first && 'y' in first) {
+      return {
+        series: [
+          {
+            name: 'Value',
+            data: (raw as Record<string, unknown>[]).map((d) => ({
+              x: d.x as string | number,
+              y: Number(d.y),
+            })),
+          },
+        ],
+      };
+    }
+
+    if ('t' in first && 'v' in first) {
+      return {
+        series: [
+          {
+            name: 'Value',
+            data: (raw as Record<string, unknown>[]).map((d) => ({
+              x: String(d.t),
+              y: Number(d.v),
+            })),
+          },
+        ],
+      };
+    }
+
+    if ('timestamp' in first) {
+      return aggregateTimelineToAreaSeries(raw as Record<string, unknown>[]);
+    }
+  }
+
+  return null;
 }
 
 const SERIES_COLORS = [
@@ -70,14 +178,15 @@ function mergeSeriesData(series: Series[]): Record<string, unknown>[] {
 }
 
 export function AreaChartWidget({
-  data,
+  data: rawData,
   config,
   isLoading,
   error,
   dimensions,
-}: WidgetComponentProps<AreaChartData, AreaChartConfig>) {
+}: WidgetComponentProps<unknown, AreaChartConfig>) {
+  const data = useMemo(() => normalizeAreaChartData(rawData), [rawData]);
   const typedConfig = config as AreaChartConfig;
-  const stacked = typedConfig.stacked === true;
+  const stacked = typedConfig.stacked === true || typedConfig.stacking === 'normal';
   const showGrid = typedConfig.showGrid !== false;
   const showLegend = typedConfig.showLegend !== false;
 

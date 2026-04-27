@@ -4,8 +4,24 @@
  * Prioritized alert list with severity-based icons and colors.
  * Acknowledged alerts are visually dimmed. An empty state shows
  * a green check icon indicating no active alerts.
+ *
+ * Data binding:
+ *   source: hydra::notifications
+ *   endpoint: /notifications
+ *   params: { status: "active", tierMin: 3 }  (warning tier and above)
+ *
+ * Accepts two data shapes:
+ *   1. Envelope: { alerts: Alert[] }
+ *   2. Raw array: Notification[] from /notifications API (auto-normalized)
+ *      Maps: notificationId → id, tier → severity (5=critical,4=warning,1-3=info),
+ *            createdAt → timestamp, acknowledgedAt → acknowledged
+ *
+ * Config options:
+ *   severityFilter: "all" | "critical" | "warning" | "info"
+ *   limit: number (max items to display)
  */
 
+import { useMemo } from 'react';
 import { AlertTriangle, Info, CheckCircle, Bell } from 'lucide-react';
 import type { WidgetComponentProps } from '@/types/dashboard';
 import { WidgetLoadingState } from '../shared/widget-loading-state';
@@ -21,6 +37,55 @@ interface Alert {
 
 interface AlertListData {
   alerts: Alert[];
+}
+
+interface AlertListConfig extends Record<string, unknown> {
+  severityFilter?: string;
+  limit?: number;
+}
+
+/**
+ * Map a notification tier number to a severity string.
+ * Tier 5 = critical, 4 = warning, 3 = warning, 1-2 = info
+ */
+function tierToSeverity(tier: unknown): string {
+  const t = Number(tier);
+  if (t >= 5) return 'critical';
+  if (t >= 3) return 'warning';
+  return 'info';
+}
+
+/**
+ * Normalize incoming data to AlertListData envelope.
+ * Handles both explicit envelope and raw Notification[] from the API.
+ */
+function normalizeAlertListData(raw: unknown): AlertListData | null {
+  if (raw == null) return null;
+
+  // Already envelope-shaped
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.alerts)) {
+      return { alerts: obj.alerts as Alert[] };
+    }
+  }
+
+  // Raw array of Notification from /notifications API
+  if (Array.isArray(raw)) {
+    return {
+      alerts: (raw as Record<string, unknown>[]).map((n) => ({
+        id: String(n.notificationId ?? n.id ?? ''),
+        title: String(n.title ?? n.message ?? ''),
+        severity: typeof n.severity === 'string'
+          ? n.severity
+          : tierToSeverity(n.tier),
+        timestamp: String(n.createdAt ?? n.timestamp ?? new Date().toISOString()),
+        acknowledged: Boolean(n.acknowledgedAt),
+      })),
+    };
+  }
+
+  return null;
 }
 
 /** Severity ordering for sort priority (lower = more severe). */
@@ -78,11 +143,30 @@ function formatTimestamp(isoString: string): string {
 }
 
 export function AlertListWidget({
-  data,
-  config: _config,
+  data: rawData,
+  config,
   isLoading,
   error,
-}: WidgetComponentProps<AlertListData>) {
+}: WidgetComponentProps<unknown, AlertListConfig>) {
+  const data = useMemo(() => normalizeAlertListData(rawData), [rawData]);
+  const typedConfig = config as AlertListConfig;
+
+  // Apply severity filter and limit from config
+  const visibleAlerts = useMemo(() => {
+    if (!data?.alerts) return [];
+    let alerts = data.alerts;
+
+    const severityFilter = typedConfig.severityFilter ?? 'all';
+    if (severityFilter !== 'all') {
+      const SEVERITY_HIERARCHY: Record<string, number> = { critical: 3, warning: 2, info: 1 };
+      const minLevel = SEVERITY_HIERARCHY[severityFilter] ?? 1;
+      alerts = alerts.filter((a) => (SEVERITY_HIERARCHY[a.severity.toLowerCase()] ?? 1) >= minLevel);
+    }
+
+    const limit = (typedConfig.limit as number | undefined) ?? 50;
+    return alerts.slice(0, limit);
+  }, [data, typedConfig]);
+
   if (isLoading) return <WidgetLoadingState />;
   if (error) return <WidgetErrorState error={error} />;
 
@@ -95,7 +179,7 @@ export function AlertListWidget({
     );
   }
 
-  if (!data.alerts || data.alerts.length === 0) {
+  if (visibleAlerts.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2">
         <CheckCircle className="h-6 w-6 text-emerald-500" />
@@ -105,7 +189,7 @@ export function AlertListWidget({
   }
 
   // Sort by severity priority (critical first), then by timestamp (newest first)
-  const sorted = [...data.alerts].sort((a, b) => {
+  const sorted = [...visibleAlerts].sort((a, b) => {
     const aSev = SEVERITY_ORDER[a.severity.toLowerCase()] ?? 3;
     const bSev = SEVERITY_ORDER[b.severity.toLowerCase()] ?? 3;
     if (aSev !== bSev) return aSev - bSev;

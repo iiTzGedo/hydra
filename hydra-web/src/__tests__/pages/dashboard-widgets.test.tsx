@@ -207,7 +207,7 @@ const fullWidgetRegistry = {
       minSize: { w: 6, h: 2 },
       maxSize: { w: 12, h: 4 },
       configSchema: [
-        { key: 'title', label: 'Title', fieldType: 'text', description: 'Title override', options: [] },
+        { key: 'title', label: 'Title', type: 'string', description: 'Title override' },
       ],
       capabilities: { configurable: true, supportsVisibilityToggle: true, repeatable: false },
     },

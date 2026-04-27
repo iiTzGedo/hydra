@@ -23,6 +23,7 @@ export function CommandTriggerWidget({
   isLoading,
   isEditing,
   error,
+  readonly,
   onExecuteCommand,
 }: WidgetComponentProps<unknown, CommandTriggerConfig>) {
   const paramDefaults = config.params ?? {};
@@ -34,7 +35,7 @@ export function CommandTriggerWidget({
 
   const label = config.label ?? 'Command Trigger';
   const paramKeys = Object.keys(paramDefaults);
-  const canExecute = !!config.commandId && !!config.nodeId && !!onExecuteCommand && !isEditing;
+  const canExecute = !!config.commandId && !!config.nodeId && !!onExecuteCommand && !isEditing && !readonly;
 
   async function handleExecute() {
     if (!canExecute) return;
@@ -85,6 +86,7 @@ export function CommandTriggerWidget({
           type="button"
           disabled={!canExecute || executing}
           onClick={() => void handleExecute()}
+          title={readonly ? 'Read-only in kiosk mode' : undefined}
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {executing ? (

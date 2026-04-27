@@ -1,31 +1,36 @@
 /**
- * EntityDashboardPanel — renders a compact mini-dashboard for an entity detail
- * page (node, service, or network). Shows widgets from a tagged dashboard board
- * matching the entity, or falls back to sensible default widgets.
+ * EntityDashboardPanel — renders a collapsible mini-dashboard panel on entity
+ * detail pages (node, service, network).
+ *
+ * Fetches the entity panel board via the Phase 4 API
+ * (GET /dashboards/panel/:entityType) and resolves {{entity.id}} /
+ * {{entity.type}} template variables before rendering each widget.
+ *
+ * "Customize panel…" creates a user override board and navigates to it in
+ * edit mode.
  */
 
-import { useMemo, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { LayoutDashboard } from 'lucide-react';
+import { ChevronDown, ChevronRight, Settings } from 'lucide-react';
 import { toast } from 'sonner';
-import { useDashboard, useDashboards } from '@/api/dashboards';
-import { useCreateCommand, type CreateCommandRequest } from '@/api/commands';
-import { getErrorMessage } from '@/lib/api-client';
-import { getWidgetComponent } from '@/components/dashboard/widgets';
+import { Button } from '@/components/ui/button';
+import { useEmbeddedPanel } from '@/hooks/use-embedded-panel';
+import { useCustomizeEntityPanel } from '@/api/dashboards';
+import { useAuthStore } from '@/stores/auth-store';
 import { useWidgetData } from '@/hooks/use-widget-data';
-import type { DashboardDataBinding, DashboardWidgetInstance } from '@/types/dashboard';
+import { getWidgetComponent } from '@/components/dashboard/widgets';
+import {
+  Widget,
+  WidgetGrid,
+  widgetTypeLabel,
+} from '@/components/dashboard/widget-grid';
+import { getErrorMessage } from '@/lib/api-client';
+import type { EntityPanelType, DashboardWidgetInstance, DashboardDataBinding } from '@/types/dashboard';
 
-interface EntityDashboardPanelProps {
-  entityType: 'node' | 'service' | 'network';
-  entityId: string;
-  nodeId?: string;
-}
+// ── Inline widget content ───────────────────────────────────────────
 
-function InlineWidget({
-  widget,
-  onNavigate,
-  onExecuteCommand,
-}: {
+interface WidgetContentProps {
   widget: DashboardWidgetInstance;
   onNavigate: (path: string) => void;
   onExecuteCommand: (
@@ -33,16 +38,18 @@ function InlineWidget({
     target: Record<string, unknown>,
     params: Record<string, unknown>,
   ) => Promise<void>;
-}) {
-  const { data, isLoading, error } = useWidgetData(widget.dataBinding as DashboardDataBinding | null | undefined);
+}
+
+function EmbeddedWidgetContent({ widget, onNavigate, onExecuteCommand }: WidgetContentProps) {
+  const { data, isLoading, error } = useWidgetData(
+    widget.dataBinding as DashboardDataBinding | null | undefined,
+  );
   const Component = getWidgetComponent(widget.widgetType);
 
-  if (!Component) return null;
-
-  return (
-    <div className="rounded-xl border border-border/60 bg-card p-4">
+  if (Component) {
+    return (
       <Component
-        config={widget.config}
+        config={{ ...widget.config, __widgetType: widget.widgetType }}
         data={data}
         isEditing={false}
         isLoading={isLoading}
@@ -51,87 +58,142 @@ function InlineWidget({
         onNavigate={onNavigate}
         onExecuteCommand={onExecuteCommand}
       />
+    );
+  }
+
+  return (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      Unknown widget: {widget.widgetType}
     </div>
   );
 }
 
-export function EntityDashboardPanel({ entityType, entityId, nodeId }: EntityDashboardPanelProps) {
+// ── Main component ──────────────────────────────────────────────────
+
+interface EntityDashboardPanelProps {
+  entityType: EntityPanelType;
+  entityId: string;
+  /** Optional node ID for command targeting when rendering a service panel. */
+  nodeId?: string;
+}
+
+export function EntityDashboardPanel({ entityType, entityId, nodeId: _nodeId }: EntityDashboardPanelProps) {
   const router = useRouter();
-  const createCommand = useCreateCommand();
+  const [open, setOpen] = useState(true);
 
-  // Find boards tagged for this entity type and ID; fetch the full board to get widgets
-  const dashboardsQuery = useDashboards({ limit: 1, tags: [entityType], search: entityId });
-  const taggedBoardId = dashboardsQuery.data?.items?.[0]?.boardId;
-  const fullBoardQuery = useDashboard(taggedBoardId ?? '');
-  const fullBoard = taggedBoardId ? fullBoardQuery.data : null;
+  const { data: panel, isLoading, isError } = useEmbeddedPanel(entityType, entityId);
+  const customize = useCustomizeEntityPanel(entityType);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  const canCustomize = hasPermission('dashboards:write');
 
-  const widgets = useMemo(() => {
-    if (fullBoard?.widgets && fullBoard.widgets.length > 0) {
-      return (fullBoard.widgets as DashboardWidgetInstance[]).slice(0, 4);
-    }
-    // No tagged board found — don't render default widgets since data
-    // bindings require matching board configuration to resolve correctly.
-    return [];
-  }, [fullBoard]);
-
-  const handleNavigate = useCallback(
-    (path: string) => router.push(path),
-    [router],
-  );
+  const handleNavigate = useCallback((path: string) => router.push(path), [router]);
 
   const handleExecuteCommand = useCallback(
     async (
-      registryId: string,
-      target: Record<string, unknown>,
-      params: Record<string, unknown>,
+      _commandId: string,
+      _target: Record<string, unknown>,
+      _params: Record<string, unknown>,
     ) => {
-      const targetNodeId = (target.nodeId as string) ?? nodeId;
-      if (!registryId || !targetNodeId) {
-        toast.error('Missing command or target node');
-        return;
-      }
-      try {
-        const req: CreateCommandRequest = {
-          registryId,
-          target: {
-            nodeId: targetNodeId,
-            serviceId: (target.serviceId as string) ?? undefined,
-          },
-          parameters: Object.keys(params).length > 0 ? params : undefined,
-        };
-        const result = await createCommand.mutateAsync(req);
-        if (result.requiresConfirmation) {
-          toast.warning('Command requires confirmation', {
-            description: result.confirmationMessage ?? `Confirm command ${registryId}`,
-          });
-        } else {
-          toast.success('Command submitted', { description: `Status: ${result.status}` });
-        }
-      } catch (err) {
-        toast.error(getErrorMessage(err, 'Command execution failed'));
-      }
+      // Command execution is handled by the full dashboard page; the embedded
+      // panel is read-only so we simply acknowledge the call.
     },
-    [createCommand, nodeId],
+    [],
   );
 
+  const handleCustomize = useCallback(async () => {
+    try {
+      const override = await customize.mutateAsync();
+      router.push(`/dashboards/${override.boardId}?edit=1`);
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Failed to create panel customization'));
+    }
+  }, [customize, router]);
+
+  if (isLoading) {
+    return (
+      <div className="p-4 text-sm text-muted-foreground">Loading panel…</div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <section className="border border-destructive/30 rounded-md bg-destructive/5 p-4">
+        <p className="text-sm text-destructive">Panel unavailable. The server could not load the panel for this entity.</p>
+      </section>
+    );
+  }
+
+  if (!panel) {
+    return null;
+  }
+
+  const widgets = panel.widgets ?? [];
   if (widgets.length === 0) return null;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold text-foreground">Dashboard Widgets</h3>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        {widgets.map((widget) => (
-          <InlineWidget
-            key={widget.instanceId}
-            widget={widget}
-            onNavigate={handleNavigate}
-            onExecuteCommand={handleExecuteCommand}
-          />
-        ))}
-      </div>
-    </div>
+    <section className="border rounded-md bg-card">
+      <header className="flex items-center gap-2 px-4 py-2 border-b">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="flex items-center gap-1 text-sm font-medium"
+          aria-expanded={open}
+          aria-controls={`entity-panel-${entityType}-content`}
+        >
+          {open ? (
+            <ChevronDown className="w-4 h-4" />
+          ) : (
+            <ChevronRight className="w-4 h-4" />
+          )}
+          {panel.name}
+        </button>
+        <div className="flex-1" />
+        {canCustomize && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleCustomize}
+            disabled={customize.isPending}
+            data-testid="customize-panel-button"
+          >
+            <Settings className="w-4 h-4 mr-1" />
+            Customize panel…
+          </Button>
+        )}
+      </header>
+
+      {open && (
+        <div className="p-2" id={`entity-panel-${entityType}-content`}>
+          <WidgetGrid
+            widgets={widgets}
+            layout={panel.layout}
+            layoutMode={panel.layoutMode}
+            isEditMode={false}
+            rowHeight={
+              panel.layout.mode === 'grid' ? panel.layout.grid.rowHeight : 80
+            }
+          >
+            {widgets.map((widget: DashboardWidgetInstance) => (
+              <Widget
+                key={widget.instanceId}
+                id={widget.instanceId}
+                title={
+                  typeof widget.config?.title === 'string'
+                    ? widget.config.title
+                    : widgetTypeLabel(widget.widgetType)
+                }
+                isEditMode={false}
+              >
+                <EmbeddedWidgetContent
+                  widget={widget}
+                  onNavigate={handleNavigate}
+                  onExecuteCommand={handleExecuteCommand}
+                />
+              </Widget>
+            ))}
+          </WidgetGrid>
+        </div>
+      )}
+    </section>
   );
 }

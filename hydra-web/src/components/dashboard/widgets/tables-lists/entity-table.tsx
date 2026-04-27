@@ -4,6 +4,14 @@
  * Renders a sortable HTML table with alternating row backgrounds.
  * Columns default to the keys of the first data item when not specified
  * in the widget config. Client-side sorting by clicking column headers.
+ *
+ * Data binding:
+ *   source: hydra::nodes | hydra::services | hydra::networks | hydra::groups
+ *   endpoint: /nodes | /services | /networks | /groups
+ *
+ * Accepts two data shapes:
+ *   1. Envelope: { items: Record[], total?: number } — explicit shape
+ *   2. Raw array: Record[] — unwrapped API response (auto-normalized)
  */
 
 import { useState, useMemo } from 'react';
@@ -21,6 +29,41 @@ interface EntityTableConfig extends Record<string, unknown> {
   entityType?: string;
   pageSize?: number;
   columns?: string[];
+}
+
+/**
+ * Normalize incoming data to EntityTableData envelope.
+ *
+ * Handles:
+ * - Already-shaped envelope: { items: [...], total?: N }
+ * - Raw array from API: [...] → wrapped into { items: [...], total: N }
+ * - null / undefined → null
+ */
+function normalizeEntityTableData(
+  raw: unknown,
+): EntityTableData | null {
+  if (raw == null) return null;
+
+  // Already envelope-shaped
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.items)) {
+      return {
+        items: obj.items as Record<string, unknown>[],
+        total: typeof obj.total === 'number' ? obj.total : (obj.items as unknown[]).length,
+      };
+    }
+  }
+
+  // Raw array from API
+  if (Array.isArray(raw)) {
+    return {
+      items: raw as Record<string, unknown>[],
+      total: raw.length,
+    };
+  }
+
+  return null;
 }
 
 type SortDirection = 'asc' | 'desc';
@@ -45,12 +88,13 @@ function formatColumnHeader(key: string): string {
 }
 
 export function EntityTableWidget({
-  data,
+  data: rawData,
   config,
   isLoading,
   error,
-}: WidgetComponentProps<EntityTableData, EntityTableConfig>) {
+}: WidgetComponentProps<unknown, EntityTableConfig>) {
   const [sort, setSort] = useState<SortState | null>(null);
+  const data = useMemo(() => normalizeEntityTableData(rawData), [rawData]);
 
   const typedConfig = config as EntityTableConfig;
   const pageSize = typedConfig.pageSize ?? 20;

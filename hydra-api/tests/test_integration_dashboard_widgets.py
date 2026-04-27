@@ -388,7 +388,8 @@ async def test_widget_config_schema_validation(
     # Capacity-overview: no data binding
     cap = next(w for w in data["widgets"] if w["widgetType"] == "hydra::capacity-overview")
     assert cap["config"]["title"] == "Capacity"
-    assert cap["dataBinding"] is None
+    # dataBinding is None — excluded by response_model_exclude_none
+    assert cap.get("dataBinding") is None
 
 
 # ── Test: Template Instantiation ─────────────────────────────────────

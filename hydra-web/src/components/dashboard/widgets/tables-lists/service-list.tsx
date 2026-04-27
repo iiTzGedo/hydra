@@ -4,8 +4,21 @@
  * Compact service list with status indicators, runtime badges, and
  * optional port display. Each row shows a colored status dot reflecting
  * the service's current state.
+ *
+ * Data binding:
+ *   source: hydra::services
+ *   endpoint: /services  (optionally with nodeId param)
+ *
+ * Accepts two data shapes:
+ *   1. Envelope: { services: ServiceEntry[] }
+ *   2. Raw array: ServiceSummary[] from /services API (auto-normalized)
+ *
+ * Config options:
+ *   filterByStatus: "all" | "running" | "stopped" | "failed" | "unknown"
+ *   groupByNode: boolean (visual grouping, applied client-side)
  */
 
+import { useMemo } from 'react';
 import { Server } from 'lucide-react';
 import type { WidgetComponentProps } from '@/types/dashboard';
 import { WidgetLoadingState } from '../shared/widget-loading-state';
@@ -17,10 +30,58 @@ interface ServiceEntry {
   runtime: string;
   status: string;
   port?: number;
+  nodeId?: string;
 }
 
 interface ServiceListData {
   services: ServiceEntry[];
+}
+
+interface ServiceListConfig extends Record<string, unknown> {
+  filterByStatus?: string;
+  groupByNode?: boolean;
+}
+
+/**
+ * Normalize incoming data to ServiceListData envelope.
+ * Handles both explicit envelope and raw ServiceSummary[] from the API.
+ */
+function normalizeServiceListData(raw: unknown): ServiceListData | null {
+  if (raw == null) return null;
+
+  // Already envelope-shaped
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.services)) {
+      return { services: obj.services as ServiceEntry[] };
+    }
+  }
+
+  // Raw array of ServiceSummary from API
+  if (Array.isArray(raw)) {
+    return {
+      services: (raw as Record<string, unknown>[]).map((svc) => ({
+        serviceId: String(svc.serviceId ?? svc.id ?? ''),
+        name: String(svc.name ?? svc.displayName ?? ''),
+        runtime: String(svc.runtime ?? 'unknown'),
+        status: String(svc.status ?? 'unknown'),
+        nodeId: typeof svc.nodeId === 'string' ? svc.nodeId : undefined,
+        // Extract first port from exposure.ports if present
+        port:
+          typeof svc.exposure === 'object' &&
+          svc.exposure !== null &&
+          Array.isArray((svc.exposure as Record<string, unknown>).ports) &&
+          ((svc.exposure as Record<string, unknown>).ports as unknown[]).length > 0
+            ? Number(
+                ((svc.exposure as Record<string, unknown>).ports as Record<string, unknown>[])[0]
+                  .port,
+              ) || undefined
+            : undefined,
+      })),
+    };
+  }
+
+  return null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -43,11 +104,22 @@ function getStatusColor(status: string): string {
 }
 
 export function ServiceListWidget({
-  data,
-  config: _config,
+  data: rawData,
+  config,
   isLoading,
   error,
-}: WidgetComponentProps<ServiceListData>) {
+}: WidgetComponentProps<unknown, ServiceListConfig>) {
+  const data = useMemo(() => normalizeServiceListData(rawData), [rawData]);
+  const typedConfig = config as ServiceListConfig;
+
+  // Apply status filter from config
+  const visibleServices = useMemo(() => {
+    if (!data?.services) return [];
+    const filter = typedConfig.filterByStatus ?? 'all';
+    if (filter === 'all') return data.services;
+    return data.services.filter((s) => s.status.toLowerCase() === filter.toLowerCase());
+  }, [data, typedConfig.filterByStatus]);
+
   if (isLoading) return <WidgetLoadingState />;
   if (error) return <WidgetErrorState error={error} />;
 
@@ -60,18 +132,22 @@ export function ServiceListWidget({
     );
   }
 
-  if (!data.services || data.services.length === 0) {
+  if (visibleServices.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <Server className="h-5 w-5" />
-        <div className="text-sm">No services</div>
+        <div className="text-sm">
+          {typedConfig.filterByStatus && typedConfig.filterByStatus !== 'all'
+            ? `No ${typedConfig.filterByStatus} services`
+            : 'No services'}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col gap-1 overflow-y-auto">
-      {data.services.map((svc) => (
+      {visibleServices.map((svc) => (
         <div
           key={svc.serviceId}
           className="flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/40"

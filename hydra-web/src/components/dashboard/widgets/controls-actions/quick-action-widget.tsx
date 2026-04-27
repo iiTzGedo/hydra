@@ -23,6 +23,7 @@ export function QuickActionWidget({
   isLoading,
   isEditing,
   error,
+  readonly,
   onExecuteCommand,
 }: WidgetComponentProps<unknown, QuickActionConfig>) {
   const [executing, setExecuting] = useState(false);
@@ -31,7 +32,7 @@ export function QuickActionWidget({
   if (error) return <WidgetErrorState error={error} />;
 
   const label = config.label ?? 'Quick Action';
-  const canExecute = !!config.commandId && !!config.nodeId && !!onExecuteCommand && !isEditing;
+  const canExecute = !!config.commandId && !!config.nodeId && !!onExecuteCommand && !isEditing && !readonly;
 
   async function handleClick() {
     if (!canExecute) return;
@@ -53,6 +54,8 @@ export function QuickActionWidget({
         type="button"
         disabled={!canExecute || executing}
         onClick={() => void handleClick()}
+        aria-label={readonly ? 'Read-only in kiosk mode' : label}
+        title={readonly ? 'Read-only in kiosk mode' : undefined}
         className="flex items-center gap-2.5 rounded-xl border border-primary/30 bg-primary/5 px-5 py-3 text-sm font-medium shadow-sm transition-all hover:bg-primary/10 hover:shadow active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {executing ? (
