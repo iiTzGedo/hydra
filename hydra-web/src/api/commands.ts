@@ -1,6 +1,8 @@
+import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
+import { useResourceEvents, type ResourceEvent } from '@/hooks/use-resource-events';
 import type { ApiResponse } from '@/types/api';
 
 export type CommandType =
@@ -218,6 +220,26 @@ export function useFlushQueue() {
   });
 }
 
+// ── Real-time ──────────────────────────────────────────────────────────────
+
+/**
+ * Subscribe to live command execution events (P2G-T03). Mounting this in the
+ * Command Center pushes status changes into the React Query cache within ~2s,
+ * making the periodic polling below a slow fallback rather than the primary path.
+ */
+export function useCommandEvents(): { isConnected: boolean } {
+  const queryClient = useQueryClient();
+  const onEvent = useCallback(
+    (event: ResourceEvent) => {
+      if (event.eventType?.startsWith('command.')) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.commands.all });
+      }
+    },
+    [queryClient]
+  );
+  return useResourceEvents({ topics: ['commands:*'], onEvent });
+}
+
 // ── Queries ──────────────────────────────────────────────────────────────
 
 export function useCommands(params?: {
@@ -243,7 +265,8 @@ export function useCommands(params?: {
           ['queued', 'executing', 'pending_confirmation'].includes(command.status)
         )
       ) {
-        return 2000;
+        // Fallback poll; live updates arrive via useCommandEvents (P2G-T03).
+        return 15000;
       }
       return false;
     },
@@ -264,7 +287,8 @@ export function useCommand(commandId: string | undefined) {
     refetchInterval: (query) => {
       const data = query.state.data;
       if (data && ['queued', 'executing', 'pending_confirmation'].includes(data.status)) {
-        return 2000; // Poll every 2s while active
+        // Fallback poll; live updates arrive via useCommandEvents (P2G-T03).
+        return 15000;
       }
       return false;
     },
@@ -280,7 +304,8 @@ export function useCommandQueue(params?: { nodeId?: string }) {
       });
       return response.data.data;
     },
-    refetchInterval: 5000, // Auto-refresh every 5s
+    // Fallback poll; live updates arrive via useCommandEvents (P2G-T03).
+    refetchInterval: 15000,
   });
 }
 

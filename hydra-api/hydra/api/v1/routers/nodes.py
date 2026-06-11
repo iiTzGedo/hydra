@@ -15,6 +15,7 @@ from hydra.api.v1.core.deps import (
 from hydra.api.v1.core.model_factory import safe_materialize_many
 from hydra.api.v1.models.auth import (
     NodeApiKeyRefreshResponse,
+    NodeCredentialRotationResponse,
     NodeRegistrationRequest,
     NodeRegistrationResponse,
 )
@@ -434,4 +435,47 @@ async def refresh_node_api_key(
         api_key=result["api_key"],
         previous_key_revoked=result["previous_key_revoked"],
         refreshed_at=result["refreshed_at"],
+    )
+
+
+@node_router.post(
+    "/{node_id}/credentials/rotate",
+    response_model=NodeCredentialRotationResponse,
+    response_model_by_alias=True,
+    summary="Rotate Node Credentials",
+    description=(
+        "Rotate all credentials for a node: revoke previous API keys, regenerate "
+        "the max-tier control-server secret (if any), and record a rotation "
+        "timestamp. New credentials are returned once and the agent must be "
+        "re-provisioned."
+    ),
+    dependencies=[Depends(require_permission("nodes:update"))],
+)
+async def rotate_node_credentials(
+    auth_service: AuthServiceDep,
+    current_user: CurrentUser,
+    node_id: str = Path(description="Node ID"),
+) -> NodeCredentialRotationResponse:
+    """Rotate a node's credentials and record the rotation timestamp.
+
+    Args:
+        auth_service: Authentication service instance.
+        current_user: Authenticated user making the request.
+        node_id: Unique identifier of the node.
+
+    Returns:
+        New credential material and the rotation timestamp.
+
+    Raises:
+        HTTPException 404: Node not found.
+        HTTPException 403: Insufficient permissions.
+    """
+    result = await auth_service.rotate_node_credentials(node_id, current_user["user_id"])
+    return NodeCredentialRotationResponse(
+        node_id=result["node_id"],
+        api_key_id=result["api_key_id"],
+        api_key=result["api_key"],
+        agent_server_secret=result.get("agent_server_secret"),
+        previous_credentials_revoked=result["previous_credentials_revoked"],
+        credential_rotated_at=result["credential_rotated_at"],
     )

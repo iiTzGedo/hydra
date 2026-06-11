@@ -120,9 +120,10 @@ export function OverviewTab({ node }: OverviewTabProps) {
   const services = servicesData?.items || [];
   const runningServices = services.filter((s) => s.status === 'running');
   const latestProfileVersion = latestProfile?.version;
+  const serverConfig = node.agent?.serverConfig;
   const controlServerUrl =
-    node.agentTier === 'max' && node.serverAddress && node.serverPort
-      ? `${node.serverTlsEnabled === false ? 'http' : 'https'}://${node.serverAddress}:${node.serverPort}`
+    node.agent?.tier === 'max' && serverConfig?.advertiseAddress && serverConfig?.port
+      ? `${serverConfig.tlsEnabled === false ? 'http' : 'https'}://${serverConfig.advertiseAddress}:${serverConfig.port}`
       : null;
 
   return (
@@ -177,7 +178,7 @@ export function OverviewTab({ node }: OverviewTabProps) {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Agent Tier</span>
-                    <span className="font-medium capitalize">{node.agentTier || 'normal'}</span>
+                    <span className="font-medium capitalize">{node.agent?.tier || 'normal'}</span>
                   </div>
                   {controlServerUrl && (
                     <div className="flex items-center justify-between">

@@ -14,6 +14,7 @@ import {
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import {
   useCommandCatalog,
+  useCommandEvents,
   type CommandCategory,
   type CommandDefinitionSummary,
 } from '@/api/commands';
@@ -283,6 +284,8 @@ function CatalogTab() {
 export default function CommandsPage() {
   useDocumentTitle('Command Center');
   const [activeTab, setActiveTab] = useState('catalog');
+  // Live command status updates (P2G-T03) via the shared events socket.
+  useCommandEvents();
 
   return (
     <div className="space-y-6">

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { useCommand, useCommandCatalog, useCommands } from '@/api/commands';
@@ -159,13 +159,19 @@ describe('Commands API Hooks', () => {
       })
     );
 
-    const { result } = renderWithQuery(() => useCommands({ nodeId: 'server-01' }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { result } = renderWithQuery(() => useCommands({ nodeId: 'server-01' }));
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(requestCount).toBe(1);
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(requestCount).toBe(1);
 
-    await waitFor(() => expect(requestCount).toBeGreaterThanOrEqual(2), {
-      timeout: 4000,
-    });
+      // Live updates arrive via the events socket (P2G-T03); the periodic poll
+      // is a 15s fallback. Fast-forward past it to confirm polling still occurs.
+      await vi.advanceTimersByTimeAsync(15_500);
+      await waitFor(() => expect(requestCount).toBeGreaterThanOrEqual(2));
+    } finally {
+      vi.useRealTimers();
+    }
   }, 10000);
 });

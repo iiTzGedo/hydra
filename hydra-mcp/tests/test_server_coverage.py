@@ -288,9 +288,10 @@ class TestListEndpoints:
 
     async def test_list_resources_returns_resources(self):
         result = await list_resources()
-        assert len(result.resources) == 6
+        assert len(result.resources) == 7
         uris = [str(r.uri) for r in result.resources]
         assert "infrastructure://overview" in uris
+        assert "dashboard://boards" in uris
 
     async def test_list_prompts_returns_prompts(self):
         result = await list_prompts()

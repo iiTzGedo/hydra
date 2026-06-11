@@ -15,6 +15,7 @@ const deleteWidgetMock = vi.fn();
 vi.mock('@/api/dashboards', () => ({
   useDashboards: () => useDashboardsMock(),
   useDashboard: (boardId: string) => useDashboardMock(boardId),
+  useDashboardEvents: () => ({ isConnected: false }),
   useCreateDashboard: () => ({
     mutateAsync: createDashboardMock,
     isPending: false,

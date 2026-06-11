@@ -102,6 +102,26 @@ def _fs(**kwargs: Any) -> FieldSchema:
     return FieldSchema(**kwargs)
 
 
+# Categories the family role may view. Per RBAC, family is scoped to IoT/home
+# controls plus glanceable embed widgets (clocks, weather, bookmarks). Family
+# does not see infrastructure, topology, or system/meta widgets.
+_FAMILY_VISIBLE_CATEGORIES: frozenset[str] = frozenset({"iot-home", "external-embed"})
+
+
+def _default_view_roles(category: str) -> list[str]:
+    """Compute default ``view`` roles for a widget based on its category.
+
+    All staff roles (admin/operator/viewer) can view any widget by default.
+    The family role is restricted to IoT/home and embed widgets so a family
+    member's widget picker only surfaces widgets relevant to their scope.
+    A widget can still override this by passing ``permissions_view`` explicitly.
+    """
+    roles = ["admin", "operator", "viewer"]
+    if category in _FAMILY_VISIBLE_CATEGORIES:
+        roles.append("family")
+    return roles
+
+
 def _widget_definition(
     *,
     widget_type: str,
@@ -118,6 +138,7 @@ def _widget_definition(
     tags: list[str] | None = None,
     permissions_view: list[str] | None = None,
     permissions_interact: list[str] | None = None,
+    requires_plugin: str | None = None,
     config_schema: list[FieldSchema] | None = None,
     kiosk_mode: KioskMode = "render",
     is_available: bool = True,
@@ -159,8 +180,13 @@ def _widget_definition(
         "version": version,
         "supportedDataShapes": list(supported_data_shapes or []),
         "tags": list(tags or []),
+        "requiresPlugin": requires_plugin,
         "permissions": {
-            "view": list(permissions_view or ["admin", "operator", "viewer", "family"]),
+            "view": list(
+                permissions_view
+                if permissions_view is not None
+                else _default_view_roles(category)
+            ),
             "interact": list(permissions_interact or []),
         },
         "defaultSize": dict(default_size),
@@ -191,6 +217,7 @@ def _tier3_definition(
     max_size: dict[str, int],
     supported_data_shapes: list[str] | None = None,
     tags: list[str] | None = None,
+    requires_plugin: str | None = None,
 ) -> dict[str, object]:
     """Build a Tier 3 widget definition (isAvailable=False, empty configSchema).
 
@@ -208,8 +235,9 @@ def _tier3_definition(
         "version": "1.0.0",
         "supportedDataShapes": list(supported_data_shapes or []),
         "tags": list(tags or []),
+        "requiresPlugin": requires_plugin,
         "permissions": {
-            "view": ["admin", "operator", "viewer", "family"],
+            "view": _default_view_roles(category),
             "interact": [],
         },
         "defaultSize": dict(default_size),
@@ -372,6 +400,7 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         min_size={"w": 2, "h": 2},
         max_size={"w": 4, "h": 3},
         source="hydra",
+        supported_data_shapes=["static-config"],
         tags=["time", "glance"],
         config_schema=[
             _fs(key="format", label="Time Format", type="enum", default="24h",
@@ -398,6 +427,7 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         min_size={"w": 4, "h": 3},
         max_size={"w": 12, "h": 8},
         source="hydra",
+        supported_data_shapes=["external-feed"],
         tags=["rss", "feed", "news"],
         config_schema=[
             _fs(key="feedUrl", label="Feed URL", type="string", required=True,
@@ -421,6 +451,7 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         min_size={"w": 4, "h": 3},
         max_size={"w": 12, "h": 8},
         source="hydra",
+        supported_data_shapes=["static-config"],
         tags=["bookmarks", "links"],
         config_schema=[
             _fs(key="bookmarks", label="Bookmarks (JSON)", type="string", default="[]",
@@ -445,6 +476,7 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         min_size={"w": 6, "h": 4},
         max_size={"w": 12, "h": 12},
         source="hydra",
+        supported_data_shapes=["external-url"],
         tags=["embed", "iframe"],
         config_schema=[
             _fs(key="url", label="Source URL", type="string", required=True,
@@ -467,6 +499,7 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         min_size={"w": 4, "h": 3},
         max_size={"w": 12, "h": 10},
         source="hydra",
+        supported_data_shapes=["static-content"],
         tags=["markdown", "notes", "runbook"],
         config_schema=[
             _fs(key="content", label="Markdown Content", type="string", default="",
@@ -495,6 +528,7 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         min_size={"w": 3, "h": 2},
         max_size={"w": 6, "h": 4},
         source="hydra",
+        supported_data_shapes=["external-feed"],
         tags=["weather", "glance"],
         config_schema=[
             _fs(key="location", label="Location", type="string", required=True,
@@ -1307,6 +1341,7 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         min_size={"w": 4, "h": 3},
         max_size={"w": 12, "h": 8},
         source="hydra",
+        supported_data_shapes=["static-content"],
         tags=["html", "embed"],
         config_schema=[
             _fs(key="html", label="HTML Content", type="string", default="",
@@ -1384,6 +1419,7 @@ BUILTIN_WIDGETS: list[dict[str, object]] = [
         default_size={"w": 6, "h": 4},
         min_size={"w": 4, "h": 3},
         max_size={"w": 12, "h": 8},
+        supported_data_shapes=["mcp-result"],
         tags=["mcp", "query", "ai"],
     ),
     _tier3_definition(

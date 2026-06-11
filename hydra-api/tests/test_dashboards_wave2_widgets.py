@@ -208,6 +208,50 @@ class TestWidgetRegistryExpansion:
         cat_ids = {c["id"] for c in categories}
         assert cat_ids == set(SPEC_CATEGORIES.keys())
 
+    def test_every_widget_declares_a_data_shape(self):
+        """P2DASH-T010: every widget must declare at least one data shape."""
+        for widget in widget_registry.list_all():
+            wt = str(widget.get("widgetType", "?"))
+            shapes = widget.get("supportedDataShapes", [])
+            assert isinstance(shapes, list) and len(shapes) >= 1, (
+                f"{wt} must declare at least one supportedDataShapes entry"
+            )
+
+    def test_every_widget_has_requires_plugin_field(self):
+        """P2DASH-T028-lite: every widget exposes a requiresPlugin field (None for core)."""
+        for widget in widget_registry.list_all():
+            wt = str(widget.get("widgetType", "?"))
+            assert "requiresPlugin" in widget, f"{wt} missing requiresPlugin field"
+            # All built-in widgets are core Hydra widgets — no plugin dependency yet.
+            assert widget["requiresPlugin"] is None, (
+                f"{wt} unexpectedly declares a plugin dependency"
+            )
+
+    def test_family_role_sees_only_iot_and_embed_widgets(self):
+        """P2DASH-T013: family role is scoped to IoT/home and embed widgets only."""
+        family_widgets = widget_registry.list_for_role("family")
+        assert family_widgets, "family should see at least the embed widgets"
+        allowed = {"iot-home", "external-embed"}
+        for widget in family_widgets:
+            cat = str(widget.get("category", ""))
+            assert cat in allowed, (
+                f"{widget.get('widgetType')} (category {cat}) should not be visible to family"
+            )
+        # Family must not see infrastructure or system/meta widgets.
+        family_cats = {str(w.get("category", "")) for w in family_widgets}
+        assert "infrastructure" not in family_cats
+        assert "system-meta" not in family_cats
+        assert "topology-maps" not in family_cats
+
+    def test_viewer_role_sees_non_family_restricted_widgets(self):
+        """Viewer sees standard widgets (in default view roles) but not control widgets."""
+        viewer_widgets = widget_registry.list_for_role("viewer")
+        viewer_types = {str(w.get("widgetType", "")) for w in viewer_widgets}
+        # Viewer can see read-only infrastructure widgets...
+        assert "hydra::capacity-overview" in viewer_types
+        # ...but not interactive control widgets (admin/operator only).
+        assert "hydra::quick-action" not in viewer_types
+
     def test_reset_to_builtins(self):
         """reset_to_builtins should restore full widget set."""
         registry = WidgetRegistry()
@@ -240,3 +284,53 @@ class TestWidgetRegistryExpansion:
         registry.reset_to_builtins()
         assert len(registry.list_all()) == initial_count
         assert registry.get("test::custom") is None
+
+    def test_register_and_unregister_roundtrip(self):
+        """P2DASH-T012: registry supports dynamic register/unregister of widget types."""
+        registry = WidgetRegistry()
+        initial_count = len(registry.list_all())
+
+        registry.register({
+            "widgetType": "plg::demo::panel",
+            "displayName": "Demo Panel",
+            "description": "Plugin-contributed demo widget",
+            "category": "infrastructure",
+            "icon": "puzzle",
+            "source": "plugin",
+            "version": "1.0.0",
+            "supportedDataShapes": ["single-node"],
+            "tags": ["demo"],
+            "requiresPlugin": "plg::demo",
+            "permissions": {"view": ["admin"], "interact": []},
+            "defaultSize": {"w": 4, "h": 4},
+            "minSize": {"w": 2, "h": 2},
+            "maxSize": {"w": 12, "h": 12},
+            "configSchema": [],
+            "capabilities": {
+                "configurable": False,
+                "supportsVisibilityToggle": True,
+                "repeatable": False,
+            },
+        })
+        assert registry.has("plg::demo::panel")
+        assert len(registry.list_all()) == initial_count + 1
+
+        # Unregister returns True when present, False when already gone.
+        assert registry.unregister("plg::demo::panel") is True
+        assert not registry.has("plg::demo::panel")
+        assert len(registry.list_all()) == initial_count
+        assert registry.unregister("plg::demo::panel") is False
+
+    def test_register_rejects_unknown_category(self):
+        """register() must reject definitions with a non-spec category."""
+        registry = WidgetRegistry()
+        with pytest.raises(ValueError, match="unknown category"):
+            registry.register({
+                "widgetType": "test::bad-category",
+                "displayName": "Bad",
+                "category": "not-a-real-category",
+                "icon": "x",
+                "defaultSize": {"w": 4, "h": 4},
+                "minSize": {"w": 2, "h": 2},
+                "maxSize": {"w": 12, "h": 12},
+            })

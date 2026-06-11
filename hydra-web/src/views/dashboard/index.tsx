@@ -27,6 +27,7 @@ import {
   useCloneDashboard,
   useCreateDashboard,
   useDashboard,
+  useDashboardEvents,
   useDashboards,
   useDeleteDashboard,
   useDeleteWidget,
@@ -457,6 +458,8 @@ export default function DashboardPage() {
   const isBoardBrowser = !effectiveBoardId && !isInlineLegacyDashboard;
 
   const selectedBoardQuery = useDashboard(effectiveBoardId ?? '');
+  // Live board updates (P2DASH-T029) — refresh within ~2s when the board changes.
+  useDashboardEvents(effectiveBoardId ?? undefined);
   const selectedBoard = effectiveBoardId ? selectedBoardQuery.data : null;
   const workingBoard = isEditMode ? editor.draftBoard ?? selectedBoard ?? null : selectedBoard ?? null;
   const normalizedWorkingLayout = useMemo(

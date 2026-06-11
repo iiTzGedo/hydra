@@ -220,6 +220,21 @@ class DashboardService:
         self.db = mongodb
         self.collection = mongodb.db["dashboards"]
 
+    async def _emit_board_event(self, board_id: str, event_type: str) -> None:
+        """Publish a dashboard board event for real-time subscribers (P2DASH-T029).
+
+        Best-effort: transport failures never block the mutation.
+        """
+        try:
+            from hydra.api.v1.services.events import publish_dashboard_event
+            from hydra.db.redis import get_redis
+
+            await publish_dashboard_event(
+                get_redis(), board_id, event_type, {"boardId": board_id}
+            )
+        except Exception:  # pragma: no cover - transport failures are non-fatal
+            logger.debug("dashboard_event_emit_failed", board_id=board_id, exc_info=True)
+
     # ── Widget validation ───────────────────────────────────────────
 
     def _validate_widget_types(
@@ -540,6 +555,8 @@ class DashboardService:
         snapshot_doc = {**existing, **update_fields}
         await self._save_version_snapshot(snapshot_doc, user_id, "Board updated")
 
+        await self._emit_board_event(board_id, "dashboard.updated")
+
         return await self.get_board_for_user(board_id, user_id)
 
     async def patch_board(
@@ -701,6 +718,8 @@ class DashboardService:
         await self._save_version_snapshot(
             snapshot_doc, user_id, f"Patch: {', '.join(applied_ops)}"
         )
+
+        await self._emit_board_event(board_id, "dashboard.widget_changed")
 
         return await self.get_board_for_user(board_id, user_id)
 

@@ -114,6 +114,69 @@ class CreateRegistrationTokenRequest(BaseModel):
         return v
 
 
+class NodeRegistrationServerConfig(BaseModel):
+    """Control-server configuration supplied by a max-tier agent at registration."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    enabled: bool = True
+    advertise_address: str | None = Field(
+        default=None, alias="advertiseAddress", max_length=256
+    )
+    bind_address: str | None = Field(default=None, alias="bindAddress", max_length=256)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    tls_enabled: bool | None = Field(default=None, alias="tlsEnabled")
+
+    @model_validator(mode="after")
+    def validate_server_fields(self) -> "NodeRegistrationServerConfig":
+        """advertiseAddress, port, and tlsEnabled must be provided together."""
+        server_values = (self.advertise_address, self.port, self.tls_enabled)
+        has_any = any(value is not None for value in server_values)
+        has_all = all(value is not None for value in server_values)
+        if has_any and not has_all:
+            raise ValueError(
+                "advertiseAddress, port, and tlsEnabled must be provided together"
+            )
+        return self
+
+
+class NodeRegistrationAgent(BaseModel):
+    """Nested agent metadata supplied at node registration."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    tier: str | None = None
+    server_config: NodeRegistrationServerConfig | None = Field(
+        default=None, alias="serverConfig"
+    )
+
+    @field_validator("tier")
+    @classmethod
+    def validate_tier(cls, v: str | None) -> str | None:
+        """Validate agent tier is one of the allowed values."""
+        if v is not None and v not in ("lite", "normal", "max"):
+            raise ValueError("Agent tier must be one of: lite, normal, max")
+        return v
+
+    @model_validator(mode="after")
+    def validate_server_requires_max(self) -> "NodeRegistrationAgent":
+        """Server config may only be supplied for max-tier agents."""
+        if self.server_config is not None:
+            has_server = any(
+                v is not None
+                for v in (
+                    self.server_config.advertise_address,
+                    self.server_config.port,
+                    self.server_config.tls_enabled,
+                )
+            )
+            if has_server and self.tier != "max":
+                raise ValueError(
+                    "Server config may only be provided for max-tier agents"
+                )
+        return self
+
+
 class NodeRegistrationRequest(BaseModel):
     """Node registration request."""
 
@@ -131,10 +194,7 @@ class NodeRegistrationRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     parent_node_id: str | None = Field(default=None, alias="parentNodeId")
     location: dict[str, Any] | None = None
-    agent_tier: str | None = Field(default=None, alias="agentTier")
-    server_address: str | None = Field(default=None, alias="serverAddress", max_length=256)
-    server_port: int | None = Field(default=None, alias="serverPort", ge=1, le=65535)
-    server_tls_enabled: bool | None = Field(default=None, alias="serverTlsEnabled")
+    agent: NodeRegistrationAgent | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -149,14 +209,6 @@ class NodeRegistrationRequest(BaseModel):
             )
         return v
 
-    @field_validator("agent_tier")
-    @classmethod
-    def validate_agent_tier(cls, v: str | None) -> str | None:
-        """Validate agent tier is one of the allowed values."""
-        if v is not None and v not in ("lite", "normal", "max"):
-            raise ValueError("Agent tier must be one of: lite, normal, max")
-        return v
-
     @field_validator("tags")
     @classmethod
     def validate_tags(cls, v: list[str]) -> list[str]:
@@ -168,28 +220,6 @@ class NodeRegistrationRequest(BaseModel):
                     f"and be max 64 characters."
                 )
         return v
-
-    @model_validator(mode="after")
-    def validate_server_metadata(self) -> "NodeRegistrationRequest":
-        server_values = (
-            self.server_address,
-            self.server_port,
-            self.server_tls_enabled,
-        )
-        has_any_server_metadata = any(value is not None for value in server_values)
-        has_all_server_metadata = all(value is not None for value in server_values)
-
-        if has_any_server_metadata and not has_all_server_metadata:
-            raise ValueError(
-                "serverAddress, serverPort, and serverTlsEnabled must be provided together"
-            )
-
-        if has_any_server_metadata and self.agent_tier != "max":
-            raise ValueError(
-                "Server metadata may only be provided for max-tier agents"
-            )
-
-        return self
 
 
 class CreateApiKeyRequest(BaseModel):

@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   AlertTriangle,
@@ -7,6 +8,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useCommands, useCancelCommand, type CommandStatus } from '@/api/commands';
+import { EntityCombobox } from '@/components/ui/entity-combobox';
 import { getErrorMessage } from '@/lib/api-client';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { CommandStatusBadge } from '@/components/commands/command-status-badge';
@@ -56,7 +58,31 @@ const RUNNING_STATUSES: CommandStatus[] = ['executing'];
 const QUEUED_STATUSES: CommandStatus[] = ['queued', 'pending', 'pending_confirmation'];
 
 export function ExecutionQueue() {
-  const { data: allCommands, isLoading, error } = useCommands();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [nodeFilter, setNodeFilter] = useState<string>(
+    () => searchParams?.get('nodeId') || ''
+  );
+
+  const handleNodeFilterChange = useCallback(
+    (value: string) => {
+      setNodeFilter(value);
+      const params = new URLSearchParams(searchParams?.toString() ?? '');
+      if (value) {
+        params.set('nodeId', value);
+      } else {
+        params.delete('nodeId');
+      }
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
+
+  const { data: allCommands, isLoading, error } = useCommands(
+    nodeFilter ? { nodeId: nodeFilter } : undefined
+  );
   const cancelCommand = useCancelCommand();
 
   const running = useMemo(
@@ -134,6 +160,20 @@ export function ExecutionQueue() {
 
   return (
     <div className="space-y-6">
+      {/* Node filter */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Filter by node</span>
+        <div className="w-64">
+          <EntityCombobox
+            entityType="node"
+            value={nodeFilter}
+            onValueChange={handleNodeFilterChange}
+            clearable
+            placeholder="All nodes"
+          />
+        </div>
+      </div>
+
       {/* Running Section */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">

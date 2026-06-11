@@ -47,6 +47,31 @@ export interface NodeLocation {
   position?: string;
 }
 
+// Control-server configuration for a max-tier agent (null for non-max nodes)
+export interface AgentServerConfig {
+  enabled: boolean;
+  bindAddress?: string | null;
+  advertiseAddress?: string | null;
+  port?: number | null;
+  tlsEnabled?: boolean | null;
+}
+
+// Runtime reachability status for a max-tier agent's control server
+export interface AgentServerStatus {
+  isReachable?: boolean | null;
+  lastDirectContact?: string | null;
+  failedDirectAttempts?: number | null;
+  lastPollContact?: string | null;
+}
+
+// Nested agent metadata attached to a node (spec §3.4)
+export interface NodeAgentInfo {
+  tier?: AgentTier | null;
+  serverConfig?: AgentServerConfig | null;
+  serverStatus?: AgentServerStatus | null;
+  credentialRotatedAt?: string | null;
+}
+
 // Node summary (for list views)
 export interface NodeSummary {
   nodeId: string;
@@ -60,7 +85,7 @@ export interface NodeSummary {
   lastProfileAt?: string;
   lastSeenAt?: string;
   registeredBy?: string;
-  agentTier?: AgentTier;
+  agent?: NodeAgentInfo | null;
   icon?: IconDescriptor | null;
 }
 
@@ -72,13 +97,6 @@ export interface Node extends NodeSummary {
   registeredBy?: string;
   registeredAt: string;
   lastUpdated: string;
-  serverAddress?: string;
-  serverPort?: number;
-  serverTlsEnabled?: boolean;
-  serverReachable?: boolean;
-  failedDirectAttempts?: number;
-  lastDirectContact?: string;
-  lastPollContact?: string;
 }
 
 // Node list params
@@ -103,6 +121,18 @@ export interface UpdateNodeRequest {
   status?: NodeStatus;
 }
 
+// Node registration agent block (nested; matches API contract)
+export interface NodeRegistrationAgent {
+  tier?: AgentTier;
+  serverConfig?: {
+    enabled?: boolean;
+    advertiseAddress?: string;
+    bindAddress?: string;
+    port?: number;
+    tlsEnabled?: boolean;
+  };
+}
+
 // Node registration
 export interface NodeRegistrationRequest {
   nodeId: string;
@@ -114,7 +144,7 @@ export interface NodeRegistrationRequest {
   tags?: string[];
   parentNodeId?: string;
   location?: NodeLocation;
-  agentTier?: AgentTier;
+  agent?: NodeRegistrationAgent;
 }
 
 export interface NodeRegistrationResponse {

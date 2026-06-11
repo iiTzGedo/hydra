@@ -441,6 +441,212 @@ pub async fn update(
     }
 }
 
+// =============================================================================
+// GET /metrics — Prometheus metrics (max-tier deep integration)
+// =============================================================================
+
+/// Render the agent's Prometheus metrics exposition.
+pub fn render_metrics(node_id: &str, tier: &str, version: &str, uptime_seconds: u64) -> String {
+    // Escape label values per the Prometheus exposition format.
+    let esc = |v: &str| v.replace('\\', "\\\\").replace('"', "\\\"");
+    format!(
+        "# HELP hydra_agent_up Whether the agent control server is up.\n\
+         # TYPE hydra_agent_up gauge\n\
+         hydra_agent_up 1\n\
+         # HELP hydra_agent_uptime_seconds Agent control server uptime in seconds.\n\
+         # TYPE hydra_agent_uptime_seconds counter\n\
+         hydra_agent_uptime_seconds {uptime}\n\
+         # HELP hydra_agent_info Agent build and identity information.\n\
+         # TYPE hydra_agent_info gauge\n\
+         hydra_agent_info{{node_id=\"{node}\",tier=\"{tier}\",version=\"{version}\"}} 1\n",
+        uptime = uptime_seconds,
+        node = esc(node_id),
+        tier = esc(tier),
+        version = esc(version),
+    )
+}
+
+/// Returns agent metrics in Prometheus text exposition format.
+///
+/// Gated behind `server.metrics_enabled`; returns 404 when disabled so the
+/// endpoint is indistinguishable from an unconfigured agent.
+pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let config = state.config.read().await;
+    if !config.server.metrics_enabled {
+        return (StatusCode::NOT_FOUND, "metrics disabled\n").into_response();
+    }
+    let body = render_metrics(
+        &config.node.node_id,
+        &config.node.tier.to_string(),
+        env!("CARGO_PKG_VERSION"),
+        state.start_time.elapsed().as_secs(),
+    );
+    (
+        StatusCode::OK,
+        [("content-type", "text/plain; version=0.0.4")],
+        body,
+    )
+        .into_response()
+}
+
+// =============================================================================
+// GET /proxy/docker/{*path} — read-only Docker socket proxy (deep integration)
+// =============================================================================
+
+/// Validate a proxied Docker API path: must be absolute and free of control
+/// characters (defends against request-line / header injection).
+fn is_safe_proxy_path(path: &str) -> bool {
+    path.starts_with('/')
+        && !path.contains("..")
+        && path.chars().all(|c| !c.is_control())
+}
+
+/// Parsed HTTP response from the Docker socket.
+pub struct ProxiedResponse {
+    pub status: u16,
+    pub body: Vec<u8>,
+}
+
+/// Parse a raw HTTP/1.1 response (read to EOF with `Connection: close`),
+/// decoding chunked transfer-encoding when present. Pure and unit-tested.
+pub fn parse_http_response(raw: &[u8]) -> Result<ProxiedResponse, String> {
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| "malformed response: no header terminator".to_string())?;
+    let header_bytes = &raw[..split];
+    let body_bytes = &raw[split + 4..];
+
+    let header_text = String::from_utf8_lossy(header_bytes);
+    let mut lines = header_text.split("\r\n");
+    let status_line = lines.next().unwrap_or("");
+    let status = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())
+        .ok_or_else(|| "malformed response: no status code".to_string())?;
+
+    let is_chunked = lines.any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.starts_with("transfer-encoding:") && lower.contains("chunked")
+    });
+
+    let body = if is_chunked {
+        decode_chunked(body_bytes)?
+    } else {
+        body_bytes.to_vec()
+    };
+
+    Ok(ProxiedResponse { status, body })
+}
+
+/// Decode an HTTP/1.1 chunked transfer-encoding body.
+fn decode_chunked(mut data: &[u8]) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    loop {
+        let line_end = data
+            .windows(2)
+            .position(|w| w == b"\r\n")
+            .ok_or_else(|| "malformed chunk: no size line".to_string())?;
+        let size_str = String::from_utf8_lossy(&data[..line_end]);
+        // Chunk size may carry extensions after ';' — ignore them.
+        let size_hex = size_str.split(';').next().unwrap_or("").trim();
+        let size = usize::from_str_radix(size_hex, 16)
+            .map_err(|_| format!("malformed chunk size: {size_hex}"))?;
+        data = &data[line_end + 2..];
+        if size == 0 {
+            break;
+        }
+        if data.len() < size {
+            return Err("truncated chunk body".to_string());
+        }
+        out.extend_from_slice(&data[..size]);
+        // Skip the chunk payload and its trailing CRLF.
+        data = data.get(size + 2..).unwrap_or(&[]);
+    }
+    Ok(out)
+}
+
+/// Proxies a read-only (GET) request to the Docker daemon's Unix socket.
+///
+/// Gated behind `server.docker_proxy_enabled` (default off). Only GET requests
+/// are proxied, bounding the exposure to Docker's read APIs. Already protected
+/// by the control server's bearer-auth middleware.
+pub async fn docker_proxy(
+    State(state): State<AppState>,
+    axum::extract::Path(path): axum::extract::Path<String>,
+    raw_query: axum::extract::RawQuery,
+) -> impl IntoResponse {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UnixStream;
+
+    let (enabled, socket_path) = {
+        let config = state.config.read().await;
+        (
+            config.server.docker_proxy_enabled,
+            config.server.docker_socket_path.clone(),
+        )
+    };
+
+    if !enabled {
+        return (StatusCode::NOT_FOUND, "docker proxy disabled\n").into_response();
+    }
+
+    // Reconstruct the Docker API request path (axum strips the leading match).
+    let mut request_path = format!("/{}", path);
+    if let Some(q) = raw_query.0.as_deref() {
+        request_path.push('?');
+        request_path.push_str(q);
+    }
+
+    if !is_safe_proxy_path(&request_path) {
+        return (StatusCode::BAD_REQUEST, "invalid proxy path\n").into_response();
+    }
+
+    let mut stream = match UnixStream::connect(&socket_path).await {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                format!("docker socket unavailable: {e}\n"),
+            )
+                .into_response();
+        }
+    };
+
+    let request = format!(
+        "GET {request_path} HTTP/1.1\r\nHost: docker\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+    );
+    if let Err(e) = stream.write_all(request.as_bytes()).await {
+        return (
+            StatusCode::BAD_GATEWAY,
+            format!("docker request failed: {e}\n"),
+        )
+            .into_response();
+    }
+
+    let mut raw = Vec::new();
+    if let Err(e) = stream.read_to_end(&mut raw).await {
+        return (
+            StatusCode::BAD_GATEWAY,
+            format!("docker read failed: {e}\n"),
+        )
+            .into_response();
+    }
+
+    match parse_http_response(&raw) {
+        Ok(resp) => {
+            let status = StatusCode::from_u16(resp.status).unwrap_or(StatusCode::BAD_GATEWAY);
+            (status, [("content-type", "application/json")], resp.body).into_response()
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            format!("malformed docker response: {e}\n"),
+        )
+            .into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,6 +659,55 @@ mod tests {
     use std::time::Instant;
     use tempfile::TempDir;
     use tokio::sync::RwLock;
+
+    #[test]
+    fn render_metrics_produces_prometheus_exposition() {
+        let out = render_metrics("proxmox-01", "max", "1.2.3", 42);
+        assert!(out.contains("hydra_agent_up 1"));
+        assert!(out.contains("hydra_agent_uptime_seconds 42"));
+        assert!(out.contains(
+            "hydra_agent_info{node_id=\"proxmox-01\",tier=\"max\",version=\"1.2.3\"} 1"
+        ));
+        // Every metric line is preceded by HELP/TYPE comments.
+        assert!(out.contains("# TYPE hydra_agent_uptime_seconds counter"));
+    }
+
+    #[test]
+    fn render_metrics_escapes_label_values() {
+        let out = render_metrics("no\"de\\1", "max", "1.0", 0);
+        assert!(out.contains("node_id=\"no\\\"de\\\\1\""));
+    }
+
+    #[test]
+    fn is_safe_proxy_path_rejects_injection_and_traversal() {
+        assert!(is_safe_proxy_path("/containers/json"));
+        assert!(is_safe_proxy_path("/containers/json?all=true"));
+        assert!(!is_safe_proxy_path("containers/json")); // not absolute
+        assert!(!is_safe_proxy_path("/../etc/passwd")); // traversal
+        assert!(!is_safe_proxy_path("/inject\r\nHost: evil")); // CRLF injection
+    }
+
+    #[test]
+    fn parse_http_response_handles_content_length() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 13\r\n\r\n{\"status\":1}\n";
+        let resp = parse_http_response(raw).unwrap();
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body, b"{\"status\":1}\n");
+    }
+
+    #[test]
+    fn parse_http_response_decodes_chunked() {
+        // Two chunks "Hello" (5) and " World" (6), terminated by a 0 chunk.
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n";
+        let resp = parse_http_response(raw).unwrap();
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body, b"Hello World");
+    }
+
+    #[test]
+    fn parse_http_response_rejects_malformed() {
+        assert!(parse_http_response(b"no headers here").is_err());
+    }
 
     fn base_config() -> AgentConfig {
         AgentConfig {

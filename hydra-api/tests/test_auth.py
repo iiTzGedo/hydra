@@ -77,10 +77,14 @@ async def test_register_node_max_tier_persists_server_metadata_and_returns_secre
             "class": "compute",
             "type": "physical",
             "displayName": "Max Test Node",
-            "agentTier": "max",
-            "serverAddress": "agent.internal.example",
-            "serverPort": 9443,
-            "serverTlsEnabled": True,
+            "agent": {
+                "tier": "max",
+                "serverConfig": {
+                    "advertiseAddress": "agent.internal.example",
+                    "port": 9443,
+                    "tlsEnabled": True,
+                },
+            },
         },
         headers={"X-Registration-Token": sample_registration_token["token"]},
     )
@@ -97,6 +101,100 @@ async def test_register_node_max_tier_persists_server_metadata_and_returns_secre
     assert inserted_node["serverTlsEnabled"] is True
     assert inserted_node["serverReachable"] is True
     assert inserted_node["failedDirectAttempts"] == 0
+
+
+@pytest.mark.asyncio
+async def test_rotate_node_credentials_revokes_and_reissues(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Rotation revokes old keys, regenerates the server secret, and stamps the node."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={
+            "nodeId": "max-node",
+            "registeredBy": "user_admin123",
+            "agentTier": "max",
+            "serverAddress": "agent.internal.example",
+        }
+    )
+    mock_mongodb.api_keys.update_many = AsyncMock()
+    mock_mongodb.api_keys.insert_one = AsyncMock()
+    mock_mongodb.nodes.update_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/nodes/max-node/credentials/rotate",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["nodeId"] == "max-node"
+    assert data["apiKey"].startswith("hyk_")
+    assert data["agentServerSecret"].startswith("hsk_api_")
+    assert data["previousCredentialsRevoked"] is True
+    assert data["credentialRotatedAt"]
+
+    # Old keys revoked, new key inserted, node stamped with credentialRotatedAt.
+    mock_mongodb.api_keys.update_many.assert_awaited_once()
+    mock_mongodb.api_keys.insert_one.assert_awaited_once()
+    node_update = mock_mongodb.nodes.update_one.await_args.args[1]["$set"]
+    assert "credentialRotatedAt" in node_update
+    assert node_update["agentServerSecret"].startswith("hsk_api_")
+
+
+@pytest.mark.asyncio
+async def test_rotate_node_credentials_normal_tier_no_server_secret(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """A normal-tier node rotates its API key but has no server secret to regenerate."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.nodes.find_one = AsyncMock(
+        return_value={"nodeId": "normal-node", "registeredBy": "user_admin123", "agentTier": "normal"}
+    )
+    mock_mongodb.api_keys.update_many = AsyncMock()
+    mock_mongodb.api_keys.insert_one = AsyncMock()
+    mock_mongodb.nodes.update_one = AsyncMock()
+
+    response = await client.post(
+        "/api/v1/nodes/normal-node/credentials/rotate",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["agentServerSecret"] is None
+    node_update = mock_mongodb.nodes.update_one.await_args.args[1]["$set"]
+    assert "agentServerSecret" not in node_update
+
+
+@pytest.mark.asyncio
+async def test_rotate_node_credentials_not_found(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_user,
+):
+    """Rotating a non-existent node returns 404."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=None)
+
+    response = await client.post(
+        "/api/v1/nodes/ghost/credentials/rotate",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

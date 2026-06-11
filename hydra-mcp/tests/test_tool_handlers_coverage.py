@@ -289,3 +289,126 @@ class TestTimeMachineHandlers:
             })
             assert isinstance(result, str)
         set_auth_context(None)
+
+
+class TestRemoteInstallAgent:
+    """Tests for the remote_install_agent handler (P2E-T06)."""
+
+    async def test_remote_install_with_target_ip(self):
+        _set_internal_admin_context()
+        with patch("hydra_mcp.tool_handlers.client") as mock_client:
+            mock_client.start_installation = AsyncMock(
+                return_value={"installationId": "inst_1", "status": "pending"}
+            )
+            result = await execute_tool(
+                "remote_install_agent",
+                {
+                    "targetIp": "10.0.0.5",
+                    "credentials": {"host": "10.0.0.5", "username": "root", "password": "x"},
+                },
+            )
+            assert isinstance(result, str)
+            mock_client.start_installation.assert_awaited_once()
+        set_auth_context(None)
+
+    async def test_remote_install_requires_exactly_one_target(self):
+        _set_internal_admin_context()
+        with patch("hydra_mcp.tool_handlers.client"):
+            with pytest.raises(ValueError, match="exactly one"):
+                await execute_tool(
+                    "remote_install_agent",
+                    {
+                        "targetIp": "10.0.0.5",
+                        "discoveryId": "disc_1",
+                        "credentials": {"host": "10.0.0.5", "username": "root", "password": "x"},
+                    },
+                )
+        set_auth_context(None)
+
+
+class TestDashboardTools:
+    """Tests for dashboard MCP tools (P2DASH-T036)."""
+
+    async def test_list_dashboards(self):
+        _set_admin_context()
+        with patch("hydra_mcp.tool_handlers.client") as mock_client:
+            mock_client.list_dashboards = AsyncMock(
+                return_value=[{"boardId": "b1", "name": "Ops"}]
+            )
+            result = await execute_tool("list_dashboards", {"limit": 10})
+            assert isinstance(result, str)
+        set_auth_context(None)
+
+    async def test_get_dashboard(self):
+        _set_admin_context()
+        with patch("hydra_mcp.tool_handlers.client") as mock_client:
+            mock_client.get_dashboard = AsyncMock(
+                return_value={"boardId": "b1", "widgets": []}
+            )
+            result = await execute_tool("get_dashboard", {"boardId": "b1"})
+            assert isinstance(result, str)
+        set_auth_context(None)
+
+    async def test_create_dashboard(self):
+        _set_admin_context()
+        with patch("hydra_mcp.tool_handlers.client") as mock_client:
+            mock_client.create_dashboard = AsyncMock(
+                return_value={"boardId": "b2", "name": "New"}
+            )
+            result = await execute_tool(
+                "create_dashboard", {"name": "New", "widgets": []}
+            )
+            assert isinstance(result, str)
+            mock_client.create_dashboard.assert_awaited_once()
+        set_auth_context(None)
+
+    async def test_update_dashboard(self):
+        _set_admin_context()
+        with patch("hydra_mcp.tool_handlers.client") as mock_client:
+            mock_client.update_dashboard = AsyncMock(return_value={"boardId": "b1"})
+            result = await execute_tool(
+                "update_dashboard", {"boardId": "b1", "updates": {"name": "X"}}
+            )
+            assert isinstance(result, str)
+        set_auth_context(None)
+
+    async def test_delete_dashboard(self):
+        _set_admin_context()
+        with patch("hydra_mcp.tool_handlers.client") as mock_client:
+            mock_client.delete_dashboard = AsyncMock(return_value={"deleted": True})
+            result = await execute_tool("delete_dashboard", {"boardId": "b1"})
+            assert isinstance(result, str)
+        set_auth_context(None)
+
+    async def test_clone_dashboard(self):
+        _set_admin_context()
+        with patch("hydra_mcp.tool_handlers.client") as mock_client:
+            mock_client.clone_dashboard = AsyncMock(return_value={"boardId": "b3"})
+            result = await execute_tool(
+                "clone_dashboard", {"boardId": "b1", "name": "Copy"}
+            )
+            assert isinstance(result, str)
+        set_auth_context(None)
+
+    async def test_list_dashboard_templates(self):
+        _set_admin_context()
+        with patch("hydra_mcp.tool_handlers.client") as mock_client:
+            mock_client.list_dashboard_templates = AsyncMock(
+                return_value=[{"templateId": "t1"}]
+            )
+            result = await execute_tool("list_dashboard_templates", {})
+            assert isinstance(result, str)
+        set_auth_context(None)
+
+    async def test_create_dashboard_from_template(self):
+        _set_admin_context()
+        with patch("hydra_mcp.tool_handlers.client") as mock_client:
+            mock_client.create_dashboard_from_template = AsyncMock(
+                return_value={"boardId": "b4"}
+            )
+            result = await execute_tool(
+                "create_dashboard_from_template",
+                {"templateId": "t1", "name": "From Template"},
+            )
+            assert isinstance(result, str)
+        set_auth_context(None)

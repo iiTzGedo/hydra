@@ -119,10 +119,53 @@ async def test_get_node_includes_server_tls_metadata(
 
     assert response.status_code == 200
     data = response.json()
-    assert data["data"]["agentTier"] == "max"
-    assert data["data"]["serverAddress"] == "agent.internal.example"
-    assert data["data"]["serverPort"] == 9443
-    assert data["data"]["serverTlsEnabled"] is True
+    agent = data["data"]["agent"]
+    assert agent["tier"] == "max"
+    assert agent["serverConfig"]["advertiseAddress"] == "agent.internal.example"
+    assert agent["serverConfig"]["port"] == 9443
+    assert agent["serverConfig"]["tlsEnabled"] is True
+    assert agent["serverConfig"]["enabled"] is True
+    assert agent["serverStatus"]["isReachable"] is True
+    assert agent["serverStatus"]["failedDirectAttempts"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_node_normal_tier_nested_agent_shape(
+    client: AsyncClient,
+    mock_mongodb,
+    admin_token,
+    sample_node,
+    sample_user,
+):
+    """P2A-T02: a normal-tier node nests tier but has no serverConfig/serverStatus."""
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
+
+    response = await client.get(
+        f"/api/v1/nodes/{sample_node['nodeId']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    # Flat agent fields must no longer exist on the response.
+    for legacy in (
+        "agentTier",
+        "serverAddress",
+        "serverPort",
+        "serverTlsEnabled",
+        "serverReachable",
+        "failedDirectAttempts",
+        "lastDirectContact",
+        "lastPollContact",
+    ):
+        assert legacy not in data, f"legacy flat field '{legacy}' leaked into response"
+    assert data["agent"]["tier"] == "normal"
+    assert data["agent"]["serverConfig"] is None
+    assert data["agent"]["serverStatus"] is None
+    assert data["agent"]["credentialRotatedAt"] is None
 
 
 @pytest.mark.asyncio

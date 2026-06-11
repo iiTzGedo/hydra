@@ -77,6 +77,7 @@ fn seed_vault_with_api_key(vault: &Vault) {
         expires_at: Some((Utc::now() + Duration::days(30)).to_rfc3339()),
         node_id: Some("test-node-01".to_string()),
         stored_at: Utc::now().to_rfc3339(),
+        rotated_at: None,
     };
     vault
         .save_api_key(&api_key)
@@ -429,11 +430,13 @@ async fn test_register_with_token_success() {
             "nodeId": "test-node-01",
             "class": "compute",
             "type": "physical",
-            "agentTier": "normal",
             "kind": "bare-metal",
             "displayName": "Test Node 01",
             "description": "Integration test node",
-            "tags": ["test"]
+            "tags": ["test"],
+            "agent": {
+                "tier": "normal"
+            }
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "nodeId": "test-node-01",
@@ -515,14 +518,19 @@ async fn test_register_with_token_max_tier_publishes_server_metadata_and_stores_
             "nodeId": "test-node-01",
             "class": "compute",
             "type": "physical",
-            "agentTier": "max",
             "kind": "bare-metal",
             "displayName": "Test Node 01",
             "description": "Integration test node",
             "tags": ["test"],
-            "serverAddress": "192.168.1.10",
-            "serverPort": 9100,
-            "serverTlsEnabled": true
+            "agent": {
+                "tier": "max",
+                "serverConfig": {
+                    "enabled": true,
+                    "advertiseAddress": "192.168.1.10",
+                    "port": 9100,
+                    "tlsEnabled": true
+                }
+            }
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "nodeId": "test-node-01",

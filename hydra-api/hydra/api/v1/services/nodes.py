@@ -17,6 +17,49 @@ from hydra.db.mongodb import MongoDB
 logger = structlog.get_logger(__name__)
 
 
+def build_node_agent_info(doc: dict[str, Any]) -> dict[str, Any] | None:
+    """Build the nested ``agent`` object from a flat node document.
+
+    The node document persists agent metadata as flat fields (``agentTier``,
+    ``serverAddress``, ``serverReachable``, …) for query simplicity. The API
+    contract exposes them nested under ``agent.serverConfig`` / ``agent.serverStatus``
+    (spec §3.4). This translates the storage shape into the response shape.
+
+    Returns None only when a node has no agent metadata at all (legacy/edge);
+    every registered node has at least a tier.
+    """
+    tier = doc.get("agentTier")
+    server_config: dict[str, Any] | None = None
+    server_status: dict[str, Any] | None = None
+
+    # serverConfig/serverStatus only exist for max-tier agents exposing a server.
+    if doc.get("serverAddress") is not None:
+        server_config = {
+            "enabled": True,
+            "bindAddress": doc.get("serverBindAddress"),
+            "advertiseAddress": doc.get("serverAddress"),
+            "port": doc.get("serverPort"),
+            "tlsEnabled": doc.get("serverTlsEnabled"),
+        }
+        server_status = {
+            "isReachable": doc.get("serverReachable"),
+            "lastDirectContact": doc.get("lastDirectContact"),
+            "failedDirectAttempts": doc.get("failedDirectAttempts"),
+            "lastPollContact": doc.get("lastPollContact"),
+        }
+
+    credential_rotated_at = doc.get("credentialRotatedAt")
+    if tier is None and server_config is None and credential_rotated_at is None:
+        return None
+
+    return {
+        "tier": tier,
+        "serverConfig": server_config,
+        "serverStatus": server_status,
+        "credentialRotatedAt": credential_rotated_at,
+    }
+
+
 class NodeService:
     """Service for node management operations."""
 
@@ -425,15 +468,9 @@ class NodeService:
             "registeredAt": doc["registeredAt"],
             "lastUpdated": doc["lastUpdated"],
             "lastProfileAt": doc.get("lastProfileAt"),
+            "lastSeenAt": doc.get("lastSeenAt"),
             "status": doc["status"],
-            "agentTier": doc.get("agentTier"),
-            "serverAddress": doc.get("serverAddress"),
-            "serverPort": doc.get("serverPort"),
-            "serverTlsEnabled": doc.get("serverTlsEnabled"),
-            "serverReachable": doc.get("serverReachable"),
-            "failedDirectAttempts": doc.get("failedDirectAttempts"),
-            "lastDirectContact": doc.get("lastDirectContact"),
-            "lastPollContact": doc.get("lastPollContact"),
+            "agent": build_node_agent_info(doc),
             "icon": icon,
         }
 
@@ -454,6 +491,7 @@ class NodeService:
             "registeredBy": doc.get("registeredBy"),
             "status": doc["status"],
             "lastProfileAt": doc.get("lastProfileAt"),
-            "agentTier": doc.get("agentTier"),
+            "lastSeenAt": doc.get("lastSeenAt"),
+            "agent": build_node_agent_info(doc),
             "icon": icon,
         }

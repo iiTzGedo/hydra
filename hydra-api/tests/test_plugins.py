@@ -83,6 +83,40 @@ def sample_plugin():
     }
 
 
+# ── Availability (P2DASH-T028) ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_plugin_availability(
+    client,
+    mock_mongodb,
+    mock_plugins_collection,
+    admin_token,
+    sample_user,
+):
+    """GET /plugins/availability marks enabled/active plugins as available."""
+    from unittest.mock import AsyncMock
+
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    mock_plugins_collection.find.return_value = create_mock_cursor([
+        {"pluginId": "plg::docker", "status": "active", "manifest": {"name": "Docker"}},
+        {"pluginId": "plg::proxmox", "status": "installed", "manifest": {"name": "Proxmox"}},
+    ])
+
+    response = await client.get(
+        "/api/v1/plugins/availability",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    items = {item["pluginId"]: item for item in response.json()["data"]}
+    assert items["plg::docker"]["available"] is True
+    assert items["plg::docker"]["displayName"] == "Docker"
+    assert items["plg::proxmox"]["available"] is False
+
+
 # ── Registration ─────────────────────────────────────────────────────
 
 

@@ -103,6 +103,10 @@ pub struct ApiKeyData {
     pub node_id: Option<String>,
     /// When the key was created/stored
     pub stored_at: String,
+    /// When the key was last rotated (renewed), if ever. Tracks credential
+    /// rotation locally so the agent can report/observe its rotation history.
+    #[serde(default)]
+    pub rotated_at: Option<String>,
 }
 
 impl std::fmt::Debug for ApiKeyData {
@@ -853,6 +857,7 @@ mod tests {
             expires_at: Some("2099-12-31T23:59:59Z".to_string()),
             node_id: Some("test-node".to_string()),
             stored_at: "2024-01-01T00:00:00Z".to_string(),
+            rotated_at: None,
         };
 
         vault.save_api_key(&api_key).unwrap();

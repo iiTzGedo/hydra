@@ -34,8 +34,6 @@ struct NodeRegistrationRequest {
     node_class: String,
     #[serde(rename = "type")]
     node_type: String,
-    #[serde(rename = "agentTier")]
-    tier: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     kind: Option<String>,
     display_name: String,
@@ -44,12 +42,27 @@ struct NodeRegistrationRequest {
     tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     parent_node_id: Option<String>,
+    /// Nested agent metadata (tier + optional control-server config).
+    agent: NodeRegistrationAgent,
+}
+
+/// Nested agent block of a node registration request.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NodeRegistrationAgent {
+    tier: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    server_address: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    server_port: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    server_tls_enabled: Option<bool>,
+    server_config: Option<NodeRegistrationServerConfig>,
+}
+
+/// Control-server configuration for a max-tier agent registration.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NodeRegistrationServerConfig {
+    enabled: bool,
+    advertise_address: Option<String>,
+    port: u16,
+    tls_enabled: bool,
 }
 
 /// Login request for /auth/login
@@ -433,22 +446,24 @@ impl ApiClient {
     fn build_registration_request(&self) -> NodeRegistrationRequest {
         use crate::config::AgentTier;
 
-        let (server_address, server_port, server_tls_enabled) =
+        // Max-tier agents that expose a control server advertise its config so
+        // the API can reach them for direct command dispatch.
+        let server_config =
             if self.config.node.tier == AgentTier::Max && self.config.server.enabled {
-                (
-                    self.config.server.advertise_address.clone(),
-                    Some(self.config.server.port),
-                    Some(self.config.server.tls_enabled),
-                )
+                Some(NodeRegistrationServerConfig {
+                    enabled: true,
+                    advertise_address: self.config.server.advertise_address.clone(),
+                    port: self.config.server.port,
+                    tls_enabled: self.config.server.tls_enabled,
+                })
             } else {
-                (None, None, None)
+                None
             };
 
         NodeRegistrationRequest {
             node_id: self.config.node.node_id.clone(),
             node_class: self.config.node.class.clone(),
             node_type: self.config.node.node_type.clone(),
-            tier: self.config.node.tier.to_string(),
             kind: self.config.node.kind.clone(),
             display_name: self
                 .config
@@ -459,9 +474,10 @@ impl ApiClient {
             description: self.config.node.description.clone(),
             tags: self.config.node.tags.clone(),
             parent_node_id: self.config.node.parent_node_id.clone(),
-            server_address,
-            server_port,
-            server_tls_enabled,
+            agent: NodeRegistrationAgent {
+                tier: self.config.node.tier.to_string(),
+                server_config,
+            },
         }
     }
 
@@ -477,6 +493,7 @@ impl ApiClient {
             expires_at: None,
             node_id: Some(response.node_id.clone()),
             stored_at: chrono::Utc::now().to_rfc3339(),
+            rotated_at: None,
         };
 
         self.vault.save_api_key(&api_key)?;
@@ -515,6 +532,7 @@ impl ApiClient {
             expires_at: response.expires_at.clone(),
             node_id: Some(self.config.node.node_id.clone()),
             stored_at: chrono::Utc::now().to_rfc3339(),
+            rotated_at: None,
         };
         self.vault.save_api_key(&api_key)?;
         info!("API key saved to vault");
@@ -638,12 +656,15 @@ impl ApiClient {
         }
 
         let result: CreateApiKeyResponse = response.json().await?;
+        let now = chrono::Utc::now().to_rfc3339();
         let api_key = ApiKeyData {
             api_key: result.key,
             api_key_id: result.key_id,
             expires_at: result.expires_at,
             node_id: Some(self.config.node.node_id.clone()),
-            stored_at: chrono::Utc::now().to_rfc3339(),
+            stored_at: now.clone(),
+            // This is the renewal path — record when the key was rotated.
+            rotated_at: Some(now),
         };
 
         self.vault.save_api_key(&api_key)?;
@@ -1173,5 +1194,66 @@ impl ApiClient {
 
         debug!(command_id = command_id, "Command result submitted");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod registration_request_tests {
+    use super::{
+        NodeRegistrationAgent, NodeRegistrationRequest, NodeRegistrationServerConfig,
+    };
+
+    fn base_request(agent: NodeRegistrationAgent) -> NodeRegistrationRequest {
+        NodeRegistrationRequest {
+            node_id: "proxmox-01".to_string(),
+            node_class: "compute".to_string(),
+            node_type: "physical".to_string(),
+            kind: None,
+            display_name: "Proxmox 01".to_string(),
+            description: None,
+            tags: vec![],
+            parent_node_id: None,
+            agent,
+        }
+    }
+
+    #[test]
+    fn serializes_agent_as_nested_object_for_normal_tier() {
+        let request = base_request(NodeRegistrationAgent {
+            tier: "normal".to_string(),
+            server_config: None,
+        });
+        let value: serde_json::Value = serde_json::to_value(&request).unwrap();
+
+        // Nested agent object with tier, no serverConfig.
+        assert_eq!(value["agent"]["tier"], "normal");
+        assert!(value["agent"].get("serverConfig").is_none());
+
+        // Legacy flat fields must NOT be present at the top level.
+        assert!(value.get("agentTier").is_none());
+        assert!(value.get("serverAddress").is_none());
+        assert!(value.get("serverPort").is_none());
+        assert!(value.get("serverTlsEnabled").is_none());
+    }
+
+    #[test]
+    fn serializes_nested_server_config_for_max_tier() {
+        let request = base_request(NodeRegistrationAgent {
+            tier: "max".to_string(),
+            server_config: Some(NodeRegistrationServerConfig {
+                enabled: true,
+                advertise_address: Some("10.0.0.5".to_string()),
+                port: 9443,
+                tls_enabled: true,
+            }),
+        });
+        let value: serde_json::Value = serde_json::to_value(&request).unwrap();
+
+        assert_eq!(value["agent"]["tier"], "max");
+        let server = &value["agent"]["serverConfig"];
+        assert_eq!(server["enabled"], true);
+        assert_eq!(server["advertiseAddress"], "10.0.0.5");
+        assert_eq!(server["port"], 9443);
+        assert_eq!(server["tlsEnabled"], true);
     }
 }

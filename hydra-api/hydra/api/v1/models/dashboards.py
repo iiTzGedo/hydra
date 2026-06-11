@@ -807,6 +807,13 @@ class WidgetTypeDefinition(BaseModel):
         description="Data shapes this widget accepts (e.g., 'scalar', 'time-series')",
     )
     tags: list[str] = Field(default_factory=list, description="Free-form discovery tags")
+    requires_plugin: str | None = Field(
+        default=None,
+        alias="requiresPlugin",
+        description="Plugin ID this widget depends on (e.g. 'plg::docker'). When the "
+        "plugin is unavailable the frontend renders a degraded 'requires plugin' state. "
+        "None for core Hydra widgets.",
+    )
     permissions: WidgetPermissions = Field(default_factory=WidgetPermissions)
     default_size: WidgetSize = Field(alias="defaultSize")
     min_size: WidgetSize = Field(alias="minSize")

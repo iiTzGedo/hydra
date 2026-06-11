@@ -186,7 +186,7 @@ function setupPage() {
           type: 'physical',
           status: 'active',
           tags: [],
-          agentTier: 'max',
+          agent: { tier: 'max' },
         },
       ],
       total: 1,

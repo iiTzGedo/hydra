@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, Path, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from hydra.api.v1.core.deps import (
     CurrentUser,
@@ -95,6 +96,38 @@ async def list_plugins(
     return SuccessResponse(
         data=[PluginSummary(**plugin) for plugin in plugins],
         meta=PaginationMeta(total=total, limit=limit, offset=offset),
+    )
+
+
+class PluginAvailabilityItem(BaseModel):
+    """Availability entry for a single plugin (P2DASH-T028 widget degradation)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    plugin_id: str = Field(alias="pluginId")
+    display_name: str = Field(alias="displayName")
+    status: str
+    available: bool
+
+
+@router.get(
+    "/availability",
+    response_model=SuccessResponse[list[PluginAvailabilityItem]],
+    response_model_by_alias=True,
+    summary="Plugin Availability",
+    description=(
+        "Lightweight read-only plugin availability map. Dashboards use this to "
+        "degrade widgets whose required plugin is unavailable."
+    ),
+    dependencies=[Depends(require_permission("dashboards:read"))],
+)
+async def get_plugin_availability(
+    plugin_service: PluginServiceDep,
+) -> SuccessResponse[list[PluginAvailabilityItem]]:
+    """Return the availability of all installed plugins."""
+    items = await plugin_service.get_plugin_availability()
+    return SuccessResponse(
+        data=[PluginAvailabilityItem(**item) for item in items]
     )
 
 

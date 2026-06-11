@@ -1,6 +1,8 @@
+import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-client';
+import { useResourceEvents } from '@/hooks/use-resource-events';
 import type { ApiResponse, PaginatedResponse } from '@/types/api';
 import type {
   CreateDashboardRequest,
@@ -79,6 +81,53 @@ export function useDashboard(boardId: string) {
       );
       return withBoardId(response.data.data);
     },
+    enabled: !!boardId,
+  });
+}
+
+// ── Plugin availability (P2DASH-T028 widget degradation) ───────────────────
+
+export interface PluginAvailabilityItem {
+  pluginId: string;
+  displayName: string;
+  status: string;
+  available: boolean;
+}
+
+/** Map of plugin availability used to degrade plugin-backed widgets. */
+export function usePluginAvailability() {
+  return useQuery({
+    queryKey: ['plugins', 'availability'],
+    queryFn: async (): Promise<Record<string, PluginAvailabilityItem>> => {
+      const response = await apiClient.get<ApiResponse<PluginAvailabilityItem[]>>(
+        '/plugins/availability'
+      );
+      return Object.fromEntries(response.data.data.map((p) => [p.pluginId, p]));
+    },
+    staleTime: 60_000,
+  });
+}
+
+// ── Real-time board updates (P2DASH-T029) ──────────────────────────────────
+
+/**
+ * Subscribe to live updates for a single dashboard board. When the board is
+ * mutated (by this or another user), the board query is invalidated so the
+ * view refreshes within ~2s without polling.
+ */
+export function useDashboardEvents(boardId: string | undefined): { isConnected: boolean } {
+  const queryClient = useQueryClient();
+  const onEvent = useCallback(() => {
+    if (boardId) {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.dashboards.detail(boardId),
+      });
+    }
+  }, [queryClient, boardId]);
+
+  return useResourceEvents({
+    topics: boardId ? [`dashboards:board:${boardId}`] : [],
+    onEvent,
     enabled: !!boardId,
   });
 }

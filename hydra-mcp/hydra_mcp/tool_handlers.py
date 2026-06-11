@@ -1225,3 +1225,264 @@ async def delete_audit_entries(args: dict[str, Any]) -> str:
         until=args["until"],
     )
     return toon.format(result)
+
+
+# =============================================================================
+# Remote Installation Tools (P2E-T06)
+# =============================================================================
+
+
+@tool(
+    name="remote_install_agent",
+    description="Start a remote SSH agent installation on a target host or discovered device",
+    schema={
+        "type": "object",
+        "properties": {
+            "targetIp": {
+                "type": "string",
+                "description": "Target IP address (provide this OR discoveryId)",
+            },
+            "discoveryId": {
+                "type": "string",
+                "description": "Discovered device ID to install on (provide this OR targetIp)",
+            },
+            "credentials": {
+                "type": "object",
+                "description": "SSH credentials: host, port, username, and password or privateKey",
+            },
+            "agentTier": {
+                "type": "string",
+                "enum": ["lite", "normal", "max"],
+                "default": "normal",
+                "description": "Agent tier to install",
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Tags for the installed node",
+            },
+        },
+        "required": ["credentials"],
+    },
+    required_permission="installations:write",
+    internal_only=True,
+)
+async def remote_install_agent(args: dict[str, Any]) -> str:
+    """Start a remote agent installation via SSH."""
+    target_ip = args.get("targetIp")
+    discovery_id = args.get("discoveryId")
+    if bool(target_ip) == bool(discovery_id):
+        raise ValueError("Provide exactly one of targetIp or discoveryId")
+
+    installation = await client.start_installation(
+        credentials=args["credentials"],
+        target_ip=target_ip,
+        discovery_id=discovery_id,
+        agent_tier=args.get("agentTier", "normal"),
+        tags=args.get("tags"),
+    )
+    return toon.format(installation)
+
+
+# =============================================================================
+# Dashboard Tools (P2DASH-T036)
+# =============================================================================
+
+
+@tool(
+    name="list_dashboards",
+    description="List dashboard boards with optional filters",
+    schema={
+        "type": "object",
+        "properties": {
+            "boardType": {
+                "type": "string",
+                "enum": ["user", "template", "shared", "kiosk"],
+                "description": "Filter by board type",
+            },
+            "visibility": {
+                "type": "string",
+                "description": "Filter by visibility scope (private, shared, public)",
+            },
+            "search": {"type": "string", "description": "Search board names"},
+            "limit": {"type": "integer", "default": 50, "description": "Maximum results"},
+        },
+    },
+    required_permission="dashboards:read",
+)
+async def list_dashboards(args: dict[str, Any]) -> str:
+    """List dashboard boards."""
+    boards = await client.list_dashboards(
+        board_type=args.get("boardType"),
+        visibility=args.get("visibility"),
+        search=args.get("search"),
+        limit=args.get("limit", 50),
+    )
+    return _format_list_response("dashboards", boards)
+
+
+@tool(
+    name="get_dashboard",
+    description="Get a dashboard board with its widgets and layout",
+    schema={
+        "type": "object",
+        "properties": {
+            "boardId": {"type": "string", "description": "The dashboard board ID"},
+        },
+        "required": ["boardId"],
+    },
+    required_permission="dashboards:read",
+)
+async def get_dashboard(args: dict[str, Any]) -> str:
+    """Get a dashboard board."""
+    board = await client.get_dashboard(args["boardId"])
+    return toon.format(board)
+
+
+@tool(
+    name="create_dashboard",
+    description="Create a new dashboard board",
+    schema={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Board name"},
+            "boardType": {
+                "type": "string",
+                "enum": ["user", "shared"],
+                "default": "user",
+                "description": "Board type",
+            },
+            "widgets": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Initial widget instances",
+            },
+            "layout": {"type": "object", "description": "Grid/freeform layout config"},
+        },
+        "required": ["name"],
+    },
+    required_permission="dashboards:write",
+)
+async def create_dashboard(args: dict[str, Any]) -> str:
+    """Create a dashboard board."""
+    board_payload: dict[str, Any] = {
+        "name": args["name"],
+        "boardType": args.get("boardType", "user"),
+    }
+    if args.get("widgets") is not None:
+        board_payload["widgets"] = args["widgets"]
+    if args.get("layout") is not None:
+        board_payload["layout"] = args["layout"]
+    board = await client.create_dashboard(board_payload)
+    return toon.format(board)
+
+
+@tool(
+    name="update_dashboard",
+    description="Update a dashboard board (name, visibility, widgets, layout)",
+    schema={
+        "type": "object",
+        "properties": {
+            "boardId": {"type": "string", "description": "The dashboard board ID"},
+            "updates": {
+                "type": "object",
+                "description": "Fields to update (name, visibility, widgets, layout, settings)",
+            },
+        },
+        "required": ["boardId", "updates"],
+    },
+    required_permission="dashboards:write",
+)
+async def update_dashboard(args: dict[str, Any]) -> str:
+    """Update a dashboard board."""
+    board = await client.update_dashboard(args["boardId"], args["updates"])
+    return toon.format(board)
+
+
+@tool(
+    name="delete_dashboard",
+    description="Delete (archive) a dashboard board",
+    schema={
+        "type": "object",
+        "properties": {
+            "boardId": {"type": "string", "description": "The dashboard board ID"},
+        },
+        "required": ["boardId"],
+    },
+    required_permission="dashboards:write",
+)
+async def delete_dashboard(args: dict[str, Any]) -> str:
+    """Delete a dashboard board."""
+    result = await client.delete_dashboard(args["boardId"])
+    return toon.format(result)
+
+
+@tool(
+    name="clone_dashboard",
+    description="Clone a dashboard board, optionally substituting template variables",
+    schema={
+        "type": "object",
+        "properties": {
+            "boardId": {"type": "string", "description": "The board ID to clone"},
+            "name": {"type": "string", "description": "Name for the cloned board"},
+            "variables": {
+                "type": "object",
+                "description": "Template variable substitutions",
+            },
+        },
+        "required": ["boardId"],
+    },
+    required_permission="dashboards:write",
+)
+async def clone_dashboard(args: dict[str, Any]) -> str:
+    """Clone a dashboard board."""
+    board = await client.clone_dashboard(
+        args["boardId"],
+        name=args.get("name"),
+        variables=args.get("variables"),
+    )
+    return toon.format(board)
+
+
+@tool(
+    name="list_dashboard_templates",
+    description="List instantiable dashboard templates",
+    schema={
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer", "default": 50, "description": "Maximum results"},
+        },
+    },
+    required_permission="dashboards:read",
+)
+async def list_dashboard_templates(args: dict[str, Any]) -> str:
+    """List dashboard templates."""
+    templates = await client.list_dashboard_templates(limit=args.get("limit", 50))
+    return _format_list_response("templates", templates)
+
+
+@tool(
+    name="create_dashboard_from_template",
+    description="Create a new dashboard board from a template",
+    schema={
+        "type": "object",
+        "properties": {
+            "templateId": {"type": "string", "description": "The template ID"},
+            "name": {"type": "string", "description": "Name for the new board"},
+            "variables": {
+                "type": "object",
+                "description": "Template variable substitutions",
+            },
+        },
+        "required": ["templateId"],
+    },
+    required_permission="dashboards:write",
+)
+async def create_dashboard_from_template(args: dict[str, Any]) -> str:
+    """Instantiate a dashboard board from a template."""
+    board = await client.create_dashboard_from_template(
+        args["templateId"],
+        name=args.get("name"),
+        variables=args.get("variables"),
+    )
+    return toon.format(board)

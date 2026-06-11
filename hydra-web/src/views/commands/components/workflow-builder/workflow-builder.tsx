@@ -1,14 +1,10 @@
 import { useCallback, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import {
-  ArrowDown,
   ArrowLeft,
-  ArrowUp,
-  GripVertical,
   Layers,
-  Link2,
   Plus,
   Save,
-  Server,
   Terminal,
 } from 'lucide-react';
 import {
@@ -23,14 +19,13 @@ import type {
 import { generateId } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { StepEditor } from './step-editor';
 import { StepPalette } from './step-palette';
+import { WorkflowCanvas, dependsOnTransitively } from './workflow-canvas';
 
 // ── Props ──────────────────────────────────────────────────────────────
 
@@ -127,20 +122,39 @@ export function WorkflowBuilder({
     [selectedStepId]
   );
 
-  const handleMoveStep = useCallback(
-    (stepId: string, direction: 'up' | 'down') => {
-      setSteps((prev) => {
-        const idx = prev.findIndex((s) => s.stepId === stepId);
-        if (idx < 0) return prev;
-        const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
-        if (targetIdx < 0 || targetIdx >= prev.length) return prev;
+  const handleAddDependency = useCallback(
+    (stepId: string, dependsOnId: string): boolean => {
+      if (stepId === dependsOnId) return false;
+      const step = steps.find((s) => s.stepId === stepId);
+      if (step?.dependsOn?.includes(dependsOnId)) return false;
+      if (dependsOnTransitively(steps, dependsOnId, stepId)) {
+        toast.error('That dependency would create a cycle.');
+        return false;
+      }
+      setSteps((prev) =>
+        prev.map((s) =>
+          s.stepId === stepId
+            ? { ...s, dependsOn: [...(s.dependsOn ?? []), dependsOnId] }
+            : s
+        )
+      );
+      return true;
+    },
+    [steps]
+  );
 
-        const next = [...prev];
-        const temp = next[idx];
-        next[idx] = next[targetIdx];
-        next[targetIdx] = temp;
-        return next;
-      });
+  const handleRemoveDependency = useCallback(
+    (stepId: string, dependsOnId: string) => {
+      setSteps((prev) =>
+        prev.map((s) =>
+          s.stepId === stepId
+            ? {
+                ...s,
+                dependsOn: (s.dependsOn ?? []).filter((id) => id !== dependsOnId),
+              }
+            : s
+        )
+      );
     },
     []
   );
@@ -308,156 +322,40 @@ export function WorkflowBuilder({
         {/* Left: Step Palette */}
         <StepPalette onAddCommand={handleAddCommand} />
 
-        {/* Center: Step List */}
-        <div className="flex flex-col">
+        {/* Center: Visual workflow canvas */}
+        <div className="flex flex-col overflow-hidden">
           <div className="flex items-center gap-2 border-b px-4 py-2">
             <Layers className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Workflow Steps</span>
+            <span className="text-sm font-medium">Workflow Canvas</span>
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              Drag a node&apos;s bottom handle to another to add a dependency
+            </span>
           </div>
 
-          {steps.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center">
-              <div className="text-center">
-                <Plus className="mx-auto h-10 w-10 text-muted-foreground/40" />
-                <p className="mt-3 text-sm text-muted-foreground">
-                  Add steps from the command palette on the left
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground/60">
-                  Click a command to add it as a workflow step
-                </p>
+          <div className="relative flex-1">
+            {steps.length === 0 && (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                <div className="text-center">
+                  <Plus className="mx-auto h-10 w-10 text-muted-foreground/40" />
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    Add steps from the command palette on the left
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground/60">
+                    Click a command to add it as a workflow step
+                  </p>
+                </div>
               </div>
-            </div>
-          ) : (
-            <ScrollArea className="flex-1">
-              <div className="space-y-2 p-4">
-                {steps.map((step, idx) => {
-                  const def = catalogMap.get(step.registryId);
-                  const isSelected = step.stepId === selectedStepId;
-                  const groupColor = step.parallelGroup
-                    ? groupColorMap.get(step.parallelGroup)
-                    : undefined;
-                  const hasDependencies =
-                    step.dependsOn && step.dependsOn.length > 0;
-
-                  return (
-                    <div key={step.stepId}>
-                      {/* Dependency arrow */}
-                      {hasDependencies && (
-                        <div className="flex items-center gap-2 pl-8 pb-1">
-                          <Link2 className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-[10px] text-muted-foreground">
-                            depends on:{' '}
-                            {step.dependsOn!.map((depId) => (
-                              <Badge
-                                key={depId}
-                                variant="outline"
-                                className="mx-0.5 text-[10px] px-1 py-0"
-                              >
-                                {depId}
-                              </Badge>
-                            ))}
-                          </span>
-                        </div>
-                      )}
-
-                      <Card
-                        className={`cursor-pointer transition-all ${
-                          isSelected
-                            ? 'ring-2 ring-primary border-primary'
-                            : 'hover:border-primary/30'
-                        } ${groupColor ?? ''}`}
-                        onClick={() => setSelectedStepId(step.stepId)}
-                      >
-                        <CardContent className="flex items-center gap-3 p-3">
-                          {/* Drag handle / step number */}
-                          <div className="flex flex-col items-center gap-0.5">
-                            <GripVertical className="h-4 w-4 text-muted-foreground/40" />
-                            <span className="text-[10px] font-bold text-muted-foreground">
-                              {idx + 1}
-                            </span>
-                          </div>
-
-                          {/* Step info */}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                              <span className="truncate text-sm font-medium">
-                                {def?.displayName ?? step.registryId}
-                              </span>
-                            </div>
-                            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                              <Server className="h-3 w-3" />
-                              <span className="truncate">
-                                {step.target.nodeId || '(no target)'}
-                              </span>
-                              {step.target.serviceId && (
-                                <>
-                                  <span className="text-muted-foreground/40">
-                                    /
-                                  </span>
-                                  <span className="truncate">
-                                    {step.target.serviceId}
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Badges */}
-                          <div className="flex shrink-0 flex-col items-end gap-1">
-                            {step.parallelGroup && (
-                              <Badge
-                                variant="secondary"
-                                className="text-[10px] px-1.5 py-0"
-                              >
-                                {step.parallelGroup}
-                              </Badge>
-                            )}
-                            {step.onFailure && step.onFailure !== 'abort' && (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] px-1.5 py-0"
-                              >
-                                {step.onFailure}
-                              </Badge>
-                            )}
-                          </div>
-
-                          {/* Move buttons */}
-                          <div className="flex flex-col gap-0.5">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-5 w-5 p-0"
-                              disabled={idx === 0}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleMoveStep(step.stepId, 'up');
-                              }}
-                            >
-                              <ArrowUp className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-5 w-5 p-0"
-                              disabled={idx === steps.length - 1}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleMoveStep(step.stepId, 'down');
-                              }}
-                            >
-                              <ArrowDown className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-          )}
+            )}
+            <WorkflowCanvas
+              steps={steps}
+              selectedStepId={selectedStepId}
+              catalogMap={catalogMap}
+              groupColorMap={groupColorMap}
+              onSelectStep={setSelectedStepId}
+              onAddDependency={handleAddDependency}
+              onRemoveDependency={handleRemoveDependency}
+            />
+          </div>
         </div>
 
         {/* Right: Step Editor */}

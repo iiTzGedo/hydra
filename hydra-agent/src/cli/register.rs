@@ -794,6 +794,7 @@ fn save_api_key_from_response(
         expires_at: response.expires_at.clone(),
         node_id: Some(config.node.node_id.clone()),
         stored_at: chrono::Utc::now().to_rfc3339(),
+        rotated_at: None,
     };
 
     vault.save_api_key(&api_key_data)?;
@@ -911,6 +912,7 @@ mod tests {
                 expires_at: Some((Utc::now() + Duration::days(30)).to_rfc3339()),
                 node_id: Some("test-node-01".to_string()),
                 stored_at: Utc::now().to_rfc3339(),
+                rotated_at: None,
             })
             .unwrap();
         vault

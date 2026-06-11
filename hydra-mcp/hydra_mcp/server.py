@@ -478,6 +478,12 @@ async def list_resources() -> ListResourcesResult:
             description="Current infrastructure topology graph",
             mimeType="text/plain",
         ),
+        Resource(
+            uri="dashboard://boards",  # type: ignore[arg-type]
+            name="All Dashboards",
+            description="List of dashboard boards visible to the caller",
+            mimeType="text/plain",
+        ),
     ]
     return ListResourcesResult(resources=resources)
 
@@ -548,6 +554,16 @@ async def _read_resource(uri: str) -> str:
         service_id = uri.split("/")[-1]
         service = await client.get_service(service_id)
         return toon.format(service)
+
+    elif uri == "dashboard://boards":
+        boards = await client.list_dashboards(limit=200)
+        return _format_list_response("dashboards", boards)
+
+    elif uri.startswith("dashboard://board_"):
+        # dashboard://board_<id> — single board with widgets.
+        board_id = uri[len("dashboard://") :]
+        board = await client.get_dashboard(board_id)
+        return toon.format(board)
 
     else:
         raise ValueError(f"Unknown resource: {uri}")

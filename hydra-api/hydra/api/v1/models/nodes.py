@@ -73,6 +73,52 @@ class AgentTier(StrEnum):
     MAX = "max"
 
 
+class AgentServerConfig(BaseModel):
+    """Embedded HTTP server configuration for a max-tier agent.
+
+    Present only for max-tier agents that expose a control server. ``bindAddress``
+    is an agent-local detail and is typically null in API responses; the API uses
+    ``advertiseAddress`` to reach the agent.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    enabled: bool = False
+    bind_address: str | None = Field(default=None, alias="bindAddress")
+    advertise_address: str | None = Field(default=None, alias="advertiseAddress")
+    port: int | None = None
+    tls_enabled: bool | None = Field(default=None, alias="tlsEnabled")
+
+
+class AgentServerStatus(BaseModel):
+    """Runtime reachability status for a max-tier agent's control server."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    is_reachable: bool | None = Field(default=None, alias="isReachable")
+    last_direct_contact: datetime | None = Field(default=None, alias="lastDirectContact")
+    failed_direct_attempts: int | None = Field(default=None, alias="failedDirectAttempts")
+    last_poll_contact: datetime | None = Field(default=None, alias="lastPollContact")
+
+
+class NodeAgentInfo(BaseModel):
+    """Nested agent metadata attached to a node.
+
+    Groups the agent tier, optional control-server configuration/status, and
+    credential rotation tracking under a single ``agent`` object on node
+    responses (spec §3.4 / RG07-R01).
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    tier: AgentTier | None = None
+    server_config: AgentServerConfig | None = Field(default=None, alias="serverConfig")
+    server_status: AgentServerStatus | None = Field(default=None, alias="serverStatus")
+    credential_rotated_at: datetime | None = Field(
+        default=None, alias="credentialRotatedAt"
+    )
+
+
 class NodeResponse(BaseModel):
     """Full node response model."""
 
@@ -93,14 +139,7 @@ class NodeResponse(BaseModel):
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
     last_seen_at: datetime | None = Field(default=None, alias="lastSeenAt")
     status: NodeStatus
-    agent_tier: AgentTier | None = Field(default=None, alias="agentTier")
-    server_address: str | None = Field(default=None, alias="serverAddress")
-    server_port: int | None = Field(default=None, alias="serverPort")
-    server_tls_enabled: bool | None = Field(default=None, alias="serverTlsEnabled")
-    server_reachable: bool | None = Field(default=None, alias="serverReachable")
-    failed_direct_attempts: int | None = Field(default=None, alias="failedDirectAttempts")
-    last_direct_contact: datetime | None = Field(default=None, alias="lastDirectContact")
-    last_poll_contact: datetime | None = Field(default=None, alias="lastPollContact")
+    agent: NodeAgentInfo | None = None
     icon: IconDescriptor | None = None
 
 
@@ -119,7 +158,7 @@ class NodeSummary(BaseModel):
     status: NodeStatus
     last_profile_at: datetime | None = Field(default=None, alias="lastProfileAt")
     last_seen_at: datetime | None = Field(default=None, alias="lastSeenAt")
-    agent_tier: AgentTier | None = Field(default=None, alias="agentTier")
+    agent: NodeAgentInfo | None = None
     icon: IconDescriptor | None = None
 
 

@@ -57,6 +57,34 @@ class CommandsService:
         self.services = mongodb.services
         self.command_definitions = mongodb.command_definitions
 
+    async def _emit_command_event(
+        self, command: dict[str, Any], event_type: str
+    ) -> None:
+        """Publish a command lifecycle event for real-time subscribers.
+
+        Best-effort: failures (e.g. Redis unavailable) are swallowed so command
+        execution is never blocked by the events transport.
+        """
+        try:
+            from hydra.api.v1.services.events import publish_command_event
+            from hydra.db.redis import get_redis
+
+            target = command.get("target") or {}
+            await publish_command_event(
+                get_redis(),
+                command.get("commandId", ""),
+                event_type,
+                {
+                    "commandId": command.get("commandId"),
+                    "status": command.get("status"),
+                    "nodeId": target.get("nodeId"),
+                    "serviceId": target.get("serviceId"),
+                    "registryId": command.get("registryId"),
+                },
+            )
+        except Exception:  # pragma: no cover - transport failures are non-fatal
+            logger.debug("command_event_emit_failed", exc_info=True)
+
     @staticmethod
     def _has_permission(user_permissions: list[str], required: str) -> bool:
         """Check if user permissions satisfy the required permission.
@@ -644,6 +672,8 @@ class CommandsService:
             execution_method="agent-poll",
         )
 
+        await self._emit_command_event(command_doc, "command.created")
+
         return command_doc
 
     async def _try_direct_execution(
@@ -790,6 +820,8 @@ class CommandsService:
                     node_id=node_id,
                     success=result_doc["success"],
                 )
+
+                await self._emit_command_event(command_doc, "command.completed")
 
                 return command_doc
 
@@ -1012,6 +1044,9 @@ class CommandsService:
 
         logger.info("command_cancelled", command_id=command_id, cancelled_by=cancelled_by)
 
+        command["status"] = CommandStatus.CANCELLED.value
+        await self._emit_command_event(command, "command.status_changed")
+
         # Cascade cancel sibling commands in the same chain.
         cascade_cancelled_ids: list[str] | None = None
         chain = command.get("chain")
@@ -1040,6 +1075,15 @@ class CommandsService:
                     },
                 )
                 cascade_cancelled_ids.append(sibling_id)
+                await self._emit_command_event(
+                    {
+                        "commandId": sibling_id,
+                        "status": CommandStatus.CANCELLED.value,
+                        "target": sibling.get("target", {}),
+                        "registryId": sibling.get("registryId"),
+                    },
+                    "command.status_changed",
+                )
 
             if cascade_cancelled_ids:
                 logger.info(
@@ -1165,6 +1209,7 @@ class CommandsService:
 
         command["status"] = CommandStatus.EXECUTING.value
         command["startedAt"] = now
+        await self._emit_command_event(command, "command.status_changed")
         return command
 
     async def submit_result(
@@ -1215,6 +1260,11 @@ class CommandsService:
             success=result.success,
             status=final_status.value,
         )
+
+        command["status"] = final_status.value
+        command["result"] = result_doc
+        command["completedAt"] = now
+        await self._emit_command_event(command, "command.completed")
 
         if command.get("registryId") == "reg::agent::network-scan":
             from hydra.api.v1.services.discovery import DiscoveryService
@@ -1460,6 +1510,16 @@ class CommandsService:
                 if node_id and command_id:
                     safe_create_task(
                         self._send_timeout_cancel_signal(node_id, command_id)
+                    )
+                    safe_create_task(
+                        self._emit_command_event(
+                            {
+                                "commandId": command_id,
+                                "status": CommandStatus.TIMEOUT.value,
+                                "target": cmd.get("target", {}),
+                            },
+                            "command.completed",
+                        )
                     )
 
             audit_id = await log_audit(

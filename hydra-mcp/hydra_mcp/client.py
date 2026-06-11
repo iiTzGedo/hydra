@@ -1062,6 +1062,122 @@ class HydraClient:
             json_data=body,
         )
 
+    # ── Installations ──────────────────────────────────────────────────
+
+    async def start_installation(
+        self,
+        credentials: dict[str, Any],
+        target_ip: str | None = None,
+        discovery_id: str | None = None,
+        agent_tier: str = "normal",
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Start a remote SSH agent installation.
+
+        Args:
+            credentials: SSH credentials (host, port, username, password/privateKey).
+            target_ip: Target IP (required if no discovery_id).
+            discovery_id: Discovery record to install on (required if no target_ip).
+            agent_tier: Agent tier to install (lite/normal/max).
+            tags: Tags for the new node.
+
+        Returns:
+            The created installation record.
+        """
+        body: dict[str, Any] = {
+            "credentials": credentials,
+            "agentTier": agent_tier,
+            "tags": tags or [],
+        }
+        if discovery_id:
+            body["discoveryId"] = discovery_id
+        if target_ip:
+            body["targetIp"] = target_ip
+        return await self._request_object("POST", "/installations", json_data=body)
+
+    # ── Dashboards ─────────────────────────────────────────────────────
+
+    async def list_dashboards(
+        self,
+        board_type: str | None = None,
+        visibility: str | None = None,
+        search: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List dashboard boards with optional filters."""
+        params: dict[str, Any] = {"limit": limit}
+        if board_type:
+            params["boardType"] = board_type
+        if visibility:
+            params["visibility"] = visibility
+        if search:
+            params["search"] = search
+        result = await self._request("GET", "/dashboards", params=params)
+        return self._expect_list_result(result, "/dashboards")
+
+    async def get_dashboard(self, board_id: str) -> dict[str, Any]:
+        """Get a single dashboard board with its widgets."""
+        return await self._request_object("GET", f"/dashboards/{board_id}")
+
+    async def create_dashboard(self, board: dict[str, Any]) -> dict[str, Any]:
+        """Create a new dashboard board."""
+        return await self._request_object("POST", "/dashboards", json_data=board)
+
+    async def update_dashboard(
+        self, board_id: str, updates: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Update a dashboard board (name, visibility, widgets, layout)."""
+        return await self._request_object(
+            "PUT", f"/dashboards/{board_id}", json_data=updates
+        )
+
+    async def delete_dashboard(self, board_id: str) -> dict[str, Any]:
+        """Soft-delete a dashboard board."""
+        return await self._request_object("DELETE", f"/dashboards/{board_id}")
+
+    async def clone_dashboard(
+        self,
+        board_id: str,
+        name: str | None = None,
+        variables: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Clone a dashboard board, optionally substituting template variables."""
+        body: dict[str, Any] = {}
+        if name:
+            body["name"] = name
+        if variables:
+            body["variables"] = variables
+        return await self._request_object(
+            "POST", f"/dashboards/{board_id}/clone", json_data=body
+        )
+
+    async def list_dashboard_templates(
+        self, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """List instantiable dashboard templates."""
+        result = await self._request(
+            "GET", "/dashboards/templates", params={"limit": limit}
+        )
+        return self._expect_list_result(result, "/dashboards/templates")
+
+    async def create_dashboard_from_template(
+        self,
+        template_id: str,
+        name: str | None = None,
+        variables: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Instantiate a dashboard board from a template."""
+        body: dict[str, Any] = {}
+        if name:
+            body["name"] = name
+        if variables:
+            body["variables"] = variables
+        return await self._request_object(
+            "POST",
+            f"/dashboards/templates/{template_id}/instantiate",
+            json_data=body,
+        )
+
     async def health_check(self) -> dict[str, Any]:
         """Check API health status.
 

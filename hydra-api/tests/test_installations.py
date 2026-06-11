@@ -471,6 +471,209 @@ async def test_unauthenticated_returns_401(
     assert response.status_code == 401
 
 
+# ── Remote install configuration (P2E-T01) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("hydra.api.v1.services.installations.service.InstallationService._execute_installation")
+async def test_discovery_linked_install_blocked_by_eligibility(
+    mock_execute,
+    client: AsyncClient,
+    mock_mongodb,
+    mock_installations_collection,
+    mock_discovered_nodes_collection,
+    admin_token,
+    sample_user,
+    sample_discovered_device,
+):
+    """A device with remote-install blockers is rejected with 400 + guidance."""
+    mock_execute.return_value = None
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    blocked_device = {
+        **sample_discovered_device,
+        "eligibility": {
+            "remoteInstallable": False,
+            "remoteInstallBlockers": ["SSH (port 22) not detected"],
+        },
+    }
+    mock_discovered_nodes_collection.find_one = AsyncMock(return_value=blocked_device)
+
+    response = await client.post(
+        "/api/v1/installations",
+        json={
+            "discoveryId": "disc_abc123def456",
+            "credentials": _valid_credentials(),
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["error"]["details"]
+    assert "SSH (port 22) not detected" in detail["blockers"]
+    assert any("SSH" in a for a in detail["suggestedActions"])
+
+
+@pytest.mark.asyncio
+@patch("hydra.api.v1.services.installations.service.InstallationService._execute_installation")
+async def test_discovery_devices_remote_install_endpoint(
+    mock_execute,
+    client: AsyncClient,
+    mock_mongodb,
+    mock_installations_collection,
+    mock_discovered_nodes_collection,
+    admin_token,
+    sample_user,
+    sample_installation,
+    sample_discovered_device,
+):
+    """POST /discovery/devices/{id}/remote-install starts a discovery-linked install."""
+    mock_execute.return_value = None
+    mock_mongodb.users.find_one = AsyncMock(
+        return_value={**sample_user, "userId": "user_admin123", "role": "admin"}
+    )
+    eligible_device = {
+        **sample_discovered_device,
+        "eligibility": {"remoteInstallable": True, "remoteInstallBlockers": []},
+    }
+    mock_discovered_nodes_collection.find_one = AsyncMock(return_value=eligible_device)
+    mock_installations_collection.insert_one = AsyncMock()
+    mock_installations_collection.find_one = AsyncMock(
+        return_value={
+            **sample_installation,
+            "discoveryId": "disc_abc123def456",
+            "targetIp": "192.168.1.50",
+            "steps": [],
+        }
+    )
+
+    response = await client.post(
+        "/api/v1/discovery/devices/disc_abc123def456/remote-install",
+        json={"credentials": _valid_credentials(), "agentTier": "normal"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["data"]["discoveryId"] == "disc_abc123def456"
+
+
+@pytest.mark.asyncio
+async def test_install_ssh_key_not_configured_returns_503(
+    client: AsyncClient,
+):
+    """GET /agent/install/ssh-key returns 503 when no key is configured (default)."""
+    response = await client.get("/api/v1/agent/install/ssh-key")
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"]["code"] == "SSH_KEY_NOT_CONFIGURED"
+
+
+@pytest.mark.asyncio
+async def test_install_ssh_key_returns_public_key(client: AsyncClient, tmp_path):
+    """GET /agent/install/ssh-key returns the configured public key + fingerprint."""
+    from hydra.core.config import Settings, get_settings, override_settings
+
+    key_file = tmp_path / "install.pub"
+    key_file.write_text(
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL0123456789abcdefghijklmnopqrstuvwxyzABCD hydra\n"
+    )
+    base = get_settings()
+    with override_settings(
+        Settings(
+            jwt_secret="x" * 40,
+            encryption_key=base.encryption_key,
+            mcp_internal_secret="y" * 40,
+            remote_install_ssh_public_key_path=str(key_file),
+        )
+    ):
+        response = await client.get("/api/v1/agent/install/ssh-key")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["format"] == "ssh-ed25519"
+    assert data["fingerprint"].startswith("SHA256:")
+    assert data["publicKey"].startswith("ssh-ed25519 ")
+
+
+def test_remote_install_settings_defaults():
+    """Remote-install settings expose sane defaults and public-key resolution."""
+    from hydra.core.config import Settings, get_settings
+
+    settings = get_settings()
+    assert settings.remote_install_timeout_seconds == 300
+    assert settings.remote_install_ssh_port_default == 22
+    assert settings.remote_install_max_concurrent == 5
+    assert settings.remote_install_ssh_key_path is None
+    assert settings.has_remote_install_key is False
+    assert settings.resolved_remote_install_public_key_path is None
+
+    # Public key path is derived from the private key path when unset.
+    configured = Settings(
+        jwt_secret="x" * 40,
+        encryption_key=settings.encryption_key,
+        mcp_internal_secret="y" * 40,
+        remote_install_ssh_key_path="/etc/hydra/keys/install",
+    )
+    assert configured.has_remote_install_key is True
+    assert (
+        configured.resolved_remote_install_public_key_path
+        == "/etc/hydra/keys/install.pub"
+    )
+
+    explicit = Settings(
+        jwt_secret="x" * 40,
+        encryption_key=settings.encryption_key,
+        mcp_internal_secret="y" * 40,
+        remote_install_ssh_key_path="/etc/hydra/keys/install",
+        remote_install_ssh_public_key_path="/etc/hydra/keys/custom.pub",
+    )
+    assert (
+        explicit.resolved_remote_install_public_key_path
+        == "/etc/hydra/keys/custom.pub"
+    )
+
+
+@pytest.mark.asyncio
+async def test_install_concurrency_semaphore_reflects_settings():
+    """The shared install semaphore is sized to the configured concurrency limit."""
+    from hydra.api.v1.services.installations.service import (
+        get_install_semaphore,
+        reset_install_concurrency,
+    )
+    from hydra.core.config import Settings, get_settings, override_settings
+
+    base = get_settings()
+    reset_install_concurrency()
+    try:
+        with override_settings(
+            Settings(
+                jwt_secret="x" * 40,
+                encryption_key=base.encryption_key,
+                mcp_internal_secret="y" * 40,
+                remote_install_max_concurrent=2,
+            )
+        ):
+            sem = get_install_semaphore()
+            assert sem._value == 2
+            # Same limit → same instance.
+            assert get_install_semaphore() is sem
+
+        # A changed limit rebuilds the semaphore.
+        with override_settings(
+            Settings(
+                jwt_secret="x" * 40,
+                encryption_key=base.encryption_key,
+                mcp_internal_secret="y" * 40,
+                remote_install_max_concurrent=7,
+            )
+        ):
+            sem2 = get_install_semaphore()
+            assert sem2 is not sem
+            assert sem2._value == 7
+    finally:
+        reset_install_concurrency()
+
+
 @pytest.mark.asyncio
 async def test_wrong_permission_returns_403(
     client: AsyncClient,

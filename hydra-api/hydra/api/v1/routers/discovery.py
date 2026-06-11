@@ -42,6 +42,11 @@ from hydra.api.v1.models.discovery import (
     StartScanRequest,
     SubmitScanResultsRequest,
 )
+from hydra.api.v1.models.installations import (
+    DiscoveryRemoteInstallRequest,
+    InstallationResponse,
+    StartInstallationRequest,
+)
 from hydra.api.v1.services.discovery import DiscoveryService
 from hydra.api.v1.services.discovery.exclusions import ExclusionService
 
@@ -412,6 +417,40 @@ async def register_device(
         discovery_id, request, user_id=user["userId"]
     )
     return SuccessResponse(data=RegisterDeviceResponse(**result))
+
+
+@router.post(
+    "/devices/{discovery_id}/remote-install",
+    response_model=SuccessResponse[InstallationResponse],
+    response_model_by_alias=True,
+    status_code=201,
+    summary="Remote-Install Agent on Discovered Device",
+    description=(
+        "Start a remote SSH agent installation on a discovered device. The "
+        "target IP/hostname are taken from the discovery record and the device's "
+        "eligibility is checked before the install begins."
+    ),
+    dependencies=[Depends(require_permission("installations:write"))],
+)
+async def remote_install_discovered_device(
+    discovery_id: str,
+    request: DiscoveryRemoteInstallRequest,
+    mongodb: MongoDBDep,
+    user: CurrentUser,
+) -> SuccessResponse[InstallationResponse]:
+    """Start a discovery-linked remote agent installation."""
+    from hydra.api.v1.services.installations import InstallationService
+
+    install_request = StartInstallationRequest(
+        discovery_id=discovery_id,
+        credentials=request.credentials,
+        agent_tier=request.agent_tier,
+        tags=request.tags,
+    )
+    installation = await InstallationService(mongodb).start_installation(
+        install_request, user_id=user["userId"]
+    )
+    return SuccessResponse(data=InstallationResponse(**installation))
 
 
 @router.delete(

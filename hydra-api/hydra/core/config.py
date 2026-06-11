@@ -55,6 +55,44 @@ class Settings(BaseSettings):
         description="Verify TLS certificates when dispatching commands to agents",
     )
 
+    # Remote agent installation (SSH)
+    remote_install_ssh_key_path: str | None = Field(
+        default=None,
+        description=(
+            "Path to the default SSH private key used for remote installations "
+            "(HYDRA_REMOTE_INSTALL_SSH_KEY_PATH)"
+        ),
+    )
+    remote_install_ssh_public_key_path: str | None = Field(
+        default=None,
+        description=(
+            "Path to the SSH public key advertised via GET /agent/install/ssh-key. "
+            "Derived from the private key path (<key>.pub) when unset."
+        ),
+    )
+    remote_install_known_hosts_file: str | None = Field(
+        default=None,
+        description="Path to the SSH known_hosts file used for host-key verification",
+    )
+    remote_install_timeout_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="Per-host remote installation timeout in seconds",
+    )
+    remote_install_ssh_port_default: int = Field(
+        default=22,
+        ge=1,
+        le=65535,
+        description="Default SSH port when none is detected from discovery or provided",
+    )
+    remote_install_max_concurrent: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description="Maximum number of remote installations executing concurrently",
+    )
+
     registration_token_expire_days: int = 7
     registration_token_max_uses: int = 10
 
@@ -163,6 +201,24 @@ class Settings(BaseSettings):
             and self.smtp_host is not None
             and self.smtp_from_address is not None
         )
+
+    @property
+    def has_remote_install_key(self) -> bool:
+        """Check if a default SSH key is configured for remote installations."""
+        return self.remote_install_ssh_key_path is not None
+
+    @property
+    def resolved_remote_install_public_key_path(self) -> str | None:
+        """Resolve the SSH public key path for remote installs.
+
+        Uses the explicit public-key path when set, otherwise derives ``<key>.pub``
+        from the configured private key path. Returns ``None`` when no key is set.
+        """
+        if self.remote_install_ssh_public_key_path is not None:
+            return self.remote_install_ssh_public_key_path
+        if self.remote_install_ssh_key_path is not None:
+            return f"{self.remote_install_ssh_key_path}.pub"
+        return None
 
     @model_validator(mode="after")
     def _validate_jwt_secret(self) -> "Settings":

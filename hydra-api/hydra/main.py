@@ -15,7 +15,13 @@ from fastapi.staticfiles import StaticFiles
 
 from hydra.api.v1 import __version__
 from hydra.api.v1.main import app as v1_app
-from hydra.api.v1.routers import chat_ws, discovery_ws, health, notifications_ws
+from hydra.api.v1.routers import (
+    chat_ws,
+    discovery_ws,
+    health,
+    notifications_ws,
+    resource_events_ws,
+)
 from hydra.api.v1.services.health_scanner import HealthScanner
 from hydra.core.config import get_settings
 from hydra.core.logging import configure_logging
@@ -246,6 +252,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_ws.router, prefix="/api/v1")
     app.include_router(notifications_ws.router, prefix="/api/v1")
     app.include_router(discovery_ws.router, prefix="/api/v1")
+    app.include_router(resource_events_ws.router, prefix="/api/v1")
 
     # Mount versioned API
     app.mount("/api/v1", v1_app)

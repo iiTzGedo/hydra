@@ -55,6 +55,17 @@ class NodeRegistrationMixin:
 
         now = datetime.now(UTC)
 
+        # Unpack the nested agent metadata into the flat storage shape. The API
+        # contract is nested (agent.serverConfig); the node document persists the
+        # fields flat for query simplicity (see build_node_agent_info on read).
+        agent = request.agent
+        server_config = agent.server_config if agent else None
+        agent_tier = (agent.tier if agent else None) or "normal"
+        server_address = server_config.advertise_address if server_config else None
+        server_port = server_config.port if server_config else None
+        server_tls_enabled = server_config.tls_enabled if server_config else None
+        server_bind_address = server_config.bind_address if server_config else None
+
         node_doc = {
             "nodeId": request.node_id,
             "class": request.node_class,
@@ -66,10 +77,12 @@ class NodeRegistrationMixin:
             "parentNodeId": request.parent_node_id,
             "networkIds": [],
             "location": request.location,
-            "agentTier": request.agent_tier or "normal",
-            "serverAddress": request.server_address,
-            "serverPort": request.server_port,
-            "serverTlsEnabled": request.server_tls_enabled,
+            "agentTier": agent_tier,
+            "serverAddress": server_address,
+            "serverBindAddress": server_bind_address,
+            "serverPort": server_port,
+            "serverTlsEnabled": server_tls_enabled,
+            "credentialRotatedAt": None,
             "registeredAt": now,
             "registeredBy": registered_by,
             "lastUpdated": now,
@@ -79,7 +92,7 @@ class NodeRegistrationMixin:
 
         # Generate server secret for max-tier agents
         agent_server_secret = None
-        if request.agent_tier == "max" and request.server_address:
+        if agent_tier == "max" and server_address:
             agent_server_secret = f"hsk_api_{secrets.token_urlsafe(32)}"
             node_doc["agentServerSecret"] = agent_server_secret
             node_doc["serverReachable"] = True
@@ -222,3 +235,97 @@ class NodeRegistrationMixin:
             "previous_key_revoked": True,
             "refreshed_at": now,
         }
+
+    async def rotate_node_credentials(
+        self, node_id: str, rotated_by: str | None = None
+    ) -> dict[str, Any]:
+        """Rotate all credentials for a node (API key + max-tier server secret).
+
+        Invalidates every prior credential: previous API keys are revoked and,
+        for max-tier agents, the direct-control server secret is regenerated.
+        A ``credentialRotatedAt`` timestamp is recorded on the node so the
+        rotation is observable via the API (``agent.credentialRotatedAt``).
+
+        The new API key (and server secret, if applicable) are returned once and
+        never stored in plaintext. The running agent will receive 401s with its
+        old key and must be re-provisioned with the returned credentials.
+
+        Args:
+            node_id: The node identifier.
+            rotated_by: User ID performing the rotation.
+
+        Returns:
+            New credential material and the rotation timestamp.
+
+        Raises:
+            NodeNotFoundError: If the node does not exist.
+        """
+        node = await self.db.nodes.find_one({"nodeId": node_id})
+        if not node:
+            raise NodeNotFoundError(node_id)
+
+        now = datetime.now(UTC)
+
+        # Revoke all active API keys for the node.
+        await self.db.api_keys.update_many(
+            {"nodeId": node_id, "revokedAt": None},
+            {"$set": {"revokedAt": now}},
+        )
+
+        key_id = f"key_node_{secrets.token_urlsafe(8)}"
+        api_key = f"hyk_{key_id}.{secrets.token_urlsafe(32)}"
+        await self.db.api_keys.insert_one(
+            {
+                "keyId": key_id,
+                "keyHash": hash_password(api_key),
+                "name": f"{node_id}-agent",
+                "type": "node",
+                "ownerId": node.get("registeredBy", rotated_by),
+                "ownerType": "user",
+                "nodeId": node_id,
+                "permissions": [
+                    f"profiles:write:{node_id}",
+                    f"commands:poll:{node_id}",
+                ],
+                "expiresAt": None,
+                "lastUsedAt": None,
+                "createdAt": now,
+                "revokedAt": None,
+            }
+        )
+
+        node_update: dict[str, Any] = {"credentialRotatedAt": now, "lastUpdated": now}
+
+        # Regenerate the max-tier control-server secret if one exists.
+        new_server_secret: str | None = None
+        if node.get("agentTier") == "max" and node.get("serverAddress"):
+            new_server_secret = f"hsk_api_{secrets.token_urlsafe(32)}"
+            node_update["agentServerSecret"] = new_server_secret
+
+        await self.db.nodes.update_one(
+            {"nodeId": node_id}, {"$set": node_update}
+        )
+
+        logger.info(
+            "node_credentials_rotated",
+            node_id=node_id,
+            key_id=key_id,
+            server_secret_rotated=new_server_secret is not None,
+        )
+
+        await log_audit(
+            AuditAction.UPDATE, "node", node_id,
+            "user", rotated_by or "system", True,
+            details={"nodeId": node_id, "apiKeyId": key_id, "action": "credential_rotation"},
+        )
+
+        result: dict[str, Any] = {
+            "node_id": node_id,
+            "api_key_id": key_id,
+            "api_key": api_key,
+            "previous_credentials_revoked": True,
+            "credential_rotated_at": now,
+        }
+        if new_server_secret:
+            result["agent_server_secret"] = new_server_secret
+        return result

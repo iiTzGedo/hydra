@@ -43,6 +43,34 @@ class PluginService:
         self.mongodb = mongodb
         self.collection = mongodb.plugins
 
+    async def get_plugin_availability(self) -> list[dict[str, Any]]:
+        """Return a lightweight availability map of installed plugins.
+
+        Used by the dashboard to degrade plugin-backed widgets (P2DASH-T028):
+        a widget whose ``requiresPlugin`` is unavailable renders a "requires
+        plugin X" state. A plugin counts as available when enabled or active.
+
+        This is a read-only projection over existing plugin enable state — it
+        does not touch the plugin driver interface (deferred to P2F).
+        """
+        available_statuses = {PluginStatus.ENABLED.value, PluginStatus.ACTIVE.value}
+        cursor = self.collection.find(
+            {"uninstalledAt": {"$exists": False}},
+            projection={"pluginId": 1, "status": 1, "manifest.name": 1},
+        )
+        result: list[dict[str, Any]] = []
+        async for doc in cursor:
+            status = doc.get("status", PluginStatus.INSTALLED.value)
+            result.append(
+                {
+                    "pluginId": doc["pluginId"],
+                    "displayName": doc.get("manifest", {}).get("name", doc["pluginId"]),
+                    "status": status,
+                    "available": status in available_statuses,
+                }
+            )
+        return result
+
     @staticmethod
     def _encrypt_credentials(credentials: dict[str, str]) -> str:
         """Encrypt credentials using Fernet symmetric encryption."""

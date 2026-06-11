@@ -136,6 +136,17 @@ pub struct ServerConfig {
     pub tls_cert_file: Option<String>,
     /// Path to TLS private key file (PEM format)
     pub tls_key_file: Option<String>,
+    /// Expose a Prometheus `/metrics` endpoint (max-tier deep integration).
+    #[serde(default = "default_true")]
+    pub metrics_enabled: bool,
+    /// Expose a read-only Docker socket proxy at `/proxy/docker/*`
+    /// (max-tier deep integration). Disabled by default — exposing the Docker
+    /// socket grants broad host access, so opt in explicitly.
+    #[serde(default)]
+    pub docker_proxy_enabled: bool,
+    /// Path to the Docker daemon Unix socket used by the proxy.
+    #[serde(default = "default_docker_socket")]
+    pub docker_socket_path: String,
 }
 
 /// Scheduled collection configuration.
@@ -204,6 +215,10 @@ fn default_server_port() -> u16 {
     9100
 }
 
+fn default_docker_socket() -> String {
+    "/var/run/docker.sock".to_string()
+}
+
 impl Default for CollectionConfig {
     fn default() -> Self {
         Self {
@@ -226,6 +241,9 @@ impl Default for ServerConfig {
             tls_enabled: true,
             tls_cert_file: None,
             tls_key_file: None,
+            metrics_enabled: true,
+            docker_proxy_enabled: false,
+            docker_socket_path: default_docker_socket(),
         }
     }
 }

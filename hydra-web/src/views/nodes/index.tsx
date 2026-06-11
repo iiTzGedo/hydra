@@ -281,7 +281,7 @@ export default function NodesPage() {
         )}
         {cols.tier && (
           <TableCell className="text-muted-foreground text-sm capitalize">
-            {node.agentTier || 'normal'}
+            {node.agent?.tier || 'normal'}
           </TableCell>
         )}
         {cols.status && (

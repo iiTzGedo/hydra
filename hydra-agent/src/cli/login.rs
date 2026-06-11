@@ -251,6 +251,7 @@ async fn login_with_agent_credentials(
         expires_at: api_key.expires_at,
         node_id: Some(config.node.node_id.clone()),
         stored_at: chrono::Utc::now().to_rfc3339(),
+        rotated_at: None,
     };
     vault.save_api_key(&api_key_data)?;
 

@@ -187,6 +187,7 @@ mod tests {
                 expires_at: Some((Utc::now() + Duration::days(30)).to_rfc3339()),
                 node_id: Some("test-node-01".to_string()),
                 stored_at: Utc::now().to_rfc3339(),
+                rotated_at: None,
             })
             .unwrap();
         vault

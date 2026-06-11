@@ -205,6 +205,98 @@ async def get_install_script(
     )
 
 
+class SSHKeyResponse(BaseModel):
+    """Public SSH key used for remote agent installations."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    public_key: str = Field(alias="publicKey")
+    fingerprint: str = Field(description="SHA256 fingerprint (SHA256:... form)")
+    format: str = Field(description="Key type, e.g. ssh-ed25519 or ssh-rsa")
+
+
+@router.get(
+    "/install/ssh-key",
+    summary="Remote Install SSH Public Key",
+    description=(
+        "Returns the public SSH key the API uses for remote agent installs. Add "
+        "it to a target host's authorized_keys to enable key-based installation."
+    ),
+    response_model=SSHKeyResponse,
+    response_model_by_alias=True,
+    responses={
+        200: {"description": "Public key, fingerprint, and format"},
+        503: {"description": "No remote-install SSH key is configured"},
+    },
+)
+async def get_install_ssh_key() -> SSHKeyResponse:
+    """Return the configured remote-install SSH public key and its fingerprint.
+
+    Raises:
+        HTTPException 503: No key configured or the key file is unreadable.
+    """
+    import base64
+    import hashlib
+    from pathlib import Path
+
+    from hydra.core.config import get_settings
+
+    settings = get_settings()
+    public_key_path = settings.resolved_remote_install_public_key_path
+    if not public_key_path:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "code": "SSH_KEY_NOT_CONFIGURED",
+                    "message": "No remote-install SSH key is configured.",
+                    "details": {
+                        "hint": "Set HYDRA_REMOTE_INSTALL_SSH_KEY_PATH to enable remote installs.",
+                    },
+                }
+            },
+        )
+
+    try:
+        public_key = Path(public_key_path).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "code": "SSH_KEY_UNREADABLE",
+                    "message": "The configured SSH public key could not be read.",
+                    "details": {"path": public_key_path, "reason": str(exc)},
+                }
+            },
+        )
+
+    parts = public_key.split()
+    if len(parts) < 2:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "code": "SSH_KEY_MALFORMED",
+                    "message": "The configured SSH public key is malformed.",
+                }
+            },
+        )
+    key_format = parts[0]
+    try:
+        key_blob = base64.b64decode(parts[1])
+        digest = hashlib.sha256(key_blob).digest()
+        fingerprint = "SHA256:" + base64.b64encode(digest).decode().rstrip("=")
+    except (ValueError, IndexError):
+        fingerprint = "SHA256:unknown"
+
+    return SSHKeyResponse(
+        public_key=public_key,
+        fingerprint=fingerprint,
+        format=key_format,
+    )
+
+
 @router.get(
     "/download",
     summary="Download Agent Bundle or Binary",

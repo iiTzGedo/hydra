@@ -35,10 +35,12 @@ fn ensure_tls_crypto_provider() {
 fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", routing::get(handlers::health))
+        .route("/metrics", routing::get(handlers::metrics))
         .route("/execute", routing::post(handlers::execute))
         .route("/probe", routing::post(handlers::probe))
         .route("/config", routing::post(handlers::config_update))
         .route("/update", routing::post(handlers::update))
+        .route("/proxy/docker/*path", routing::get(handlers::docker_proxy))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
@@ -245,6 +247,9 @@ ak58eJJ5Ro104TSDawOK1p40
                 tls_enabled: true,
                 tls_cert_file: Some(cert_path.display().to_string()),
                 tls_key_file: Some(key_path.display().to_string()),
+                metrics_enabled: true,
+                docker_proxy_enabled: false,
+                docker_socket_path: "/var/run/docker.sock".to_string(),
             },
         };
 

@@ -51,6 +51,29 @@ class SSHCredentials(BaseModel):
         return self
 
 
+class InstallationStepStatus(StrEnum):
+    """Status of a single installation step."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class InstallationStep(BaseModel):
+    """A single structured step in an installation's execution log."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    step: str = Field(description="Step identifier (matches the installation phase)")
+    status: InstallationStepStatus
+    started_at: datetime | None = Field(default=None, alias="startedAt")
+    completed_at: datetime | None = Field(default=None, alias="completedAt")
+    duration_seconds: float | None = Field(default=None, alias="durationSeconds")
+    message: str = Field(default="", description="Human-readable status message")
+    output: str | None = Field(default=None, description="Captured step output")
+
+
 class InstallationProgress(BaseModel):
     """Current progress of an installation."""
 
@@ -94,6 +117,7 @@ class InstallationResponse(BaseModel):
     target_hostname: str | None = Field(default=None, alias="targetHostname")
     status: InstallationStatus
     progress: InstallationProgress
+    steps: list[InstallationStep] = Field(default_factory=list)
     node_id: str | None = Field(default=None, alias="nodeId")
     error: str | None = None
     agent_tier: str = Field(default="normal", alias="agentTier")
@@ -148,6 +172,20 @@ class StartInstallationRequest(BaseModel):
         if not self.discovery_id and not self.target_ip:
             raise ValueError("Either discoveryId or targetIp must be provided")
         return self
+
+
+class DiscoveryRemoteInstallRequest(BaseModel):
+    """Start a remote install for a discovered device (target comes from discovery)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    credentials: SSHCredentials = Field(description="SSH connection credentials")
+    agent_tier: str = Field(
+        default="normal",
+        alias="agentTier",
+        description="Agent tier to install (lite/normal/max)",
+    )
+    tags: list[str] = Field(default_factory=list, description="Tags for the node")
 
 
 # ── List Query Parameters ───────────────────────────────────────────

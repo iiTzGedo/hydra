@@ -48,6 +48,7 @@ fn sample_api_key(expires_in_days: Option<i64>) -> ApiKeyData {
         expires_at,
         node_id: Some("test-node-01".to_string()),
         stored_at: Utc::now().to_rfc3339(),
+        rotated_at: None,
     }
 }
 
@@ -1027,6 +1028,7 @@ fn test_api_key_with_invalid_expiry_format() {
         expires_at: Some("invalid-date-format".to_string()),
         node_id: None,
         stored_at: Utc::now().to_rfc3339(),
+        rotated_at: None,
     };
 
     vault.save_api_key(&api_key).expect("Should save");

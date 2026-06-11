@@ -137,6 +137,23 @@ class NodeApiKeyRefreshResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class NodeCredentialRotationResponse(BaseModel):
+    """Response for a full node credential rotation."""
+
+    node_id: str = Field(alias="nodeId")
+    api_key_id: str = Field(alias="apiKeyId")
+    api_key: str = Field(alias="apiKey", description="The new API key (only shown once)")
+    agent_server_secret: str | None = Field(
+        default=None,
+        alias="agentServerSecret",
+        description="New max-tier control-server secret, if the node has one (only shown once)",
+    )
+    previous_credentials_revoked: bool = Field(alias="previousCredentialsRevoked")
+    credential_rotated_at: datetime = Field(alias="credentialRotatedAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class RegistrationTokenResponse(BaseModel):
     """Registration token creation response."""
 
