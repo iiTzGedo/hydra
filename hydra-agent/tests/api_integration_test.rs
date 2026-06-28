@@ -120,6 +120,9 @@ fn empty_profile() -> Profile {
         network: None,
         storage: None,
         software: None,
+        services: None,
+        users: None,
+        configs: None,
         metadata: HashMap::new(),
     }
 }

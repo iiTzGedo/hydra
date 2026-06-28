@@ -181,6 +181,138 @@ async def test_submit_profile_node_not_found(
 
 
 @pytest.mark.asyncio
+async def test_submit_profile_with_services_extracts_service_ids(
+    client: AsyncClient,
+    mock_mongodb,
+    agent_token,
+    sample_node,
+    monkeypatch,
+):
+    """A profile carrying a services section is extracted into service IDs."""
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
+    mock_mongodb.profile_meta.find_one = AsyncMock(return_value=None)
+    mock_mongodb.services.find_one = AsyncMock(return_value=None)  # all new
+    monkeypatch.setattr(
+        "hydra.api.v1.services.profiles.service_extraction.is_known_service",
+        AsyncMock(return_value=True),
+    )
+
+    now = datetime.now(UTC)
+    response = await client.post(
+        "/api/v1/profiles",
+        json={
+            "nodeId": sample_node["nodeId"],
+            "collectedAt": now.isoformat(),
+            "agentVersion": "0.3.3",
+            "collectionLevel": "neutral",
+            "services": {
+                "services": [
+                    {"name": "nginx", "runtime": "systemd", "status": "active"},
+                    {
+                        "name": "redis",
+                        "runtime": "docker",
+                        "status": "running",
+                        "image": "redis:7",
+                    },
+                ]
+            },
+        },
+        headers={"Authorization": f"Bearer {agent_token}"},
+    )
+
+    assert response.status_code == 200
+    service_ids = response.json()["data"]["serviceIds"]
+    assert len(service_ids) == 2
+    assert all(sid.startswith("svc-") for sid in service_ids)
+    assert any(sid.startswith("svc-nginx-") for sid in service_ids)
+    # Services were upserted into the services collection.
+    assert mock_mongodb.services.update_one.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_submit_profile_persists_users_and_configs(
+    client: AsyncClient,
+    mock_mongodb,
+    agent_token,
+    sample_node,
+):
+    """Users and configs sections are persisted and returned in the profile."""
+    mock_mongodb.nodes.find_one = AsyncMock(return_value=sample_node)
+    mock_mongodb.profile_meta.find_one = AsyncMock(return_value=None)
+    insert_mock = AsyncMock()
+    mock_mongodb.profiles.insert_one = insert_mock
+
+    now = datetime.now(UTC)
+    response = await client.post(
+        "/api/v1/profiles",
+        json={
+            "nodeId": sample_node["nodeId"],
+            "collectedAt": now.isoformat(),
+            "agentVersion": "0.3.3",
+            "users": {
+                "users": [{"username": "alice", "uid": 1000, "groups": ["sudo"]}],
+                "sshKeys": [
+                    {
+                        "username": "alice",
+                        "keyType": "ssh-ed25519",
+                        "fingerprint": "SHA256:abc",
+                    }
+                ],
+            },
+            "configs": {
+                "files": [{"path": "/etc/hosts", "hash": "deadbeef", "sizeBytes": 100}]
+            },
+        },
+        headers={"Authorization": f"Bearer {agent_token}"},
+    )
+
+    assert response.status_code == 200
+    # Persisted document carries both sections.
+    inserted = insert_mock.await_args.args[0]
+    assert inserted["users"]["users"][0]["username"] == "alice"
+    assert inserted["users"]["sshKeys"][0]["fingerprint"] == "SHA256:abc"
+    assert inserted["configs"]["files"][0]["path"] == "/etc/hosts"
+    # Response surfaces them too.
+    data = response.json()["data"]
+    assert data["users"]["users"][0]["username"] == "alice"
+    assert data["configs"]["files"][0]["path"] == "/etc/hosts"
+
+
+@pytest.mark.asyncio
+async def test_regenerate_topologies_invokes_affected_modes(mock_mongodb, monkeypatch):
+    """The profile service regenerates infra always, plus service/network on change."""
+    from hydra.api.v1.services import topologies as topo_mod
+    from hydra.api.v1.services.profiles import ProfileService
+
+    gen_mock = AsyncMock(return_value={})
+    monkeypatch.setattr(topo_mod.TopologiesService, "generate_topology", gen_mock)
+
+    service = ProfileService(mock_mongodb)
+    await service._regenerate_topologies(regen_service=True, regen_network=True)
+
+    modes = [call.args[0].mode.value for call in gen_mock.await_args_list]
+    assert modes == ["infrastructure", "service", "network"]
+
+
+@pytest.mark.asyncio
+async def test_regenerate_topologies_infrastructure_only_when_unchanged(
+    mock_mongodb, monkeypatch
+):
+    """With no service/network changes, only the infrastructure topology regenerates."""
+    from hydra.api.v1.services import topologies as topo_mod
+    from hydra.api.v1.services.profiles import ProfileService
+
+    gen_mock = AsyncMock(return_value={})
+    monkeypatch.setattr(topo_mod.TopologiesService, "generate_topology", gen_mock)
+
+    service = ProfileService(mock_mongodb)
+    await service._regenerate_topologies(regen_service=False, regen_network=False)
+
+    modes = [call.args[0].mode.value for call in gen_mock.await_args_list]
+    assert modes == ["infrastructure"]
+
+
+@pytest.mark.asyncio
 async def test_get_profile_success(
     client: AsyncClient,
     mock_mongodb,

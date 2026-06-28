@@ -1,6 +1,6 @@
 [package]
 name = "hydra-agent"
-version = "0.1.0"
+version = "0.3.3"
 edition = "2021"
 authors = ["Hydra Team"]
 description = "Hydra Agent - Lightweight infrastructure profiler"

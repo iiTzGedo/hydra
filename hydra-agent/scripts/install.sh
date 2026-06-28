@@ -35,6 +35,30 @@ error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
 step()    { echo -e "${CYAN}[STEP]${NC} $*"; }
 
+# Resolve agent root (parent of scripts/) and load .env without overriding
+# variables already present in the environment. A no-op under `curl | bash`
+# (no repo .env on the target node); picks up hydra-agent/.env when run locally.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo .)"
+AGENT_ROOT="$(cd "${SCRIPT_DIR}/.." 2>/dev/null && pwd || echo .)"
+
+load_env() {
+    local env_file="${HYDRA_AGENT_ENV_FILE:-${AGENT_ROOT}/.env}"
+    [[ -f "$env_file" ]] || return 0
+    info "Loading environment from ${env_file}"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"          # ltrim
+        [[ -z "$line" || "$line" == \#* ]] && continue    # skip blank/comment
+        line="${line#export }"                            # allow 'export KEY=…'
+        [[ "$line" != *=* ]] && continue
+        local key="${line%%=*}" value="${line#*=}"
+        key="${key%%[[:space:]]*}"                        # trim key
+        value="${value%\"}"; value="${value#\"}"          # strip quotes
+        value="${value%\'}"; value="${value#\'}"
+        [[ -z "${!key:-}" ]] && export "${key}=${value}"  # set only if unset
+    done < "$env_file"
+}
+load_env
+
 # Default values
 VERSION=""
 INSTALL_DIR="/usr/local/bin"

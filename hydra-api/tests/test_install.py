@@ -69,6 +69,46 @@ async def test_get_install_script_with_params(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_unix_default_install_is_prebuilt_binary(client: AsyncClient):
+    """Default Unix install (source=binary) returns a prebuilt-binary script, not a 400."""
+    response = await client.get("/api/v1/agent/install?os=linux")
+
+    assert response.status_code == 200
+    assert response.headers["X-Script-Type"] == "bash"
+    assert response.headers["X-Install-Kind"] == "binary"
+    body = response.text
+    # Downloads a prebuilt binary (no cargo build) and bootstraps with a token.
+    assert "source=binary" in body
+    assert "bootstrap --token" in body
+    assert "cargo build" not in body
+    # Verifies the checksum returned by /agent/download.
+    assert "x-checksum-sha256" in body.lower()
+
+
+@pytest.mark.asyncio
+async def test_unix_source_bundle_install_compiles(client: AsyncClient):
+    """Explicit source=local/obs returns the source-bundle (compile) installer."""
+    response = await client.get("/api/v1/agent/install?os=linux&source=local")
+
+    assert response.status_code == 200
+    assert response.headers["X-Script-Type"] == "bash"
+    assert response.headers["X-Install-Kind"] == "bundle"
+    assert "source=$SOURCE" in response.text or "source=local" in response.text
+
+
+@pytest.mark.asyncio
+async def test_windows_install_verifies_checksum_and_bootstraps(client: AsyncClient):
+    """Windows PowerShell installer verifies the checksum and runs the headless bootstrap."""
+    response = await client.get("/api/v1/agent/install?os=windows")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "Get-FileHash" in body
+    assert "X-Checksum-SHA256" in body
+    assert "bootstrap --token" in body
+
+
+@pytest.mark.asyncio
 async def test_get_agent_versions(
     client: AsyncClient,
     mock_mongodb,

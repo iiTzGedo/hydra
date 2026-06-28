@@ -8,6 +8,7 @@
 //! - [`node`] - Node management operations
 //! - [`service`] - Service lifecycle management
 
+pub mod bootstrap;
 pub mod config;
 pub mod login;
 pub mod node;
@@ -80,6 +81,9 @@ pub enum Commands {
 
     /// Service lifecycle management
     Service(service::ServiceArgs),
+
+    /// Headless bootstrap: register account + node, collect first profile, activate service
+    Bootstrap(bootstrap::BootstrapArgs),
 
     /// Run profile collection
     Run {

@@ -171,18 +171,13 @@ async def get_install_script(
         )
 
     if source == StorageSource.BINARY:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": {
-                    "code": "UNSUPPORTED_SOURCE",
-                    "message": "Binary source is not supported for Unix /agent/install. Use ?source=local or ?source=obs for source bundle installation, or download binary directly via /agent/download.",
-                    "details": {"allowed_sources": ["local", "obs"]},
-                }
-            },
-        )
-
-    script = install_service.generate_bash_script(api_url, source=source, version=version)
+        # Default Unix path: download a prebuilt binary (no compilation on the target).
+        script = install_service.generate_binary_bash_script(api_url, version=version)
+        install_kind = "binary"
+    else:
+        # Source-bundle path: download bundle and compile with cargo on the target.
+        script = install_service.generate_bash_script(api_url, source=source, version=version)
+        install_kind = "bundle"
 
     logger.info(
         "install_script_generated",
@@ -192,6 +187,7 @@ async def get_install_script(
         source=source.value,
         version=version,
         script_type="bash",
+        install_kind=install_kind,
     )
 
     return Response(
@@ -201,6 +197,7 @@ async def get_install_script(
             "Content-Disposition": 'attachment; filename="hydra-install.sh"',
             "X-Hydra-Version": __version__,
             "X-Script-Type": "bash",
+            "X-Install-Kind": install_kind,
         },
     )
 

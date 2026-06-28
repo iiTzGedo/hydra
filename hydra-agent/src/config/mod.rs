@@ -192,6 +192,7 @@ fn default_collectors() -> Vec<String> {
         "network".to_string(),
         "storage".to_string(),
         "software".to_string(),
+        "services".to_string(),
     ]
 }
 
@@ -339,12 +340,14 @@ impl AgentConfig {
             ));
         }
 
-        const VALID_COLLECTORS: &[&str] = &["hardware", "network", "storage", "software"];
+        const VALID_COLLECTORS: &[&str] =
+            &["hardware", "network", "storage", "software", "services", "users", "configs"];
         for collector in &self.collection.collectors {
             if !VALID_COLLECTORS.contains(&collector.as_str()) {
                 return Err(anyhow!(
-                    "Invalid collector '{}'. Must be one of: hardware, network, storage, software",
-                    collector
+                    "Invalid collector '{}'. Must be one of: {}",
+                    collector,
+                    VALID_COLLECTORS.join(", ")
                 ));
             }
         }

@@ -14,6 +14,7 @@ import {
   Wrench,
   Users,
   Shield,
+  FileCog,
 } from 'lucide-react';
 import { useNode } from '@/api/nodes';
 import { useProfile } from '@/api/profiles';
@@ -68,7 +69,8 @@ export default function ProfileDetailPage() {
     profile.storage ||
     profile.software ||
     (profile.serviceIds && profile.serviceIds.length > 0) ||
-    profile.users;
+    profile.users ||
+    (profile.configs && (profile.configs.files?.length ?? 0) > 0);
 
   return (
     <div className="p-6">
@@ -146,6 +148,12 @@ export default function ProfileDetailPage() {
             <UsersSectionView profile={profile} />
           </ProfileSection>
         )}
+
+        {profile.configs && (profile.configs.files?.length ?? 0) > 0 && (
+          <ProfileSection title="Config Files" icon={<FileCog className="h-5 w-5" />}>
+            <ConfigsSectionView profile={profile} />
+          </ProfileSection>
+        )}
       </motion.div>
     </div>
   );
@@ -159,6 +167,7 @@ function ProfileMetadataSummary({ nodeId, profile }: { nodeId: string; profile: 
     profile.software,
     profile.serviceIds && profile.serviceIds.length > 0,
     profile.users,
+    profile.configs && (profile.configs.files?.length ?? 0) > 0,
   ].filter(Boolean).length;
 
   return (
@@ -675,6 +684,44 @@ function UsersSectionView({ profile }: { profile: Profile }) {
       {users.length === 0 && sshKeys.length === 0 && (
         <EmptySectionNotice message="No user data reported." />
       )}
+    </div>
+  );
+}
+
+function ConfigsSectionView({ profile }: { profile: Profile }) {
+  const files = profile.configs?.files || [];
+
+  if (files.length === 0) {
+    return <EmptySectionNotice message="No configuration files tracked in this profile." />;
+  }
+
+  return (
+    <div className="rounded-lg border overflow-hidden">
+      <div className="bg-muted/50 px-4 py-2 border-b">
+        <h4 className="text-sm font-medium">Tracked Config Files ({files.length})</h4>
+      </div>
+      <div className="divide-y">
+        {files.map((file, index) => (
+          <div key={`${file.path}-${index}`} className="p-4 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono break-all">{file.path}</span>
+              {file.sizeBytes !== undefined && (
+                <span className="text-muted-foreground whitespace-nowrap">
+                  {formatBytes(file.sizeBytes)}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 font-mono text-xs text-muted-foreground truncate">
+              {file.hash}
+            </div>
+            {file.modifiedAt && (
+              <div className="mt-1 text-xs text-muted-foreground">
+                Modified {formatDate(new Date(file.modifiedAt))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

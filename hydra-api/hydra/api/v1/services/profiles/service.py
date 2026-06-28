@@ -158,6 +158,14 @@ class ProfileService:
             {"$set": node_update_fields},
         )
 
+        # Regenerate topologies so service/network auto-discovery from this
+        # profile is reflected in the graph and Time Machine validity windows.
+        # Fire-and-forget: the agent's submission response must not block on it.
+        safe_create_task(self._regenerate_topologies(
+            regen_service=bool(service_ids),
+            regen_network=bool(network_ids),
+        ))
+
         try:
             await self.docs.refresh_documents_for_entity(
                 "node",
@@ -318,6 +326,46 @@ class ProfileService:
             ))
 
         return format_profile(profile_doc)
+
+    async def _regenerate_topologies(
+        self,
+        regen_service: bool = False,
+        regen_network: bool = False,
+    ) -> None:
+        """Regenerate topologies affected by a profile submission.
+
+        The infrastructure topology is always regenerated (node/profile state
+        changed); the service and network topologies are regenerated only when
+        the profile actually discovered/changed services or networks. Each
+        generation closes the previous topology's validity window and opens a
+        new one, which is what Time Machine relies on for historical
+        reconstruction. Failures are logged but never propagated — topology
+        regeneration is a best-effort side effect of profiling.
+        """
+        from hydra.api.v1.models.topologies import (
+            GenerateTopologyRequest,
+            TopologyMode,
+        )
+        from hydra.api.v1.services.topologies import TopologiesService
+
+        modes = [TopologyMode.INFRASTRUCTURE]
+        if regen_service:
+            modes.append(TopologyMode.SERVICE)
+        if regen_network:
+            modes.append(TopologyMode.NETWORK)
+
+        topology_service = TopologiesService(self.db)
+        for mode in modes:
+            try:
+                await topology_service.generate_topology(
+                    GenerateTopologyRequest(mode=mode)
+                )
+            except Exception as exc:
+                logger.warning(
+                    "profile_topology_regen_failed",
+                    mode=mode.value,
+                    error=str(exc),
+                )
 
     async def get_profile(self, profile_id: str) -> dict[str, Any]:
         """Retrieve a specific profile by its identifier.

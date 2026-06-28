@@ -77,6 +77,15 @@ async fn main() -> Result<()> {
             cli::node::execute(&args, &config, &vault).await
         }
         Some(Commands::Service(args)) => cli::service::execute(&args, &cli.config),
+        Some(Commands::Bootstrap(args)) => {
+            if is_dev_mode {
+                return Err(anyhow::anyhow!(
+                    "Bootstrap requires live mode (it registers and profiles against the API)"
+                ));
+            }
+            let config = load_config(&cli.config)?;
+            cli::bootstrap::execute(&args, &config, &cli.config, &vault).await
+        }
         Some(Commands::Run { once }) => {
             if is_dev_mode {
                 return dev_mode_run(&cli.config, once).await;

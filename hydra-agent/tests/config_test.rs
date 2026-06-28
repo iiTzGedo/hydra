@@ -565,7 +565,7 @@ collectors = ["hardware", "invalid_collector"]
 }
 
 #[test]
-fn test_services_collector_is_rejected() {
+fn test_services_collector_is_accepted() {
     let config_content = r#"
 [api]
 url = "http://localhost:8080/api/v1"
@@ -574,16 +574,35 @@ url = "http://localhost:8080/api/v1"
 node_id = "testnode"
 
 [collection]
-collectors = ["hardware", "services"]
+collectors = ["hardware", "services", "users", "configs"]
 "#;
 
     let temp_file = write_config(config_content);
     let result = AgentConfig::load(temp_file.path());
-    assert!(result.is_err(), "services collector should be rejected");
+    assert!(
+        result.is_ok(),
+        "services/users/configs are valid collectors: {:?}",
+        result.err()
+    );
+}
 
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("Invalid collector"));
-    assert!(err.contains("hardware, network, storage, software"));
+#[test]
+fn test_unknown_collector_is_rejected() {
+    let config_content = r#"
+[api]
+url = "http://localhost:8080/api/v1"
+
+[node]
+node_id = "testnode"
+
+[collection]
+collectors = ["hardware", "bogus"]
+"#;
+
+    let temp_file = write_config(config_content);
+    let result = AgentConfig::load(temp_file.path());
+    assert!(result.is_err(), "unknown collector should be rejected");
+    assert!(result.unwrap_err().to_string().contains("Invalid collector"));
 }
 
 #[test]
@@ -854,8 +873,12 @@ node_id = "testnode"
     let temp_file = write_config(config_content);
     let config = AgentConfig::load(temp_file.path()).unwrap();
 
-    // Default collectors should include 4 (services not yet implemented)
-    assert_eq!(config.collection.collectors.len(), 4);
+    // Default collectors: hardware, network, storage, software, services
+    assert_eq!(config.collection.collectors.len(), 5);
+    assert!(config
+        .collection
+        .collectors
+        .contains(&"services".to_string()));
     assert!(config
         .collection
         .collectors

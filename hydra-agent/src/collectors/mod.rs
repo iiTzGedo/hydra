@@ -6,10 +6,13 @@
 //! - [`software`] - Operating system, packages, and services
 //! - [`storage`] - Disks, filesystems, and mounts
 
+pub mod configs;
 pub mod hardware;
 pub mod network;
+pub mod services;
 pub mod software;
 pub mod storage;
+pub mod users;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -19,10 +22,13 @@ use tracing::info;
 
 use crate::config::AgentConfig;
 
+pub use configs::ConfigsCollector;
 pub use hardware::HardwareCollector;
 pub use network::NetworkCollector;
+pub use services::ServicesCollector;
 pub use software::SoftwareCollector;
 pub use storage::StorageCollector;
+pub use users::UsersCollector;
 
 /// Complete system profile containing all collected data sections.
 ///
@@ -55,6 +61,15 @@ pub struct Profile {
     /// Operating system and software information
     #[serde(skip_serializing_if = "Option::is_none")]
     pub software: Option<software::SoftwareProfile>,
+    /// Discovered services (systemd, docker, launchd, windows, rc)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub services: Option<services::ServicesProfile>,
+    /// Local user accounts and SSH key fingerprints
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub users: Option<users::UsersProfile>,
+    /// Tracked configuration file hashes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configs: Option<configs::ConfigsProfile>,
     /// Additional metadata key-value pairs
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
@@ -78,6 +93,15 @@ impl Profile {
         }
         if self.software.is_some() {
             sections.push("software");
+        }
+        if self.services.is_some() {
+            sections.push("services");
+        }
+        if self.users.is_some() {
+            sections.push("users");
+        }
+        if self.configs.is_some() {
+            sections.push("configs");
         }
         sections
     }
@@ -127,6 +151,9 @@ pub async fn collect_profile(config: &AgentConfig) -> Result<Profile> {
         network: None,
         storage: None,
         software: None,
+        services: None,
+        users: None,
+        configs: None,
         metadata: std::collections::HashMap::new(),
     };
 
@@ -162,6 +189,30 @@ pub async fn collect_profile(config: &AgentConfig) -> Result<Profile> {
     if collectors.contains("software") {
         info!("Collecting software information...");
         profile.software = Some(SoftwareCollector::collect(config)?);
+    }
+
+    if collectors.contains("services") {
+        info!("Collecting service information...");
+        profile.services = Some(ServicesCollector::collect());
+    }
+
+    // Users are gated by the include_users flag rather than the collector list
+    // so existing configs keep working; the section is collected whenever the
+    // "software" or "users" collector is enabled and include_users is set.
+    if config.collection.include_users
+        && (collectors.contains("software") || collectors.contains("users"))
+    {
+        info!("Collecting user accounts and SSH keys...");
+        profile.users = Some(UsersCollector::collect());
+    }
+
+    // Config-file tracking runs whenever the operator configured paths to track.
+    if !config.collection.config_files.is_empty() {
+        info!(
+            count = config.collection.config_files.len(),
+            "Hashing tracked configuration files..."
+        );
+        profile.configs = Some(ConfigsCollector::collect(&config.collection.config_files));
     }
 
     Ok(profile)

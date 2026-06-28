@@ -58,8 +58,8 @@ retries = 3
 level = "neutral"
 
 # Enabled collectors (default: all)
-# Available: hardware, network, storage, software
-collectors = ["hardware", "network", "storage", "software"]
+# Available: hardware, network, storage, software, services
+collectors = ["hardware", "network", "storage", "software", "services"]
 
 # Include package list (can be slow on systems with many packages)
 include_packages = true

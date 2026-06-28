@@ -61,53 +61,68 @@
 ## Quick Start
 
 ```bash
-# Install the agent
-curl -sSL https://hydra.local/api/v1/install | bash -s -- -v 0.3.1
+# Headless install: downloads the prebuilt binary, verifies its checksum, and
+# (with a registration token) registers the account + node, runs the first
+# profile, and activates the system service — one command, no interaction.
+curl -sSL http://<api-host>:8080/api/v1/agent/install | bash -s -- -r <registration_token>
+```
 
-# Login as admin/operator
-hydra-agent login -u admin
+Without a token, the binary + config are installed and you can finish manually
+(or re-run the bootstrap later):
 
-# Register the agent account
-hydra-agent register
-
-# Register this machine as a node
-hydra-agent node register
-
-# Activate as system service
-sudo hydra-agent service activate
+```bash
+sudo hydra-agent bootstrap --token <registration_token>
+# …or the individual steps:
+hydra-agent register --token <token>   # agent account
+hydra-agent node register              # this machine as a node
+hydra-agent run --once                 # first profile
+sudo hydra-agent service activate      # ongoing scheduled collection
 ```
 
 ## Installation
 
-### 1. One-liner Install (Recommended)
+### 1. Headless Binary Install (Recommended)
 
-Downloads source bundle from Hydra API, builds locally, and installs:
+`GET /agent/install` on Unix returns a **prebuilt-binary** installer (no compiler
+required on the target): it detects the platform, downloads the matching binary
+from object storage, verifies the `X-Checksum-SHA256`, writes config (API URL
+derived from the request, `node_id` derived from the hostname), and on `-r`
+performs a full headless bootstrap. The API URL/protocol come from the request,
+so use HTTP for local development.
 
 ```bash
-# Basic install
-curl -sSL https://hydra.local/api/v1/install | bash -s -- -v 0.3.1
+# Full headless bootstrap (account + node + first profile + service)
+curl -sSL http://<api-host>:8080/api/v1/agent/install | bash -s -- -r <registration_token>
 
-# With alias and PATH setup
-curl -sSL https://hydra.local/api/v1/install | bash -s -- -v 0.3.1 -a -g
-
-# With auto-registration
-curl -sSL https://hydra.local/api/v1/install | bash -s -- \
-  -v 0.3.1 -r <registration_token>
+# Install only (no registration), with alias + PATH
+curl -sSL http://<api-host>:8080/api/v1/agent/install | bash -s -- -a -g
 ```
 
 **Install script options:**
 
 | Flag | Long Form | Description | Default |
 |------|-----------|-------------|---------|
-| `-v` | `--version` | Version to install (**required**) | - |
+| `-v` | `--version` | Version to install | `latest` |
 | `-d` | `--install-dir` | Binary installation directory | `/usr/local/bin` |
 | `-c` | `--config` | Configuration file path | `/etc/hydra/agent.toml` |
 | `-a` | `--aliased` | Create `hydra` alias symlink | `false` |
 | `-g` | `--global` | Add to system PATH | `false` |
-| `-r` | `--register` | Auto-register with token | - |
+|      | `--node-id` | Override the derived node ID | hostname-derived |
+|      | `--tier` | Agent tier (`lite`/`normal`/`max`) | `normal` |
+| `-r` | `--register` | Headless bootstrap with token | - |
 | `-h` | `--help` | Show help | - |
 
-### 2. Source Bundle Install
+### 2. Source Bundle Install (compile on target)
+
+The `?source=local` / `?source=obs` install path downloads a **source bundle**
+and compiles the agent with `cargo` on the target (installs the Rust toolchain
+if missing). Use this only where no prebuilt binary exists for the platform:
+
+```bash
+curl -sSL "http://<api-host>:8080/api/v1/agent/install?source=obs" | bash -s -- -v 0.3.3
+```
+
+### 3. Legacy Source Bundle Reference
 
 Download and build from source bundle manually:
 
@@ -668,17 +683,49 @@ The `scripts/deploy-agent.sh` script handles building and distributing the agent
 ./scripts/deploy-agent.sh 0.3.1 --bundle --output-dir /var/lib/hydra/bundles
 ```
 
+### Environment File (`.env`)
+
+Like the other components, the agent ships a committed `.env.example` template at
+the component root. The `deploy-agent.sh` and `install.sh` scripts automatically
+source `.env` if it exists — so build/deploy credentials live in one place
+instead of being exported by hand:
+
+```bash
+cp .env.example .env
+# Edit .env: set HYDRA_OBJECT_STORAGE_ACCESS_KEY / _SECRET_KEY (and _ENDPOINT)
+./scripts/deploy-agent.sh 0.3.1
+```
+
+- **Precedence:** variables already set in the environment always win — `.env`
+  only fills in what is unset (`HYDRA_OBJECT_STORAGE_ACCESS_KEY=… ./scripts/deploy-agent.sh …`
+  overrides the file). This keeps CI and ad-hoc overrides authoritative.
+- **Custom path:** set `HYDRA_AGENT_ENV_FILE=/path/to/.env` to source a file
+  outside the agent directory.
+- **Git-ignored:** `.env` is covered by the repository `.gitignore` — never
+  commit real secrets.
+- **Agent runtime vars** (`HYDRA_API_KEY`, `HYDRA_AGENT_USER`, `HYDRA_AGENT_PWD`,
+  `HYDRA_CONFIG`, `RUST_LOG`) are documented in `.env.example` for local
+  development. The deployed binary reads its configuration from `agent.toml` and
+  the [credential vault](#credential-vault) — it does **not** auto-load `.env`.
+  For a local `cargo run`, export them first: `set -a; source .env; set +a`.
+
 ### Environment Variables
+
+Consumed by `scripts/deploy-agent.sh` (read from the environment or `.env`):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `HYDRA_S3_ENDPOINT` | S3/Garage endpoint URL | - |
-| `HYDRA_S3_BUCKET` | Bucket name | `hydra-bucket` |
-| `HYDRA_S3_ACCESS_KEY` | S3 access key ID | - |
-| `HYDRA_S3_SECRET_KEY` | S3 secret access key | - |
-| `SKIP_UPLOAD` | Skip S3 upload (build only) | `false` |
+| `HYDRA_OBJECT_STORAGE_ENDPOINT` | S3/Garage endpoint URL | - |
+| `HYDRA_OBJECT_STORAGE_BUCKET` | Bucket name | `hydra-bucket` |
+| `HYDRA_OBJECT_STORAGE_ACCESS_KEY` | S3 access key ID | - |
+| `HYDRA_OBJECT_STORAGE_SECRET_KEY` | S3 secret access key | - |
+| `HYDRA_OBJECT_STORAGE_REGION` | S3 region | `garage` |
+| `SKIP_UPLOAD` | Skip upload (build only) | `false` |
 | `TARGETS` | Comma-separated targets | All |
-| `MAX_VERSIONS` | Versions to retain in S3 | `15` |
+| `MAX_VERSIONS` | Versions to retain in object storage | `15` |
+
+These mirror the API's `HYDRA_OBJECT_STORAGE_*` settings, so the agent and API
+address the same object storage with the same variable names.
 
 ### Output Structure
 

@@ -11,13 +11,14 @@
 #   ./scripts/deploy-agent.sh 0.3.1 --bundle --output-dir /var/lib/hydra/bundles
 #   ./scripts/deploy-agent.sh 0.3.1 --both
 #
-# Environment Variables:
-#   HYDRA_S3_ENDPOINT    - S3/Garage endpoint URL (required for S3 upload)
-#   HYDRA_S3_BUCKET      - Bucket name (default: hydra-bucket)
-#   HYDRA_S3_ACCESS_KEY  - S3 access key ID (required for S3 upload)
-#   HYDRA_S3_SECRET_KEY  - S3 secret access key (required for S3 upload)
-#   SKIP_UPLOAD          - Set to "true" to skip S3 upload (build only)
-#   TARGETS              - Comma-separated list of targets to build (default: all)
+# Environment Variables (also read from hydra-agent/.env if present):
+#   HYDRA_OBJECT_STORAGE_ENDPOINT    - S3/Garage endpoint URL (required for upload)
+#   HYDRA_OBJECT_STORAGE_BUCKET      - Bucket name (default: hydra-bucket)
+#   HYDRA_OBJECT_STORAGE_ACCESS_KEY  - S3 access key ID (required for upload)
+#   HYDRA_OBJECT_STORAGE_SECRET_KEY  - S3 secret access key (required for upload)
+#   HYDRA_OBJECT_STORAGE_REGION      - S3 region (default: garage)
+#   SKIP_UPLOAD                      - Set to "true" to skip upload (build only)
+#   TARGETS                          - Comma-separated targets to build (default: all)
 #
 # Options:
 #   --bundle             Create source bundle instead of compiling binaries
@@ -38,12 +39,36 @@ warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
 
+# Resolve agent root (parent of scripts/) and load .env without overriding
+# variables already present in the environment (explicit env / CI always win).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+AGENT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+load_env() {
+    local env_file="${HYDRA_AGENT_ENV_FILE:-${AGENT_ROOT}/.env}"
+    [[ -f "$env_file" ]] || return 0
+    info "Loading environment from ${env_file}"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"          # ltrim
+        [[ -z "$line" || "$line" == \#* ]] && continue    # skip blank/comment
+        line="${line#export }"                            # allow 'export KEY=…'
+        [[ "$line" != *=* ]] && continue
+        local key="${line%%=*}" value="${line#*=}"
+        key="${key%%[[:space:]]*}"                        # trim key
+        value="${value%\"}"; value="${value#\"}"          # strip quotes
+        value="${value%\'}"; value="${value#\'}"
+        [[ -z "${!key:-}" ]] && export "${key}=${value}"  # set only if unset
+    done < "$env_file"
+}
+load_env
+
 # Configuration
 VERSION=""
-S3_ENDPOINT="${HYDRA_S3_ENDPOINT:-}"
-S3_BUCKET="${HYDRA_S3_BUCKET:-hydra-bucket}"
-S3_ACCESS_KEY="${HYDRA_S3_ACCESS_KEY:-}"
-S3_SECRET_KEY="${HYDRA_S3_SECRET_KEY:-}"
+S3_ENDPOINT="${HYDRA_OBJECT_STORAGE_ENDPOINT:-}"
+S3_BUCKET="${HYDRA_OBJECT_STORAGE_BUCKET:-hydra-bucket}"
+S3_ACCESS_KEY="${HYDRA_OBJECT_STORAGE_ACCESS_KEY:-}"
+S3_SECRET_KEY="${HYDRA_OBJECT_STORAGE_SECRET_KEY:-}"
+S3_REGION="${HYDRA_OBJECT_STORAGE_REGION:-garage}"
 SKIP_UPLOAD="${SKIP_UPLOAD:-false}"
 MAX_VERSIONS="${MAX_VERSIONS:-15}"
 
@@ -125,13 +150,14 @@ Examples:
   $0 0.3.1 --both                    # Create both binaries and bundle
   $0 0.3.1 --bundle --output-dir /var/lib/hydra/bundles  # Local bundle
 
-Environment Variables:
-  HYDRA_S3_ENDPOINT    S3/Garage endpoint URL
-  HYDRA_S3_BUCKET      Bucket name (default: hydra-bucket)
-  HYDRA_S3_ACCESS_KEY  S3 access key ID
-  HYDRA_S3_SECRET_KEY  S3 secret access key
-  SKIP_UPLOAD          Set to "true" to skip S3 upload
-  TARGETS              Comma-separated list of targets
+Environment Variables (also read from hydra-agent/.env if present):
+  HYDRA_OBJECT_STORAGE_ENDPOINT    S3/Garage endpoint URL
+  HYDRA_OBJECT_STORAGE_BUCKET      Bucket name (default: hydra-bucket)
+  HYDRA_OBJECT_STORAGE_ACCESS_KEY  S3 access key ID
+  HYDRA_OBJECT_STORAGE_SECRET_KEY  S3 secret access key
+  HYDRA_OBJECT_STORAGE_REGION      S3 region (default: garage)
+  SKIP_UPLOAD                      Set to "true" to skip upload
+  TARGETS                          Comma-separated list of targets
 EOF
 }
 
@@ -170,11 +196,11 @@ validate_args() {
     # Validate S3 credentials if upload is enabled
     if [[ "$SKIP_UPLOAD" != "true" ]] && [[ -z "$OUTPUT_DIR" ]]; then
         if [[ -z "$S3_ENDPOINT" ]]; then
-            error "HYDRA_S3_ENDPOINT is required (or use --output-dir for local)"
+            error "HYDRA_OBJECT_STORAGE_ENDPOINT is required (or use --output-dir for local)"
             exit 1
         fi
         if [[ -z "$S3_ACCESS_KEY" ]] || [[ -z "$S3_SECRET_KEY" ]]; then
-            error "HYDRA_S3_ACCESS_KEY and HYDRA_S3_SECRET_KEY are required"
+            error "HYDRA_OBJECT_STORAGE_ACCESS_KEY and HYDRA_OBJECT_STORAGE_SECRET_KEY are required"
             exit 1
         fi
     fi
@@ -266,17 +292,6 @@ build_target() {
 
     info "Building for ${hydra_target} (${rust_target})..."
 
-    # Build with release profile
-    if [[ "$build_cmd" == "cross" ]]; then
-        cross build --release --target "$rust_target" 2>&1 | while read -r line; do
-            echo "    $line"
-        done
-    else
-        cargo build --release --target "$rust_target" 2>&1 | while read -r line; do
-            echo "    $line"
-        done
-    fi
-
     # Determine binary name (Windows has .exe extension)
     local binary_name="hydra-agent"
     local output_binary_name="hydra-agent"
@@ -285,10 +300,29 @@ build_target() {
         output_binary_name="hydra-agent.exe"
     fi
 
-    # Check if binary was created
+    # Remove any stale binary first so a failed build can never publish a
+    # leftover artifact from a previous (different-version) build.
     local binary_src="target/${rust_target}/release/${binary_name}"
+    rm -f "$binary_src"
+
+    # Build with release profile, capturing the build's real exit status
+    # (PIPESTATUS[0]) rather than the tee/sed pipe's status.
+    local build_status
+    if [[ "$build_cmd" == "cross" ]]; then
+        cross build --release --target "$rust_target" 2>&1 | sed 's/^/    /'
+        build_status=${PIPESTATUS[0]}
+    else
+        cargo build --release --target "$rust_target" 2>&1 | sed 's/^/    /'
+        build_status=${PIPESTATUS[0]}
+    fi
+    if [[ "$build_status" -ne 0 ]]; then
+        error "Build failed for ${hydra_target} (exit ${build_status})"
+        return 1
+    fi
+
+    # Check if the binary was actually produced by this build
     if [[ ! -f "$binary_src" ]]; then
-        error "Binary not found: $binary_src"
+        error "Binary not found after build: $binary_src"
         return 1
     fi
 
@@ -636,7 +670,7 @@ upload_binaries_to_s3() {
     # Configure AWS CLI for S3 access
     export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY"
     export AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY"
-    export AWS_DEFAULT_REGION="garage"
+    export AWS_DEFAULT_REGION="$S3_REGION"
 
     # S3 command helper
     s3cmd() {
@@ -701,7 +735,7 @@ upload_bundle_to_s3() {
 
     export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY"
     export AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY"
-    export AWS_DEFAULT_REGION="garage"
+    export AWS_DEFAULT_REGION="$S3_REGION"
 
     # Upload bundle
     aws s3 --endpoint-url "$S3_ENDPOINT" cp "$BUNDLE_ZIP" \
@@ -849,7 +883,7 @@ EOF
     elif [[ "$SKIP_UPLOAD" != "true" ]]; then
         export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY"
         export AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY"
-        export AWS_DEFAULT_REGION="garage"
+        export AWS_DEFAULT_REGION="$S3_REGION"
 
         aws s3 --endpoint-url "$S3_ENDPOINT" cp "${BUILD_DIR}/versions.json" \
             "s3://${S3_BUCKET}/manifests/versions.json" \
@@ -869,7 +903,7 @@ cleanup_old_versions() {
 
     export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY"
     export AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY"
-    export AWS_DEFAULT_REGION="garage"
+    export AWS_DEFAULT_REGION="$S3_REGION"
 
     for target_pair in "${BUILD_TARGETS[@]}"; do
         local hydra_target="${target_pair##*:}"
@@ -946,13 +980,20 @@ main() {
             local rust_target="${target_pair%%:*}"
             local hydra_target="${target_pair##*:}"
 
-            if ! can_build_target "$rust_target" "$hydra_target" "$build_cmd" "$native_target"; then
+            # The native target builds fastest and most reliably with plain cargo;
+            # only use cross (Docker) for genuine cross-compilation targets.
+            local target_build_cmd="$build_cmd"
+            if [[ "$hydra_target" == "$native_target" ]]; then
+                target_build_cmd="cargo"
+            fi
+
+            if ! can_build_target "$rust_target" "$hydra_target" "$target_build_cmd" "$native_target"; then
                 warn "Skipping ${hydra_target} (no toolchain available)"
                 skipped_count=$((skipped_count + 1))
                 continue
             fi
 
-            if build_target "$rust_target" "$hydra_target" "$build_cmd"; then
+            if build_target "$rust_target" "$hydra_target" "$target_build_cmd"; then
                 built_count=$((built_count + 1))
             else
                 warn "Failed to build ${hydra_target}"

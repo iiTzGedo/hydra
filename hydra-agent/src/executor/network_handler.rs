@@ -769,14 +769,14 @@ fn build_protocol_details(
     for proto in protocols {
         match proto.as_str() {
             "mdns" => {
-                if !details.contains_key("mdns") {
-                    details.insert("mdns".to_string(), json!({"services": [], "hostname": null}));
-                }
+                details
+                    .entry("mdns".to_string())
+                    .or_insert_with(|| json!({"services": [], "hostname": null}));
             }
             "ssdp" => {
-                if !details.contains_key("ssdp") {
-                    details.insert("ssdp".to_string(), json!({"server": null, "deviceType": null}));
-                }
+                details
+                    .entry("ssdp".to_string())
+                    .or_insert_with(|| json!({"server": null, "deviceType": null}));
             }
             _ => {}
         }

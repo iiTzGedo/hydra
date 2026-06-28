@@ -592,6 +592,9 @@ fn test_profile_sections() {
         network: None,
         storage: None,
         software: None,
+        services: None,
+        users: None,
+        configs: None,
         metadata: HashMap::new(),
     };
 
@@ -696,6 +699,9 @@ fn test_full_profile_serialization() {
             total_capacity_bytes: Some(1000204886016),
         }),
         software: None,
+        services: None,
+        users: None,
+        configs: None,
         metadata: HashMap::new(),
     };
 
@@ -769,6 +775,9 @@ fn test_profile_json_roundtrip() {
         network: None,
         storage: None,
         software: None,
+        services: None,
+        users: None,
+        configs: None,
         metadata: HashMap::new(),
     };
 
